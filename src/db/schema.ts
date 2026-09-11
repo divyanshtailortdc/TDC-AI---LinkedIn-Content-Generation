@@ -1,10 +1,14 @@
 import {
+  boolean,
+  index,
   integer,
   jsonb,
   pgTable,
   text,
   timestamp,
-  uuid
+  uuid,
+  varchar,
+  vector
 } from 'drizzle-orm/pg-core'
 
 export const commonFieldDefs = {
@@ -31,51 +35,103 @@ export const commonFieldDefs = {
 }
 
 /**
- * Ideas table: stores discovered or brainstormed content topics, hooks, and virality scores.
+ * 1. Accounts table: stores persona and profile identity.
  */
-export const ideasTable = pgTable('ideas', {
+export const accountsTable = pgTable('accounts', {
   id: commonFieldDefs.id(),
-  title: text('title').notNull(),
-  hook: text('hook'),
-  angle: text('angle'),
-  rawNotes: text('raw_notes'),
-  category: text('category').default('Tech & Engineering'),
-  score: integer('score').default(85),
-  status: text('status').default('suggested').notNull(),
+  name: text('name').notNull(),
+  handle: text('handle').notNull().unique(),
+  headline: text('headline').notNull(),
+  bio: text('bio'),
+  avatarUrl: text('avatar_url'),
+  accountType: varchar('account_type', { length: 20 }).default('personal').notNull(),
+  company: text('company'),
+  websiteUrl: text('website_url'),
   ...commonFieldDefs.dates
 })
 
 /**
- * Drafts table: stores drafted LinkedIn post copy, formatting, and scheduling metadata.
+ * 2. Voice Configs table (1:1 with Account): tone, rules, banned words.
  */
-export const draftsTable = pgTable('drafts', {
+export const voiceConfigsTable = pgTable('voice_configs', {
   id: commonFieldDefs.id(),
-  ideaId: uuid('idea_id').references(() => ideasTable.id, {
-    onDelete: 'set null'
-  }),
-  title: text('title'),
-  hook: text('hook').notNull(),
-  body: text('body').notNull(),
-  hashtags: jsonb('hashtags').$type<string[]>().default([]),
-  mediaUrls: jsonb('media_urls').$type<string[]>().default([]),
-  characterCount: integer('character_count').default(0),
-  readabilityScore: integer('readability_score').default(90),
-  status: text('status').default('draft').notNull(),
-  scheduledFor: commonFieldDefs.date('scheduled_for'),
-  postedAt: commonFieldDefs.date('posted_at'),
-  linkedinPostUrn: text('linkedin_post_urn'),
+  accountId: uuid('account_id')
+    .notNull()
+    .unique()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  tone: varchar('tone', { length: 50 }).default('candid').notNull(),
+  perspective: varchar('perspective', { length: 30 }).default('first_person').notNull(),
+  formality: integer('formality').default(3).notNull(),
+  bannedWords: jsonb('banned_words').$type<string[]>().default([]),
+  rules: text('rules'),
   ...commonFieldDefs.dates
 })
 
 /**
- * Sources table: stores ingested reference materials, links, and articles.
+ * 3. Offerings table (1:N with Account): products, services, lead magnets.
  */
-export const sourcesTable = pgTable('sources', {
+export const offeringsTable = pgTable('offerings', {
   id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  type: varchar('type', { length: 30 }).default('service').notNull(),
+  tagline: text('tagline'),
+  description: text('description'),
   url: text('url'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    .notNull()
+    .defaultNow()
+})
+
+/**
+ * 4. Sample Posts table (1:N with Account): few-shot training examples.
+ */
+export const samplePostsTable = pgTable('sample_posts', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  hook: text('hook'),
+  content: text('content').notNull(),
+  tags: jsonb('tags').$type<string[]>().default([]),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    .notNull()
+    .defaultNow()
+})
+
+/**
+ * 5. Audiences table (1:N with Account): target ICP, pain points, goals.
+ */
+export const audiencesTable = pgTable('audiences', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  painPoints: jsonb('pain_points').$type<string[]>().default([]),
+  goals: jsonb('goals').$type<string[]>().default([]),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    .notNull()
+    .defaultNow()
+})
+
+/**
+ * 6. Knowledge Documents table (1:N with Account): ingested articles, notes, URLs.
+ */
+export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  content: text('content'),
-  sourceType: text('source_type').default('article').notNull(),
+  sourceType: varchar('source_type', { length: 20 }).notNull(),
+  sourceUrl: text('source_url'),
+  content: text('content').notNull(),
+  summary: text('summary'),
   tags: jsonb('tags').$type<string[]>().default([]),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()
@@ -83,70 +139,177 @@ export const sourcesTable = pgTable('sources', {
 })
 
 /**
- * Runs table: tracks asynchronous pipeline executions, steps, and logs.
+ * 7. Document Chunks table (1:N with Knowledge Documents): vector embeddings for RAG.
  */
-export const runsTable = pgTable('runs', {
-  id: commonFieldDefs.id(),
-  workflowName: text('workflow_name').notNull(),
-  status: text('status').default('pending').notNull(),
-  currentStep: integer('current_step').default(0),
-  totalSteps: integer('total_steps').default(4),
-  statusText: text('status_text'),
-  steps: jsonb('steps')
-    .$type<
-      Array<{
-        id: string
-        name: string
-        status: 'pending' | 'running' | 'completed' | 'failed'
-      }>
-    >()
-    .default([]),
-  logs: jsonb('logs')
-    .$type<Array<{ timestamp: string; level: string; message: string }>>()
-    .default([]),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
-  startedAt: timestamp('started_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  completedAt: commonFieldDefs.date('completed_at')
-})
+export const documentChunksTable = pgTable(
+  'document_chunks',
+  {
+    id: commonFieldDefs.id(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => knowledgeDocumentsTable.id, { onDelete: 'cascade' }),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    chunkIndex: integer('chunk_index').notNull(),
+    content: text('content').notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    index('chunk_embedding_hnsw_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+    index('chunk_account_idx').on(table.accountId),
+    index('chunk_document_idx').on(table.documentId)
+  ]
+)
 
 /**
- * Media Assets table: stores generated images, carousels, or infographics.
+ * 8. Goals table (1:N with Account): campaign objectives.
  */
-export const mediaAssetsTable = pgTable('media_assets', {
+export const goalsTable = pgTable('goals', {
   id: commonFieldDefs.id(),
-  draftId: uuid('draft_id').references(() => draftsTable.id, {
-    onDelete: 'cascade'
-  }),
-  type: text('type').default('image').notNull(),
-  url: text('url').notNull(),
-  prompt: text('prompt'),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  objective: varchar('objective', { length: 30 }).default('thought_leadership').notNull(),
+  targetCount: integer('target_count').default(5).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()
     .defaultNow()
 })
 
-// Backwards-compatible aliases
-export const ideas = ideasTable
-export const drafts = draftsTable
-export const sources = sourcesTable
+/**
+ * 9. Preferences table (1:1 with Account): posting cadence and pillars.
+ */
+export const preferencesTable = pgTable('preferences', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .unique()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  postsPerWeek: integer('posts_per_week').default(3).notNull(),
+  pillars: jsonb('pillars').$type<Array<{ name: string; weight: number }>>().default([]),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    .notNull()
+    .defaultNow()
+})
+
+/**
+ * 10. Runs table (1:N with Account): pipeline execution lifecycle & logs.
+ */
+export const runsTable = pgTable('runs', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  goalId: uuid('goal_id').references(() => goalsTable.id, { onDelete: 'set null' }),
+  workflow: varchar('workflow', { length: 30 }).notNull(),
+  status: varchar('status', { length: 20 }).default('pending').notNull(),
+  currentStep: integer('current_step').default(0).notNull(),
+  totalSteps: integer('total_steps').default(3).notNull(),
+  logs: jsonb('logs')
+    .$type<Array<{ step: string; status: string; timestamp?: string }>>()
+    .default([]),
+  error: text('error'),
+  ...commonFieldDefs.dates
+})
+
+/**
+ * 11. Ideas table (1:N with Account): human approval gate for hooks & angles.
+ */
+export const ideasTable = pgTable('ideas', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  runId: uuid('run_id').references(() => runsTable.id, { onDelete: 'set null' }),
+  offeringId: uuid('offering_id').references(() => offeringsTable.id, { onDelete: 'set null' }),
+  hook: text('hook').notNull(),
+  angle: text('angle'),
+  pillar: text('pillar'),
+  score: integer('score').default(80).notNull(),
+  status: varchar('status', { length: 20 }).default('suggested').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    .notNull()
+    .defaultNow()
+})
+
+/**
+ * 12. Post Drafts table (1:N with Account): final ready-to-post LinkedIn copy.
+ */
+export const postDraftsTable = pgTable('post_drafts', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  ideaId: uuid('idea_id').references(() => ideasTable.id, { onDelete: 'set null' }),
+  offeringId: uuid('offering_id').references(() => offeringsTable.id, { onDelete: 'set null' }),
+  hook: text('hook').notNull(),
+  body: text('body').notNull(),
+  hashtags: jsonb('hashtags').$type<string[]>().default([]),
+  charCount: integer('char_count').default(0).notNull(),
+  status: varchar('status', { length: 20 }).default('draft').notNull(),
+  scheduledFor: commonFieldDefs.date('scheduled_for'),
+  postedAt: commonFieldDefs.date('posted_at'),
+  ...commonFieldDefs.dates
+})
+
+// Convenience aliases
+export const accounts = accountsTable
+export const voiceConfigs = voiceConfigsTable
+export const offerings = offeringsTable
+export const samplePosts = samplePostsTable
+export const audiences = audiencesTable
+export const knowledgeDocuments = knowledgeDocumentsTable
+export const documentChunks = documentChunksTable
+export const goals = goalsTable
+export const preferences = preferencesTable
 export const runs = runsTable
-export const mediaAssets = mediaAssetsTable
+export const ideas = ideasTable
+export const postDrafts = postDraftsTable
 
-// Types
-export type Idea = typeof ideasTable.$inferSelect
-export type NewIdea = typeof ideasTable.$inferInsert
+// Backward-compatible alias for previous draftsTable
+export const draftsTable = postDraftsTable
+export const drafts = postDraftsTable
 
-export type Draft = typeof draftsTable.$inferSelect
-export type NewDraft = typeof draftsTable.$inferInsert
+// Inferred TypeScript Types
+export type Account = typeof accountsTable.$inferSelect
+export type NewAccount = typeof accountsTable.$inferInsert
 
-export type Source = typeof sourcesTable.$inferSelect
-export type NewSource = typeof sourcesTable.$inferInsert
+export type VoiceConfig = typeof voiceConfigsTable.$inferSelect
+export type NewVoiceConfig = typeof voiceConfigsTable.$inferInsert
+
+export type Offering = typeof offeringsTable.$inferSelect
+export type NewOffering = typeof offeringsTable.$inferInsert
+
+export type SamplePost = typeof samplePostsTable.$inferSelect
+export type NewSamplePost = typeof samplePostsTable.$inferInsert
+
+export type Audience = typeof audiencesTable.$inferSelect
+export type NewAudience = typeof audiencesTable.$inferInsert
+
+export type KnowledgeDocument = typeof knowledgeDocumentsTable.$inferSelect
+export type NewKnowledgeDocument = typeof knowledgeDocumentsTable.$inferInsert
+
+export type DocumentChunk = typeof documentChunksTable.$inferSelect
+export type NewDocumentChunk = typeof documentChunksTable.$inferInsert
+
+export type Goal = typeof goalsTable.$inferSelect
+export type NewGoal = typeof goalsTable.$inferInsert
+
+export type Preference = typeof preferencesTable.$inferSelect
+export type NewPreference = typeof preferencesTable.$inferInsert
 
 export type Run = typeof runsTable.$inferSelect
 export type NewRun = typeof runsTable.$inferInsert
 
-export type MediaAsset = typeof mediaAssetsTable.$inferSelect
-export type NewMediaAsset = typeof mediaAssetsTable.$inferInsert
+export type Idea = typeof ideasTable.$inferSelect
+export type NewIdea = typeof ideasTable.$inferInsert
+
+export type PostDraft = typeof postDraftsTable.$inferSelect
+export type NewPostDraft = typeof postDraftsTable.$inferInsert
+export type Draft = PostDraft
