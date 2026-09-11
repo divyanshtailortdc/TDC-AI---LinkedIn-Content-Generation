@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "format": "prettier --write \"./src/**/*.{js,cjs,mjs,jsx,ts,tsx,mdx}\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -14,8 +15,10 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.52",
+    "@t3-oss/env-nextjs": "^0.13.11",
     "ai": "^7.0.97",
     "cheerio": "^1.2.0",
+    "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.44.0",
     "next": "16.3.4",
@@ -24,6 +27,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
+    "tailwind-merge": "^3.6.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {
@@ -35,6 +39,9 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
+    "prettier": "^3.9.6",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
