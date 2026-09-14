@@ -1,6 +1,12 @@
 import { AccountHeader } from '@/components/account-header'
 import { db } from '@/db'
-import { accountsTable, voiceConfigsTable } from '@/db/schema'
+import {
+  accountsTable,
+  voiceConfigsTable,
+  knowledgeDocumentsTable,
+  goalsTable,
+  preferencesTable
+} from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { BookOpen, ChevronRight, Mic, SlidersHorizontal, Target } from 'lucide-react'
 import Link from 'next/link'
@@ -19,9 +25,20 @@ export default async function AccountPage({
 
   if (!account) notFound()
 
-  const voiceConfig = await db.query.voiceConfigsTable.findFirst({
-    where: eq(voiceConfigsTable.accountId, id)
-  })
+  const [voiceConfig, knowledgeDoc, goal, preference] = await Promise.all([
+    db.query.voiceConfigsTable.findFirst({
+      where: eq(voiceConfigsTable.accountId, id)
+    }),
+    db.query.knowledgeDocumentsTable.findFirst({
+      where: eq(knowledgeDocumentsTable.accountId, id)
+    }),
+    db.query.goalsTable.findFirst({
+      where: eq(goalsTable.accountId, id)
+    }),
+    db.query.preferencesTable.findFirst({
+      where: eq(preferencesTable.accountId, id)
+    })
+  ])
 
   const setupSteps = [
     {
@@ -38,7 +55,7 @@ export default async function AccountPage({
       description: 'Add URLs and notes as grounded sources',
       icon: BookOpen,
       href: `/accounts/${id}/knowledge`,
-      done: false
+      done: Boolean(knowledgeDoc)
     },
     {
       key: 'goals',
@@ -46,7 +63,7 @@ export default async function AccountPage({
       description: 'Set what each post campaign should achieve',
       icon: Target,
       href: `/accounts/${id}/goals`,
-      done: false
+      done: Boolean(goal)
     },
     {
       key: 'preferences',
@@ -54,7 +71,7 @@ export default async function AccountPage({
       description: 'Set cadence, pillars, and media policy',
       icon: SlidersHorizontal,
       href: `/accounts/${id}/preferences`,
-      done: false
+      done: Boolean(preference)
     },
   ]
 

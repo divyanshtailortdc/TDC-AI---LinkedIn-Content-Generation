@@ -10,19 +10,31 @@ import {
   SlidersHorizontal
 } from 'lucide-react'
 import { db } from '@/db'
-import { accountsTable, voiceConfigsTable } from '@/db/schema'
+import {
+  accountsTable,
+  voiceConfigsTable,
+  knowledgeDocumentsTable,
+  goalsTable,
+  preferencesTable
+} from '@/db/schema'
 import { getCapabilities } from '@/lib/capabilities'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const [accounts, voiceConfigs, capabilities] = await Promise.all([
+  const [accounts, voiceConfigs, knowledgeDocs, goals, prefs, capabilities] = await Promise.all([
     db.select().from(accountsTable),
-    db.select().from(voiceConfigsTable),
+    db.select({ accountId: voiceConfigsTable.accountId }).from(voiceConfigsTable),
+    db.select({ accountId: knowledgeDocumentsTable.accountId }).from(knowledgeDocumentsTable),
+    db.select({ accountId: goalsTable.accountId }).from(goalsTable),
+    db.select({ accountId: preferencesTable.accountId }).from(preferencesTable),
     Promise.resolve(getCapabilities())
   ])
 
   const voiceAccountIds = new Set(voiceConfigs.map((vc) => vc.accountId))
+  const knowledgeAccountIds = new Set(knowledgeDocs.map((kd) => kd.accountId))
+  const goalAccountIds = new Set(goals.map((g) => g.accountId))
+  const prefAccountIds = new Set(prefs.map((p) => p.accountId))
   const hasAccounts = accounts.length > 0
 
   return (
@@ -85,7 +97,13 @@ export default async function DashboardPage() {
       {!hasAccounts ? (
         <EmptyState />
       ) : (
-        <AccountList accounts={accounts} voiceAccountIds={voiceAccountIds} />
+        <AccountList
+          accounts={accounts}
+          voiceAccountIds={voiceAccountIds}
+          knowledgeAccountIds={knowledgeAccountIds}
+          goalAccountIds={goalAccountIds}
+          prefAccountIds={prefAccountIds}
+        />
       )}
     </div>
   )
@@ -125,10 +143,16 @@ const setupSteps = [
 
 function AccountList({
   accounts,
-  voiceAccountIds
+  voiceAccountIds,
+  knowledgeAccountIds,
+  goalAccountIds,
+  prefAccountIds
 }: {
   accounts: Account[]
   voiceAccountIds: Set<string>
+  knowledgeAccountIds: Set<string>
+  goalAccountIds: Set<string>
+  prefAccountIds: Set<string>
 }) {
   return (
     <div>
@@ -141,6 +165,9 @@ function AccountList({
             key={account.id}
             account={account}
             hasVoice={voiceAccountIds.has(account.id)}
+            hasKnowledge={knowledgeAccountIds.has(account.id)}
+            hasGoals={goalAccountIds.has(account.id)}
+            hasPreferences={prefAccountIds.has(account.id)}
           />
         ))}
       </div>
@@ -150,10 +177,16 @@ function AccountList({
 
 function AccountCard({
   account,
-  hasVoice
+  hasVoice,
+  hasKnowledge,
+  hasGoals,
+  hasPreferences
 }: {
   account: Account
   hasVoice: boolean
+  hasKnowledge: boolean
+  hasGoals: boolean
+  hasPreferences: boolean
 }) {
   const initials = account.name
     .split(' ')
@@ -164,9 +197,9 @@ function AccountCard({
 
   const completed: Record<string, boolean> = {
     voice: hasVoice,
-    knowledge: false,
-    goals: false,
-    preferences: false
+    knowledge: hasKnowledge,
+    goals: hasGoals,
+    preferences: hasPreferences
   }
 
   return (
