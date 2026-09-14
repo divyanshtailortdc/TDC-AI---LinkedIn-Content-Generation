@@ -1,30 +1,57 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { createGateway } from 'ai'
 import { env } from '~/env'
 
-/**
- * Anthropic AI client via Vercel AI SDK.
- * Use this to create model instances for content generation.
- *
- * @example
- * import { anthropic, defaultModel } from '~/lib/ai'
- * import { generateText } from 'ai'
- *
- * const { text } = await generateText({
- *   model: anthropic(defaultModel),
- *   prompt: 'Write a LinkedIn post about...',
- * })
- */
-export const anthropic = createAnthropic({
-  apiKey: env.ANTHROPIC_API_KEY
-})
+export const hasAIGateway = Boolean(
+  env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_API_KEY.trim().length > 0
+)
 
-/**
- * Default Claude model for content generation.
- * Change here to switch the project-wide default.
- */
+export const hasAnthropicKey = Boolean(
+  env.ANTHROPIC_API_KEY && env.ANTHROPIC_API_KEY.trim().length > 0
+)
+
+export const isAICapable = hasAIGateway || hasAnthropicKey
+
+export const gatewayClient = hasAIGateway
+  ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
+  : null
+
+export const anthropicClient = hasAnthropicKey
+  ? createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  : null
+
+// Backwards compatibility export
+export const anthropic = anthropicClient || createAnthropic({ apiKey: 'dummy' })
 export const defaultModel = 'claude-3-5-sonnet-20241022'
+export const fastModel = 'claude-3-haiku-20240307'
 
 /**
- * Fast model for lightweight tasks (idea scoring, classification).
+ * Returns an active AI LanguageModel instance.
+ * Prioritizes Vercel AI Gateway when configured, or direct Anthropic.
  */
-export const fastModel = 'claude-3-haiku-20240307'
+export function getLanguageModel(preferredModel?: string) {
+  if (gatewayClient) {
+    const modelId = preferredModel?.includes('/')
+      ? preferredModel
+      : preferredModel?.includes('opus')
+        ? 'anthropic/claude-opus-5'
+        : 'anthropic/claude-sonnet-4.5'
+
+    return {
+      model: gatewayClient(modelId),
+      providerName: 'Vercel AI Gateway',
+      modelId
+    }
+  }
+
+  if (anthropicClient) {
+    const modelId = preferredModel || defaultModel
+    return {
+      model: anthropicClient(modelId),
+      providerName: 'Anthropic Direct',
+      modelId
+    }
+  }
+
+  return null
+}

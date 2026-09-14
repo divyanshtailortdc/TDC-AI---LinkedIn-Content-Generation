@@ -66,11 +66,47 @@ export const voiceConfigsTable = pgTable('voice_configs', {
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   tone: varchar('tone', { length: 50 }).default('candid').notNull(),
-  perspective: varchar('perspective', { length: 30 })
-    .default('first_person')
-    .notNull(),
+  perspective: varchar('perspective', { length: 30 }).default('I').notNull(),
   formality: integer('formality').default(3).notNull(),
-  bannedWords: jsonb('banned_words').$type<string[]>().default([]),
+  warmth: integer('warmth').default(3).notNull(),
+  directness: integer('directness').default(4).notNull(),
+  humor: varchar('humor', { length: 30 }).default('dry').notNull(),
+  energy: varchar('energy', { length: 30 }).default('measured').notNull(),
+  storyVsData: integer('story_vs_data').default(3).notNull(),
+  emojiPolicy: varchar('emoji_policy', { length: 30 })
+    .default('none')
+    .notNull(),
+  hashtagPolicy: varchar('hashtag_policy', { length: 100 })
+    .default('0-3, end of post')
+    .notNull(),
+  sentenceLength: varchar('sentence_length', { length: 30 })
+    .default('short')
+    .notNull(),
+  paragraphStyle: varchar('paragraph_style', { length: 50 })
+    .default('short paras')
+    .notNull(),
+  readingLevelTarget: varchar('reading_level_target', { length: 50 })
+    .default('grade 7-9')
+    .notNull(),
+  bannedWords: jsonb('banned_words')
+    .$type<string[]>()
+    .default([
+      'delve',
+      'leverage',
+      'unlock',
+      'game-changer',
+      'fast-paced world',
+      'thrilled to announce'
+    ]),
+  signaturePhrases: jsonb('signature_phrases').$type<string[]>().default([]),
+  openingStyles: jsonb('opening_styles')
+    .$type<string[]>()
+    .default(['concrete scene', 'bold claim', 'question']),
+  closingStyles: jsonb('closing_styles')
+    .$type<string[]>()
+    .default(['question CTA', 'soft takeaway']),
+  derivedStyleRubric: text('derived_style_rubric'),
+  rawSamplesText: text('raw_samples_text'),
   rules: text('rules'),
   ...commonFieldDefs.dates
 })
@@ -103,6 +139,8 @@ export const samplePostsTable = pgTable('sample_posts', {
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
+  performedWell: boolean('performed_well').default(false).notNull(),
+  engagementNote: text('engagement_note'),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()

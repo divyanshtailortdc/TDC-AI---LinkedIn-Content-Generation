@@ -10,17 +10,19 @@ import {
   SlidersHorizontal
 } from 'lucide-react'
 import { db } from '@/db'
-import { accountsTable } from '@/db/schema'
+import { accountsTable, voiceConfigsTable } from '@/db/schema'
 import { getCapabilities } from '@/lib/capabilities'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const [accounts, capabilities] = await Promise.all([
+  const [accounts, voiceConfigs, capabilities] = await Promise.all([
     db.select().from(accountsTable),
+    db.select().from(voiceConfigsTable),
     Promise.resolve(getCapabilities())
   ])
 
+  const voiceAccountIds = new Set(voiceConfigs.map((vc) => vc.accountId))
   const hasAccounts = accounts.length > 0
 
   return (
@@ -83,7 +85,7 @@ export default async function DashboardPage() {
       {!hasAccounts ? (
         <EmptyState />
       ) : (
-        <AccountList accounts={accounts} />
+        <AccountList accounts={accounts} voiceAccountIds={voiceAccountIds} />
       )}
     </div>
   )
@@ -121,7 +123,13 @@ const setupSteps = [
   { key: 'preferences', label: 'Preferences', icon: SlidersHorizontal },
 ]
 
-function AccountList({ accounts }: { accounts: Account[] }) {
+function AccountList({
+  accounts,
+  voiceAccountIds
+}: {
+  accounts: Account[]
+  voiceAccountIds: Set<string>
+}) {
   return (
     <div>
       <h2 className="text-sm font-semibold text-[var(--foreground)] mb-4">
@@ -129,14 +137,24 @@ function AccountList({ accounts }: { accounts: Account[] }) {
       </h2>
       <div className="space-y-4">
         {accounts.map((account) => (
-          <AccountCard key={account.id} account={account} />
+          <AccountCard
+            key={account.id}
+            account={account}
+            hasVoice={voiceAccountIds.has(account.id)}
+          />
         ))}
       </div>
     </div>
   )
 }
 
-function AccountCard({ account }: { account: Account }) {
+function AccountCard({
+  account,
+  hasVoice
+}: {
+  account: Account
+  hasVoice: boolean
+}) {
   const initials = account.name
     .split(' ')
     .map((w) => w[0])
@@ -144,9 +162,8 @@ function AccountCard({ account }: { account: Account }) {
     .slice(0, 2)
     .toUpperCase()
 
-  // TODO: query voice/knowledge/goals/preferences completion in M1
   const completed: Record<string, boolean> = {
-    voice: false,
+    voice: hasVoice,
     knowledge: false,
     goals: false,
     preferences: false
