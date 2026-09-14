@@ -44,7 +44,9 @@ export const accountsTable = pgTable('accounts', {
   headline: text('headline').notNull(),
   bio: text('bio'),
   avatarUrl: text('avatar_url'),
-  accountType: varchar('account_type', { length: 20 }).default('personal').notNull(),
+  accountType: varchar('account_type', { length: 20 })
+    .default('personal')
+    .notNull(),
   company: text('company'),
   websiteUrl: text('website_url'),
   ...commonFieldDefs.dates
@@ -60,7 +62,9 @@ export const voiceConfigsTable = pgTable('voice_configs', {
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   tone: varchar('tone', { length: 50 }).default('candid').notNull(),
-  perspective: varchar('perspective', { length: 30 }).default('first_person').notNull(),
+  perspective: varchar('perspective', { length: 30 })
+    .default('first_person')
+    .notNull(),
   formality: integer('formality').default(3).notNull(),
   bannedWords: jsonb('banned_words').$type<string[]>().default([]),
   rules: text('rules'),
@@ -158,8 +162,11 @@ export const documentChunksTable = pgTable(
       .notNull()
       .defaultNow()
   },
-  (table) => [
-    index('chunk_embedding_hnsw_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  table => [
+    index('chunk_embedding_hnsw_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
     index('chunk_account_idx').on(table.accountId),
     index('chunk_document_idx').on(table.documentId)
   ]
@@ -174,7 +181,9 @@ export const goalsTable = pgTable('goals', {
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  objective: varchar('objective', { length: 30 }).default('thought_leadership').notNull(),
+  objective: varchar('objective', { length: 30 })
+    .default('thought_leadership')
+    .notNull(),
   targetCount: integer('target_count').default(5).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
@@ -192,7 +201,9 @@ export const preferencesTable = pgTable('preferences', {
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   postsPerWeek: integer('posts_per_week').default(3).notNull(),
-  pillars: jsonb('pillars').$type<Array<{ name: string; weight: number }>>().default([]),
+  pillars: jsonb('pillars')
+    .$type<Array<{ name: string; weight: number }>>()
+    .default([]),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()
     .defaultNow()
@@ -206,7 +217,9 @@ export const runsTable = pgTable('runs', {
   accountId: uuid('account_id')
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  goalId: uuid('goal_id').references(() => goalsTable.id, { onDelete: 'set null' }),
+  goalId: uuid('goal_id').references(() => goalsTable.id, {
+    onDelete: 'set null'
+  }),
   workflow: varchar('workflow', { length: 30 }).notNull(),
   status: varchar('status', { length: 20 }).default('pending').notNull(),
   currentStep: integer('current_step').default(0).notNull(),
@@ -226,8 +239,12 @@ export const ideasTable = pgTable('ideas', {
   accountId: uuid('account_id')
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  runId: uuid('run_id').references(() => runsTable.id, { onDelete: 'set null' }),
-  offeringId: uuid('offering_id').references(() => offeringsTable.id, { onDelete: 'set null' }),
+  runId: uuid('run_id').references(() => runsTable.id, {
+    onDelete: 'set null'
+  }),
+  offeringId: uuid('offering_id').references(() => offeringsTable.id, {
+    onDelete: 'set null'
+  }),
   hook: text('hook').notNull(),
   angle: text('angle'),
   pillar: text('pillar'),
@@ -246,8 +263,12 @@ export const postDraftsTable = pgTable('post_drafts', {
   accountId: uuid('account_id')
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  ideaId: uuid('idea_id').references(() => ideasTable.id, { onDelete: 'set null' }),
-  offeringId: uuid('offering_id').references(() => offeringsTable.id, { onDelete: 'set null' }),
+  ideaId: uuid('idea_id').references(() => ideasTable.id, {
+    onDelete: 'set null'
+  }),
+  offeringId: uuid('offering_id').references(() => offeringsTable.id, {
+    onDelete: 'set null'
+  }),
   hook: text('hook').notNull(),
   body: text('body').notNull(),
   hashtags: jsonb('hashtags').$type<string[]>().default([]),
