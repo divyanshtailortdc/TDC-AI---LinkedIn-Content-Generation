@@ -12,10 +12,9 @@ export const env = createEnv({
         'postgresql://postgres:postgres@localhost:5432/tdc_linkedin_engine'
       ),
     ANTHROPIC_API_KEY: z.string().optional(),
-    OPENAI_API_KEY: z.string().optional(),
-    LINKEDIN_CLIENT_ID: z.string().optional(),
-    LINKEDIN_CLIENT_SECRET: z.string().optional(),
-    LINKEDIN_REDIRECT_URI: z.string().optional()
+    SERPER_API_KEY: z.string().optional(),
+    AI_GATEWAY_API_KEY: z.string().optional(),
+    CRON_SECRET: z.string().optional()
   },
 
   client: {
@@ -26,10 +25,9 @@ export const env = createEnv({
     APP_ENV: process.env.APP_ENV,
     DATABASE_URL: process.env.DATABASE_URL,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
-    LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
-    LINKEDIN_REDIRECT_URI: process.env.LINKEDIN_REDIRECT_URI,
+    SERPER_API_KEY: process.env.SERPER_API_KEY,
+    AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+    CRON_SECRET: process.env.CRON_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL
   },
 
