@@ -10,7 +10,7 @@ import {
   audiencesTable
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { BookOpen, ChevronRight, Mic, SlidersHorizontal, Target } from 'lucide-react'
+import { BookOpen, ChevronRight, Mic, SlidersHorizontal, Target, Play, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { EditIdentityForm } from './edit-identity-form'
@@ -91,11 +91,39 @@ export default async function AccountPage({
     },
   ]
 
+  const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
+
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-8">
+    <div className="mx-auto max-w-5xl p-6 sm:p-8 space-y-6">
       <AccountHeader account={account} />
 
-      {/* Setup checklist summary */}
+      {/* Setup Complete Banner */}
+      {allDone && (
+        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-950/20 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-950 dark:text-emerald-200">
+                Setup Complete — Ready to Generate!
+              </h3>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">
+                Voice, knowledge base, goals, and preferences are fully configured.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/runs"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Generate Now</span>
+          </Link>
+        </div>
+      )}
+
+      {/* Setup checklist */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden shadow-xs">
         <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div>

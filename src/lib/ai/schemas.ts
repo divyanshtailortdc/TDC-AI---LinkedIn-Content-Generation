@@ -205,3 +205,151 @@ export function sanitizeVoiceAnalysis(
     storyVsData
   }
 }
+
+// ---------------------------------------------------------------------------
+// Ideas & Thesis Generation Schemas (W7 / Stage 1)
+// ---------------------------------------------------------------------------
+
+export const PERSPECTIVE_ANGLES = [
+  'operational_problems',
+  'strategic_decisions',
+  'industry_misconceptions',
+  'technology_architecture',
+  'buyer_behavior',
+  'automation',
+  'contrarian_viewpoints',
+  'customer_experience',
+  'pricing_commercial_rules',
+  'data_ownership',
+  'workflow_design',
+  'scalability_tradeoffs'
+] as const
+
+export type PerspectiveAngle = (typeof PERSPECTIVE_ANGLES)[number]
+
+export const CandidateThesisSchema = z.object({
+  id: z.string().describe('Identifier e.g. thesis-1'),
+  perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).describe('The distinct perspective angle'),
+  thesis: z.string().describe('The underlying root proposition or belief shift (1-2 clear, bold sentences)'),
+  whyItMatters: z.string().describe('Why this shifts the conversation for practitioners'),
+  relevantProofOrClaim: z.string().describe('Key factual evidence or claim from knowledge base that grounds this thesis'),
+  sourceUrl: z.string().optional(),
+  sourceTitle: z.string().optional()
+})
+
+export type CandidateThesis = z.infer<typeof CandidateThesisSchema>
+
+export const ThesesGenerationSchema = z.object({
+  theses: z.array(CandidateThesisSchema).min(5).describe('Candidate theses spanning distinct perspective angles')
+})
+
+export type ThesesGenerationResult = z.infer<typeof ThesesGenerationSchema>
+
+export const IdeaItemSchema = z.object({
+  title: z.string().describe('Short punchy title for this idea'),
+  thesis: z.string().describe('The underlying root proposition or defensible claim'),
+  perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).default('operational_problems'),
+  angle: z.string().describe('The distinctive POV or contrarian thesis lens'),
+  pillar: z.string().describe('Which content pillar this belongs to'),
+  format: z.string().default('thought_leadership'),
+  whyNow: z
+    .string()
+    .describe(
+      'Why this earns feed space today — only use current/trend language if backed by fresh evidence. Do NOT invent urgency.'
+    ),
+  whyNowSourceId: z.string().optional().describe('Source ID backing the Why Now assertion if applicable'),
+  hookConcept: z
+    .string()
+    .describe('The fold-line idea concept (first 200 chars), not final copy'),
+  coreArgument: z.string().describe('The "so what" — core logic and thesis of the post'),
+  audienceTakeaway: z
+    .string()
+    .describe('What the reader does or thinks differently after reading'),
+  supportingEvidence: z
+    .array(
+      z.object({
+        claim: z.string().describe('Specific factual claim or statistic'),
+        factType: z.enum(['verified', 'inferred', 'unsupported']).default('verified'),
+        sourceId: z.string().optional(),
+        sourceUrl: z.string().optional().describe('URL where this evidence comes from'),
+        sourceTitle: z.string().optional().describe('Title of source document or website'),
+        quote: z.string().optional().describe('Verbatim quote supporting the claim'),
+        confidence: z.number().min(0).max(1).default(0.9)
+      })
+    )
+    .default([]),
+  suggestedMedia: z
+    .object({
+      mode: z.enum(['ai_generated', 'stock', 'none']).default('none'),
+      brief: z
+        .string()
+        .optional()
+        .describe('Visual direction or search query for the image')
+    })
+    .default({ mode: 'none' }),
+  noveltyNote: z
+    .string()
+    .describe('What makes this angle fresh compared to common LinkedIn takes'),
+  estimatedStrength: z.number().int().min(1).max(100).default(85),
+  groundingScore: z.number().int().min(0).max(100).default(85),
+  originalityScore: z.number().int().min(0).max(100).default(85),
+  unsupportedClaims: z.array(z.string()).default([]),
+  sourceIds: z.array(z.string()).default([]),
+  risks: z.array(z.string()).default([])
+})
+
+export type GeneratedIdeaItem = z.infer<typeof IdeaItemSchema>
+
+export const IdeasGenerationSchema = z.object({
+  ideas: z.array(IdeaItemSchema).min(1).describe('List of generated post ideas')
+})
+
+export type IdeasGenerationResult = z.infer<typeof IdeasGenerationSchema>
+
+// ---------------------------------------------------------------------------
+// Post Drafting Schema (W9 / Stage 3)
+// ---------------------------------------------------------------------------
+
+export const DraftGenerationSchema = z.object({
+  hook: z
+    .string()
+    .describe(
+      'The opening hook that appears before the "...see more" fold (aim strictly for <= 200 characters without mid-word break)'
+    ),
+  body: z
+    .string()
+    .describe(
+      'The full body of the post formatted with clean plain-text line breaks (\\n\\n). Strictly NO markdown syntax (no **, no ##, no raw [text](url)).'
+    ),
+  cta: z
+    .string()
+    .describe('Closing call to action (question, reflection, or soft CTA)'),
+  firstComment: z
+    .string()
+    .optional()
+    .describe(
+      'First comment containing external links or bonus reference materials, protecting post reach'
+    ),
+  hashtags: z
+    .array(z.string())
+    .default([])
+    .describe('0-4 clean hashtags without the # symbol or formatted like #Topic'),
+  alternateHooks: z
+    .array(z.string())
+    .min(2)
+    .max(3)
+    .describe('2 to 3 alternate hook variations for testing before publication'),
+  selfScores: z.object({
+    hookStrength: z.number().int().min(1).max(10).describe('Hook curiosity and punchiness (1-10)'),
+    onBrand: z.number().int().min(1).max(10).describe('Voice rubric fidelity (1-10)'),
+    clarity: z.number().int().min(1).max(10).describe('Argument structure and legibility (1-10)'),
+    evidenceGrounding: z.number().int().min(1).max(10).describe('Truthfulness and factual grounding (1-10)'),
+    originality: z.number().int().min(1).max(10).describe('Uniqueness and freshness of angle (1-10)')
+  }),
+  selfFlags: z
+    .array(z.string())
+    .default([])
+    .describe('Any detected weakness or caveat')
+})
+
+export type DraftGenerationResult = z.infer<typeof DraftGenerationSchema>

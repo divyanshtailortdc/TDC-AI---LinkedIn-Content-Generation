@@ -2,20 +2,28 @@ import { relations } from 'drizzle-orm'
 import {
   accountsTable,
   audiencesTable,
+  feedbackTable,
   goalsTable,
   ideasTable,
   knowledgeDocumentsTable,
   offeringsTable,
+  postCitationsTable,
   postDraftsTable,
+  postMediaTable,
+  postVariantsTable,
   preferencesTable,
+  researchFindingsTable,
+  runStepsTable,
   runsTable,
   samplePostsTable,
+  schedulesTable,
   voiceConfigsTable
 } from './schema'
 
 export const accountsRelations = relations(accountsTable, ({ one, many }) => ({
   voiceConfig: one(voiceConfigsTable),
   preferences: one(preferencesTable),
+  schedule: one(schedulesTable),
   offerings: many(offeringsTable),
   samplePosts: many(samplePostsTable),
   audiences: many(audiencesTable),
@@ -23,7 +31,8 @@ export const accountsRelations = relations(accountsTable, ({ one, many }) => ({
   goals: many(goalsTable),
   runs: many(runsTable),
   ideas: many(ideasTable),
-  postDrafts: many(postDraftsTable)
+  postDrafts: many(postDraftsTable),
+  feedback: many(feedbackTable)
 }))
 
 export const voiceConfigsRelations = relations(voiceConfigsTable, ({ one }) => ({
@@ -71,14 +80,16 @@ export const goalsRelations = relations(goalsTable, ({ one, many }) => ({
     fields: [goalsTable.accountId],
     references: [accountsTable.id]
   }),
-  runs: many(runsTable)
+  runs: many(runsTable),
+  ideas: many(ideasTable)
 }))
 
-export const preferencesRelations = relations(preferencesTable, ({ one }) => ({
+export const preferencesRelations = relations(preferencesTable, ({ one, many }) => ({
   account: one(accountsTable, {
     fields: [preferencesTable.accountId],
     references: [accountsTable.id]
-  })
+  }),
+  runs: many(runsTable)
 }))
 
 export const runsRelations = relations(runsTable, ({ one, many }) => ({
@@ -90,8 +101,31 @@ export const runsRelations = relations(runsTable, ({ one, many }) => ({
     fields: [runsTable.goalId],
     references: [goalsTable.id]
   }),
+  preferenceSet: one(preferencesTable, {
+    fields: [runsTable.preferenceSetId],
+    references: [preferencesTable.id]
+  }),
+  steps: many(runStepsTable),
+  findings: many(researchFindingsTable),
   ideas: many(ideasTable)
 }))
+
+export const runStepsRelations = relations(runStepsTable, ({ one }) => ({
+  run: one(runsTable, {
+    fields: [runStepsTable.runId],
+    references: [runsTable.id]
+  })
+}))
+
+export const researchFindingsRelations = relations(
+  researchFindingsTable,
+  ({ one }) => ({
+    run: one(runsTable, {
+      fields: [researchFindingsTable.runId],
+      references: [runsTable.id]
+    })
+  })
+)
 
 export const ideasRelations = relations(ideasTable, ({ one, many }) => ({
   account: one(accountsTable, {
@@ -102,6 +136,10 @@ export const ideasRelations = relations(ideasTable, ({ one, many }) => ({
     fields: [ideasTable.runId],
     references: [runsTable.id]
   }),
+  goal: one(goalsTable, {
+    fields: [ideasTable.goalId],
+    references: [goalsTable.id]
+  }),
   offering: one(offeringsTable, {
     fields: [ideasTable.offeringId],
     references: [offeringsTable.id]
@@ -109,7 +147,7 @@ export const ideasRelations = relations(ideasTable, ({ one, many }) => ({
   postDrafts: many(postDraftsTable)
 }))
 
-export const postDraftsRelations = relations(postDraftsTable, ({ one }) => ({
+export const postDraftsRelations = relations(postDraftsTable, ({ one, many }) => ({
   account: one(accountsTable, {
     fields: [postDraftsTable.accountId],
     references: [accountsTable.id]
@@ -121,5 +159,52 @@ export const postDraftsRelations = relations(postDraftsTable, ({ one }) => ({
   offering: one(offeringsTable, {
     fields: [postDraftsTable.offeringId],
     references: [offeringsTable.id]
+  }),
+  variants: many(postVariantsTable),
+  citations: many(postCitationsTable),
+  media: one(postMediaTable),
+  feedback: many(feedbackTable)
+}))
+
+export const postVariantsRelations = relations(postVariantsTable, ({ one }) => ({
+  draft: one(postDraftsTable, {
+    fields: [postVariantsTable.draftId],
+    references: [postDraftsTable.id]
+  })
+}))
+
+export const postCitationsRelations = relations(postCitationsTable, ({ one }) => ({
+  draft: one(postDraftsTable, {
+    fields: [postCitationsTable.draftId],
+    references: [postDraftsTable.id]
+  })
+}))
+
+export const postMediaRelations = relations(postMediaTable, ({ one }) => ({
+  draft: one(postDraftsTable, {
+    fields: [postMediaTable.draftId],
+    references: [postDraftsTable.id]
+  })
+}))
+
+export const schedulesRelations = relations(schedulesTable, ({ one }) => ({
+  account: one(accountsTable, {
+    fields: [schedulesTable.accountId],
+    references: [accountsTable.id]
+  }),
+  preference: one(preferencesTable, {
+    fields: [schedulesTable.preferenceId],
+    references: [preferencesTable.id]
+  })
+}))
+
+export const feedbackRelations = relations(feedbackTable, ({ one }) => ({
+  account: one(accountsTable, {
+    fields: [feedbackTable.accountId],
+    references: [accountsTable.id]
+  }),
+  draft: one(postDraftsTable, {
+    fields: [feedbackTable.draftId],
+    references: [postDraftsTable.id]
   })
 }))
