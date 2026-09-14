@@ -12,7 +12,10 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
-import type { VoiceAnalysisResult } from '~/lib/ai/schemas'
+import {
+  GENERIC_PHRASE_BLACKLIST,
+  type VoiceAnalysisResult
+} from '~/lib/ai/schemas'
 import { analyzeVoiceAction, saveVoiceConfigAction } from './actions'
 
 interface VoiceFormProps {
@@ -38,6 +41,34 @@ interface VoiceFormProps {
     closingStyles?: string[] | null
     rules?: string | null
   } | null
+}
+
+function cleanErrorMessage(err: unknown): string {
+  if (!err) return ''
+  if (typeof err === 'string') {
+    const trimmed = err.trim()
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (Array.isArray(parsed)) {
+          const messages = parsed
+            .map((item: any) => item?.message || item?.error || '')
+            .filter(Boolean)
+          if (messages.length > 0) return messages.join('. ')
+        } else if (parsed && typeof parsed === 'object') {
+          if (parsed.message) return String(parsed.message)
+          if (parsed.error) return String(parsed.error)
+        }
+      } catch {
+        // Not valid JSON, keep as is
+      }
+    }
+    return trimmed
+  }
+  if (err instanceof Error) {
+    return cleanErrorMessage(err.message)
+  }
+  return String(err)
 }
 
 function parseWritingPatterns(rules?: string | null): string[] {
@@ -87,6 +118,19 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [analysisNotice, setAnalysisNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  const clearFieldError = (field: string) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev
+      const updated = { ...prev }
+      delete updated[field]
+      return updated
+    })
+    if (error) {
+      setError(null)
+    }
+  }
 
   // Form states — start unselected / empty unless already saved in initialConfig
   const [samplesText, setSamplesText] = useState(
@@ -274,22 +318,80 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     setError(null)
     setSaveSuccess(false)
 
+    // 1. Comprehensive client-side validation
+    const errorsMap: Record<string, string> = {}
+    const trimmedRubric = derivedRubric.trim()
+
+    if (!trimmedRubric) {
+      errorsMap.derivedRubric =
+        'Style rubric is required. Click "Analyze my voice" or write a rubric.'
+    } else if (trimmedRubric.length < 20) {
+      errorsMap.derivedRubric = 'Style rubric must be at least 20 characters.'
+    }
+
+    if (formality === null) {
+      errorsMap.formality = 'Formality is required (1-5).'
+    }
+    if (warmth === null) {
+      errorsMap.warmth = 'Warmth is required (1-5).'
+    }
+    if (directness === null) {
+      errorsMap.directness = 'Directness is required (1-5).'
+    }
+    if (storyVsData === null) {
+      errorsMap.storyVsData = 'Story vs Data is required (1-5).'
+    }
+    if (!humor) {
+      errorsMap.humor = 'Humor tone is required.'
+    }
+    if (!energy) {
+      errorsMap.energy = 'Energy level is required.'
+    }
+    if (!perspective) {
+      errorsMap.perspective = 'Perspective is required.'
+    }
+    if (!emojiPolicy) {
+      errorsMap.emojiPolicy = 'Emoji policy is required.'
+    }
+    if (!sentenceLength) {
+      errorsMap.sentenceLength = 'Sentence length is required.'
+    }
+    if (!paragraphStyle) {
+      errorsMap.paragraphStyle = 'Paragraph style is required.'
+    }
+
+    if (Object.keys(errorsMap).length > 0) {
+      setFieldErrors(errorsMap)
+      const count = Object.keys(errorsMap).length
+      if (count >= 4) {
+        setError(
+          'Please complete your voice profile settings before saving. You can click "Analyze my voice" above to auto-generate all dimensions from your sample posts, or configure the highlighted fields below.'
+        )
+      } else {
+        setError(Object.values(errorsMap).join(' • '))
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    setFieldErrors({})
+
     startTransition(async () => {
       const res = await saveVoiceConfigAction({
         accountId,
-        derivedStyleRubric: derivedRubric,
+        derivedStyleRubric: trimmedRubric,
         rawSamplesText: samplesText,
-        formality: formality ?? 3,
-        warmth: warmth ?? 3,
-        directness: directness ?? 3,
-        humor: humor || 'dry',
-        energy: energy || 'measured',
-        perspective: perspective || 'I',
-        storyVsData: storyVsData ?? 3,
-        emojiPolicy: emojiPolicy || 'none',
-        hashtagPolicy: hashtagPolicy || '0-3, end of post',
-        sentenceLength: sentenceLength || 'short',
-        paragraphStyle: paragraphStyle || 'short paras',
+        formality: formality!,
+        warmth: warmth!,
+        directness: directness!,
+        humor,
+        energy,
+        perspective,
+        storyVsData: storyVsData!,
+        emojiPolicy,
+        hashtagPolicy: hashtagPolicy || 'none',
+        sentenceLength,
+        paragraphStyle,
         readingLevelTarget: readingLevelTarget || 'grade 7-9',
         bannedWords,
         signaturePhrases,
@@ -300,19 +402,33 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
       if (res.success) {
         setSaveSuccess(true)
+        setError(null)
+        setFieldErrors({})
         router.refresh()
         setTimeout(() => setSaveSuccess(false), 4000)
       } else {
-        setError(res.error || 'Failed to save voice profile')
+        setError(cleanErrorMessage(res.error) || 'Failed to save voice profile')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
       }
     })
   }
 
   const addBannedWord = () => {
-    if (!newBannedWord.trim()) return
-    if (!bannedWords.includes(newBannedWord.trim())) {
-      setBannedWords([...bannedWords, newBannedWord.trim()])
+    const trimmed = newBannedWord.trim().toLowerCase()
+    if (!trimmed) {
+      setError('Please enter a word to add to banned words.')
+      return
     }
+    if (trimmed.length < 2) {
+      setError('Banned word must be at least 2 characters.')
+      return
+    }
+    if (bannedWords.includes(trimmed)) {
+      setError(`"${trimmed}" is already in banned words.`)
+      return
+    }
+    setBannedWords([...bannedWords, trimmed])
+    setError(null)
     setNewBannedWord('')
   }
 
@@ -321,10 +437,36 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   }
 
   const addSignaturePhrase = () => {
-    if (!newPhrase.trim()) return
-    if (!signaturePhrases.includes(newPhrase.trim())) {
-      setSignaturePhrases([...signaturePhrases, newPhrase.trim()])
+    const trimmed = newPhrase.trim()
+    if (!trimmed) {
+      setError('Please enter a phrase to add to signature phrases.')
+      return
     }
+    if (trimmed.length < 4) {
+      setError('Signature phrase must be at least 4 characters.')
+      return
+    }
+    const normalized = trimmed
+      .toLowerCase()
+      .replace(/[^\w\s']/g, '')
+      .trim()
+    if (
+      GENERIC_PHRASE_BLACKLIST.has(normalized) ||
+      /^(so\s+i|it\s+doesn't|it\s+doesnt|that's\s+why|thats\s+why|that\s+is\s+why|i\s+think|here\s+is)$/i.test(
+        normalized
+      )
+    ) {
+      setError(
+        `"${trimmed}" is a generic sentence fragment. Please add a distinctive phrase you genuinely use.`
+      )
+      return
+    }
+    if (signaturePhrases.includes(trimmed)) {
+      setError(`"${trimmed}" is already in signature phrases.`)
+      return
+    }
+    setSignaturePhrases([...signaturePhrases, trimmed])
+    setError(null)
     setNewPhrase('')
   }
 
@@ -333,10 +475,23 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   }
 
   const addWritingPattern = () => {
-    if (!newPattern.trim()) return
-    if (!writingPatterns.includes(newPattern.trim())) {
-      setWritingPatterns([...writingPatterns, newPattern.trim()])
+    const trimmed = newPattern.trim()
+    if (!trimmed) {
+      setError('Please enter a writing pattern.')
+      return
     }
+    if (trimmed.length < 5) {
+      setError(
+        'Writing pattern must be a reusable structure like "You don\'t need X. You need Y."'
+      )
+      return
+    }
+    if (writingPatterns.includes(trimmed)) {
+      setError(`"${trimmed}" is already in writing patterns.`)
+      return
+    }
+    setWritingPatterns([...writingPatterns, trimmed])
+    setError(null)
     setNewPattern('')
   }
 
@@ -345,10 +500,21 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   }
 
   const addOpeningStyle = () => {
-    if (!newOpeningStyle.trim()) return
-    if (!openingStyles.includes(newOpeningStyle.trim())) {
-      setOpeningStyles([...openingStyles, newOpeningStyle.trim()])
+    const trimmed = newOpeningStyle.trim()
+    if (!trimmed) {
+      setError('Please enter an opening style pattern.')
+      return
     }
+    if (trimmed.length < 4) {
+      setError('Opening style pattern must be at least 4 characters.')
+      return
+    }
+    if (openingStyles.includes(trimmed)) {
+      setError(`"${trimmed}" is already in opening styles.`)
+      return
+    }
+    setOpeningStyles([...openingStyles, trimmed])
+    setError(null)
     setNewOpeningStyle('')
   }
 
@@ -365,10 +531,21 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   }
 
   const addClosingStyle = () => {
-    if (!newClosingStyle.trim()) return
-    if (!closingStyles.includes(newClosingStyle.trim())) {
-      setClosingStyles([...closingStyles, newClosingStyle.trim()])
+    const trimmed = newClosingStyle.trim()
+    if (!trimmed) {
+      setError('Please enter a closing style pattern.')
+      return
     }
+    if (trimmed.length < 4) {
+      setError('Closing style pattern must be at least 4 characters.')
+      return
+    }
+    if (closingStyles.includes(trimmed)) {
+      setError(`"${trimmed}" is already in closing styles.`)
+      return
+    }
+    setClosingStyles([...closingStyles, trimmed])
+    setError(null)
     setNewClosingStyle('')
   }
 
@@ -388,9 +565,27 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     <div className="space-y-8">
       {/* Notifications */}
       {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-600 dark:text-red-400">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>{error}</p>
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-600 dark:text-red-400">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-semibold leading-relaxed">
+                {cleanErrorMessage(error)}
+              </p>
+              {Object.keys(fieldErrors).length > 0 && (
+                <p className="text-[11px] opacity-85">
+                  Please review and configure the highlighted fields below.
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="shrink-0 text-red-500/70 hover:text-red-500"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -485,15 +680,31 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
       >
         {/* 2. DERIVED_STYLE_RUBRIC — AUTO-WRITTEN BY CLAUDE */}
         <section className="space-y-2">
-          <span className="font-mono text-xs font-semibold tracking-wider text-[var(--muted)] uppercase">
-            DERIVED_STYLE_RUBRIC — AUTO-WRITTEN BY CLAUDE
-          </span>
-          <div className="relative rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-xs font-semibold tracking-wider text-[var(--muted)] uppercase">
+              DERIVED_STYLE_RUBRIC — AUTO-WRITTEN BY CLAUDE
+            </span>
+            {fieldErrors.derivedRubric && (
+              <span className="text-[11px] font-medium text-red-500">
+                * {fieldErrors.derivedRubric}
+              </span>
+            )}
+          </div>
+          <div
+            className={`relative rounded-xl border p-5 transition-colors ${
+              fieldErrors.derivedRubric
+                ? 'border-red-500/60 bg-red-500/5 ring-1 ring-red-500/30'
+                : 'border-emerald-500/30 bg-emerald-500/10'
+            }`}
+          >
             <textarea
               rows={3}
               disabled={isAnalyzing}
               value={derivedRubric}
-              onChange={e => setDerivedRubric(e.target.value)}
+              onChange={e => {
+                setDerivedRubric(e.target.value)
+                clearFieldError('derivedRubric')
+              }}
               className="w-full resize-none bg-transparent text-sm leading-relaxed font-medium text-emerald-800 focus:outline-hidden disabled:cursor-not-allowed dark:text-emerald-200"
               placeholder="Claude will write your style rubric here..."
             />
@@ -512,7 +723,13 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Formality Slider */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.formality
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   FORMALITY
@@ -520,6 +737,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 <span className="font-mono font-bold text-[var(--foreground)]">
                   {formality !== null ? (
                     `${formality} / 5`
+                  ) : fieldErrors.formality ? (
+                    <span className="text-[11px] font-semibold text-red-500">
+                      Required
+                    </span>
                   ) : (
                     <span className="text-[11px] font-normal text-[var(--muted)]">
                       Not set
@@ -532,7 +753,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 min="1"
                 max="5"
                 value={formality ?? 3}
-                onChange={e => setFormality(Number(e.target.value))}
+                onChange={e => {
+                  setFormality(Number(e.target.value))
+                  clearFieldError('formality')
+                }}
                 className={`mt-3 w-full accent-[var(--accent)] ${formality === null ? 'opacity-30' : ''}`}
               />
               <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
@@ -542,7 +766,13 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Warmth Slider */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.warmth
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   WARMTH
@@ -550,6 +780,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 <span className="font-mono font-bold text-[var(--foreground)]">
                   {warmth !== null ? (
                     `${warmth} / 5`
+                  ) : fieldErrors.warmth ? (
+                    <span className="text-[11px] font-semibold text-red-500">
+                      Required
+                    </span>
                   ) : (
                     <span className="text-[11px] font-normal text-[var(--muted)]">
                       Not set
@@ -562,7 +796,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 min="1"
                 max="5"
                 value={warmth ?? 3}
-                onChange={e => setWarmth(Number(e.target.value))}
+                onChange={e => {
+                  setWarmth(Number(e.target.value))
+                  clearFieldError('warmth')
+                }}
                 className={`mt-3 w-full accent-[var(--accent)] ${warmth === null ? 'opacity-30' : ''}`}
               />
               <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
@@ -572,7 +809,13 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Directness Slider */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.directness
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   DIRECTNESS
@@ -580,6 +823,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 <span className="font-mono font-bold text-[var(--foreground)]">
                   {directness !== null ? (
                     `${directness} / 5`
+                  ) : fieldErrors.directness ? (
+                    <span className="text-[11px] font-semibold text-red-500">
+                      Required
+                    </span>
                   ) : (
                     <span className="text-[11px] font-normal text-[var(--muted)]">
                       Not set
@@ -592,7 +839,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 min="1"
                 max="5"
                 value={directness ?? 3}
-                onChange={e => setDirectness(Number(e.target.value))}
+                onChange={e => {
+                  setDirectness(Number(e.target.value))
+                  clearFieldError('directness')
+                }}
                 className={`mt-3 w-full accent-[var(--accent)] ${directness === null ? 'opacity-30' : ''}`}
               />
               <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
@@ -602,15 +852,29 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Humor Selector */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.humor
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   HUMOR
                 </span>
+                {fieldErrors.humor && (
+                  <span className="text-[10px] font-semibold text-red-500">
+                    Required
+                  </span>
+                )}
               </div>
               <select
                 value={humor}
-                onChange={e => setHumor(e.target.value)}
+                onChange={e => {
+                  setHumor(e.target.value)
+                  clearFieldError('humor')
+                }}
                 className={`mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-mono text-xs font-semibold ${
                   humor ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
                 }`}
@@ -623,15 +887,29 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Energy Selector */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.energy
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   ENERGY
                 </span>
+                {fieldErrors.energy && (
+                  <span className="text-[10px] font-semibold text-red-500">
+                    Required
+                  </span>
+                )}
               </div>
               <select
                 value={energy}
-                onChange={e => setEnergy(e.target.value)}
+                onChange={e => {
+                  setEnergy(e.target.value)
+                  clearFieldError('energy')
+                }}
                 className={`mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-mono text-xs font-semibold ${
                   energy ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
                 }`}
@@ -643,17 +921,33 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Perspective Selector */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.perspective
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   PERSPECTIVE
                 </span>
+                {fieldErrors.perspective && (
+                  <span className="text-[10px] font-semibold text-red-500">
+                    Required
+                  </span>
+                )}
               </div>
               <select
                 value={perspective}
-                onChange={e => setPerspective(e.target.value)}
+                onChange={e => {
+                  setPerspective(e.target.value)
+                  clearFieldError('perspective')
+                }}
                 className={`mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-mono text-xs font-semibold ${
-                  perspective ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
+                  perspective
+                    ? 'text-[var(--foreground)]'
+                    : 'text-[var(--muted)]'
                 }`}
               >
                 <option value="">Select perspective...</option>
@@ -666,7 +960,13 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Story vs Data */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.storyVsData
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   STORY_VS_DATA
@@ -674,6 +974,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 <span className="font-mono font-bold text-[var(--foreground)]">
                   {storyVsData !== null ? (
                     `${storyVsData} / 5`
+                  ) : fieldErrors.storyVsData ? (
+                    <span className="text-[11px] font-semibold text-red-500">
+                      Required
+                    </span>
                   ) : (
                     <span className="text-[11px] font-normal text-[var(--muted)]">
                       Not set
@@ -686,7 +990,10 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 min="1"
                 max="5"
                 value={storyVsData ?? 3}
-                onChange={e => setStoryVsData(Number(e.target.value))}
+                onChange={e => {
+                  setStoryVsData(Number(e.target.value))
+                  clearFieldError('storyVsData')
+                }}
                 className={`mt-3 w-full accent-[var(--accent)] ${storyVsData === null ? 'opacity-30' : ''}`}
               />
               <div className="mt-1 flex justify-between text-[10px] text-[var(--muted)]">
@@ -696,17 +1003,33 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Emoji Policy */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.emojiPolicy
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   EMOJI_POLICY
                 </span>
+                {fieldErrors.emojiPolicy && (
+                  <span className="text-[10px] font-semibold text-red-500">
+                    Required
+                  </span>
+                )}
               </div>
               <select
                 value={emojiPolicy}
-                onChange={e => setEmojiPolicy(e.target.value)}
+                onChange={e => {
+                  setEmojiPolicy(e.target.value)
+                  clearFieldError('emojiPolicy')
+                }}
                 className={`mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-mono text-xs font-semibold ${
-                  emojiPolicy ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
+                  emojiPolicy
+                    ? 'text-[var(--foreground)]'
+                    : 'text-[var(--muted)]'
                 }`}
               >
                 <option value="">Select emoji policy...</option>
@@ -733,17 +1056,33 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Sentence Length */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.sentenceLength
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   SENTENCE_LENGTH
                 </span>
+                {fieldErrors.sentenceLength && (
+                  <span className="text-[10px] font-semibold text-red-500">
+                    Required
+                  </span>
+                )}
               </div>
               <select
                 value={sentenceLength}
-                onChange={e => setSentenceLength(e.target.value)}
+                onChange={e => {
+                  setSentenceLength(e.target.value)
+                  clearFieldError('sentenceLength')
+                }}
                 className={`mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-mono text-xs font-semibold ${
-                  sentenceLength ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
+                  sentenceLength
+                    ? 'text-[var(--foreground)]'
+                    : 'text-[var(--muted)]'
                 }`}
               >
                 <option value="">Select sentence length...</option>
@@ -754,17 +1093,33 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Paragraph Style */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xs">
+            <div
+              className={`rounded-xl border bg-[var(--surface)] p-4 shadow-2xs transition-colors ${
+                fieldErrors.paragraphStyle
+                  ? 'border-red-500/60 ring-1 ring-red-500/30'
+                  : 'border-[var(--border)]'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-[11px] font-semibold text-[var(--muted)] uppercase">
                   PARAGRAPH_STYLE
                 </span>
+                {fieldErrors.paragraphStyle && (
+                  <span className="text-[10px] font-semibold text-red-500">
+                    Required
+                  </span>
+                )}
               </div>
               <select
                 value={paragraphStyle}
-                onChange={e => setParagraphStyle(e.target.value)}
+                onChange={e => {
+                  setParagraphStyle(e.target.value)
+                  clearFieldError('paragraphStyle')
+                }}
                 className={`mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-mono text-xs font-semibold ${
-                  paragraphStyle ? 'text-[var(--foreground)]' : 'text-[var(--muted)]'
+                  paragraphStyle
+                    ? 'text-[var(--foreground)]'
+                    : 'text-[var(--muted)]'
                 }`}
               >
                 <option value="">Select paragraph style...</option>

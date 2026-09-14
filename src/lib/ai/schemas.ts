@@ -84,7 +84,7 @@ export const VoiceAnalysisSchema = z.object({
   bannedWords: z
     .array(z.string())
     .describe(
-      'Corporate buzzwords, hollow hyperbole, or cliches that strongly clash with this author\'s specific voice. Do NOT list words just because they were absent.'
+      "Corporate buzzwords, hollow hyperbole, or cliches that strongly clash with this author's specific voice. Do NOT list words just because they were absent."
     ),
   signaturePhrases: z
     .array(z.string())
@@ -104,7 +104,9 @@ export const VoiceAnalysisSchema = z.object({
   rules: z
     .string()
     .optional()
-    .describe('Specific editorial rules derived from writing patterns and voice habits.')
+    .describe(
+      'Specific editorial rules derived from writing patterns and voice habits.'
+    )
 })
 
 export type VoiceAnalysisResult = z.infer<typeof VoiceAnalysisSchema>
@@ -113,12 +115,14 @@ export type VoiceAnalysisResult = z.infer<typeof VoiceAnalysisSchema>
  * Validates and sanitizes Claude's voice analysis result to filter out generic fragments,
  * ensure banned words are legitimate anti-patterns, and incorporate writing patterns into rules.
  */
-export function sanitizeVoiceAnalysis(raw: VoiceAnalysisResult): VoiceAnalysisResult {
+export function sanitizeVoiceAnalysis(
+  raw: VoiceAnalysisResult
+): VoiceAnalysisResult {
   // Filter signaturePhrases:
   // Must be >= 6 chars, not in blacklist, and not just 1-2 generic words
   const cleanedSignaturePhrases = (raw.signaturePhrases || [])
-    .map((p) => p.trim())
-    .filter((p) => {
+    .map(p => p.trim())
+    .filter(p => {
       if (p.length < 6) return false
       const normalized = p
         .toLowerCase()
@@ -138,13 +142,13 @@ export function sanitizeVoiceAnalysis(raw: VoiceAnalysisResult): VoiceAnalysisRe
 
   // Deduplicate and clean writing patterns
   const cleanedPatterns = (raw.writingPatterns || [])
-    .map((p) => p.trim())
-    .filter((p) => p.length > 5)
+    .map(p => p.trim())
+    .filter(p => p.length > 5)
 
   // Ensure writing patterns are explicitly documented in derivedStyleRubric and rules
   let enhancedRubric = raw.derivedStyleRubric.trim()
   if (cleanedPatterns.length > 0) {
-    const patternSummary = cleanedPatterns.map((p) => `"${p}"`).join('; ')
+    const patternSummary = cleanedPatterns.map(p => `"${p}"`).join('; ')
     if (
       !enhancedRubric.toLowerCase().includes('pattern') &&
       !enhancedRubric.includes(cleanedPatterns[0]!)
@@ -157,20 +161,27 @@ export function sanitizeVoiceAnalysis(raw: VoiceAnalysisResult): VoiceAnalysisRe
   const rules =
     raw.rules ||
     (cleanedPatterns.length > 0
-      ? `Core Writing Patterns:\n${cleanedPatterns.map((p) => `- ${p}`).join('\n')}`
+      ? `Core Writing Patterns:\n${cleanedPatterns.map(p => `- ${p}`).join('\n')}`
       : undefined)
 
   // Filter banned words: remove duplicates, strip excessive whitespace, drop generic words
   const cleanedBannedWords = Array.from(
     new Set(
       (raw.bannedWords || [])
-        .map((w) => w.trim().toLowerCase())
+        .map(w => w.trim().toLowerCase())
         .filter(
-          (w) =>
+          w =>
             w.length > 2 &&
-            !['the', 'and', 'with', 'from', 'this', 'that', 'about', 'some'].includes(
-              w
-            )
+            ![
+              'the',
+              'and',
+              'with',
+              'from',
+              'this',
+              'that',
+              'about',
+              'some'
+            ].includes(w)
         )
     )
   )

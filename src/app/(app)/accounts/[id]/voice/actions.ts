@@ -9,20 +9,46 @@ import { GENERIC_PHRASE_BLACKLIST } from '~/lib/ai/schemas'
 import { analyzeVoiceSamples } from '~/lib/ai/voice'
 
 const saveVoiceSchema = z.object({
-  accountId: z.string().uuid(),
+  accountId: z.string().uuid('Invalid account identifier'),
   derivedStyleRubric: z
     .string()
-    .min(20, 'Style rubric must be at least 20 characters'),
+    .trim()
+    .min(
+      20,
+      'Style rubric must be at least 20 characters. Please click "Analyze my voice" or write a rubric.'
+    ),
   rawSamplesText: z.string().optional(),
-  formality: z.coerce.number().int().min(1).max(5),
-  warmth: z.coerce.number().int().min(1).max(5),
-  directness: z.coerce.number().int().min(1).max(5),
-  humor: z.string().default('dry'),
-  energy: z.string().default('measured'),
-  perspective: z.string().default('I'),
-  storyVsData: z.coerce.number().int().min(1).max(5),
+  formality: z.coerce
+    .number()
+    .int()
+    .min(1, 'Formality must be between 1 and 5')
+    .max(5, 'Formality must be between 1 and 5'),
+  warmth: z.coerce
+    .number()
+    .int()
+    .min(1, 'Warmth must be between 1 and 5')
+    .max(5, 'Warmth must be between 1 and 5'),
+  directness: z.coerce
+    .number()
+    .int()
+    .min(1, 'Directness must be between 1 and 5')
+    .max(5, 'Directness must be between 1 and 5'),
+  humor: z.string().min(1, 'Please select a Humor tone').default('dry'),
+  energy: z
+    .string()
+    .min(1, 'Please select an Energy level')
+    .default('measured'),
+  perspective: z
+    .string()
+    .min(1, 'Please select a Perspective (e.g. I or We)')
+    .default('I'),
+  storyVsData: z.coerce
+    .number()
+    .int()
+    .min(1, 'Story vs Data must be between 1 and 5')
+    .max(5, 'Story vs Data must be between 1 and 5'),
   emojiPolicy: z.string().default('none'),
-  hashtagPolicy: z.string().default('0-3, end of post'),
+  hashtagPolicy: z.string().default('none'),
   sentenceLength: z.string().default('short'),
   paragraphStyle: z.string().default('short paras'),
   readingLevelTarget: z.string().default('grade 7-9'),
@@ -56,8 +82,18 @@ export async function analyzeVoiceAction(samplesText: string) {
 
 export async function saveVoiceConfigAction(data: SaveVoiceInput) {
   try {
-    // 1. Strict validation of payload
-    const validated = saveVoiceSchema.parse(data)
+    // 1. Strict validation of payload with human-readable error messages
+    const parsed = saveVoiceSchema.safeParse(data)
+    if (!parsed.success) {
+      const errorMsg = parsed.error.issues
+        .map(issue => issue.message)
+        .join('. ')
+      return {
+        success: false,
+        error: errorMsg || 'Invalid voice configuration'
+      }
+    }
+    const validated = parsed.data
 
     // 2. Validate and sanitize signature phrases before saving
     const sanitizedPhrases = validated.signaturePhrases
@@ -211,9 +247,32 @@ export async function saveVoiceConfigAction(data: SaveVoiceInput) {
     return { success: true }
   } catch (error: any) {
     console.error('Error saving voice config:', error)
+    let errorMessage = 'Failed to save voice profile'
+    if (error instanceof z.ZodError) {
+      errorMessage = error.issues.map(i => i.message).join('. ')
+    } else if (typeof error?.message === 'string') {
+      if (
+        error.message.trim().startsWith('[') &&
+        error.message.includes('"message"')
+      ) {
+        try {
+          const parsed = JSON.parse(error.message)
+          if (Array.isArray(parsed)) {
+            errorMessage = parsed
+              .map(item => item.message)
+              .filter(Boolean)
+              .join('. ')
+          }
+        } catch {
+          errorMessage = error.message
+        }
+      } else {
+        errorMessage = error.message
+      }
+    }
     return {
       success: false,
-      error: error.message || 'Failed to save voice profile'
+      error: errorMessage
     }
   }
 }
