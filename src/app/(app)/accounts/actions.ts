@@ -1,11 +1,14 @@
 'use server'
 
-import { db } from '@/db'
-import { accountsTable, offeringsTable, audiencesTable } from '@/db/schema'
+import { and, eq, ne } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
+import { db } from '@/db'
+import { accountsTable, offeringsTable, audiencesTable } from '@/db/schema'
 
 const offeringSchema = z.object({
+  id: z.string().optional(),
   name: z.string().min(1, 'Offering name is required'),
   type: z.string().default('service'),
   tagline: z.string().optional(),
@@ -14,6 +17,7 @@ const offeringSchema = z.object({
 })
 
 const audienceSchema = z.object({
+  id: z.string().optional(),
   name: z.string().min(1, 'Audience name is required'),
   painPoints: z.array(z.string()).default([]),
   goals: z.array(z.string()).default([]),
@@ -31,6 +35,22 @@ const accountFormSchema = z.object({
   offerings: z.array(offeringSchema).default([]),
   audiences: z.array(audienceSchema).default([]),
 })
+
+const updateAccountSchema = z.object({
+  id: z.string().uuid('Invalid account identifier'),
+  name: z.string().trim().min(1, 'Display name is required'),
+  accountType: z.enum(['personal', 'company']),
+  handle: z.string().trim().min(1, 'LinkedIn handle is required'),
+  headline: z.string().trim().min(1, 'Headline is required'),
+  bio: z.string().optional(),
+  avatarUrl: z.string().url().optional().or(z.literal('')),
+  company: z.string().optional(),
+  websiteUrl: z.string().url().optional().or(z.literal('')),
+  offerings: z.array(offeringSchema).default([]),
+  audiences: z.array(audienceSchema).default([]),
+})
+
+export type UpdateAccountInput = z.infer<typeof updateAccountSchema>
 
 export async function createAccount(formData: FormData) {
   let offerings: any[] = []
@@ -117,4 +137,119 @@ export async function createAccount(formData: FormData) {
   }
 
   redirect(`/accounts/${account.id}`)
+}
+
+export async function updateAccountAction(input: UpdateAccountInput) {
+  try {
+    const parsed = updateAccountSchema.safeParse({
+      ...input,
+      handle: (input.handle || '').toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    })
+
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map(i => i.message).join('. ')
+      }
+    }
+
+    const validated = parsed.data
+
+    // 1. Verify account exists
+    const existing = await db.query.accountsTable.findFirst({
+      where: eq(accountsTable.id, validated.id)
+    })
+    if (!existing) {
+      return { success: false, error: 'Account identity not found' }
+    }
+
+    // 2. Check if handle is already taken by another account
+    const handleConflict = await db.query.accountsTable.findFirst({
+      where: and(
+        eq(accountsTable.handle, validated.handle),
+        ne(accountsTable.id, validated.id)
+      )
+    })
+    if (handleConflict) {
+      return {
+        success: false,
+        error: `LinkedIn handle "${validated.handle}" is already in use by another identity.`
+      }
+    }
+
+    // 3. Update core identity
+    await db
+      .update(accountsTable)
+      .set({
+        name: validated.name,
+        accountType: validated.accountType,
+        handle: validated.handle,
+        headline: validated.headline,
+        bio: validated.bio?.trim() || null,
+        avatarUrl: validated.avatarUrl?.trim() || null,
+        company: validated.company?.trim() || null,
+        websiteUrl: validated.websiteUrl?.trim() || null,
+        updatedAt: new Date()
+      })
+      .where(eq(accountsTable.id, validated.id))
+
+    // 4. Synchronize Offerings
+    await db
+      .delete(offeringsTable)
+      .where(eq(offeringsTable.accountId, validated.id))
+
+    if (validated.offerings && validated.offerings.length > 0) {
+      const cleanOfferings = validated.offerings
+        .filter(o => o.name.trim().length > 0)
+        .map(o => ({
+          accountId: validated.id,
+          name: o.name.trim(),
+          type: o.type || 'service',
+          tagline: o.tagline?.trim() || null,
+          description: o.description?.trim() || null,
+          url: o.url?.trim() || null,
+          isActive: true
+        }))
+
+      if (cleanOfferings.length > 0) {
+        await db.insert(offeringsTable).values(cleanOfferings)
+      }
+    }
+
+    // 5. Synchronize Target Audiences
+    await db
+      .delete(audiencesTable)
+      .where(eq(audiencesTable.accountId, validated.id))
+
+    if (validated.audiences && validated.audiences.length > 0) {
+      const cleanAudiences = validated.audiences
+        .filter(a => a.name.trim().length > 0)
+        .map(a => ({
+          accountId: validated.id,
+          name: a.name.trim(),
+          painPoints: a.painPoints.map(p => p.trim()).filter(Boolean),
+          goals: a.goals.map(g => g.trim()).filter(Boolean)
+        }))
+
+      if (cleanAudiences.length > 0) {
+        await db.insert(audiencesTable).values(cleanAudiences)
+      }
+    }
+
+    // 6. Revalidate cache
+    revalidatePath('/')
+    revalidatePath(`/accounts/${validated.id}`)
+    revalidatePath(`/accounts/${validated.id}/voice`)
+    revalidatePath(`/accounts/${validated.id}/goals`)
+    revalidatePath(`/accounts/${validated.id}/preferences`)
+    revalidatePath(`/accounts/${validated.id}/knowledge`)
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error updating account identity:', error)
+    return {
+      success: false,
+      error: error?.message || 'Failed to update identity'
+    }
+  }
 }

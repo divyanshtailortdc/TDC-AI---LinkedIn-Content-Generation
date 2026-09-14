@@ -218,12 +218,14 @@ function AccountCard({
           </div>
           <p className="text-sm text-[var(--muted)] truncate mt-0.5">{account.headline}</p>
         </div>
-        <Link
-          href={`/accounts/${account.id}`}
-          className="text-xs text-[var(--accent)] hover:underline shrink-0"
-        >
-          View →
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href={`/accounts/${account.id}`}
+            className="text-xs font-semibold text-[var(--accent)] hover:underline"
+          >
+            Edit Identity →
+          </Link>
+        </div>
       </div>
 
       {/* Setup checklist */}
