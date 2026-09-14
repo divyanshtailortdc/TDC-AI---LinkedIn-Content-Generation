@@ -100,7 +100,8 @@ export default async function PostsPage() {
             mode: media.mode,
             imageUrl: media.imageUrl,
             altText: media.altText,
-            promptOrQuery: media.promptOrQuery
+            promptOrQuery: media.promptOrQuery,
+            fallbackApplied: Boolean((media.metadata as any)?.fallbackApplied)
           }
         : null,
       lintFindings: (draft.lintFindings as any[]) || []

@@ -184,10 +184,22 @@ Generate:
   }
 
   // Stage 6: Media Planning
-  const suggestedMedia = idea.suggestedMedia as { mode?: 'ai_generated' | 'stock' | 'none'; brief?: string } || {}
+  const suggestedMedia =
+    (idea.suggestedMedia as {
+      mode?: 'ai_generated' | 'stock' | 'none'
+      brief?: string
+    }) || {}
+  const targetMode = suggestedMedia.mode || 'ai_generated'
   const mediaPlan = await createMediaPlan({
-    mode: suggestedMedia.mode || 'none',
-    brief: suggestedMedia.brief || idea.title || idea.pillar || 'Professional business concept'
+    mode: targetMode,
+    brief:
+      suggestedMedia.brief ||
+      idea.title ||
+      idea.pillar ||
+      'Professional business concept',
+    topic: idea.pillar || idea.title || 'Business strategy',
+    hook: generatedDraft.hook,
+    coreArgument: idea.coreArgument || undefined
   })
 
   const fullCleanText = `${generatedDraft.hook}\n\n${generatedDraft.body}\n\n${generatedDraft.cta}`
@@ -244,14 +256,17 @@ Generate:
   }
 
   // Insert Media into postMediaTable if media mode is not none
-  if (mediaPlan.mode !== 'none') {
+  if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
     await db.insert(postMediaTable).values({
       draftId: draft.id,
       mode: mediaPlan.mode,
-      imageUrl: mediaPlan.imageUrl || null,
+      imageUrl: mediaPlan.imageUrl,
       altText: mediaPlan.altText || null,
       promptOrQuery: mediaPlan.promptOrQuery || null,
-      metadata: { sourcePageUrl: mediaPlan.sourcePageUrl }
+      metadata: {
+        sourcePageUrl: mediaPlan.sourcePageUrl,
+        fallbackApplied: mediaPlan.fallbackApplied || false
+      }
     })
   }
 

@@ -1,25 +1,39 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  Copy,
-  Check,
-  Edit2,
-  CheckCircle2,
-  AlertTriangle,
-  ExternalLink,
-  MessageSquare,
-  FileCheck,
-  Sparkles,
-  Quote,
-  Layers,
-  ChevronRight,
-  Filter
-} from 'lucide-react'
+import { useState } from 'react'
 import { LinkedInPreview } from '@/components/linkedin-preview'
-import { updateDraft, approveDraft, rejectDraft } from './actions'
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Copy,
+  Edit2,
+  ExternalLink,
+  FileCheck,
+  Filter,
+  Image as ImageIcon,
+  Layers,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Quote,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Trash2,
+  X
+} from 'lucide-react'
 import type { LintFinding } from '~/lib/lint/run-linter'
+import {
+  approveDraft,
+  regeneratePostMediaAction,
+  rejectDraft,
+  removePostMediaAction,
+  updateDraft,
+  updatePostMediaAction
+} from './actions'
 
 export interface PostDetail {
   id: string
@@ -35,8 +49,20 @@ export interface PostDetail {
   status: string
   createdAt: Date | string
   variants: Array<{ id: string; variantType: string; content: string }>
-  citations: Array<{ id: string; claim: string; quote?: string | null; sourceUrl?: string | null; sourceTitle?: string | null }>
-  media?: { mode: string; imageUrl?: string | null; altText?: string | null; promptOrQuery?: string | null } | null
+  citations: Array<{
+    id: string
+    claim: string
+    quote?: string | null
+    sourceUrl?: string | null
+    sourceTitle?: string | null
+  }>
+  media?: {
+    mode: string
+    imageUrl?: string | null
+    altText?: string | null
+    promptOrQuery?: string | null
+    fallbackApplied?: boolean
+  } | null
   lintFindings: LintFinding[]
 }
 
@@ -66,6 +92,15 @@ export function PostsClient({
   const [copiedComment, setCopiedComment] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
+  // Media management state
+  const [isMediaLoading, setIsMediaLoading] = useState(false)
+  const [mediaLoadingText, setMediaLoadingText] = useState('')
+  const [mediaError, setMediaError] = useState<string | null>(null)
+  const [showStockInput, setShowStockInput] = useState(false)
+  const [stockSearchQuery, setStockSearchQuery] = useState('')
+  const [showCustomUrlInput, setShowCustomUrlInput] = useState(false)
+  const [customImageUrl, setCustomImageUrl] = useState('')
+
   // Filter posts
   const filteredPosts = posts.filter((p) => {
     if (selectedAccountId === 'all') return true
@@ -78,6 +113,127 @@ export function PostsClient({
     setEditedBody(post.body)
     setEditedComment(post.firstComment || '')
     setIsEditing(false)
+    setShowStockInput(false)
+    setShowCustomUrlInput(false)
+    setMediaError(null)
+  }
+
+  const handleRegenerateAIMedia = async () => {
+    if (!activePost) return
+    setIsMediaLoading(true)
+    setMediaLoadingText('Generating AI visual with model fallback...')
+    setMediaError(null)
+
+    try {
+      const res = await regeneratePostMediaAction(activePost.id, {
+        mode: 'ai_generated'
+      })
+      if (res.success && res.media) {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === activePost.id ? { ...p, media: res.media } : p
+          )
+        )
+      } else {
+        setMediaError(res.error || 'Failed to generate visual')
+      }
+    } catch (err: any) {
+      setMediaError(err?.message || 'Failed to generate visual')
+    } finally {
+      setIsMediaLoading(false)
+      setMediaLoadingText('')
+    }
+  }
+
+  const handleSearchStockMedia = async () => {
+    if (!activePost) return
+    setIsMediaLoading(true)
+    setMediaLoadingText('Searching royalty-free stock photography...')
+    setMediaError(null)
+
+    try {
+      const res = await regeneratePostMediaAction(activePost.id, {
+        mode: 'stock',
+        customPrompt: stockSearchQuery.trim() || undefined
+      })
+      if (res.success && res.media) {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === activePost.id ? { ...p, media: res.media } : p
+          )
+        )
+        setShowStockInput(false)
+        setStockSearchQuery('')
+      } else {
+        setMediaError(res.error || 'Failed to search stock visual')
+      }
+    } catch (err: any) {
+      setMediaError(err?.message || 'Failed to search stock visual')
+    } finally {
+      setIsMediaLoading(false)
+      setMediaLoadingText('')
+    }
+  }
+
+  const handleApplyCustomUrl = async () => {
+    if (!activePost) return
+    const url = customImageUrl.trim()
+    if (!url) {
+      setMediaError('Please enter a valid image URL')
+      return
+    }
+
+    setIsMediaLoading(true)
+    setMediaLoadingText('Attaching custom image...')
+    setMediaError(null)
+
+    try {
+      const res = await updatePostMediaAction(activePost.id, {
+        mode: 'stock',
+        imageUrl: url,
+        altText: `Custom visual illustration for: ${activePost.hook.slice(0, 50)}`
+      })
+
+      if (res.success && res.media) {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === activePost.id ? { ...p, media: res.media } : p
+          )
+        )
+        setShowCustomUrlInput(false)
+        setCustomImageUrl('')
+      } else {
+        setMediaError(res.error || 'Failed to update image URL')
+      }
+    } catch (err: any) {
+      setMediaError(err?.message || 'Failed to update image URL')
+    } finally {
+      setIsMediaLoading(false)
+      setMediaLoadingText('')
+    }
+  }
+
+  const handleRemoveMedia = async () => {
+    if (!activePost) return
+    setIsMediaLoading(true)
+    setMediaLoadingText('Switching to text-only mode...')
+    setMediaError(null)
+
+    try {
+      const res = await removePostMediaAction(activePost.id)
+      if (res.success) {
+        setPosts((prev) =>
+          prev.map((p) => (p.id === activePost.id ? { ...p, media: null } : p))
+        )
+      } else {
+        setMediaError(res.error || 'Failed to remove media')
+      }
+    } catch (err: any) {
+      setMediaError(err?.message || 'Failed to remove media')
+    } finally {
+      setIsMediaLoading(false)
+      setMediaLoadingText('')
+    }
   }
 
   const handleSwapHook = async (newHook: string) => {
@@ -452,6 +608,215 @@ export function PostsClient({
                 </p>
               </div>
             )}
+
+            {/* Visual Media Attachment Card */}
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
+                  <ImageIcon className="h-4 w-4 text-[var(--accent)]" />
+                  Visual Media Attachment
+                </span>
+                {activePost.media?.imageUrl ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[11px] font-medium text-[var(--foreground)] capitalize">
+                      {activePost.media.mode === 'ai_generated'
+                        ? 'AI Visual'
+                        : 'Stock Photo'}
+                    </span>
+                    {activePost.media.fallbackApplied && (
+                      <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                        Fallback Applied
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted)]">
+                    Text Only
+                  </span>
+                )}
+              </div>
+
+              {mediaError && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-600 dark:text-red-400">
+                  <span>{mediaError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setMediaError(null)}
+                    className="p-1 hover:text-red-700"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {isMediaLoading ? (
+                <div className="flex flex-col items-center justify-center space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)]/60 py-8 text-xs text-[var(--muted)] animate-pulse">
+                  <Loader2 className="h-5 w-5 animate-spin text-[var(--accent)]" />
+                  <p className="font-medium text-[var(--foreground)]">
+                    {mediaLoadingText || 'Processing media...'}
+                  </p>
+                  <p className="text-[11px] text-[var(--muted)]">
+                    AI generation with automated fallback
+                  </p>
+                </div>
+              ) : activePost.media?.imageUrl ? (
+                <div className="space-y-3">
+                  <div className="group relative overflow-hidden rounded-xl border border-[var(--border)] bg-neutral-900">
+                    <img
+                      src={activePost.media.imageUrl}
+                      alt={activePost.media.altText || 'Post attachment'}
+                      className="h-36 w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <p className="line-clamp-2 text-[11px] leading-tight text-white">
+                        {activePost.media.promptOrQuery || activePost.media.altText}
+                      </p>
+                    </div>
+                  </div>
+
+                  {activePost.media.promptOrQuery && (
+                    <p className="line-clamp-2 rounded-lg bg-[var(--surface-hover)] p-2 font-mono text-[11px] leading-relaxed text-[var(--muted)]">
+                      {activePost.media.promptOrQuery}
+                    </p>
+                  )}
+
+                  {/* Actions for existing image */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isMediaLoading}
+                      onClick={handleRegenerateAIMedia}
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
+                      <span>Regenerate AI</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isMediaLoading}
+                      onClick={() => {
+                        setShowStockInput(!showStockInput)
+                        setShowCustomUrlInput(false)
+                      }}
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+                    >
+                      <Search className="h-3.5 w-3.5 text-blue-500" />
+                      <span>Find Stock</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isMediaLoading}
+                      onClick={() => {
+                        setShowCustomUrlInput(!showCustomUrlInput)
+                        setShowStockInput(false)
+                      }}
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+                    >
+                      <Edit2 className="h-3.5 w-3.5 text-emerald-500" />
+                      <span>Custom URL</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isMediaLoading}
+                      onClick={handleRemoveMedia}
+                      className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
+                      title="Remove media (Switch to Text Only)"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Text Only</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-hover)]/30 p-4 text-center">
+                    <p className="text-xs text-[var(--muted)]">
+                      This post is currently <strong>Text Only</strong> (no image attached).
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={isMediaLoading}
+                      onClick={handleRegenerateAIMedia}
+                      className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--accent-hover)]"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>Generate AI Image</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isMediaLoading}
+                      onClick={() => {
+                        setShowStockInput(!showStockInput)
+                        setShowCustomUrlInput(false)
+                      }}
+                      className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+                    >
+                      <Search className="h-3.5 w-3.5 text-blue-500" />
+                      <span>Find Stock Photo</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Collapsible Stock Search Input */}
+              {showStockInput && !isMediaLoading && (
+                <div className="animate-in fade-in space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 duration-150">
+                  <label className="block text-[11px] font-semibold text-[var(--foreground)]">
+                    Search Stock Imagery
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={stockSearchQuery}
+                      onChange={e => setStockSearchQuery(e.target.value)}
+                      placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
+                      className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)]"
+                      onKeyDown={e => e.key === 'Enter' && handleSearchStockMedia()}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSearchStockMedia}
+                      className="cursor-pointer rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--accent-hover)]"
+                    >
+                      Search
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Collapsible Custom URL Input */}
+              {showCustomUrlInput && !isMediaLoading && (
+                <div className="animate-in fade-in space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 duration-150">
+                  <label className="block text-[11px] font-semibold text-[var(--foreground)]">
+                    Direct Image URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={customImageUrl}
+                      onChange={e => setCustomImageUrl(e.target.value)}
+                      placeholder="https://images.unsplash.com/..."
+                      className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)]"
+                      onKeyDown={e => e.key === 'Enter' && handleApplyCustomUrl()}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCustomUrl}
+                      className="cursor-pointer rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--accent-hover)]"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Citations Drawer */}
             {activePost.citations && activePost.citations.length > 0 && (
