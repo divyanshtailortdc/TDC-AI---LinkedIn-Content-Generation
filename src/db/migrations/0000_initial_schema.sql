@@ -1,5 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS vector;
---> statement-breakpoint
 CREATE TABLE "accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" text NOT NULL,
@@ -25,16 +23,6 @@ CREATE TABLE "audiences" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "document_chunks" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"document_id" uuid NOT NULL,
-	"account_id" uuid NOT NULL,
-	"chunk_index" integer NOT NULL,
-	"content" text NOT NULL,
-	"embedding" vector(1536),
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "post_drafts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -45,7 +33,6 @@ CREATE TABLE "post_drafts" (
 	"hashtags" jsonb DEFAULT '[]'::jsonb,
 	"char_count" integer DEFAULT 0 NOT NULL,
 	"status" varchar(20) DEFAULT 'draft' NOT NULL,
-	"scheduled_for" timestamp with time zone,
 	"posted_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -84,7 +71,6 @@ CREATE TABLE "knowledge_documents" (
 	"source_url" text,
 	"content" text NOT NULL,
 	"summary" text,
-	"tags" jsonb DEFAULT '[]'::jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -117,7 +103,7 @@ CREATE TABLE "runs" (
 	"account_id" uuid NOT NULL,
 	"goal_id" uuid,
 	"workflow" varchar(30) NOT NULL,
-	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"status" varchar(30) DEFAULT 'pending' NOT NULL,
 	"current_step" integer DEFAULT 0 NOT NULL,
 	"total_steps" integer DEFAULT 3 NOT NULL,
 	"logs" jsonb DEFAULT '[]'::jsonb,
@@ -129,9 +115,7 @@ CREATE TABLE "runs" (
 CREATE TABLE "sample_posts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
-	"hook" text,
 	"content" text NOT NULL,
-	"tags" jsonb DEFAULT '[]'::jsonb,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -150,8 +134,6 @@ CREATE TABLE "voice_configs" (
 );
 --> statement-breakpoint
 ALTER TABLE "audiences" ADD CONSTRAINT "audiences_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "document_chunks" ADD CONSTRAINT "document_chunks_document_id_knowledge_documents_id_fk" FOREIGN KEY ("document_id") REFERENCES "public"."knowledge_documents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "document_chunks" ADD CONSTRAINT "document_chunks_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "post_drafts" ADD CONSTRAINT "post_drafts_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "post_drafts" ADD CONSTRAINT "post_drafts_idea_id_ideas_id_fk" FOREIGN KEY ("idea_id") REFERENCES "public"."ideas"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "post_drafts" ADD CONSTRAINT "post_drafts_offering_id_offerings_id_fk" FOREIGN KEY ("offering_id") REFERENCES "public"."offerings"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -165,7 +147,4 @@ ALTER TABLE "preferences" ADD CONSTRAINT "preferences_account_id_accounts_id_fk"
 ALTER TABLE "runs" ADD CONSTRAINT "runs_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "runs" ADD CONSTRAINT "runs_goal_id_goals_id_fk" FOREIGN KEY ("goal_id") REFERENCES "public"."goals"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sample_posts" ADD CONSTRAINT "sample_posts_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "voice_configs" ADD CONSTRAINT "voice_configs_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "chunk_embedding_hnsw_idx" ON "document_chunks" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
-CREATE INDEX "chunk_account_idx" ON "document_chunks" USING btree ("account_id");--> statement-breakpoint
-CREATE INDEX "chunk_document_idx" ON "document_chunks" USING btree ("document_id");
+ALTER TABLE "voice_configs" ADD CONSTRAINT "voice_configs_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE cascade ON UPDATE no action;

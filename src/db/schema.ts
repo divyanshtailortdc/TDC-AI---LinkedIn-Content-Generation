@@ -1,15 +1,17 @@
 import {
   boolean,
-  index,
   integer,
   jsonb,
   pgTable,
   text,
   timestamp,
   uuid,
-  varchar,
-  vector
+  varchar
 } from 'drizzle-orm/pg-core'
+
+// ---------------------------------------------------------------------------
+// Shared field helpers
+// ---------------------------------------------------------------------------
 
 export const commonFieldDefs = {
   id: () => uuid('id').defaultRandom().primaryKey(),
@@ -34,9 +36,10 @@ export const commonFieldDefs = {
   }
 }
 
-/**
- * 1. Accounts table: stores persona and profile identity.
- */
+// ---------------------------------------------------------------------------
+// 1. Accounts — persona/profile identity
+// ---------------------------------------------------------------------------
+
 export const accountsTable = pgTable('accounts', {
   id: commonFieldDefs.id(),
   name: text('name').notNull(),
@@ -52,9 +55,10 @@ export const accountsTable = pgTable('accounts', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 2. Voice Configs table (1:1 with Account): tone, rules, banned words.
- */
+// ---------------------------------------------------------------------------
+// 2. Voice Configs (1:1 with Account) — tone, style, banned words
+// ---------------------------------------------------------------------------
+
 export const voiceConfigsTable = pgTable('voice_configs', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -71,9 +75,10 @@ export const voiceConfigsTable = pgTable('voice_configs', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 3. Offerings table (1:N with Account): products, services, lead magnets.
- */
+// ---------------------------------------------------------------------------
+// 3. Offerings (1:N with Account) — products, services, lead magnets
+// ---------------------------------------------------------------------------
+
 export const offeringsTable = pgTable('offerings', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -88,26 +93,26 @@ export const offeringsTable = pgTable('offerings', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 4. Sample Posts table (1:N with Account): few-shot training examples.
- */
+// ---------------------------------------------------------------------------
+// 4. Sample Posts (1:N with Account) — few-shot exemplars for the prompt
+// ---------------------------------------------------------------------------
+
 export const samplePostsTable = pgTable('sample_posts', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  hook: text('hook'),
   content: text('content').notNull(),
-  tags: jsonb('tags').$type<string[]>().default([]),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()
     .defaultNow()
 })
 
-/**
- * 5. Audiences table (1:N with Account): target ICP, pain points, goals.
- */
+// ---------------------------------------------------------------------------
+// 5. Audiences (1:N with Account) — target reader profiles
+// ---------------------------------------------------------------------------
+
 export const audiencesTable = pgTable('audiences', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -119,9 +124,10 @@ export const audiencesTable = pgTable('audiences', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 6. Knowledge Documents table (1:N with Account): ingested articles, notes, URLs.
- */
+// ---------------------------------------------------------------------------
+// 6. Knowledge Documents (1:N with Account) — grounded fact base
+// ---------------------------------------------------------------------------
+
 export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -132,43 +138,13 @@ export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
   sourceUrl: text('source_url'),
   content: text('content').notNull(),
   summary: text('summary'),
-  tags: jsonb('tags').$type<string[]>().default([]),
   ...commonFieldDefs.dates
 })
 
-/**
- * 7. Document Chunks table (1:N with Knowledge Documents): vector embeddings for RAG.
- */
-export const documentChunksTable = pgTable(
-  'document_chunks',
-  {
-    id: commonFieldDefs.id(),
-    documentId: uuid('document_id')
-      .notNull()
-      .references(() => knowledgeDocumentsTable.id, { onDelete: 'cascade' }),
-    accountId: uuid('account_id')
-      .notNull()
-      .references(() => accountsTable.id, { onDelete: 'cascade' }),
-    chunkIndex: integer('chunk_index').notNull(),
-    content: text('content').notNull(),
-    embedding: vector('embedding', { dimensions: 1536 }),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-      .notNull()
-      .defaultNow()
-  },
-  table => [
-    index('chunk_embedding_hnsw_idx').using(
-      'hnsw',
-      table.embedding.op('vector_cosine_ops')
-    ),
-    index('chunk_account_idx').on(table.accountId),
-    index('chunk_document_idx').on(table.documentId)
-  ]
-)
+// ---------------------------------------------------------------------------
+// 7. Goals (1:N with Account) — campaign objectives
+// ---------------------------------------------------------------------------
 
-/**
- * 8. Goals table (1:N with Account): campaign objectives.
- */
 export const goalsTable = pgTable('goals', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -183,9 +159,10 @@ export const goalsTable = pgTable('goals', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 9. Preferences table (1:1 with Account): posting cadence and pillars.
- */
+// ---------------------------------------------------------------------------
+// 8. Preferences (1:1 with Account) — cadence and content pillars
+// ---------------------------------------------------------------------------
+
 export const preferencesTable = pgTable('preferences', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -199,9 +176,10 @@ export const preferencesTable = pgTable('preferences', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 10. Runs table (1:N with Account): pipeline execution lifecycle & logs.
- */
+// ---------------------------------------------------------------------------
+// 9. Runs (1:N with Account) — pipeline execution lifecycle
+// ---------------------------------------------------------------------------
+
 export const runsTable = pgTable('runs', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -211,7 +189,7 @@ export const runsTable = pgTable('runs', {
     onDelete: 'set null'
   }),
   workflow: varchar('workflow', { length: 30 }).notNull(),
-  status: varchar('status', { length: 20 }).default('pending').notNull(),
+  status: varchar('status', { length: 30 }).default('pending').notNull(),
   currentStep: integer('current_step').default(0).notNull(),
   totalSteps: integer('total_steps').default(3).notNull(),
   logs: jsonb('logs')
@@ -221,9 +199,10 @@ export const runsTable = pgTable('runs', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 11. Ideas table (1:N with Account): human approval gate for hooks & angles.
- */
+// ---------------------------------------------------------------------------
+// 10. Ideas (1:N with Account) — the human approval gate
+// ---------------------------------------------------------------------------
+
 export const ideasTable = pgTable('ideas', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -243,9 +222,10 @@ export const ideasTable = pgTable('ideas', {
   ...commonFieldDefs.dates
 })
 
-/**
- * 12. Post Drafts table (1:N with Account): final ready-to-post LinkedIn copy.
- */
+// ---------------------------------------------------------------------------
+// 11. Post Drafts (1:N with Account) — final copy for review and copy-out
+// ---------------------------------------------------------------------------
+
 export const postDraftsTable = pgTable('post_drafts', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -262,30 +242,34 @@ export const postDraftsTable = pgTable('post_drafts', {
   hashtags: jsonb('hashtags').$type<string[]>().default([]),
   charCount: integer('char_count').default(0).notNull(),
   status: varchar('status', { length: 20 }).default('draft').notNull(),
-  scheduledFor: commonFieldDefs.date('scheduled_for'),
   postedAt: commonFieldDefs.date('posted_at'),
   ...commonFieldDefs.dates
 })
 
+// ---------------------------------------------------------------------------
 // Convenience aliases
+// ---------------------------------------------------------------------------
+
 export const accounts = accountsTable
 export const voiceConfigs = voiceConfigsTable
 export const offerings = offeringsTable
 export const samplePosts = samplePostsTable
 export const audiences = audiencesTable
 export const knowledgeDocuments = knowledgeDocumentsTable
-export const documentChunks = documentChunksTable
 export const goals = goalsTable
 export const preferences = preferencesTable
 export const runs = runsTable
 export const ideas = ideasTable
 export const postDrafts = postDraftsTable
 
-// Backward-compatible alias for previous draftsTable
+// Backward-compatible aliases
 export const draftsTable = postDraftsTable
 export const drafts = postDraftsTable
 
-// Inferred TypeScript Types
+// ---------------------------------------------------------------------------
+// Inferred TypeScript types
+// ---------------------------------------------------------------------------
+
 export type Account = typeof accountsTable.$inferSelect
 export type NewAccount = typeof accountsTable.$inferInsert
 
@@ -303,9 +287,6 @@ export type NewAudience = typeof audiencesTable.$inferInsert
 
 export type KnowledgeDocument = typeof knowledgeDocumentsTable.$inferSelect
 export type NewKnowledgeDocument = typeof knowledgeDocumentsTable.$inferInsert
-
-export type DocumentChunk = typeof documentChunksTable.$inferSelect
-export type NewDocumentChunk = typeof documentChunksTable.$inferInsert
 
 export type Goal = typeof goalsTable.$inferSelect
 export type NewGoal = typeof goalsTable.$inferInsert
