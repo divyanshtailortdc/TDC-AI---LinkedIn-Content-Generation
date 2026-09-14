@@ -1,11 +1,11 @@
 'use server'
 
+import { db } from '@/db'
+import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
 import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
-import { db } from '@/db'
-import { accountsTable, offeringsTable, audiencesTable } from '@/db/schema'
 
 const offeringSchema = z.object({
   id: z.string().optional(),
@@ -13,14 +13,14 @@ const offeringSchema = z.object({
   type: z.string().default('service'),
   tagline: z.string().optional(),
   description: z.string().optional(),
-  url: z.string().url().optional().or(z.literal('')),
+  url: z.string().url().optional().or(z.literal(''))
 })
 
 const audienceSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, 'Audience name is required'),
   painPoints: z.array(z.string()).default([]),
-  goals: z.array(z.string()).default([]),
+  goals: z.array(z.string()).default([])
 })
 
 const accountFormSchema = z.object({
@@ -33,7 +33,7 @@ const accountFormSchema = z.object({
   company: z.string().optional(),
   websiteUrl: z.string().url().optional().or(z.literal('')),
   offerings: z.array(offeringSchema).default([]),
-  audiences: z.array(audienceSchema).default([]),
+  audiences: z.array(audienceSchema).default([])
 })
 
 const updateAccountSchema = z.object({
@@ -47,7 +47,7 @@ const updateAccountSchema = z.object({
   company: z.string().optional(),
   websiteUrl: z.string().url().optional().or(z.literal('')),
   offerings: z.array(offeringSchema).default([]),
-  audiences: z.array(audienceSchema).default([]),
+  audiences: z.array(audienceSchema).default([])
 })
 
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>
@@ -77,14 +77,16 @@ export async function createAccount(formData: FormData) {
   const raw = {
     name: formData.get('name') as string,
     accountType: formData.get('accountType') as string,
-    handle: (formData.get('handle') as string || '').toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
+    handle: ((formData.get('handle') as string) || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-'),
     headline: formData.get('headline') as string,
     bio: (formData.get('bio') as string) || undefined,
     avatarUrl: (formData.get('avatarUrl') as string) || undefined,
     company: (formData.get('company') as string) || undefined,
     websiteUrl: (formData.get('websiteUrl') as string) || undefined,
     offerings,
-    audiences,
+    audiences
   }
 
   const parsed = accountFormSchema.safeParse(raw)
@@ -103,7 +105,7 @@ export async function createAccount(formData: FormData) {
       bio: parsed.data.bio ?? null,
       avatarUrl: parsed.data.avatarUrl || null,
       company: parsed.data.company ?? null,
-      websiteUrl: parsed.data.websiteUrl || null,
+      websiteUrl: parsed.data.websiteUrl || null
     })
     .returning()
 
@@ -119,7 +121,7 @@ export async function createAccount(formData: FormData) {
         tagline: o.tagline || null,
         description: o.description || null,
         url: o.url || null,
-        isActive: true,
+        isActive: true
       }))
     )
   }
@@ -131,7 +133,7 @@ export async function createAccount(formData: FormData) {
         accountId: account.id,
         name: a.name,
         painPoints: a.painPoints,
-        goals: a.goals,
+        goals: a.goals
       }))
     )
   }
