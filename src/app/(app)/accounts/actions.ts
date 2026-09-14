@@ -1,8 +1,27 @@
 'use server'
 
 import { db } from '@/db'
-import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
-import { and, eq, ne } from 'drizzle-orm'
+import {
+  accountsTable,
+  audiencesTable,
+  feedbackTable,
+  goalsTable,
+  ideasTable,
+  knowledgeDocumentsTable,
+  offeringsTable,
+  postCitationsTable,
+  postDraftsTable,
+  postMediaTable,
+  postVariantsTable,
+  preferencesTable,
+  researchFindingsTable,
+  runsTable,
+  runStepsTable,
+  samplePostsTable,
+  schedulesTable,
+  voiceConfigsTable
+} from '@/db/schema'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
@@ -43,11 +62,11 @@ const updateAccountSchema = z.object({
   handle: z.string().trim().min(1, 'LinkedIn handle is required'),
   headline: z.string().trim().min(1, 'Headline is required'),
   bio: z.string().optional(),
-  avatarUrl: z.string().url().optional().or(z.literal('')),
+  avatarUrl: z.string().trim().optional().or(z.literal('')),
   company: z.string().optional(),
-  websiteUrl: z.string().url().optional().or(z.literal('')),
-  offerings: z.array(offeringSchema).default([]),
-  audiences: z.array(audienceSchema).default([])
+  websiteUrl: z.string().trim().optional().or(z.literal('')),
+  offerings: z.array(offeringSchema).optional(),
+  audiences: z.array(audienceSchema).optional()
 })
 
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>
@@ -195,46 +214,50 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       })
       .where(eq(accountsTable.id, validated.id))
 
-    // 4. Synchronize Offerings
-    await db
-      .delete(offeringsTable)
-      .where(eq(offeringsTable.accountId, validated.id))
+    // 4. Synchronize Offerings (only if explicitly provided)
+    if (validated.offerings !== undefined) {
+      await db
+        .delete(offeringsTable)
+        .where(eq(offeringsTable.accountId, validated.id))
 
-    if (validated.offerings && validated.offerings.length > 0) {
-      const cleanOfferings = validated.offerings
-        .filter(o => o.name.trim().length > 0)
-        .map(o => ({
-          accountId: validated.id,
-          name: o.name.trim(),
-          type: o.type || 'service',
-          tagline: o.tagline?.trim() || null,
-          description: o.description?.trim() || null,
-          url: o.url?.trim() || null,
-          isActive: true
-        }))
+      if (validated.offerings.length > 0) {
+        const cleanOfferings = validated.offerings
+          .filter(o => o.name.trim().length > 0)
+          .map(o => ({
+            accountId: validated.id,
+            name: o.name.trim(),
+            type: o.type || 'service',
+            tagline: o.tagline?.trim() || null,
+            description: o.description?.trim() || null,
+            url: o.url?.trim() || null,
+            isActive: true
+          }))
 
-      if (cleanOfferings.length > 0) {
-        await db.insert(offeringsTable).values(cleanOfferings)
+        if (cleanOfferings.length > 0) {
+          await db.insert(offeringsTable).values(cleanOfferings)
+        }
       }
     }
 
-    // 5. Synchronize Target Audiences
-    await db
-      .delete(audiencesTable)
-      .where(eq(audiencesTable.accountId, validated.id))
+    // 5. Synchronize Target Audiences (only if explicitly provided)
+    if (validated.audiences !== undefined) {
+      await db
+        .delete(audiencesTable)
+        .where(eq(audiencesTable.accountId, validated.id))
 
-    if (validated.audiences && validated.audiences.length > 0) {
-      const cleanAudiences = validated.audiences
-        .filter(a => a.name.trim().length > 0)
-        .map(a => ({
-          accountId: validated.id,
-          name: a.name.trim(),
-          painPoints: a.painPoints.map(p => p.trim()).filter(Boolean),
-          goals: a.goals.map(g => g.trim()).filter(Boolean)
-        }))
+      if (validated.audiences.length > 0) {
+        const cleanAudiences = validated.audiences
+          .filter(a => a.name.trim().length > 0)
+          .map(a => ({
+            accountId: validated.id,
+            name: a.name.trim(),
+            painPoints: a.painPoints.map(p => p.trim()).filter(Boolean),
+            goals: a.goals.map(g => g.trim()).filter(Boolean)
+          }))
 
-      if (cleanAudiences.length > 0) {
-        await db.insert(audiencesTable).values(cleanAudiences)
+        if (cleanAudiences.length > 0) {
+          await db.insert(audiencesTable).values(cleanAudiences)
+        }
       }
     }
 
@@ -252,6 +275,125 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     return {
       success: false,
       error: error?.message || 'Failed to update identity'
+    }
+  }
+}
+
+export async function deleteAccountAction(accountId: string) {
+  try {
+    const parsed = z
+      .string()
+      .uuid('Invalid account identifier')
+      .safeParse(accountId)
+    if (!parsed.success) {
+      return { success: false, error: 'Invalid account identifier' }
+    }
+    const id = parsed.data
+
+    // Verify account exists
+    const existing = await db.query.accountsTable.findFirst({
+      where: eq(accountsTable.id, id)
+    })
+    if (!existing) {
+      return { success: false, error: 'Account identity not found' }
+    }
+
+    // Perform comprehensive cascade deletion in a transaction
+    await db.transaction(async tx => {
+      // 1. Find all draft IDs belonging to this account
+      const drafts = await tx
+        .select({ id: postDraftsTable.id })
+        .from(postDraftsTable)
+        .where(eq(postDraftsTable.accountId, id))
+      const draftIds = drafts.map(d => d.id)
+
+      if (draftIds.length > 0) {
+        await tx
+          .delete(postVariantsTable)
+          .where(inArray(postVariantsTable.draftId, draftIds))
+        await tx
+          .delete(postCitationsTable)
+          .where(inArray(postCitationsTable.draftId, draftIds))
+        await tx
+          .delete(postMediaTable)
+          .where(inArray(postMediaTable.draftId, draftIds))
+      }
+
+      // 2. Find all runs belonging to this account
+      const runs = await tx
+        .select({ id: runsTable.id })
+        .from(runsTable)
+        .where(eq(runsTable.accountId, id))
+      const runIds = runs.map(r => r.id)
+
+      if (runIds.length > 0) {
+        await tx
+          .delete(runStepsTable)
+          .where(inArray(runStepsTable.runId, runIds))
+        await tx
+          .delete(researchFindingsTable)
+          .where(inArray(researchFindingsTable.runId, runIds))
+      }
+
+      // 3. Delete feedback entries
+      await tx.delete(feedbackTable).where(eq(feedbackTable.accountId, id))
+
+      // 4. Delete post drafts
+      await tx.delete(postDraftsTable).where(eq(postDraftsTable.accountId, id))
+
+      // 5. Delete ideas
+      await tx.delete(ideasTable).where(eq(ideasTable.accountId, id))
+
+      // 6. Delete schedules
+      await tx.delete(schedulesTable).where(eq(schedulesTable.accountId, id))
+
+      // 7. Delete runs
+      await tx.delete(runsTable).where(eq(runsTable.accountId, id))
+
+      // 8. Delete preferences
+      await tx
+        .delete(preferencesTable)
+        .where(eq(preferencesTable.accountId, id))
+
+      // 9. Delete goals
+      await tx.delete(goalsTable).where(eq(goalsTable.accountId, id))
+
+      // 10. Delete knowledge documents
+      await tx
+        .delete(knowledgeDocumentsTable)
+        .where(eq(knowledgeDocumentsTable.accountId, id))
+
+      // 11. Delete audiences
+      await tx.delete(audiencesTable).where(eq(audiencesTable.accountId, id))
+
+      // 12. Delete sample posts
+      await tx
+        .delete(samplePostsTable)
+        .where(eq(samplePostsTable.accountId, id))
+
+      // 13. Delete offerings
+      await tx.delete(offeringsTable).where(eq(offeringsTable.accountId, id))
+
+      // 14. Delete voice configs
+      await tx
+        .delete(voiceConfigsTable)
+        .where(eq(voiceConfigsTable.accountId, id))
+
+      // 15. Finally delete the account itself
+      await tx.delete(accountsTable).where(eq(accountsTable.id, id))
+    })
+
+    // Revalidate paths
+    revalidatePath('/')
+    revalidatePath('/accounts')
+    revalidatePath(`/accounts/${id}`)
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error deleting account and associated data:', error)
+    return {
+      success: false,
+      error: error?.message || 'Failed to delete account'
     }
   }
 }

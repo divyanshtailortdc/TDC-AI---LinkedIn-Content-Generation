@@ -1,21 +1,21 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import {
-  User,
-  Building2,
-  Briefcase,
-  Users,
-  Plus,
-  Trash2,
-  Save,
-  Loader2,
   AlertCircle,
+  Briefcase,
+  Building2,
   CheckCircle2,
-  X,
-  ExternalLink
+  Loader2,
+  Plus,
+  Save,
+  Trash2,
+  User,
+  Users,
+  X
 } from 'lucide-react'
+import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
 import { updateAccountAction } from '../actions'
 
 type AccountType = 'personal' | 'company'
@@ -124,7 +124,9 @@ export function EditIdentityForm({
     initialAudiences.map(a => ({
       id: a.id,
       name: a.name,
-      painPointsText: Array.isArray(a.painPoints) ? a.painPoints.join('\n') : '',
+      painPointsText: Array.isArray(a.painPoints)
+        ? a.painPoints.join('\n')
+        : '',
       goalsText: Array.isArray(a.goals) ? a.goals.join('\n') : ''
     }))
   )
@@ -154,7 +156,11 @@ export function EditIdentityForm({
     ])
   }
 
-  const updateOffering = (index: number, field: keyof OfferingItem, val: string) => {
+  const updateOffering = (
+    index: number,
+    field: keyof OfferingItem,
+    val: string
+  ) => {
     const updated = [...offerings]
     const item = updated[index]
     if (item) {
@@ -179,7 +185,11 @@ export function EditIdentityForm({
     ])
   }
 
-  const updateAudience = (index: number, field: keyof AudienceItem, val: string) => {
+  const updateAudience = (
+    index: number,
+    field: keyof AudienceItem,
+    val: string
+  ) => {
     const updated = [...audiences]
     const item = updated[index]
     if (item) {
@@ -202,7 +212,10 @@ export function EditIdentityForm({
     if (!name.trim()) {
       errors.name = 'Display name is required'
     }
-    const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    const cleanHandle = handle
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
     if (!cleanHandle) {
       errors.handle = 'LinkedIn handle is required'
     }
@@ -266,14 +279,14 @@ export function EditIdentityForm({
   }
 
   return (
-    <div className="space-y-8 mt-8">
+    <div className="mt-8 space-y-8">
       {/* Notifications */}
       {error && (
-        <div className="flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-600 dark:text-red-400 animate-in fade-in duration-200">
+        <div className="animate-in fade-in flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-600 duration-200 dark:text-red-400">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="space-y-1">
-              <p className="font-semibold leading-relaxed">{error}</p>
+              <p className="leading-relaxed font-semibold">{error}</p>
               {Object.keys(fieldErrors).length > 0 && (
                 <p className="text-[11px] opacity-85">
                   Please review the highlighted fields below.
@@ -292,30 +305,32 @@ export function EditIdentityForm({
       )}
 
       {saveSuccess && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-600 dark:text-emerald-400 animate-in fade-in duration-200">
+        <div className="animate-in fade-in flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-600 duration-200 dark:text-emerald-400">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           <p className="font-medium">
-            LinkedIn Identity updated successfully! Profile header and setup details are synced.
+            LinkedIn Identity updated successfully! Profile header and setup
+            details are synced.
           </p>
         </div>
       )}
 
       {/* Section 1 — Identity Type */}
       <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xs">
-        <label className="block text-sm font-semibold text-[var(--foreground)] mb-1">
+        <label className="mb-1 block text-sm font-semibold text-[var(--foreground)]">
           What kind of Identity is this?
         </label>
-        <p className="text-xs text-[var(--muted)] mb-4">
-          Defines whether the AI drafts content from an executive individual perspective or a brand/company voice.
+        <p className="mb-4 text-xs text-[var(--muted)]">
+          Defines whether the AI drafts content from an executive individual
+          perspective or a brand/company voice.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {typeOptions.map(opt => (
             <button
               key={opt.value}
               type="button"
               onClick={() => setAccountType(opt.value)}
-              className={`flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
+              className={`flex items-start gap-3 rounded-xl border-2 p-4 text-left transition-all ${
                 accountType === opt.value
                   ? 'border-[var(--accent)] bg-[var(--accent)]/5'
                   : 'border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)]/40'
@@ -340,7 +355,7 @@ export function EditIdentityForm({
                 >
                   {opt.label}
                 </p>
-                <p className="text-xs text-[var(--muted)] mt-0.5 leading-relaxed">
+                <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">
                   {opt.description}
                 </p>
               </div>
@@ -350,14 +365,15 @@ export function EditIdentityForm({
       </section>
 
       {/* Section 2 — Core identity */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5 shadow-xs">
+      <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xs">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-[var(--foreground)]">
               Core identity
             </h2>
-            <p className="text-xs text-[var(--muted)] mt-0.5">
-              Essential background information used by AI across ideation, hooks, and drafts.
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              Essential background information used by AI across ideation,
+              hooks, and drafts.
             </p>
           </div>
           <span className="font-mono text-xs font-semibold text-[var(--muted)] uppercase">
@@ -365,10 +381,10 @@ export function EditIdentityForm({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           {/* Display Name */}
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+            <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
               Display name <span className="text-rose-500">*</span>
             </label>
             <input
@@ -383,20 +399,20 @@ export function EditIdentityForm({
                   ? 'e.g. Aditya Sharma'
                   : 'e.g. Acme AI'
               }
-              className={`w-full rounded-lg border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors ${
+              className={`w-full rounded-lg border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden ${
                 fieldErrors.name
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-[var(--border)]'
               }`}
             />
             {fieldErrors.name && (
-              <p className="text-xs text-red-500 mt-1">{fieldErrors.name}</p>
+              <p className="mt-1 text-xs text-red-500">{fieldErrors.name}</p>
             )}
           </div>
 
           {/* LinkedIn handle / slug */}
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+            <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
               LinkedIn handle / slug <span className="text-rose-500">*</span>
             </label>
             <input
@@ -407,24 +423,24 @@ export function EditIdentityForm({
                 clearFieldError('handle')
               }}
               placeholder="e.g. aditya-sharma"
-              className={`w-full rounded-lg border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors ${
+              className={`w-full rounded-lg border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden ${
                 fieldErrors.handle
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-[var(--border)]'
               }`}
             />
-            <p className="text-xs text-[var(--muted)] mt-1.5">
+            <p className="mt-1.5 text-xs text-[var(--muted)]">
               Unique identifier slug for this identity
             </p>
             {fieldErrors.handle && (
-              <p className="text-xs text-red-500 mt-1">{fieldErrors.handle}</p>
+              <p className="mt-1 text-xs text-red-500">{fieldErrors.handle}</p>
             )}
           </div>
         </div>
 
         {/* Headline */}
         <div>
-          <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+          <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
             Headline <span className="text-rose-500">*</span>
           </label>
           <input
@@ -439,23 +455,24 @@ export function EditIdentityForm({
                 ? 'e.g. Founder & CEO @ Acme | Scaling AI to 1M Users'
                 : 'e.g. The Autonomous LinkedIn AI Engine for High-Growth Founders'
             }
-            className={`w-full rounded-lg border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors ${
+            className={`w-full rounded-lg border bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden ${
               fieldErrors.headline
                 ? 'border-red-500/60 ring-1 ring-red-500/30'
                 : 'border-[var(--border)]'
             }`}
           />
-          <p className="text-xs text-[var(--muted)] mt-1.5">
-            Paste it verbatim — the AI uses this to match how you present yourself.
+          <p className="mt-1.5 text-xs text-[var(--muted)]">
+            Paste it verbatim — the AI uses this to match how you present
+            yourself.
           </p>
           {fieldErrors.headline && (
-            <p className="text-xs text-red-500 mt-1">{fieldErrors.headline}</p>
+            <p className="mt-1 text-xs text-red-500">{fieldErrors.headline}</p>
           )}
         </div>
 
         {/* Bio / About */}
         <div>
-          <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+          <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
             Bio / About
           </label>
           <textarea
@@ -463,15 +480,15 @@ export function EditIdentityForm({
             value={bio}
             onChange={e => setBio(e.target.value)}
             placeholder="Paste your LinkedIn 'About' section or a short overview of your background, experience, and ethos."
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors resize-none"
+            className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden"
           />
         </div>
 
         {/* Company & Website URL */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           {accountType === 'personal' ? (
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+              <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                 Current company / Project
               </label>
               <input
@@ -479,12 +496,12 @@ export function EditIdentityForm({
                 value={company}
                 onChange={e => setCompany(e.target.value)}
                 placeholder="e.g. The Developer Company"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden"
               />
             </div>
           ) : (
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+              <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                 Parent Company / Brand
               </label>
               <input
@@ -492,13 +509,13 @@ export function EditIdentityForm({
                 value={company}
                 onChange={e => setCompany(e.target.value)}
                 placeholder="e.g. Acme Corp"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+            <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
               Website URL
             </label>
             <input
@@ -506,14 +523,14 @@ export function EditIdentityForm({
               value={websiteUrl}
               onChange={e => setWebsiteUrl(e.target.value)}
               placeholder="https://example.com"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden"
             />
           </div>
         </div>
 
         {/* Avatar URL */}
         <div>
-          <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+          <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
             Profile avatar URL
           </label>
           <input
@@ -521,40 +538,42 @@ export function EditIdentityForm({
             value={avatarUrl}
             onChange={e => setAvatarUrl(e.target.value)}
             placeholder="https://images.unsplash.com/... or https://media.licdn.com/..."
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/50 focus:outline-hidden focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] transition-colors placeholder:text-[var(--muted)]/50 focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/40 focus:outline-hidden"
           />
-          <p className="text-xs text-[var(--muted)] mt-1.5">
+          <p className="mt-1.5 text-xs text-[var(--muted)]">
             Image URL used for avatar and LinkedIn post previews.
           </p>
         </div>
       </section>
 
       {/* Section 3 — Offerings (What you sell & Proof points) */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5 shadow-xs">
+      <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xs">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-              <Briefcase className="w-4 h-4 text-[var(--accent)]" />
+            <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--foreground)]">
+              <Briefcase className="h-4 w-4 text-[var(--accent)]" />
               Offerings & Proof Points
             </h2>
-            <p className="text-xs text-[var(--muted)] mt-0.5">
-              What you sell, who it is for, and real proof points (metrics, customers, logos) to prevent hallucinations.
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              What you sell, who it is for, and real proof points (metrics,
+              customers, logos) to prevent hallucinations.
             </p>
           </div>
           <button
             type="button"
             onClick={addOffering}
-            className="flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg transition-colors border border-[var(--accent)]/20"
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/20 px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/10"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="h-3.5 w-3.5" />
             Add offering
           </button>
         </div>
 
         {offerings.length === 0 ? (
-          <div className="py-8 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--background)]/50">
+          <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--background)]/50 py-8 text-center">
             <p className="text-xs text-[var(--muted)]">
-              No offerings added yet. Click &quot;Add offering&quot; to define what you sell.
+              No offerings added yet. Click &quot;Add offering&quot; to define
+              what you sell.
             </p>
           </div>
         ) : (
@@ -562,76 +581,87 @@ export function EditIdentityForm({
             {offerings.map((offering, idx) => (
               <div
                 key={idx}
-                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] space-y-3 relative shadow-2xs"
+                className="relative space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 shadow-2xs"
               >
                 <button
                   type="button"
                   onClick={() => removeOffering(idx)}
-                  className="absolute top-3 right-3 text-[var(--muted)] hover:text-rose-500 transition-colors p-1"
+                  className="absolute top-3 right-3 p-1 text-[var(--muted)] transition-colors hover:text-rose-500"
                   title="Remove offering"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="h-4 w-4" />
                 </button>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-8">
+                <div className="grid grid-cols-1 gap-3 pr-8 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                    <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                       Offering Name
                     </label>
                     <input
                       type="text"
                       value={offering.name}
-                      onChange={e => updateOffering(idx, 'name', e.target.value)}
+                      onChange={e =>
+                        updateOffering(idx, 'name', e.target.value)
+                      }
                       placeholder="e.g. AI Engineering Consulting"
                       className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                    <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                       Type
                     </label>
                     <select
                       value={offering.type}
-                      onChange={e => updateOffering(idx, 'type', e.target.value)}
+                      onChange={e =>
+                        updateOffering(idx, 'type', e.target.value)
+                      }
                       className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
                     >
                       <option value="service">Service / Agency</option>
                       <option value="product">SaaS / Software Product</option>
                       <option value="community">Community / Membership</option>
                       <option value="course">Course / Info Product</option>
-                      <option value="lead_magnet">Free Lead Magnet / Newsletter</option>
+                      <option value="lead_magnet">
+                        Free Lead Magnet / Newsletter
+                      </option>
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                  <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                     Who it is for &amp; Problem solved
                   </label>
                   <input
                     type="text"
                     value={offering.tagline}
-                    onChange={e => updateOffering(idx, 'tagline', e.target.value)}
+                    onChange={e =>
+                      updateOffering(idx, 'tagline', e.target.value)
+                    }
                     placeholder="e.g. For Seed-Stage CTOs struggling with AI accuracy and latency"
                     className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
-                    Description &amp; Proof Points (Real numbers, client results)
+                  <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
+                    Description &amp; Proof Points (Real numbers, client
+                    results)
                   </label>
                   <textarea
                     rows={2}
                     value={offering.description}
-                    onChange={e => updateOffering(idx, 'description', e.target.value)}
+                    onChange={e =>
+                      updateOffering(idx, 'description', e.target.value)
+                    }
                     placeholder="e.g. Helped TechCorp reduce LLM cost by 62% in 3 weeks. 15 enterprise deployments completed."
-                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+                    className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                  <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                     Offering URL (optional)
                   </label>
                   <input
@@ -649,31 +679,33 @@ export function EditIdentityForm({
       </section>
 
       {/* Section 4 — Target Audiences */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5 shadow-xs">
+      <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xs">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-              <Users className="w-4 h-4 text-[var(--accent)]" />
+            <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--foreground)]">
+              <Users className="h-4 w-4 text-[var(--accent)]" />
               Target Audiences
             </h2>
-            <p className="text-xs text-[var(--muted)] mt-0.5">
-              Define the job titles, seniority, pain points, and desires of who you write for.
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              Define the job titles, seniority, pain points, and desires of who
+              you write for.
             </p>
           </div>
           <button
             type="button"
             onClick={addAudience}
-            className="flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg transition-colors border border-[var(--accent)]/20"
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/20 px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/10"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="h-3.5 w-3.5" />
             Add audience
           </button>
         </div>
 
         {audiences.length === 0 ? (
-          <div className="py-8 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--background)]/50">
+          <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--background)]/50 py-8 text-center">
             <p className="text-xs text-[var(--muted)]">
-              No audiences added yet. Click &quot;Add audience&quot; to define your target reader.
+              No audiences added yet. Click &quot;Add audience&quot; to define
+              your target reader.
             </p>
           </div>
         ) : (
@@ -681,19 +713,19 @@ export function EditIdentityForm({
             {audiences.map((audience, idx) => (
               <div
                 key={idx}
-                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] space-y-3 relative shadow-2xs"
+                className="relative space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 shadow-2xs"
               >
                 <button
                   type="button"
                   onClick={() => removeAudience(idx)}
-                  className="absolute top-3 right-3 text-[var(--muted)] hover:text-rose-500 transition-colors p-1"
+                  className="absolute top-3 right-3 p-1 text-[var(--muted)] transition-colors hover:text-rose-500"
                   title="Remove audience"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="h-4 w-4" />
                 </button>
 
                 <div className="pr-8">
-                  <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                  <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                     Audience Segment &amp; Seniority
                   </label>
                   <input
@@ -705,9 +737,9 @@ export function EditIdentityForm({
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                    <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                       Pain points (one per line)
                     </label>
                     <textarea
@@ -717,11 +749,11 @@ export function EditIdentityForm({
                         updateAudience(idx, 'painPointsText', e.target.value)
                       }
                       placeholder="e.g. AI prototypes failing in production&#10;High token costs&#10;Lack of evaluation benchmarks"
-                      className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+                      className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+                    <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
                       Goals &amp; Desires (one per line)
                     </label>
                     <textarea
@@ -731,7 +763,7 @@ export function EditIdentityForm({
                         updateAudience(idx, 'goalsText', e.target.value)
                       }
                       placeholder="e.g. Ship reliable AI features faster&#10;Proven architectures they can show leadership&#10;Clear ROI"
-                      className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+                      className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
                     />
                   </div>
                 </div>
@@ -739,6 +771,27 @@ export function EditIdentityForm({
             ))}
           </div>
         )}
+      </section>
+
+      {/* Danger Zone */}
+      <section className="rounded-2xl border border-red-500/20 bg-red-500/[0.02] p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-red-600 dark:text-red-400">
+              Delete Identity
+            </h2>
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              Permanently remove this LinkedIn identity and all associated voice
+              profiles, knowledge bases, posts, and campaign data.
+            </p>
+          </div>
+          <DeleteIdentityDialog
+            accountId={account.id}
+            accountName={account.name}
+            triggerVariant="danger-button"
+            redirectOnDelete="/"
+          />
+        </div>
       </section>
 
       {/* Sticky Save Footer */}
@@ -757,7 +810,7 @@ export function EditIdentityForm({
           type="button"
           disabled={isPending}
           onClick={handleSave}
-          className="flex items-center gap-2 rounded-xl bg-[var(--accent)] px-6 py-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] disabled:opacity-50 cursor-pointer"
+          className="flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--accent)] px-6 py-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] disabled:opacity-50"
         >
           {isPending ? (
             <>
