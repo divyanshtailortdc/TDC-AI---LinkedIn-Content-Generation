@@ -100,6 +100,7 @@ Stores strictly identity and public profile metadata.
 | `url` | `text` | NULL | Target CTA link |
 | `is_active` | `boolean` | NOT NULL, default true | Active flag for campaign inclusion |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
 ---
 
@@ -129,6 +130,7 @@ Stores strictly identity and public profile metadata.
 | `pain_points` | `jsonb` | default '[]'::jsonb | Key struggles (`["Cloud cost", "Hiring"]`) |
 | `goals` | `jsonb` | default '[]'::jsonb | Core objectives |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
 ---
 
@@ -146,6 +148,7 @@ Ingested articles, internal notes, URLs, and summaries.
 | `summary` | `text` | NULL | 2-sentence executive summary |
 | `tags` | `jsonb` | default '[]'::jsonb | Categorization tags |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
 ---
 
@@ -176,6 +179,7 @@ Content campaign objectives.
 | `target_count` | `integer` | NOT NULL, default 5 | Number of approved posts needed |
 | `is_active` | `boolean` | NOT NULL, default true | Active campaign flag |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
 ---
 
@@ -189,6 +193,7 @@ Content campaign objectives.
 | `posts_per_week` | `integer` | NOT NULL, default 3 | Target posting frequency |
 | `pillars` | `jsonb` | default '[]'::jsonb | Content pillars and weight percentages |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
 ---
 
@@ -226,6 +231,7 @@ The Human Approval Gate: brainstormed angles and hooks.
 | `score` | `integer` | NOT NULL, default 80 | Predicted engagement score (1–100) |
 | `status` | `varchar(20)` | NOT NULL, default 'suggested' | `'suggested'` \| `'approved'` \| `'rejected'` \| `'drafted'` |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
 ---
 

@@ -85,9 +85,7 @@ export const offeringsTable = pgTable('offerings', {
   description: text('description'),
   url: text('url'),
   isActive: boolean('is_active').default(true).notNull(),
-  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow()
+  ...commonFieldDefs.dates
 })
 
 /**
@@ -118,9 +116,7 @@ export const audiencesTable = pgTable('audiences', {
   name: text('name').notNull(),
   painPoints: jsonb('pain_points').$type<string[]>().default([]),
   goals: jsonb('goals').$type<string[]>().default([]),
-  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow()
+  ...commonFieldDefs.dates
 })
 
 /**
@@ -137,9 +133,7 @@ export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
   content: text('content').notNull(),
   summary: text('summary'),
   tags: jsonb('tags').$type<string[]>().default([]),
-  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow()
+  ...commonFieldDefs.dates
 })
 
 /**
@@ -186,9 +180,7 @@ export const goalsTable = pgTable('goals', {
     .notNull(),
   targetCount: integer('target_count').default(5).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
-  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow()
+  ...commonFieldDefs.dates
 })
 
 /**
@@ -204,9 +196,7 @@ export const preferencesTable = pgTable('preferences', {
   pillars: jsonb('pillars')
     .$type<Array<{ name: string; weight: number }>>()
     .default([]),
-  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow()
+  ...commonFieldDefs.dates
 })
 
 /**
@@ -250,9 +240,7 @@ export const ideasTable = pgTable('ideas', {
   pillar: text('pillar'),
   score: integer('score').default(80).notNull(),
   status: varchar('status', { length: 20 }).default('suggested').notNull(),
-  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
-    .notNull()
-    .defaultNow()
+  ...commonFieldDefs.dates
 })
 
 /**

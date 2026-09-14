@@ -21,7 +21,8 @@ CREATE TABLE "audiences" (
 	"name" text NOT NULL,
 	"pain_points" jsonb DEFAULT '[]'::jsonb,
 	"goals" jsonb DEFAULT '[]'::jsonb,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "document_chunks" (
@@ -57,7 +58,8 @@ CREATE TABLE "goals" (
 	"objective" varchar(30) DEFAULT 'thought_leadership' NOT NULL,
 	"target_count" integer DEFAULT 5 NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "ideas" (
@@ -70,7 +72,8 @@ CREATE TABLE "ideas" (
 	"pillar" text,
 	"score" integer DEFAULT 80 NOT NULL,
 	"status" varchar(20) DEFAULT 'suggested' NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "knowledge_documents" (
@@ -82,7 +85,8 @@ CREATE TABLE "knowledge_documents" (
 	"content" text NOT NULL,
 	"summary" text,
 	"tags" jsonb DEFAULT '[]'::jsonb,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "offerings" (
@@ -94,7 +98,8 @@ CREATE TABLE "offerings" (
 	"description" text,
 	"url" text,
 	"is_active" boolean DEFAULT true NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "preferences" (
@@ -103,6 +108,7 @@ CREATE TABLE "preferences" (
 	"posts_per_week" integer DEFAULT 3 NOT NULL,
 	"pillars" jsonb DEFAULT '[]'::jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "preferences_account_id_unique" UNIQUE("account_id")
 );
 --> statement-breakpoint
