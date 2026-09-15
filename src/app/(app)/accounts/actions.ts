@@ -1,27 +1,8 @@
 'use server'
 
 import { db } from '@/db'
-import {
-  accountsTable,
-  audiencesTable,
-  feedbackTable,
-  goalsTable,
-  ideasTable,
-  knowledgeDocumentsTable,
-  offeringsTable,
-  postCitationsTable,
-  postDraftsTable,
-  postMediaTable,
-  postVariantsTable,
-  preferencesTable,
-  researchFindingsTable,
-  runsTable,
-  runStepsTable,
-  samplePostsTable,
-  schedulesTable,
-  voiceConfigsTable
-} from '@/db/schema'
-import { and, eq, inArray, ne } from 'drizzle-orm'
+import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
+import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
@@ -42,15 +23,47 @@ const audienceSchema = z.object({
   goals: z.array(z.string()).default([])
 })
 
+function extractAndSanitizeHandle(
+  rawInput: string | null | undefined,
+  nameFallback: string = ''
+): string {
+  let cleaned = (rawInput || '').trim()
+
+  // Extract handle if user pasted full LinkedIn URL (e.g. linkedin.com/in/aditya-kumar-376474235 or linkedin.com/company/acme)
+  const linkedinMatch = cleaned.match(
+    /(?:linkedin\.com\/(?:in|company)\/)([^/?#]+)/i
+  )
+  if (linkedinMatch && linkedinMatch[1]) {
+    cleaned = linkedinMatch[1]
+  }
+
+  // Remove URL scheme or slashes if user typed https://...
+  cleaned = cleaned.replace(/^https?:\/\//i, '').replace(/^www\./i, '')
+
+  // Fallback to name if empty
+  if (!cleaned) {
+    cleaned = nameFallback.trim()
+  }
+
+  // Convert to clean URL slug
+  const slug = cleaned
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return slug || 'identity'
+}
+
 const accountFormSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   accountType: z.enum(['personal', 'company']),
   handle: z.string().min(1, 'Handle is required'),
   headline: z.string().min(1, 'Headline is required'),
   bio: z.string().optional(),
-  avatarUrl: z.string().url().optional().or(z.literal('')),
+  avatarUrl: z.string().trim().optional().or(z.literal('')),
   company: z.string().optional(),
-  websiteUrl: z.string().url().optional().or(z.literal('')),
+  websiteUrl: z.string().trim().optional().or(z.literal('')),
   offerings: z.array(offeringSchema).default([]),
   audiences: z.array(audienceSchema).default([])
 })
@@ -93,13 +106,31 @@ export async function createAccount(formData: FormData) {
     console.error('Error parsing audiences:', err)
   }
 
+  const rawName = (formData.get('name') as string) || ''
+  const baseHandle = extractAndSanitizeHandle(
+    formData.get('handle') as string,
+    rawName
+  )
+
+  // Deduplicate handle against existing accounts to prevent unique constraint crash
+  let candidateHandle = baseHandle
+  let counter = 1
+  while (true) {
+    const existing = await db.query.accountsTable.findFirst({
+      where: eq(accountsTable.handle, candidateHandle)
+    })
+    if (!existing) {
+      break
+    }
+    counter++
+    candidateHandle = `${baseHandle}-${counter}`
+  }
+
   const raw = {
-    name: formData.get('name') as string,
+    name: rawName,
     accountType: formData.get('accountType') as string,
-    handle: ((formData.get('handle') as string) || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '-'),
-    headline: formData.get('headline') as string,
+    handle: candidateHandle,
+    headline: (formData.get('headline') as string) || '',
     bio: (formData.get('bio') as string) || undefined,
     avatarUrl: (formData.get('avatarUrl') as string) || undefined,
     company: (formData.get('company') as string) || undefined,
@@ -113,20 +144,45 @@ export async function createAccount(formData: FormData) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
 
-  // Insert account
-  const [account] = await db
-    .insert(accountsTable)
-    .values({
-      name: parsed.data.name,
-      accountType: parsed.data.accountType,
-      handle: parsed.data.handle,
-      headline: parsed.data.headline,
-      bio: parsed.data.bio ?? null,
-      avatarUrl: parsed.data.avatarUrl || null,
-      company: parsed.data.company ?? null,
-      websiteUrl: parsed.data.websiteUrl || null
-    })
-    .returning()
+  // Insert account with fallback handling for race conditions
+  let account: typeof accountsTable.$inferSelect | undefined
+  try {
+    const [inserted] = await db
+      .insert(accountsTable)
+      .values({
+        name: parsed.data.name,
+        accountType: parsed.data.accountType,
+        handle: candidateHandle,
+        headline: parsed.data.headline,
+        bio: parsed.data.bio ?? null,
+        avatarUrl: parsed.data.avatarUrl || null,
+        company: parsed.data.company ?? null,
+        websiteUrl: parsed.data.websiteUrl || null
+      })
+      .returning()
+    account = inserted
+  } catch (err: any) {
+    // If unique constraint violation occurs concurrently, append a unique suffix
+    if (err?.code === '23505' || err?.cause?.code === '23505') {
+      const fallbackHandle = `${candidateHandle}-${Date.now().toString(36)}`
+      const [inserted] = await db
+        .insert(accountsTable)
+        .values({
+          name: parsed.data.name,
+          accountType: parsed.data.accountType,
+          handle: fallbackHandle,
+          headline: parsed.data.headline,
+          bio: parsed.data.bio ?? null,
+          avatarUrl: parsed.data.avatarUrl || null,
+          company: parsed.data.company ?? null,
+          websiteUrl: parsed.data.websiteUrl || null
+        })
+        .returning()
+      account = inserted
+    } else {
+      throw err
+    }
+  }
 
   if (!account) throw new Error('Failed to create account')
 
@@ -157,14 +213,17 @@ export async function createAccount(formData: FormData) {
     )
   }
 
+  revalidatePath('/')
+  revalidatePath('/accounts')
   redirect(`/accounts/${account.id}`)
 }
 
 export async function updateAccountAction(input: UpdateAccountInput) {
   try {
+    const rawHandle = extractAndSanitizeHandle(input.handle, input.name)
     const parsed = updateAccountSchema.safeParse({
       ...input,
-      handle: (input.handle || '').toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+      handle: rawHandle
     })
 
     if (!parsed.success) {
