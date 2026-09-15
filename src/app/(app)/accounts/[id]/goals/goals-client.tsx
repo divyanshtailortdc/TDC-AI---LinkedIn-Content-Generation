@@ -14,7 +14,8 @@ import {
   Target,
   Trash2,
   Users,
-  X
+  X,
+  Edit2
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -22,6 +23,7 @@ import {
   createGoal,
   deleteGoal,
   toggleGoalActive,
+  updateGoal,
   type GoalPayload
 } from './actions'
 
@@ -85,6 +87,26 @@ export function GoalsClient({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
+
+  const resetForm = () => {
+    setTitle('')
+    setDescription('')
+    setKeyMessage('')
+    setSelectedProofIds([])
+    setDesiredAction('')
+    setTargetUrl('')
+    setSuccessMetric('')
+    setDosText('')
+    setDontsText('')
+    setEditingGoalId(null)
+    setWeight(7)
+    setTargetCount(5)
+    setObjectiveType('authority')
+    setLinkStrategy('first_comment')
+    setStartDate('')
+    setEndDate('')
+  }
 
   const toggleProofAsset = (id: string) => {
     if (selectedProofIds.includes(id)) {
@@ -120,41 +142,59 @@ export function GoalsClient({
         .map(s => s.trim())
         .filter(Boolean)
 
-      await createGoal(accountId, {
-        title,
-        description,
-        objectiveType,
-        audienceId: audienceId || undefined,
-        keyMessage,
-        proofAssetIds: selectedProofIds,
-        desiredAction,
-        targetUrl,
-        linkStrategy,
-        successMetric,
-        weight,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        active: true,
-        dos,
-        donts,
-        targetCount
-      })
+      if (editingGoalId) {
+        await updateGoal(editingGoalId, accountId, {
+          title,
+          description,
+          objectiveType,
+          audienceId: audienceId || undefined,
+          keyMessage,
+          proofAssetIds: selectedProofIds,
+          desiredAction,
+          targetUrl,
+          linkStrategy,
+          successMetric,
+          weight,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          active: true,
+          dos,
+          donts,
+          targetCount
+        })
+        showToast({
+          type: 'success',
+          title: 'Goal Updated',
+          message: `Campaign goal "${title.trim()}" updated successfully.`
+        })
+      } else {
+        await createGoal(accountId, {
+          title,
+          description,
+          objectiveType,
+          audienceId: audienceId || undefined,
+          keyMessage,
+          proofAssetIds: selectedProofIds,
+          desiredAction,
+          targetUrl,
+          linkStrategy,
+          successMetric,
+          weight,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          active: true,
+          dos,
+          donts,
+          targetCount
+        })
+        showToast({
+          type: 'success',
+          title: 'Goal Saved',
+          message: `Campaign goal "${title.trim()}" created successfully.`
+        })
+      }
 
-      showToast({
-        type: 'success',
-        title: 'Goal Saved',
-        message: `Campaign goal "${title.trim()}" created successfully.`
-      })
-
-      setTitle('')
-      setDescription('')
-      setKeyMessage('')
-      setSelectedProofIds([])
-      setDesiredAction('')
-      setTargetUrl('')
-      setSuccessMetric('')
-      setDosText('')
-      setDontsText('')
+      resetForm()
       setShowNewGoal(false)
       router.refresh()
     } catch (err: any) {
@@ -201,6 +241,10 @@ export function GoalsClient({
         title: 'Goal Deleted',
         message: 'Campaign goal has been removed.'
       })
+      if (editingGoalId === goalId) {
+        resetForm()
+        setShowNewGoal(false)
+      }
       router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to delete goal')
@@ -212,6 +256,28 @@ export function GoalsClient({
     } finally {
       setActionId(null)
     }
+  }
+
+  const handleEdit = (goal: any) => {
+    setTitle(goal.displayTitle)
+    setDescription(goal.description)
+    setObjectiveType(goal.objectiveType)
+    setAudienceId(goal.audienceId || (audiences[0]?.id || ''))
+    setKeyMessage(goal.keyMessage)
+    setSelectedProofIds(goal.proofAssetIds)
+    setDesiredAction(goal.desiredAction)
+    setTargetUrl(goal.targetUrl)
+    setLinkStrategy(goal.linkStrategy)
+    setSuccessMetric(goal.successMetric)
+    setWeight(goal.weight)
+    setStartDate(goal.startDate)
+    setEndDate(goal.endDate)
+    setDosText(goal.dos.join('\n'))
+    setDontsText(goal.donts.join('\n'))
+    setTargetCount(goal.targetCount)
+    setEditingGoalId(goal.id)
+    setShowNewGoal(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const parsedGoals = initialGoals.map(g => {
@@ -277,7 +343,10 @@ export function GoalsClient({
         {!showNewGoal && (
           <button
             type="button"
-            onClick={() => setShowNewGoal(true)}
+            onClick={() => {
+              resetForm()
+              setShowNewGoal(true)
+            }}
             className="bg-accent hover:bg-accent-hover text-background flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
           >
             <Plus className="h-4 w-4" />
@@ -301,12 +370,15 @@ export function GoalsClient({
           <div className="border-border flex items-center justify-between border-b pb-3">
             <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
               <Compass className="text-accent h-4 w-4" />
-              Define New Campaign Goal
+              {editingGoalId ? 'Edit Campaign Goal' : 'Define New Campaign Goal'}
             </h2>
             {initialGoals.length > 0 && (
               <button
                 type="button"
-                onClick={() => setShowNewGoal(false)}
+                onClick={() => {
+                  resetForm()
+                  setShowNewGoal(false)
+                }}
                 className="text-muted hover:text-foreground text-xs"
               >
                 Cancel
@@ -606,6 +678,8 @@ export function GoalsClient({
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Saving goal…
                 </>
+              ) : editingGoalId ? (
+                'Update Campaign Goal →'
               ) : (
                 'Save Campaign Goal →'
               )}
@@ -776,6 +850,16 @@ export function GoalsClient({
                         }`}
                       >
                         {g.isActive ? 'Active' : 'Paused'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(g)}
+                        disabled={actionId === g.id}
+                        className="text-muted p-1 transition-colors hover:text-accent"
+                        title="Edit goal"
+                      >
+                        <Edit2 className="h-4 w-4" />
                       </button>
 
                       <button

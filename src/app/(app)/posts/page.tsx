@@ -4,7 +4,8 @@ import {
   postDraftsTable,
   postVariantsTable,
   postCitationsTable,
-  postMediaTable
+  postMediaTable,
+  ideasTable
 } from '@/db/schema'
 import { desc, eq, inArray } from 'drizzle-orm'
 import { PostsClient, type PostDetail } from './posts-client'
@@ -27,10 +28,12 @@ export default async function PostsPage() {
         lintFindings: postDraftsTable.lintFindings,
         createdAt: postDraftsTable.createdAt,
         accountName: accountsTable.name,
-        accountHeadline: accountsTable.headline
+        accountHeadline: accountsTable.headline,
+        runId: ideasTable.runId
       })
       .from(postDraftsTable)
       .leftJoin(accountsTable, eq(postDraftsTable.accountId, accountsTable.id))
+      .leftJoin(ideasTable, eq(postDraftsTable.ideaId, ideasTable.id))
       .orderBy(desc(postDraftsTable.createdAt)),
     db
       .select({
@@ -98,6 +101,7 @@ export default async function PostsPage() {
       charCount: draft.charCount,
       status: draft.status,
       createdAt: draft.createdAt,
+      runId: draft.runId,
       variants,
       citations,
       media: media

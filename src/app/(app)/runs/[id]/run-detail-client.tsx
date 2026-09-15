@@ -19,6 +19,7 @@ import {
   BookOpen,
   FileText
 } from 'lucide-react'
+import { PageHeader } from '@/components/page-header'
 import { fetchRunStatus } from '../actions'
 import { approveIdea, rejectIdea, draftApprovedIdeas } from '../../ideas/actions'
 
@@ -95,7 +96,7 @@ export function RunDetailClient({
       if (res.success) {
         setActionMessage(`Drafting complete! Redirecting to the review queue...`)
         setTimeout(() => {
-          router.push('/posts')
+          router.push(`/posts?runId=${run.id}`)
         }, 1200)
       } else {
         setActionMessage(res.error || 'Failed to draft')
@@ -115,41 +116,22 @@ export function RunDetailClient({
   const approvedCount = ideas.filter((i) => i.status === 'approved').length
 
   return (
-    <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <Link
-          href="/runs"
-          className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground mb-4"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to Runs</span>
-        </Link>
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                Run for {account.name}
-              </h1>
-              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${
-                run.status === 'completed'
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'
-                  : run.status === 'awaiting_idea_approval'
-                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'
-                    : run.status === 'failed'
-                      ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600'
-                      : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600'
-              }`}>
-                {run.status.replace(/_/g, ' ')}
-              </span>
-            </div>
-            <p className="text-xs text-muted mt-1 font-mono">
-              Run ID: {run.id} • Trigger: {run.trigger} • Model: {run.model || 'claude-opus-5'}
-            </p>
-          </div>
-
-          {run.status === 'awaiting_idea_approval' && approvedCount > 0 && (
+    <div className="flex flex-col h-full lg:h-[calc(100vh-4rem)]">
+      <PageHeader
+        title={`Run for ${account.name}`}
+        badge={run.status.replace(/_/g, ' ')}
+        description={`Run ID: ${run.id} • Trigger: ${run.trigger} • Model: ${run.model || 'claude-opus-5'}`}
+        preTitle={
+          <Link
+            href="/runs"
+            className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to Runs</span>
+          </Link>
+        }
+        actions={
+          run.status === 'awaiting_idea_approval' && approvedCount > 0 ? (
             <button
               type="button"
               onClick={handleDraftApproved}
@@ -160,9 +142,12 @@ export function RunDetailClient({
               <span>Draft Approved ({approvedCount})</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-7xl mx-auto space-y-8">
 
       {actionMessage && (
         <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
@@ -371,6 +356,8 @@ export function RunDetailClient({
             2
           )}
         </pre>
+      </div>
+        </div>
       </div>
     </div>
   )

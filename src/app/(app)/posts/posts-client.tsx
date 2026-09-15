@@ -1,7 +1,7 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useState, Suspense } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { LinkedInPreview } from '@/components/linkedin-preview'
 import {
@@ -43,6 +43,7 @@ export interface PostDetail {
   accountId: string
   accountName: string
   accountHeadline?: string | null
+  runId?: string | null
   hook: string
   body: string
   cta?: string | null
@@ -116,7 +117,7 @@ function getHumanRuleLabel(rule: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-export function PostsClient({
+export function PostsClientInner({
   initialPosts,
   accounts
 }: {
@@ -124,9 +125,12 @@ export function PostsClient({
   accounts: Array<{ id: string; name: string }>
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const filterRunId = searchParams.get('runId')
+
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
   const [selectedPostId, setSelectedPostId] = useState<string>(
-    initialPosts[0]?.id || ''
+    initialPosts.find((p) => !filterRunId || p.runId === filterRunId)?.id || initialPosts[0]?.id || ''
   )
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all')
 
@@ -152,6 +156,8 @@ export function PostsClient({
   const [customImageUrl, setCustomImageUrl] = useState('')
   const [showRejectionInput, setShowRejectionInput] = useState(false)
   const [rejectionReasonInput, setRejectionReasonInput] = useState('')
+  const [showPostRejection, setShowPostRejection] = useState(false)
+  const [postRejectionReason, setPostRejectionReason] = useState('')
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
 
   // Collapsible drawers (all collapsed by default as requested)
@@ -163,6 +169,7 @@ export function PostsClient({
 
   // Filter posts
   const filteredPosts = posts.filter((p) => {
+    if (filterRunId && p.runId !== filterRunId) return false
     if (selectedAccountId === 'all') return true
     return p.accountId === selectedAccountId
   })
@@ -180,6 +187,8 @@ export function PostsClient({
     setShowCustomUrlInput(false)
     setShowRejectionInput(false)
     setRejectionReasonInput('')
+    setShowPostRejection(false)
+    setPostRejectionReason('')
     setMediaMenuOpen(false)
     setMediaError(null)
   }
@@ -403,15 +412,16 @@ export function PostsClient({
     }
   }
 
-  const handleReject = async () => {
+  const handleReject = async (reason?: string) => {
     if (!activePost) return
-    const reason = prompt('Rejection reason (shapes future generations):')
     setIsSaving(true)
     try {
       await rejectDraft(activePost.id, reason || undefined)
       setPosts((prev) =>
         prev.map((p) => (p.id === activePost.id ? { ...p, status: 'rejected' } : p))
       )
+      setShowPostRejection(false)
+      setPostRejectionReason('')
     } finally {
       setIsSaving(false)
     }
@@ -487,6 +497,15 @@ export function PostsClient({
               <p className="text-xs text-muted mt-1 max-w-sm mx-auto">
                 Approve concepts from the Idea Gate to draft grounded posts.
               </p>
+              {filterRunId && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/posts')}
+                  className="mt-4 px-4 py-2 rounded-lg bg-surface-hover border border-border text-xs font-semibold text-foreground hover:bg-surface-hover/80 transition-colors"
+                >
+                  Clear Run Filter
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -1306,35 +1325,66 @@ export function PostsClient({
 
                   {/* 3. STICKY REVIEW ACTIONS (Approve primary, Reject secondary, Copy buttons) */}
                   <div className="rounded-2xl border border-border bg-surface p-4 space-y-3 shadow-sm sticky bottom-4">
-                    {/* Primary Review Buttons */}
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={handleReject}
-                        disabled={isSaving}
-                        className="flex-1 px-4 py-2.5 rounded-xl border border-border text-foreground hover:text-rose-600 hover:border-rose-500/40 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        Reject Post
-                      </button>
+                    {showPostRejection ? (
+                      <div className="space-y-3 p-3 rounded-xl border border-rose-500/30 bg-rose-500/10">
+                        <label className="block text-[11px] font-semibold text-rose-700 dark:text-rose-400">
+                          Rejection Reason (Shapes future generations)
+                        </label>
+                        <input
+                          type="text"
+                          value={postRejectionReason}
+                          onChange={(e) => setPostRejectionReason(e.target.value)}
+                          placeholder="e.g. Too generic, tone is off..."
+                          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-foreground outline-none focus:border-rose-500"
+                        />
+                        <div className="flex items-center gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setShowPostRejection(false)}
+                            className="px-3 py-1.5 text-xs text-muted hover:text-foreground cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReject(postRejectionReason)}
+                            disabled={isSaving}
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            Confirm Reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowPostRejection(true)}
+                          disabled={isSaving}
+                          className="flex-1 px-4 py-2.5 rounded-xl border border-border text-foreground hover:text-rose-600 hover:border-rose-500/40 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          Reject Post
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={handleApprove}
-                        disabled={isSaving || activePost.status === 'approved'}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-60 ${
-                          activePost.status === 'approved'
-                            ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                            : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                        }`}
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>
-                          {activePost.status === 'approved'
-                            ? 'Post Approved'
-                            : 'Approve Post'}
-                        </span>
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={handleApprove}
+                          disabled={isSaving || activePost.status === 'approved'}
+                          className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-60 ${
+                            activePost.status === 'approved'
+                              ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>
+                            {activePost.status === 'approved'
+                              ? 'Post Approved'
+                              : 'Approve Post'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Copy Buttons */}
                     <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border">
@@ -1365,6 +1415,7 @@ export function PostsClient({
                         <span>{copiedComment ? 'Copied Comment!' : 'Copy Comment'}</span>
                       </button>
                     </div>
+
                   </div>
                 </div>
               </div>
@@ -1373,5 +1424,26 @@ export function PostsClient({
         </div>
       </div>
     </div>
+  )
+}
+
+export function PostsClient({
+  initialPosts,
+  accounts
+}: {
+  initialPosts: PostDetail[]
+  accounts: Array<{ id: string; name: string }>
+}) {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-screen bg-background">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="w-8 h-8 animate-spin text-accent" />
+          <p className="text-sm font-medium text-muted">Loading posts...</p>
+        </div>
+      </div>
+    }>
+      <PostsClientInner initialPosts={initialPosts} accounts={accounts} />
+    </Suspense>
   )
 }

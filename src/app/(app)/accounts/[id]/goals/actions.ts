@@ -67,6 +67,51 @@ export async function createGoal(accountId: string, payload: GoalPayload) {
   return { success: true }
 }
 
+export async function updateGoal(
+  goalId: string,
+  accountId: string,
+  payload: GoalPayload
+) {
+  if (!payload.title.trim()) {
+    throw new Error('Goal title is required')
+  }
+  if (!payload.keyMessage.trim()) {
+    throw new Error('The key message to land is required. The agent must know what to prove.')
+  }
+
+  const packedData = JSON.stringify({
+    title: payload.title.trim(),
+    description: payload.description?.trim() || '',
+    objectiveType: payload.objectiveType,
+    audienceId: payload.audienceId || null,
+    keyMessage: payload.keyMessage.trim(),
+    proofAssetIds: payload.proofAssetIds || [],
+    desiredAction: payload.desiredAction.trim(),
+    targetUrl: payload.targetUrl?.trim() || null,
+    linkStrategy: payload.linkStrategy,
+    successMetric: payload.successMetric?.trim() || '',
+    weight: payload.weight || 5,
+    startDate: payload.startDate || null,
+    endDate: payload.endDate || null,
+    dos: payload.dos || [],
+    donts: payload.donts || [],
+  })
+
+  await db.update(goalsTable).set({
+    title: packedData,
+    objective: payload.objectiveType.slice(0, 30),
+    targetCount: payload.targetCount || 5,
+    isActive: payload.active !== false,
+    updatedAt: new Date(),
+  }).where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
+
+  revalidatePath(`/accounts/${accountId}/goals`)
+  revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/accounts')
+  revalidatePath('/')
+  return { success: true }
+}
+
 export async function toggleGoalActive(
   goalId: string,
   accountId: string,
