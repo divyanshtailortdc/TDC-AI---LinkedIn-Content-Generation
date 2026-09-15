@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { LinkedInPreview } from '@/components/linkedin-preview'
+import { ImageLightbox } from '@/components/image-lightbox'
 import Image from 'next/image'
 import {
   AlertTriangle,
@@ -29,12 +30,14 @@ import {
   Search,
   Sparkles,
   Trash2,
-  X
+  X,
+  ZoomIn
 } from 'lucide-react'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import { getUserFacingRelevance } from '@/lib/media/media-brief'
 import {
-  IMAGE_PROMPT_MAX_LENGTH,
+  IMAGE_PROMPT_MAX_WORDS,
+  countWords,
   validateImagePrompt,
   validateImageUrl,
   validateReferenceDimensions,
@@ -173,7 +176,7 @@ export function PostsClientInner({
   const [showPostRejection, setShowPostRejection] = useState(false)
   const [postRejectionReason, setPostRejectionReason] = useState('')
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
-  const [showMediaPreview, setShowMediaPreview] = useState(false)
+  const [isImageZoomOpen, setIsImageZoomOpen] = useState(false)
 
   // Prompt-driven image generation
   const [imagePrompt, setImagePrompt] = useState('')
@@ -217,7 +220,6 @@ export function PostsClientInner({
     setMediaMenuOpen(false)
     setMediaError(null)
     setMediaNotice(null)
-    setShowMediaPreview(false)
     setImagePrompt('')
     clearReferenceImage()
   }
@@ -343,7 +345,6 @@ export function PostsClientInner({
         setPosts((prev) =>
           prev.map((p) => (p.id === postId ? { ...p, media: res.media } : p))
         )
-        setShowMediaPreview(true)
       } else {
         setMediaError(
           res?.error || `Image generation failed (HTTP ${response.status}).`
@@ -854,6 +855,9 @@ export function PostsClientInner({
                         mediaUrl={activePost.media?.imageUrl}
                         mediaAltText={activePost.media?.altText}
                         foldCharLimit={200}
+                        onMediaClick={
+                          activePost.media?.imageUrl ? () => setIsImageZoomOpen(true) : undefined
+                        }
                       />
                     </div>
                   )}
@@ -863,6 +867,17 @@ export function PostsClientInner({
                 {/* RIGHT COLUMN: COMPACT REVIEW & CONTROL PANEL                 */}
                 {/* ============================================================ */}
                 <div className="lg:col-span-5 space-y-4">
+                  {/* Zoom viewer — portals to <body>, so its position here is irrelevant */}
+                  {isImageZoomOpen && activePost.media?.imageUrl && (
+                    <ImageLightbox
+                      src={activePost.media.imageUrl}
+                      alt={activePost.media.altText || 'Post image'}
+                      width={activePost.media.width || 2048}
+                      height={activePost.media.height || 1072}
+                      onClose={() => setIsImageZoomOpen(false)}
+                    />
+                  )}
+
                   {/* ERROR BANNER */}
                   {mediaError && (
                     <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400">
@@ -991,9 +1006,9 @@ export function PostsClientInner({
                           {/* Compact 64x64 thumbnail */}
                           <button
                             type="button"
-                            onClick={() => setShowMediaPreview(!showMediaPreview)}
-                            title={showMediaPreview ? 'Hide full image' : 'View full image'}
-                            className="relative w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-border bg-neutral-900 cursor-pointer"
+                            onClick={() => setIsImageZoomOpen(true)}
+                            title="Zoom image"
+                            className="relative w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-border bg-neutral-900 cursor-zoom-in"
                           >
                             <Image
                               src={activePost.media.imageUrl}
@@ -1030,18 +1045,11 @@ export function PostsClientInner({
                             <div className="flex items-center gap-2.5 pt-0.5">
                               <button
                                 type="button"
-                                onClick={() => setShowMediaPreview(!showMediaPreview)}
-                                className="text-[11px] font-medium text-accent hover:underline cursor-pointer"
-                              >
-                                {showMediaPreview ? 'Hide full image' : 'View full image'}
-                              </button>
-                              <button
-                                type="button"
                                 onClick={handleDownloadMedia}
                                 className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline cursor-pointer"
                               >
                                 <Download className="w-3 h-3" />
-                                Download HD
+                                Download image
                               </button>
                               <button
                                 type="button"
@@ -1056,8 +1064,12 @@ export function PostsClientInner({
                           </div>
                         </div>
 
-                        {showMediaPreview && (
-                          <div className="rounded-xl overflow-hidden border border-border bg-neutral-900">
+                        <button
+                            type="button"
+                            onClick={() => setIsImageZoomOpen(true)}
+                            aria-label="Zoom image"
+                            className="group relative block w-full rounded-xl overflow-hidden border border-border bg-neutral-900 cursor-zoom-in"
+                          >
                             <Image
                               src={activePost.media.imageUrl}
                               alt={activePost.media.altText || 'Generated visual'}
@@ -1066,8 +1078,11 @@ export function PostsClientInner({
                               className="w-full h-auto object-contain"
                               unoptimized
                             />
-                          </div>
-                        )}
+                            <span className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                              <ZoomIn className="h-3 w-3" />
+                              Zoom
+                            </span>
+                          </button>
                       </div>
                     ) : (
                       <div className="p-3.5 text-center rounded-xl border border-dashed border-border bg-surface-hover/20 text-xs text-muted">
@@ -1191,12 +1206,12 @@ export function PostsClientInner({
                           </span>
                           <span
                             className={`shrink-0 tabular-nums ${
-                              imagePrompt.trim().length > IMAGE_PROMPT_MAX_LENGTH
+                              countWords(imagePrompt) > IMAGE_PROMPT_MAX_WORDS
                                 ? 'text-rose-600 dark:text-rose-400'
                                 : 'text-muted'
                             }`}
                           >
-                            {imagePrompt.trim().length}/{IMAGE_PROMPT_MAX_LENGTH}
+                            {countWords(imagePrompt)}/{IMAGE_PROMPT_MAX_WORDS} words
                           </span>
                         </div>
 

@@ -7,7 +7,8 @@
  */
 
 export const IMAGE_PROMPT_MIN_LENGTH = 3
-export const IMAGE_PROMPT_MAX_LENGTH = 1000
+export const IMAGE_PROMPT_MAX_WORDS = 1000
+export const IMAGE_PROMPT_MAX_CHARACTERS = 10000
 
 export const REFERENCE_IMAGE_MAX_BYTES = 3 * 1024 * 1024
 /** Anything smaller cannot usefully guide a 2048x1072 edit. */
@@ -20,6 +21,11 @@ export const IMAGE_URL_MAX_LENGTH = 2048
 
 const formatMegabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 
+export function countWords(value: string): number {
+  const trimmed = value.trim()
+  return trimmed ? trimmed.split(/\s+/).length : 0
+}
+
 /** Returns a user-facing problem with the prompt, or null when it is usable. */
 export function validateImagePrompt(value: string): string | null {
   const length = value.trim().length
@@ -27,8 +33,12 @@ export function validateImagePrompt(value: string): string | null {
   if (length < IMAGE_PROMPT_MIN_LENGTH) {
     return `Add a little more detail — at least ${IMAGE_PROMPT_MIN_LENGTH} characters.`
   }
-  if (length > IMAGE_PROMPT_MAX_LENGTH) {
-    return `Keep the prompt under ${IMAGE_PROMPT_MAX_LENGTH} characters (currently ${length}).`
+  const words = countWords(value)
+  if (words > IMAGE_PROMPT_MAX_WORDS) {
+    return `Keep the prompt under ${IMAGE_PROMPT_MAX_WORDS} words (currently ${words}).`
+  }
+  if (length > IMAGE_PROMPT_MAX_CHARACTERS) {
+    return `Prompt is too long — keep it under ${IMAGE_PROMPT_MAX_CHARACTERS.toLocaleString()} characters.`
   }
   return null
 }

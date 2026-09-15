@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ThumbsUp, MessageSquare, Repeat2, Send, Globe, MoreHorizontal } from 'lucide-react'
+import { ThumbsUp, MessageSquare, Repeat2, Send, Globe, MoreHorizontal, ZoomIn } from 'lucide-react'
 import Image from 'next/image'
 
 interface LinkedInPreviewProps {
@@ -15,6 +15,8 @@ interface LinkedInPreviewProps {
   mediaUrl?: string | null
   mediaAltText?: string | null
   foldCharLimit?: number
+  /** When set, the attached image becomes clickable (e.g. to open a zoom view). */
+  onMediaClick?: () => void
 }
 
 export function LinkedInPreview({
@@ -27,7 +29,8 @@ export function LinkedInPreview({
   hashtags = [],
   mediaUrl,
   mediaAltText,
-  foldCharLimit = 200
+  foldCharLimit = 200,
+  onMediaClick
 }: LinkedInPreviewProps) {
   const [showFullPost, setShowFullPost] = useState(false)
 
@@ -77,9 +80,14 @@ export function LinkedInPreview({
 
           {isHookLongerThanFold && !showFullPost && (
             <>
-              <span className="text-neutral-500 hover:text-[#0a66c2] cursor-pointer font-semibold ml-0.5">
+              <button
+                type="button"
+                onClick={() => setShowFullPost(true)}
+                aria-expanded={false}
+                className="inline p-0 text-neutral-500 hover:text-[#0a66c2] hover:underline cursor-pointer font-semibold ml-0.5"
+              >
                 ...see more
-              </span>
+              </button>
               {/* Visual Fold Indicator Bar for creator feedback */}
               <div className="my-2 border-t-2 border-dashed border-amber-400/80 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 rounded text-[11px] text-amber-700 dark:text-amber-400 flex items-center justify-between font-mono select-none">
                 <span>⚠️ Feed fold line ({foldCharLimit} chars)</span>
@@ -133,14 +141,36 @@ export function LinkedInPreview({
       {/* Media Attachment Preview */}
       {mediaUrl && (
         <div className="mt-2 border-y border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/40 relative">
-          <Image
-            src={mediaUrl}
-            alt={mediaAltText || 'Post illustration'}
-            width={1200}
-            height={630}
-            className="w-full max-h-[380px] object-cover"
-            unoptimized
-          />
+          {onMediaClick ? (
+            <button
+              type="button"
+              onClick={onMediaClick}
+              aria-label="Zoom image"
+              className="group block w-full cursor-zoom-in"
+            >
+              <Image
+                src={mediaUrl}
+                alt={mediaAltText || 'Post illustration'}
+                width={1200}
+                height={630}
+                className="w-full max-h-[380px] object-cover"
+                unoptimized
+              />
+              <span className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                <ZoomIn className="h-3 w-3" />
+                Zoom
+              </span>
+            </button>
+          ) : (
+            <Image
+              src={mediaUrl}
+              alt={mediaAltText || 'Post illustration'}
+              width={1200}
+              height={630}
+              className="w-full max-h-[380px] object-cover"
+              unoptimized
+            />
+          )}
         </div>
       )}
 
