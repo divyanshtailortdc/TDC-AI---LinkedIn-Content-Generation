@@ -198,6 +198,8 @@ export async function regeneratePostMediaAction(
 
     let topic = 'Business strategy'
     let coreArgument: string | undefined = undefined
+    let thesis: string | undefined = undefined
+    let evidence: any[] = []
 
     if (draft.ideaId) {
       const idea = await db.query.ideasTable.findFirst({
@@ -206,24 +208,41 @@ export async function regeneratePostMediaAction(
       if (idea) {
         topic = idea.pillar || idea.title || topic
         coreArgument = idea.coreArgument || undefined
+        thesis = idea.thesis || idea.coreArgument || undefined
+        evidence = (idea.supportingEvidence as any[]) || []
       }
     }
 
     const mode = options?.mode || 'ai_generated'
     const brief = options?.customPrompt?.trim() || draft.hook
+    const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
 
     const mediaPlan = await createMediaPlan({
       mode,
       brief,
       topic,
       hook: draft.hook,
-      coreArgument
+      postText: fullPostContent,
+      thesis: thesis || coreArgument || topic,
+      coreArgument,
+      evidence
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
       const existingMedia = await db.query.postMediaTable.findFirst({
         where: eq(postMediaTable.draftId, draftId)
       })
+
+      const mediaMetadata = {
+        sourcePageUrl: mediaPlan.sourcePageUrl,
+        fallbackApplied: mediaPlan.fallbackApplied || false,
+        visualType: mediaPlan.visualType,
+        relevanceScore: mediaPlan.relevanceScore,
+        relevanceExplanation: mediaPlan.relevanceExplanation,
+        alignedConcepts: mediaPlan.alignedConcepts,
+        textOverlay: mediaPlan.textOverlay,
+        mediaBrief: mediaPlan.mediaBrief
+      }
 
       if (existingMedia) {
         await db
@@ -233,10 +252,7 @@ export async function regeneratePostMediaAction(
             imageUrl: mediaPlan.imageUrl,
             altText: mediaPlan.altText || null,
             promptOrQuery: mediaPlan.promptOrQuery || null,
-            metadata: {
-              sourcePageUrl: mediaPlan.sourcePageUrl,
-              fallbackApplied: mediaPlan.fallbackApplied || false
-            },
+            metadata: mediaMetadata,
             updatedAt: new Date()
           })
           .where(eq(postMediaTable.draftId, draftId))
@@ -247,10 +263,7 @@ export async function regeneratePostMediaAction(
           imageUrl: mediaPlan.imageUrl,
           altText: mediaPlan.altText || null,
           promptOrQuery: mediaPlan.promptOrQuery || null,
-          metadata: {
-            sourcePageUrl: mediaPlan.sourcePageUrl,
-            fallbackApplied: mediaPlan.fallbackApplied || false
-          }
+          metadata: mediaMetadata
         })
       }
 

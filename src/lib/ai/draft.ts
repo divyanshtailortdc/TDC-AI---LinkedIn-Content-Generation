@@ -183,13 +183,21 @@ Generate:
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '$1 ($2)')
   }
 
-  // Stage 6: Media Planning
+  // Stage 6: Media Planning with Semantic Brief & Relevance Validation
   const suggestedMedia =
     (idea.suggestedMedia as {
       mode?: 'ai_generated' | 'stock' | 'none'
       brief?: string
     }) || {}
   const targetMode = suggestedMedia.mode || 'ai_generated'
+  const fullPostContent = `${generatedDraft.hook}\n\n${generatedDraft.body}\n\n${generatedDraft.cta}`
+  const evidenceList = (idea.supportingEvidence as Array<{
+    claim: string
+    sourceUrl?: string
+    sourceTitle?: string
+    quote?: string
+  }>) || []
+
   const mediaPlan = await createMediaPlan({
     mode: targetMode,
     brief:
@@ -199,11 +207,13 @@ Generate:
       'Professional business concept',
     topic: idea.pillar || idea.title || 'Business strategy',
     hook: generatedDraft.hook,
-    coreArgument: idea.coreArgument || undefined
+    postText: fullPostContent,
+    thesis: idea.thesis || idea.coreArgument || idea.title,
+    coreArgument: idea.coreArgument || undefined,
+    evidence: evidenceList
   })
 
-  const fullCleanText = `${generatedDraft.hook}\n\n${generatedDraft.body}\n\n${generatedDraft.cta}`
-  const charCount = fullCleanText.length
+  const charCount = fullPostContent.length
 
   // Insert into postDraftsTable
   const [draft] = await db
@@ -238,13 +248,6 @@ Generate:
   }
 
   // Insert Citations into postCitationsTable
-  const evidenceList = (idea.supportingEvidence as Array<{
-    claim: string
-    sourceUrl?: string
-    sourceTitle?: string
-    quote?: string
-  }>) || []
-
   for (const ev of evidenceList) {
     await db.insert(postCitationsTable).values({
       draftId: draft.id,
@@ -265,7 +268,13 @@ Generate:
       promptOrQuery: mediaPlan.promptOrQuery || null,
       metadata: {
         sourcePageUrl: mediaPlan.sourcePageUrl,
-        fallbackApplied: mediaPlan.fallbackApplied || false
+        fallbackApplied: mediaPlan.fallbackApplied || false,
+        visualType: mediaPlan.visualType,
+        relevanceScore: mediaPlan.relevanceScore,
+        relevanceExplanation: mediaPlan.relevanceExplanation,
+        alignedConcepts: mediaPlan.alignedConcepts,
+        textOverlay: mediaPlan.textOverlay,
+        mediaBrief: mediaPlan.mediaBrief
       }
     })
   }

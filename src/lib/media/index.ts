@@ -1,14 +1,35 @@
 import { generateImage } from 'ai'
 import { env } from '~/env'
 import { gatewayClient } from '~/lib/ai'
+import {
+  type MediaBrief,
+  type VisualType,
+  type SemanticValidationResult,
+  type RelevanceValidationResult,
+  type TextOverlaySpec,
+  type EvidenceSource,
+  extractMediaBrief,
+  selectVisualType,
+  validateMediaBriefSemantics,
+  validateMediaBriefRelevance,
+  regenerateMediaBriefStrict,
+  buildImagePromptFromBrief,
+  validateImagePromptAgainstPost
+} from './media-brief'
+
+export * from './media-brief'
 
 export interface MediaPlanRequest {
   mode: 'ai_generated' | 'stock' | 'none'
-  brief?: string
-  topic?: string
-  hook?: string
-  coreArgument?: string
+  brief?: string | null
+  topic?: string | null
+  hook?: string | null
+  postText?: string | null
+  coreArgument?: string | null
+  thesis?: string | null
+  evidence?: EvidenceSource[]
   aspectRatio?: '1:1' | '16:9' | '4:5'
+  imagePrompt?: string | null
 }
 
 export interface MediaPlanResult {
@@ -18,6 +39,12 @@ export interface MediaPlanResult {
   promptOrQuery?: string
   sourcePageUrl?: string
   fallbackApplied?: boolean
+  mediaBrief?: MediaBrief
+  visualType?: VisualType
+  relevanceScore?: number
+  relevanceExplanation?: string
+  alignedConcepts?: string[]
+  textOverlay?: TextOverlaySpec
 }
 
 interface CuratedStockCategory {
@@ -29,6 +56,30 @@ interface CuratedStockCategory {
 }
 
 const CURATED_FALLBACK_CATALOG: CuratedStockCategory[] = [
+  {
+    keywords: [
+      'automation',
+      'decision',
+      'rules',
+      'judgment',
+      'predictable',
+      'comparison',
+      'process',
+      'workflow'
+    ],
+    images: [
+      {
+        url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
+        altText:
+          'Streamlined technological workflow architecture representing structured automation'
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80',
+        altText:
+          'Conceptual network nodes illustrating decision pathways and systemic coordination'
+      }
+    ]
+  },
   {
     keywords: [
       'ai',
@@ -102,7 +153,8 @@ const CURATED_FALLBACK_CATALOG: CuratedStockCategory[] = [
       'scale',
       'market',
       'commerce',
-      'customer'
+      'customer',
+      'pricing'
     ],
     images: [
       {
@@ -147,9 +199,11 @@ const CURATED_FALLBACK_CATALOG: CuratedStockCategory[] = [
 
 /**
  * Builds a clean, professional prompt suitable for LinkedIn.
- * Never inserts long post copy or text blocks inside the image.
+ * Maintained for backwards compatibility; preferred approach is buildImagePromptFromBrief.
  */
 export function buildLinkedInImagePrompt(req: MediaPlanRequest): string {
+  if (req.imagePrompt) return req.imagePrompt
+
   const subject = req.brief || req.topic || 'strategic technology leadership'
   const argumentHint = req.coreArgument
     ? ` Conceptually conveying: ${req.coreArgument.slice(0, 100)}.`
@@ -169,7 +223,6 @@ export function getCuratedFallbackImage(topicOrBrief: string): {
 
   for (const cat of CURATED_FALLBACK_CATALOG) {
     if (cat.keywords.some(k => query.includes(k))) {
-      // Pick based on a deterministic hash of the query
       const index = Math.abs(query.length) % cat.images.length
       const selected = cat.images[index] || cat.images[0]!
       return { imageUrl: selected.url, altText: selected.altText }
@@ -219,7 +272,6 @@ export async function searchStockImage(
         }>
 
         if (Array.isArray(images) && images.length > 0) {
-          // Select first valid image URL
           const firstImage = images.find(img => img.imageUrl)
           if (firstImage?.imageUrl) {
             return {
@@ -257,7 +309,7 @@ export async function searchStockImage(
 export async function generateAIImage(
   req: MediaPlanRequest
 ): Promise<MediaPlanResult> {
-  const prompt = buildLinkedInImagePrompt(req)
+  const prompt = req.imagePrompt || buildLinkedInImagePrompt(req)
   const query = req.brief || req.topic || req.hook || 'professional business insight'
 
   if (gatewayClient && env.AI_GATEWAY_API_KEY) {
@@ -289,7 +341,6 @@ export async function generateAIImage(
             }
           }
         } catch (attemptErr: any) {
-          // Continue to next model if available
           console.warn(
             `AI image generation attempt with model "${modelId}" failed:`,
             attemptErr?.message || attemptErr
@@ -319,9 +370,11 @@ export async function generateAIImage(
 
 /**
  * Main media planner:
- * - 'none': returns text-only mode
- * - 'ai_generated': runs AI generation -> Serper -> Curated fallback
- * - 'stock': runs Serper search -> Curated fallback
+ *
+ * Implements Target Flow:
+ * Approved Post -> Extract Media Brief -> Select Visual Type -> Build Visual Concept ->
+ * Semantic Relevance Validation (>=80 threshold) -> Generate Image Prompt ->
+ * Final Media Validation -> Generate Image -> Save Image + Alt Text + Metadata.
  */
 export async function createMediaPlan(
   req: MediaPlanRequest
@@ -330,14 +383,77 @@ export async function createMediaPlan(
     return { mode: 'none' }
   }
 
+  const postContent = (
+    req.postText ||
+    `${req.hook || ''}\n\n${req.coreArgument || ''}\n\n${req.brief || ''}`
+  ).trim()
+
+  const thesis = req.thesis || req.coreArgument || req.topic || 'Operational thought leadership'
+
+  // 1. Extract Media Brief
+  let mediaBrief = extractMediaBrief(postContent, thesis, req.evidence)
+
+  // 2. Select Visual Type
+  let visualType = selectVisualType(postContent, mediaBrief, req.evidence)
+
+  // 3. Hard Semantic Validation BEFORE Calling Image Generation
+  let validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
+
+  // Image generation is allowed ONLY when:
+  // relevanceScore >= 90 AND thesisMatch === true AND topicMatch === true AND introducesUnrelatedTopic === false
+  if (
+    validation.relevanceScore < 90 ||
+    !validation.thesisMatch ||
+    !validation.topicMatch ||
+    validation.introducesUnrelatedTopic
+  ) {
+    console.warn(
+      `Media brief failed semantic validation (${validation.relevanceScore}/100): ${validation.reason}. Regenerating media brief...`
+    )
+    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
+    visualType = selectVisualType(postContent, mediaBrief, req.evidence)
+    validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
+  }
+
+  // 4. Build Image Prompt from Brief
+  let imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
+    aspectRatio: req.aspectRatio
+  })
+
+  // 5. Final Media Validation (Prompt vs Post Thesis)
+  const promptCheck = validateImagePromptAgainstPost(imagePrompt, mediaBrief, thesis)
+  if (!promptCheck.isValid) {
+    console.warn(
+      'Image prompt failed semantic check; applying sanitized constraints:',
+      promptCheck.reason
+    )
+    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
+    imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
+      aspectRatio: req.aspectRatio
+    })
+  }
+
+  const enhancedReq: MediaPlanRequest = {
+    ...req,
+    imagePrompt,
+    brief: mediaBrief.primaryConcept,
+    topic: mediaBrief.coreThesis
+  }
+
+  let result: MediaPlanResult
   if (req.mode === 'stock') {
-    const query = req.brief || req.topic || req.hook || 'professional business insight'
-    return searchStockImage(query)
+    result = await searchStockImage(mediaBrief.primaryConcept || mediaBrief.coreThesis)
+  } else {
+    result = await generateAIImage(enhancedReq)
   }
 
-  if (req.mode === 'ai_generated') {
-    return generateAIImage(req)
+  return {
+    ...result,
+    mediaBrief,
+    visualType,
+    relevanceScore: validation.relevanceScore,
+    relevanceExplanation: validation.explanation,
+    alignedConcepts: validation.alignedConcepts,
+    textOverlay: mediaBrief.textOverlay
   }
-
-  return { mode: 'none' }
 }

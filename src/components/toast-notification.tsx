@@ -55,13 +55,12 @@ export function ToastContainer() {
           <div
             key={toast.id}
             role="status"
-            className={`animate-in slide-in-from-top-3 fade-in pointer-events-auto relative flex items-start gap-3 rounded-2xl border p-4 shadow-xl backdrop-blur-md transition-all duration-200 ${
-              isSuccess
-                ? 'border-emerald-500/30 bg-surface text-foreground ring-1 ring-emerald-500/20'
-                : isError
-                  ? 'border-red-500/30 bg-surface text-foreground ring-1 ring-red-500/20'
-                  : 'border-blue-500/30 bg-surface text-foreground ring-1 ring-blue-500/20'
-            }`}
+            className={`pointer-events-auto relative flex items-start gap-3 rounded-2xl border p-4 shadow-xl backdrop-blur-md transition-all duration-200 animate-in slide-in-from-top-3 fade-in ${isSuccess
+              ? 'border-emerald-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-emerald-500/20'
+              : isError
+                ? 'border-red-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-red-500/20'
+                : 'border-blue-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-blue-500/20'
+              }`}
           >
             {/* Icon */}
             <div className="mt-0.5 shrink-0">
