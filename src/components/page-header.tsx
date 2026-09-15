@@ -7,6 +7,7 @@ export interface PageHeaderProps {
   description?: string
   preTitle?: React.ReactNode
   actions?: React.ReactNode
+  bottomContent?: React.ReactNode
 }
 
 export function PageHeader({
@@ -14,7 +15,8 @@ export function PageHeader({
   badge,
   description,
   preTitle,
-  actions
+  actions,
+  bottomContent
 }: PageHeaderProps) {
   return (
     <div className="flex-none px-4 py-2 sm:px-6 sm:py-3 border-b border-border bg-background z-10 w-full">
@@ -49,6 +51,11 @@ export function PageHeader({
           </div>
         </div>
       </div>
+      {bottomContent && (
+        <div className="mt-2 pt-2 border-t border-border/50">
+          {bottomContent}
+        </div>
+      )}
     </div>
   )
 }
