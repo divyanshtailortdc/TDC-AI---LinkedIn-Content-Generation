@@ -1,5 +1,6 @@
 import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
 import { EditIdentityDialog } from '@/components/edit-identity-dialog'
+import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
 import { db } from '@/db'
 import {
   accountsTable,
@@ -11,6 +12,7 @@ import {
 import { getCapabilities } from '@/lib/capabilities'
 import {
   AlertCircle,
+  Archive,
   BookOpen,
   CheckCircle2,
   Mic,
@@ -44,7 +46,10 @@ export default async function DashboardPage() {
   const knowledgeAccountIds = new Set(knowledgeDocs.map(kd => kd.accountId))
   const goalAccountIds = new Set(goals.map(g => g.accountId))
   const prefAccountIds = new Set(prefs.map(p => p.accountId))
-  const hasAccounts = accounts.length > 0
+
+  const activeAccounts = accounts.filter(a => a.isActive !== false)
+  const inactiveAccounts = accounts.filter(a => a.isActive === false)
+  const hasAnyAccounts = accounts.length > 0
 
   return (
     <div className="mx-auto max-w-5xl p-8">
@@ -58,7 +63,7 @@ export default async function DashboardPage() {
             Your LinkedIn content generation workspace
           </p>
         </div>
-        {hasAccounts && (
+        {hasAnyAccounts && (
           <Link
             href="/accounts/new"
             className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
@@ -111,11 +116,12 @@ export default async function DashboardPage() {
       </div>
 
       {/* Empty state / Account list */}
-      {!hasAccounts ? (
+      {!hasAnyAccounts ? (
         <EmptyState />
       ) : (
         <AccountList
-          accounts={accounts}
+          activeAccounts={activeAccounts}
+          inactiveAccounts={inactiveAccounts}
           voiceAccountIds={voiceAccountIds}
           knowledgeAccountIds={knowledgeAccountIds}
           goalAccountIds={goalAccountIds}
@@ -161,34 +167,110 @@ const setupSteps = [
 ]
 
 function AccountList({
-  accounts,
+  activeAccounts,
+  inactiveAccounts,
   voiceAccountIds,
   knowledgeAccountIds,
   goalAccountIds,
   prefAccountIds
 }: {
-  accounts: Account[]
+  activeAccounts: Account[]
+  inactiveAccounts: Account[]
   voiceAccountIds: Set<string>
   knowledgeAccountIds: Set<string>
   goalAccountIds: Set<string>
   prefAccountIds: Set<string>
 }) {
   return (
-    <div>
-      <h2 className="mb-4 text-sm font-semibold text-[var(--foreground)]">
-        Identities ({accounts.length})
-      </h2>
-      <div className="space-y-4">
-        {accounts.map(account => (
-          <AccountCard
-            key={account.id}
-            account={account}
-            hasVoice={voiceAccountIds.has(account.id)}
-            hasKnowledge={knowledgeAccountIds.has(account.id)}
-            hasGoals={goalAccountIds.has(account.id)}
-            hasPreferences={prefAccountIds.has(account.id)}
-          />
-        ))}
+    <div className="space-y-8">
+      {/* Active Identities */}
+      <div>
+        <h2 className="mb-4 text-sm font-semibold text-[var(--foreground)]">
+          Identities ({activeAccounts.length})
+        </h2>
+        {activeAccounts.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">
+            No active identities. You can reactivate an existing one below or add a new identity.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {activeAccounts.map(account => (
+              <AccountCard
+                key={account.id}
+                account={account}
+                hasVoice={voiceAccountIds.has(account.id)}
+                hasKnowledge={knowledgeAccountIds.has(account.id)}
+                hasGoals={goalAccountIds.has(account.id)}
+                hasPreferences={prefAccountIds.has(account.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Inactive Identities Section */}
+      {inactiveAccounts.length > 0 && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/50 p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Archive className="h-4 w-4 text-[var(--muted)]" />
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                Deactivated Identities ({inactiveAccounts.length})
+              </h3>
+            </div>
+            <span className="text-xs text-[var(--muted)]">
+              Data safely preserved • Can be reactivated anytime
+            </span>
+          </div>
+          <div className="space-y-3">
+            {inactiveAccounts.map(account => (
+              <InactiveAccountCard key={account.id} account={account} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InactiveAccountCard({ account }: { account: Account }) {
+  const initials = account.name
+    .split(' ')
+    .map(w => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
+
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 transition-colors hover:border-[var(--accent)]/30">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-xs font-semibold text-[var(--muted)]">
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold text-[var(--foreground)]">
+              {account.name}
+            </span>
+            <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              Inactive
+            </span>
+            <span className="shrink-0 rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] text-[var(--muted)] capitalize">
+              {account.accountType}
+            </span>
+          </div>
+          {account.headline && (
+            <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
+              {account.headline}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <ReactivateIdentityButton
+          accountId={account.id}
+          accountName={account.name}
+        />
       </div>
     </div>
   )
@@ -236,6 +318,9 @@ function AccountCard({
             >
               {account.name}
             </Link>
+            <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+              Active
+            </span>
             <span className="shrink-0 rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-xs text-[var(--muted)] capitalize">
               {account.accountType}
             </span>

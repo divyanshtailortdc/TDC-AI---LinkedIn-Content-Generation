@@ -31,9 +31,10 @@ export default async function RunsPage() {
         name: accountsTable.name
       })
       .from(accountsTable)
+      .where(eq(accountsTable.isActive, true))
   ])
 
-  const formattedRuns = runsRaw.map((r) => ({
+  const formattedRuns = runsRaw.map(r => ({
     ...r,
     accountName: r.accountName || 'Unknown Identity'
   }))

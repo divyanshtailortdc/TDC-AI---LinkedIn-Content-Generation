@@ -53,6 +53,7 @@ export const accountsTable = pgTable('accounts', {
     .notNull(),
   company: text('company'),
   websiteUrl: text('website_url'),
+  isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
 })
 
@@ -228,15 +229,20 @@ export const runsTable = pgTable('runs', {
     onDelete: 'set null'
   }),
   goalIds: jsonb('goal_ids').$type<string[]>().default([]),
-  preferenceSetId: uuid('preference_set_id').references(() => preferencesTable.id, {
-    onDelete: 'set null'
-  }),
+  preferenceSetId: uuid('preference_set_id').references(
+    () => preferencesTable.id,
+    {
+      onDelete: 'set null'
+    }
+  ),
   workflow: varchar('workflow', { length: 30 }).default('standard').notNull(),
   trigger: varchar('trigger', { length: 20 }).default('manual').notNull(),
   status: varchar('status', { length: 30 }).default('queued').notNull(),
   currentStep: integer('current_step').default(0).notNull(),
   totalSteps: integer('total_steps').default(3).notNull(),
-  researchConfig: jsonb('research_config').$type<Record<string, any>>().default({}),
+  researchConfig: jsonb('research_config')
+    .$type<Record<string, any>>()
+    .default({}),
   mediaConfig: jsonb('media_config').$type<Record<string, any>>().default({}),
   timings: jsonb('timings').$type<Record<string, number>>().default({}),
   tokenCounts: jsonb('token_counts')
@@ -250,7 +256,14 @@ export const runsTable = pgTable('runs', {
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
   model: varchar('model', { length: 100 }).default('claude-opus-5'),
   logs: jsonb('logs')
-    .$type<Array<{ step: string; status: string; timestamp?: string; message?: string }>>()
+    .$type<
+      Array<{
+        step: string
+        status: string
+        timestamp?: string
+        message?: string
+      }>
+    >()
     .default([]),
   error: text('error'),
   ...commonFieldDefs.dates

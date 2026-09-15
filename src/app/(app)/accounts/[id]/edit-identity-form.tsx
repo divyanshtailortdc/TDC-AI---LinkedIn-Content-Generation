@@ -773,16 +773,15 @@ export function EditIdentityForm({
         )}
       </section>
 
-      {/* Danger Zone */}
-      <section className="rounded-2xl border border-red-500/20 bg-red-500/[0.02] p-6">
+      {/* Account Status / Deactivate Zone */}
+      <section className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.02] p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-red-600 dark:text-red-400">
-              Delete Identity
+            <h2 className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+              Deactivate Identity
             </h2>
             <p className="mt-0.5 text-xs text-[var(--muted)]">
-              Permanently remove this LinkedIn identity and all associated voice
-              profiles, knowledge bases, posts, and campaign data.
+              Mark this LinkedIn identity as inactive. You can reactivate it back to active anytime.
             </p>
           </div>
           <DeleteIdentityDialog

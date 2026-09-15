@@ -1,4 +1,5 @@
 import { Sidebar } from '@/components/sidebar'
+import { ToastContainer } from '@/components/toast-notification'
 
 export default function AppLayout({
   children
@@ -11,6 +12,7 @@ export default function AppLayout({
       <main className="flex-1 overflow-y-auto bg-[var(--background)]">
         {children}
       </main>
+      <ToastContainer />
     </div>
   )
 }
