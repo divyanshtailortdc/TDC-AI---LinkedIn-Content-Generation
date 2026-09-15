@@ -8,7 +8,6 @@ import {
   Lightbulb,
   FileText,
   Play,
-  Settings,
   Sparkles
 } from 'lucide-react'
 
@@ -18,7 +17,6 @@ const navItems = [
   { href: '/ideas', label: 'Ideas', icon: Lightbulb },
   { href: '/posts', label: 'Posts', icon: FileText },
   { href: '/runs', label: 'Run Details', icon: Play },
-  { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar() {
