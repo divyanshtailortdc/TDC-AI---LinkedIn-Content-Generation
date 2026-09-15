@@ -58,6 +58,7 @@ export async function saveKnowledgeDocument(payload: {
 
   revalidatePath(`/accounts/${payload.accountId}/knowledge`)
   revalidatePath(`/accounts/${payload.accountId}`)
+  revalidatePath('/accounts')
   revalidatePath('/')
   return { success: true, docId: inserted?.id }
 }
@@ -74,6 +75,7 @@ export async function deleteKnowledgeDocument(docId: string, accountId: string) 
 
   revalidatePath(`/accounts/${accountId}/knowledge`)
   revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/accounts')
   revalidatePath('/')
   return { success: true }
 }

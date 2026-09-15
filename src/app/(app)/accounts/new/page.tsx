@@ -118,7 +118,7 @@ export default function NewAccountPage() {
       {/* Back link */}
       <Link
         href="/"
-        className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--foreground)] mb-8 transition-colors"
+        className="inline-flex items-center gap-2 text-sm text-muted hover:text-foreground mb-8 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         Back to dashboard
@@ -126,8 +126,8 @@ export default function NewAccountPage() {
 
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[var(--foreground)]">Add a LinkedIn identity</h1>
-        <p className="text-sm text-[var(--muted)] mt-1">
+        <h1 className="text-2xl font-bold text-foreground">Add a LinkedIn identity</h1>
+        <p className="text-sm text-muted mt-1">
           This tells the AI who is speaking, what you sell, and who you're talking to.
         </p>
       </div>
@@ -138,8 +138,8 @@ export default function NewAccountPage() {
         <input type="hidden" name="audiencesData" value={serializedAudiences} />
 
         {/* Section 1 — Type picker */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
-          <label className="block text-sm font-semibold text-[var(--foreground)] mb-3">
+        <section className="rounded-xl border border-border bg-surface p-6">
+          <label className="block text-sm font-semibold text-foreground mb-3">
             What kind of identity is this?
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -151,19 +151,19 @@ export default function NewAccountPage() {
                 className={`
                   flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all
                   ${accountType === opt.value
-                    ? 'border-[var(--accent)] bg-[var(--accent)]/5'
-                    : 'border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)]/40'
+                    ? 'border-accent bg-accent/5'
+                    : 'border-border bg-surface hover:border-accent/40'
                   }
                 `}
               >
-                <span className={`mt-0.5 shrink-0 ${accountType === opt.value ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>
+                <span className={`mt-0.5 shrink-0 ${accountType === opt.value ? 'text-accent' : 'text-muted'}`}>
                   {opt.icon}
                 </span>
                 <div>
-                  <p className={`text-sm font-semibold ${accountType === opt.value ? 'text-[var(--accent)]' : 'text-[var(--foreground)]'}`}>
+                  <p className={`text-sm font-semibold ${accountType === opt.value ? 'text-accent' : 'text-foreground'}`}>
                     {opt.label}
                   </p>
-                  <p className="text-xs text-[var(--muted)] mt-0.5 leading-relaxed">{opt.description}</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">{opt.description}</p>
                 </div>
               </button>
             ))}
@@ -171,8 +171,8 @@ export default function NewAccountPage() {
         </section>
 
         {/* Section 2 — Core identity */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5">
-          <h2 className="text-base font-semibold text-[var(--foreground)]">Core identity</h2>
+        <section className="rounded-xl border border-border bg-surface p-6 space-y-5">
+          <h2 className="text-base font-semibold text-foreground">Core identity</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Field
@@ -237,21 +237,21 @@ export default function NewAccountPage() {
         </section>
 
         {/* Section 3 — Offerings (What you sell & Proof points) */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5">
+        <section className="rounded-xl border border-border bg-surface p-6 space-y-5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-[var(--accent)]" />
+              <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-accent" />
                 Offerings & Proof Points
               </h2>
-              <p className="text-xs text-[var(--muted)] mt-0.5">
+              <p className="text-xs text-muted mt-0.5">
                 What you sell, who it's for, and real proof points (metrics, named customers) to stop hallucinations.
               </p>
             </div>
             <button
               type="button"
               onClick={addOffering}
-              className="flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs font-medium text-accent hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Add offering
@@ -259,17 +259,17 @@ export default function NewAccountPage() {
           </div>
 
           {offerings.length === 0 ? (
-            <div className="py-6 text-center border border-dashed border-[var(--border)] rounded-lg">
-              <p className="text-xs text-[var(--muted)]">No offerings added yet. Click &quot;Add offering&quot; to define what you sell.</p>
+            <div className="py-6 text-center border border-dashed border-border rounded-lg">
+              <p className="text-xs text-muted">No offerings added yet. Click &quot;Add offering&quot; to define what you sell.</p>
             </div>
           ) : (
             <div className="space-y-4">
               {offerings.map((offering, idx) => (
-                <div key={idx} className="p-4 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] space-y-3 relative">
+                <div key={idx} className="p-4 rounded-lg border border-border bg-surface-hover space-y-3 relative">
                   <button
                     type="button"
                     onClick={() => removeOffering(idx)}
-                    className="absolute top-3 right-3 text-[var(--muted)] hover:text-rose-500 transition-colors"
+                    className="absolute top-3 right-3 text-muted hover:text-rose-500 transition-colors"
                     title="Remove offering"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -277,21 +277,21 @@ export default function NewAccountPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-8">
                     <div>
-                      <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Offering Name</label>
+                      <label className="block text-xs font-medium text-foreground mb-1">Offering Name</label>
                       <input
                         type="text"
                         value={offering.name}
                         onChange={(e) => updateOffering(idx, 'name', e.target.value)}
                         placeholder="e.g. AI Engineering Consulting"
-                        className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                        className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Type</label>
+                      <label className="block text-xs font-medium text-foreground mb-1">Type</label>
                       <select
                         value={offering.type}
                         onChange={(e) => updateOffering(idx, 'type', e.target.value)}
-                        className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                        className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
                       >
                         <option value="service">Service / Agency</option>
                         <option value="product">SaaS / Software Product</option>
@@ -303,24 +303,24 @@ export default function NewAccountPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Who it is for & Problem solved</label>
+                    <label className="block text-xs font-medium text-foreground mb-1">Who it is for & Problem solved</label>
                     <input
                       type="text"
                       value={offering.tagline}
                       onChange={(e) => updateOffering(idx, 'tagline', e.target.value)}
                       placeholder="e.g. For Seed-Stage CTOs struggling with AI accuracy and latency"
-                      className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                      className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Description & Proof Points (Real numbers & named logos)</label>
+                    <label className="block text-xs font-medium text-foreground mb-1">Description & Proof Points (Real numbers & named logos)</label>
                     <textarea
                       rows={2}
                       value={offering.description}
                       onChange={(e) => updateOffering(idx, 'description', e.target.value)}
                       placeholder="e.g. Helped TechCorp reduce LLM cost by 62% in 3 weeks. 15 enterprise deployments completed."
-                      className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+                      className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent resize-none"
                     />
                   </div>
                 </div>
@@ -330,21 +330,21 @@ export default function NewAccountPage() {
         </section>
 
         {/* Section 4 — Target Audiences */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5">
+        <section className="rounded-xl border border-border bg-surface p-6 space-y-5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-                <Users className="w-4 h-4 text-[var(--accent)]" />
+              <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <Users className="w-4 h-4 text-accent" />
                 Target Audiences
               </h2>
-              <p className="text-xs text-[var(--muted)] mt-0.5">
+              <p className="text-xs text-muted mt-0.5">
                 Define the job titles, seniority, pain points, and desires of who you write for.
               </p>
             </div>
             <button
               type="button"
               onClick={addAudience}
-              className="flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs font-medium text-accent hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Add audience
@@ -352,52 +352,52 @@ export default function NewAccountPage() {
           </div>
 
           {audiences.length === 0 ? (
-            <div className="py-6 text-center border border-dashed border-[var(--border)] rounded-lg">
-              <p className="text-xs text-[var(--muted)]">No audiences added yet. Click &quot;Add audience&quot; to define your target reader.</p>
+            <div className="py-6 text-center border border-dashed border-border rounded-lg">
+              <p className="text-xs text-muted">No audiences added yet. Click &quot;Add audience&quot; to define your target reader.</p>
             </div>
           ) : (
             <div className="space-y-4">
               {audiences.map((audience, idx) => (
-                <div key={idx} className="p-4 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] space-y-3 relative">
+                <div key={idx} className="p-4 rounded-lg border border-border bg-surface-hover space-y-3 relative">
                   <button
                     type="button"
                     onClick={() => removeAudience(idx)}
-                    className="absolute top-3 right-3 text-[var(--muted)] hover:text-rose-500 transition-colors"
+                    className="absolute top-3 right-3 text-muted hover:text-rose-500 transition-colors"
                     title="Remove audience"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
 
                   <div className="pr-8">
-                    <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Audience Segment & Seniority</label>
+                    <label className="block text-xs font-medium text-foreground mb-1">Audience Segment & Seniority</label>
                     <input
                       type="text"
                       value={audience.name}
                       onChange={(e) => updateAudience(idx, 'name', e.target.value)}
                       placeholder="e.g. Senior Product Managers & VP of Product at B2B SaaS"
-                      className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                      className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Pain points (one per line)</label>
+                      <label className="block text-xs font-medium text-foreground mb-1">Pain points (one per line)</label>
                       <textarea
                         rows={3}
                         value={audience.painPointsText}
                         onChange={(e) => updateAudience(idx, 'painPointsText', e.target.value)}
                         placeholder="e.g. AI prototypes failing in production&#10;High token costs&#10;Lack of evaluation benchmarks"
-                        className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+                        className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-accent resize-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Goals & Desires (one per line)</label>
+                      <label className="block text-xs font-medium text-foreground mb-1">Goals & Desires (one per line)</label>
                       <textarea
                         rows={3}
                         value={audience.goalsText}
                         onChange={(e) => updateAudience(idx, 'goalsText', e.target.value)}
                         placeholder="e.g. Ship reliable AI features faster&#10;Proven architectures they can show leadership&#10;Clear ROI"
-                        className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+                        className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-accent resize-none"
                       />
                     </div>
                   </div>
@@ -408,10 +408,10 @@ export default function NewAccountPage() {
         </section>
 
         {/* Form actions */}
-        <div className="flex items-center justify-end gap-4 pt-4 border-t border-[var(--border)]">
+        <div className="flex items-center justify-end gap-4 pt-4 border-t border-border">
           <Link
             href="/"
-            className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+            className="text-sm text-muted hover:text-foreground transition-colors"
           >
             Cancel
           </Link>
@@ -438,11 +438,11 @@ function Field({
   required?: boolean
 }) {
   const baseClass =
-    'w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors'
+    'w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors'
 
   return (
     <div>
-      <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+      <label className="block text-sm font-medium text-foreground mb-1.5">
         {label}
         {required && <span className="text-rose-500 ml-1">*</span>}
       </label>
@@ -462,7 +462,7 @@ function Field({
           className={baseClass}
         />
       )}
-      {hint && <p className="text-xs text-[var(--muted)] mt-1.5">{hint}</p>}
+      {hint && <p className="text-xs text-muted mt-1.5">{hint}</p>}
     </div>
   )
 }
@@ -473,7 +473,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors shadow-sm"
+      className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed text-background text-sm font-medium transition-colors shadow-sm"
     >
       {pending ? (
         <>

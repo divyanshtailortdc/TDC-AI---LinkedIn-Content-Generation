@@ -109,6 +109,7 @@ export async function savePreferences(accountId: string, payload: PreferencesFul
 
   revalidatePath(`/accounts/${accountId}/preferences`)
   revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/accounts')
   revalidatePath('/')
   return { success: true }
 }

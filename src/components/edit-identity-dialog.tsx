@@ -140,7 +140,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
       <button
         type="button"
         onClick={openDialog}
-        className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/10 hover:underline"
+        className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:underline"
       >
         <Pencil className="h-3.5 w-3.5" />
         <span>Edit Identity</span>
@@ -157,18 +157,18 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
             }
           }}
         >
-          <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col rounded-2xl border border-border bg-surface shadow-2xl animate-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10 text-accent">
                   <Pencil className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-[var(--foreground)]">
+                  <h3 className="text-sm font-bold text-foreground">
                     Edit LinkedIn Identity
                   </h3>
-                  <p className="text-[11px] text-[var(--muted)]">
+                  <p className="text-[11px] text-muted">
                     Update core identity settings used across ideation and drafting
                   </p>
                 </div>
@@ -177,7 +177,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="rounded-lg p-1 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  className="rounded-lg p-1 text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -202,7 +202,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
 
               {/* Identity Type Selector */}
               <div>
-                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1.5">
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
                   Identity Type
                 </label>
                 <div className="grid grid-cols-2 gap-3">
@@ -212,22 +212,22 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                     onClick={() => setAccountType('personal')}
                     className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
                       accountType === 'personal'
-                        ? 'border-[var(--accent)] bg-[var(--accent)]/10 shadow-xs'
-                        : 'border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)]'
+                        ? 'border-accent bg-accent/10 shadow-xs'
+                        : 'border-border bg-surface hover:bg-surface-hover'
                     }`}
                   >
                     <User
                       className={`h-4 w-4 ${
                         accountType === 'personal'
-                          ? 'text-[var(--accent)]'
-                          : 'text-[var(--muted)]'
+                          ? 'text-accent'
+                          : 'text-muted'
                       }`}
                     />
                     <div>
-                      <p className="text-xs font-bold text-[var(--foreground)]">
+                      <p className="text-xs font-bold text-foreground">
                         Person
                       </p>
-                      <p className="text-[10px] text-[var(--muted)]">
+                      <p className="text-[10px] text-muted">
                         Individual executive or creator
                       </p>
                     </div>
@@ -239,22 +239,22 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                     onClick={() => setAccountType('company')}
                     className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
                       accountType === 'company'
-                        ? 'border-[var(--accent)] bg-[var(--accent)]/10 shadow-xs'
-                        : 'border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)]'
+                        ? 'border-accent bg-accent/10 shadow-xs'
+                        : 'border-border bg-surface hover:bg-surface-hover'
                     }`}
                   >
                     <Building2
                       className={`h-4 w-4 ${
                         accountType === 'company'
-                          ? 'text-[var(--accent)]'
-                          : 'text-[var(--muted)]'
+                          ? 'text-accent'
+                          : 'text-muted'
                       }`}
                     />
                     <div>
-                      <p className="text-xs font-bold text-[var(--foreground)]">
+                      <p className="text-xs font-bold text-foreground">
                         Company
                       </p>
-                      <p className="text-[10px] text-[var(--muted)]">
+                      <p className="text-[10px] text-muted">
                         Brand, agency or startup
                       </p>
                     </div>
@@ -265,7 +265,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
               {/* Display Name & Handle */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Display Name <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -277,10 +277,10 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                       clearFieldError('name')
                     }}
                     placeholder="e.g. Aditya Sharma"
-                    className={`w-full rounded-xl border bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:ring-1 focus:ring-[var(--accent)] ${
+                    className={`w-full rounded-xl border bg-surface px-3.5 py-2 text-xs text-foreground transition-colors focus:ring-1 focus:ring-accent ${
                       fieldErrors.name
                         ? 'border-red-500'
-                        : 'border-[var(--border)]'
+                        : 'border-border'
                     }`}
                   />
                   {fieldErrors.name && (
@@ -291,7 +291,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     LinkedIn Handle / Slug <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -303,10 +303,10 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                       clearFieldError('handle')
                     }}
                     placeholder="e.g. aditya-sharma"
-                    className={`w-full rounded-xl border bg-[var(--surface)] px-3.5 py-2 text-xs font-mono text-[var(--foreground)] transition-colors focus:ring-1 focus:ring-[var(--accent)] ${
+                    className={`w-full rounded-xl border bg-surface px-3.5 py-2 text-xs font-mono text-foreground transition-colors focus:ring-1 focus:ring-accent ${
                       fieldErrors.handle
                         ? 'border-red-500'
-                        : 'border-[var(--border)]'
+                        : 'border-border'
                     }`}
                   />
                   {fieldErrors.handle && (
@@ -319,7 +319,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
 
               {/* Headline */}
               <div>
-                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                <label className="block text-xs font-semibold text-foreground mb-1">
                   Professional Headline <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -331,10 +331,10 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                     clearFieldError('headline')
                   }}
                   placeholder="e.g. Founder @ FlowERP | Helping B2B businesses simplify commerce operations"
-                  className={`w-full rounded-xl border bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:ring-1 focus:ring-[var(--accent)] ${
+                  className={`w-full rounded-xl border bg-surface px-3.5 py-2 text-xs text-foreground transition-colors focus:ring-1 focus:ring-accent ${
                     fieldErrors.headline
                       ? 'border-red-500'
-                      : 'border-[var(--border)]'
+                      : 'border-border'
                   }`}
                 />
                 {fieldErrors.headline && (
@@ -347,7 +347,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
               {/* Company / Org & Website */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Company / Organization
                   </label>
                   <input
@@ -356,12 +356,12 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                     value={company}
                     onChange={e => setCompany(e.target.value)}
                     placeholder="e.g. Acme Corp"
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                    className="w-full rounded-xl border border-border bg-surface px-3.5 py-2 text-xs text-foreground focus:ring-1 focus:ring-accent"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                  <label className="block text-xs font-semibold text-foreground mb-1">
                     Website or LinkedIn URL
                   </label>
                   <input
@@ -370,14 +370,14 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                     value={websiteUrl}
                     onChange={e => setWebsiteUrl(e.target.value)}
                     placeholder="https://example.com"
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                    className="w-full rounded-xl border border-border bg-surface px-3.5 py-2 text-xs text-foreground focus:ring-1 focus:ring-accent"
                   />
                 </div>
               </div>
 
               {/* Bio / Summary */}
               <div>
-                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                <label className="block text-xs font-semibold text-foreground mb-1">
                   About / Bio Summary
                 </label>
                 <textarea
@@ -386,24 +386,24 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                   value={bio}
                   onChange={e => setBio(e.target.value)}
                   placeholder="Short bio, background, mission statement, or areas of expertise..."
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-xs leading-relaxed text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                  className="w-full rounded-xl border border-border bg-surface px-3.5 py-2 text-xs leading-relaxed text-foreground focus:ring-1 focus:ring-accent"
                 />
               </div>
 
               {/* Deep Settings Link */}
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-xs flex items-center justify-between">
+              <div className="rounded-xl border border-border bg-surface-hover p-3 text-xs flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-[var(--foreground)]">
+                  <p className="font-semibold text-foreground">
                     Looking for Offerings & Audiences?
                   </p>
-                  <p className="text-[11px] text-[var(--muted)]">
+                  <p className="text-[11px] text-muted">
                     Configure your products, value props, and target reader profiles.
                   </p>
                 </div>
                 <Link
                   href={`/accounts/${account.id}`}
                   onClick={() => setIsOpen(false)}
-                  className="flex shrink-0 items-center gap-1 font-semibold text-[var(--accent)] hover:underline"
+                  className="flex shrink-0 items-center gap-1 font-semibold text-accent hover:underline"
                 >
                   <span>Advanced Setup</span>
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -412,11 +412,11 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between border-t border-[var(--border)] px-6 py-4">
+            <div className="flex items-center justify-between border-t border-border px-6 py-4">
               <Link
                 href={`/accounts/${account.id}`}
                 onClick={() => setIsOpen(false)}
-                className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] hover:underline"
+                className="text-xs text-muted hover:text-foreground hover:underline"
               >
                 Open Full Identity Page →
               </Link>
@@ -425,7 +425,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                   type="button"
                   disabled={isPending}
                   onClick={() => setIsOpen(false)}
-                  className="cursor-pointer rounded-xl border border-[var(--border)] px-4 py-2 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                  className="cursor-pointer rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -433,7 +433,7 @@ export function EditIdentityDialog({ account }: EditIdentityDialogProps) {
                   type="button"
                   disabled={isPending}
                   onClick={handleSave}
-                  className="flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                  className="flex cursor-pointer items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-background shadow-sm transition-all hover:bg-accent-hover disabled:opacity-50"
                 >
                   {isPending ? (
                     <>

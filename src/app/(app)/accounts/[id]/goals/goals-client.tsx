@@ -224,8 +224,8 @@ export function GoalsClient({
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Campaign Goals</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Campaign Goals</h1>
+          <p className="text-sm text-muted mt-1">
             Define the business objectives, key messages to land, proof assets, and CTAs that steer generated posts.
           </p>
         </div>
@@ -233,7 +233,7 @@ export function GoalsClient({
           <button
             type="button"
             onClick={() => setShowNewGoal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors shadow-sm shrink-0"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors shadow-sm shrink-0"
           >
             <Plus className="w-4 h-4" />
             New Goal
@@ -249,17 +249,17 @@ export function GoalsClient({
 
       {/* New Goal Form */}
       {showNewGoal && (
-        <form onSubmit={handleSubmit} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
-            <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-              <Compass className="w-4 h-4 text-[var(--accent)]" />
+        <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-surface p-6 space-y-6">
+          <div className="flex items-center justify-between pb-3 border-b border-border">
+            <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Compass className="w-4 h-4 text-accent" />
               Define New Campaign Goal
             </h2>
             {initialGoals.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowNewGoal(false)}
-                className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+                className="text-xs text-muted hover:text-foreground"
               >
                 Cancel
               </button>
@@ -269,7 +269,7 @@ export function GoalsClient({
           {/* Title & Objective */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Goal Title <span className="text-rose-500">*</span>
               </label>
               <input
@@ -278,16 +278,16 @@ export function GoalsClient({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Q4 AI Cost Optimization Campaign"
                 required
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-accent"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Objective Type</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Objective Type</label>
               <select
                 value={objectiveType}
                 onChange={(e) => setObjectiveType(e.target.value as any)}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               >
                 <option value="awareness">Awareness (Reach &amp; Impressions)</option>
                 <option value="engagement">Engagement (Meaningful discussions &amp; DMs)</option>
@@ -300,24 +300,24 @@ export function GoalsClient({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Campaign Description (Optional)</label>
+            <label className="block text-xs font-medium text-foreground mb-1">Campaign Description (Optional)</label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Why this campaign matters right now..."
-              className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+              className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
             />
           </div>
 
           {/* Target Audience */}
           {audiences.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Target Audience</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Target Audience</label>
               <select
                 value={audienceId}
                 onChange={(e) => setAudienceId(e.target.value)}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               >
                 {audiences.map((aud) => (
                   <option key={aud.id} value={aud.id}>
@@ -329,11 +329,11 @@ export function GoalsClient({
           )}
 
           {/* The One Key Message to Land */}
-          <div className="p-4 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 space-y-1.5">
-            <label className="block text-xs font-bold text-[var(--accent)] uppercase tracking-wider">
+          <div className="p-4 rounded-xl border border-accent/30 bg-accent/5 space-y-1.5">
+            <label className="block text-xs font-bold text-accent uppercase tracking-wider">
               The One Key Message to Land <span className="text-rose-500">*</span>
             </label>
-            <p className="text-xs text-[var(--muted)]">
+            <p className="text-xs text-muted">
               The foundational belief or thesis this content must move. Posts aimed at a belief consistently outperform generic topic posts.
             </p>
             <textarea
@@ -342,18 +342,18 @@ export function GoalsClient({
               onChange={(e) => setKeyMessage(e.target.value)}
               required
               placeholder="e.g. Building custom RAG from scratch is a massive trap; standard evals with clean prompt engineering resolve 90% of issues at 1/10th the cost."
-              className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--foreground)] focus:ring-1 focus:ring-[var(--accent)] resize-none"
+              className="w-full rounded-md border border-border bg-surface p-3 text-sm text-foreground focus:ring-1 focus:ring-accent resize-none"
             />
           </div>
 
           {/* Supporting Proof Assets */}
           {proofAssets.length > 0 && (
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-[var(--foreground)]">
+              <label className="block text-xs font-medium text-foreground">
                 Supporting Proof Assets (From Knowledge Base)
               </label>
-              <p className="text-xs text-[var(--muted)]">Select verified documents the AI will cite for statistics and quotes.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto p-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)]">
+              <p className="text-xs text-muted">Select verified documents the AI will cite for statistics and quotes.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto p-2 rounded-lg border border-border bg-surface-hover">
                 {proofAssets.map((asset) => {
                   const isChecked = selectedProofIds.includes(asset.id)
                   return (
@@ -362,17 +362,17 @@ export function GoalsClient({
                       onClick={() => toggleProofAsset(asset.id)}
                       className={`flex items-center gap-2 p-2 rounded-md cursor-pointer text-xs transition-colors ${
                         isChecked
-                          ? 'bg-[var(--accent)]/10 text-[var(--foreground)] font-medium border border-[var(--accent)]/30'
-                          : 'hover:bg-[var(--surface)] text-[var(--muted)]'
+                          ? 'bg-accent/10 text-foreground font-medium border border-accent/30'
+                          : 'hover:bg-surface text-muted'
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {}}
-                        className="accent-[var(--accent)]"
+                        className="accent-accent"
                       />
-                      <BookOpen className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                      <BookOpen className="w-3.5 h-3.5 text-accent shrink-0" />
                       <span className="truncate">{asset.title}</span>
                     </label>
                   )
@@ -384,7 +384,7 @@ export function GoalsClient({
           {/* CTA & Link Strategy */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Desired Action / Call to Action
               </label>
               <input
@@ -392,27 +392,27 @@ export function GoalsClient({
                 value={desiredAction}
                 onChange={(e) => setDesiredAction(e.target.value)}
                 placeholder="e.g. DM me for the architecture doc"
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Target URL (Optional)</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Target URL (Optional)</label>
               <input
                 type="url"
                 value={targetUrl}
                 onChange={(e) => setTargetUrl(e.target.value)}
                 placeholder="https://company.com/checklist"
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Link Strategy</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Link Strategy</label>
               <select
                 value={linkStrategy}
                 onChange={(e) => setLinkStrategy(e.target.value as 'body' | 'first_comment')}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               >
                 <option value="first_comment">First comment (Algorithmic reach)</option>
                 <option value="body">In post body (Direct conversion)</option>
@@ -423,18 +423,18 @@ export function GoalsClient({
           {/* Metrics, Weight & Dates */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Success Metric</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Success Metric</label>
               <input
                 type="text"
                 value={successMetric}
                 onChange={(e) => setSuccessMetric(e.target.value)}
                 placeholder="e.g. 15 inbound DMs"
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Priority Weight (1–10)
               </label>
               <input
@@ -443,37 +443,37 @@ export function GoalsClient({
                 max={10}
                 value={weight}
                 onChange={(e) => setWeight(Number(e.target.value))}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)] font-mono"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Target Posts Count</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Target Posts Count</label>
               <input
                 type="number"
                 min={1}
                 max={50}
                 value={targetCount}
                 onChange={(e) => setTargetCount(Number(e.target.value))}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Date Range (Optional)</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Date Range (Optional)</label>
               <div className="flex items-center gap-1.5">
                 <input
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-2 text-xs text-[var(--foreground)]"
+                  className="w-full rounded-md border border-border bg-surface-hover px-2 py-2 text-xs text-foreground"
                 />
-                <span className="text-xs text-[var(--muted)]">–</span>
+                <span className="text-xs text-muted">–</span>
                 <input
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-2 text-xs text-[var(--foreground)]"
+                  className="w-full rounded-md border border-border bg-surface-hover px-2 py-2 text-xs text-foreground"
                 />
               </div>
             </div>
@@ -482,7 +482,7 @@ export function GoalsClient({
           {/* Dos and Don'ts */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1 flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <Check className="w-3.5 h-3.5" />
                 Dos (one per line)
               </label>
@@ -491,12 +491,12 @@ export function GoalsClient({
                 value={dosText}
                 onChange={(e) => setDosText(e.target.value)}
                 placeholder="Cite our 62% latency benchmark&#10;Share firsthand production debugging lessons&#10;Tag the open-source repo"
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] p-2.5 text-xs text-[var(--foreground)] resize-none"
+                className="w-full rounded-md border border-border bg-surface-hover p-2.5 text-xs text-foreground resize-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--foreground)] mb-1 flex items-center gap-1 text-rose-500">
+              <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1 text-rose-500">
                 <X className="w-3.5 h-3.5" />
                 Don&apos;ts (one per line)
               </label>
@@ -505,16 +505,16 @@ export function GoalsClient({
                 value={dontsText}
                 onChange={(e) => setDontsText(e.target.value)}
                 placeholder="Don't mention competitors by name&#10;Avoid vague hype words like 'revolutionize'&#10;Don't disclose client contract sizes"
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-hover)] p-2.5 text-xs text-[var(--foreground)] resize-none"
+                className="w-full rounded-md border border-border bg-surface-hover p-2.5 text-xs text-foreground resize-none"
               />
             </div>
           </div>
 
-          <div className="pt-3 flex justify-end gap-3 border-t border-[var(--border)]">
+          <div className="pt-3 flex justify-end gap-3 border-t border-border">
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
+              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
             >
               {isSubmitting ? (
                 <>
@@ -532,19 +532,19 @@ export function GoalsClient({
       {/* Goals List */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-            <Target className="w-4 h-4 text-[var(--accent)]" />
+          <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+            <Target className="w-4 h-4 text-accent" />
             Configured Goals ({parsedGoals.length})
           </h2>
-          <span className="text-xs text-[var(--muted)]">
+          <span className="text-xs text-muted">
             Weights balance multi-goal post generation into a defensible content calendar
           </span>
         </div>
 
         {parsedGoals.length === 0 ? (
-          <div className="py-12 text-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)]">
-            <p className="text-sm font-medium text-[var(--foreground)]">No goals defined yet</p>
-            <p className="text-xs text-[var(--muted)] mt-1">
+          <div className="py-12 text-center rounded-xl border border-dashed border-border bg-surface">
+            <p className="text-sm font-medium text-foreground">No goals defined yet</p>
+            <p className="text-xs text-muted mt-1">
               Create your first campaign goal above to direct what the AI writes to achieve.
             </p>
           </div>
@@ -558,58 +558,58 @@ export function GoalsClient({
                   key={g.id}
                   className={`rounded-xl border p-5 space-y-4 transition-colors ${
                     g.isActive
-                      ? 'border-[var(--border)] bg-[var(--surface)]'
-                      : 'border-[var(--border)] bg-[var(--surface)]/50 opacity-60'
+                      ? 'border-border bg-surface'
+                      : 'border-border bg-surface/50 opacity-60'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="text-[11px] font-semibold uppercase px-2.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                        <span className="text-[11px] font-semibold uppercase px-2.5 py-0.5 rounded-full bg-accent/10 text-accent">
                           {g.objectiveType}
                         </span>
-                        <h3 className="text-base font-semibold text-[var(--foreground)]">{g.displayTitle}</h3>
-                        <span className="text-xs font-mono font-medium bg-[var(--surface-hover)] px-2 py-0.5 rounded text-[var(--foreground)]">
+                        <h3 className="text-base font-semibold text-foreground">{g.displayTitle}</h3>
+                        <span className="text-xs font-mono font-medium bg-surface-hover px-2 py-0.5 rounded text-foreground">
                           Weight: {g.weight}/10
                         </span>
-                        <span className="text-xs text-[var(--muted)] font-mono bg-[var(--surface-hover)] px-2 py-0.5 rounded">
+                        <span className="text-xs text-muted font-mono bg-surface-hover px-2 py-0.5 rounded">
                           Target: {g.targetCount} posts
                         </span>
                         {audience && (
-                          <span className="text-xs text-[var(--muted)] bg-[var(--surface-hover)] px-2 py-0.5 rounded flex items-center gap-1">
-                            <Users className="w-3 h-3 text-[var(--accent)]" />
+                          <span className="text-xs text-muted bg-surface-hover px-2 py-0.5 rounded flex items-center gap-1">
+                            <Users className="w-3 h-3 text-accent" />
                             {audience.name}
                           </span>
                         )}
                       </div>
 
                       {g.description && (
-                        <p className="text-xs text-[var(--muted)] mt-1">{g.description}</p>
+                        <p className="text-xs text-muted mt-1">{g.description}</p>
                       )}
 
                       {/* Key Message Box */}
                       {g.keyMessage && (
-                        <div className="mt-3 p-3 rounded-lg border border-[var(--accent)]/20 bg-[var(--accent)]/5 text-xs space-y-1">
-                          <span className="font-semibold text-[var(--accent)] uppercase tracking-wide text-[10px]">
+                        <div className="mt-3 p-3 rounded-lg border border-accent/20 bg-accent/5 text-xs space-y-1">
+                          <span className="font-semibold text-accent uppercase tracking-wide text-[10px]">
                             Key Message To Land:
                           </span>
-                          <p className="text-[var(--foreground)] font-medium leading-relaxed">
+                          <p className="text-foreground font-medium leading-relaxed">
                             &quot;{g.keyMessage}&quot;
                           </p>
                         </div>
                       )}
 
                       {/* Proof Assets & Metadata */}
-                      <div className="flex items-center gap-4 mt-3 text-xs text-[var(--muted)] flex-wrap">
+                      <div className="flex items-center gap-4 mt-3 text-xs text-muted flex-wrap">
                         {g.proofAssetIds.length > 0 && (
-                          <span className="flex items-center gap-1 text-[var(--accent)] font-medium">
+                          <span className="flex items-center gap-1 text-accent font-medium">
                             <BookOpen className="w-3.5 h-3.5" />
                             {g.proofAssetIds.length} proof assets attached
                           </span>
                         )}
                         {g.desiredAction && (
                           <span className="flex items-center gap-1">
-                            <MessageSquare className="w-3.5 h-3.5 text-[var(--accent)]" />
+                            <MessageSquare className="w-3.5 h-3.5 text-accent" />
                             CTA: {g.desiredAction}
                           </span>
                         )}
@@ -633,7 +633,7 @@ export function GoalsClient({
 
                       {/* Dos & Don'ts pills */}
                       {(g.dos.length > 0 || g.donts.length > 0) && (
-                        <div className="mt-3 pt-3 border-t border-[var(--border)] flex gap-4 text-[11px] flex-wrap">
+                        <div className="mt-3 pt-3 border-t border-border flex gap-4 text-[11px] flex-wrap">
                           {g.dos.length > 0 && (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-semibold text-emerald-600 dark:text-emerald-400">Dos:</span>
@@ -666,7 +666,7 @@ export function GoalsClient({
                         className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
                           g.isActive
                             ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                            : 'bg-[var(--surface-hover)] text-[var(--muted)]'
+                            : 'bg-surface-hover text-muted'
                         }`}
                       >
                         {g.isActive ? 'Active' : 'Paused'}
@@ -676,7 +676,7 @@ export function GoalsClient({
                         type="button"
                         onClick={() => handleDelete(g.id)}
                         disabled={actionId === g.id}
-                        className="text-[var(--muted)] hover:text-rose-500 transition-colors p-1"
+                        className="text-muted hover:text-rose-500 transition-colors p-1"
                         title="Delete goal"
                       >
                         <Trash2 className="w-4 h-4" />

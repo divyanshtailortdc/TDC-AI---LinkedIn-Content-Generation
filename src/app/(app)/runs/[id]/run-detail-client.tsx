@@ -120,7 +120,7 @@ export function RunDetailClient({
       <div>
         <Link
           href="/runs"
-          className="inline-flex items-center gap-1.5 text-xs text-[var(--muted)] hover:text-[var(--foreground)] mb-4"
+          className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground mb-4"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to Runs</span>
@@ -129,7 +129,7 @@ export function RunDetailClient({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
                 Run for {account.name}
               </h1>
               <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${
@@ -144,7 +144,7 @@ export function RunDetailClient({
                 {run.status.replace(/_/g, ' ')}
               </span>
             </div>
-            <p className="text-xs text-[var(--muted)] mt-1 font-mono">
+            <p className="text-xs text-muted mt-1 font-mono">
               Run ID: {run.id} • Trigger: {run.trigger} • Model: {run.model || 'claude-opus-5'}
             </p>
           </div>
@@ -172,8 +172,8 @@ export function RunDetailClient({
       )}
 
       {/* Stage Progress Stepper */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4 shadow-xs">
-        <h2 className="text-sm font-semibold text-[var(--foreground)]">Execution Stages</h2>
+      <div className="rounded-2xl border border-border bg-surface p-6 space-y-4 shadow-xs">
+        <h2 className="text-sm font-semibold text-foreground">Execution Stages</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {stagesList.map(({ key, label, icon: Icon }) => {
             const stepRecord = steps.find((s) => s.stage === key)
@@ -187,8 +187,8 @@ export function RunDetailClient({
                   isCompleted
                     ? 'border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400'
                     : isStageRunning
-                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                      : 'border-[var(--border)] bg-[var(--surface-hover)] text-[var(--muted)]'
+                      ? 'border-accent bg-accent/10 text-accent'
+                      : 'border-border bg-surface-hover text-muted'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -216,13 +216,13 @@ export function RunDetailClient({
       {ideas.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[var(--accent)]" />
+            <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-accent" />
               Candidate Ideas Generated ({ideas.length})
             </h2>
             <Link
               href="/ideas"
-              className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1"
+              className="text-xs text-accent hover:underline flex items-center gap-1"
             >
               <span>Open in Ideas Inbox</span>
               <ArrowRight className="w-3 h-3" />
@@ -233,16 +233,16 @@ export function RunDetailClient({
             {ideas.map((idea) => (
               <div
                 key={idea.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3"
+                className="rounded-xl border border-border bg-surface p-5 space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     {idea.perspectiveAngle && (
-                      <span className="rounded-md bg-[var(--accent)]/10 text-[var(--accent)] px-2 py-0.5 text-[11px] font-medium capitalize">
+                      <span className="rounded-md bg-accent/10 text-accent px-2 py-0.5 text-[11px] font-medium capitalize">
                         {idea.perspectiveAngle.replace(/_/g, ' ')}
                       </span>
                     )}
-                    <span className="font-semibold text-xs text-[var(--muted)]">
+                    <span className="font-semibold text-xs text-muted">
                       {idea.pillar || 'Thought Leadership'}
                     </span>
                   </div>
@@ -271,36 +271,36 @@ export function RunDetailClient({
                   </div>
                 )}
 
-                <h3 className="font-semibold text-sm text-[var(--foreground)]">
+                <h3 className="font-semibold text-sm text-foreground">
                   {idea.title || idea.angle}
                 </h3>
 
                 {idea.thesis && (
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-2.5 text-xs">
-                    <span className="font-semibold text-[var(--accent)] uppercase tracking-wider text-[10px] block mb-0.5">
+                  <div className="rounded-lg border border-border bg-surface-hover p-2.5 text-xs">
+                    <span className="font-semibold text-accent uppercase tracking-wider text-[10px] block mb-0.5">
                       Underlying Thesis
                     </span>
-                    <p className="text-xs text-[var(--foreground)] font-medium">
+                    <p className="text-xs text-foreground font-medium">
                       {idea.thesis}
                     </p>
                   </div>
                 )}
 
-                <p className="text-xs text-[var(--muted)]">
-                  <strong className="text-[var(--foreground)]">Hook Concept: </strong>
+                <p className="text-xs text-muted">
+                  <strong className="text-foreground">Hook Concept: </strong>
                   &quot;{idea.hookConcept}&quot;
                 </p>
-                <p className="text-xs text-[var(--muted)]">
-                  <strong className="text-[var(--foreground)]">Core Argument: </strong>
+                <p className="text-xs text-muted">
+                  <strong className="text-foreground">Core Argument: </strong>
                   {idea.coreArgument}
                 </p>
 
-                <div className="pt-2 border-t border-[var(--border)] flex items-center justify-end gap-2">
+                <div className="pt-2 border-t border-border flex items-center justify-end gap-2">
                   {idea.status !== 'rejected' && (
                     <button
                       type="button"
                       onClick={() => handleRejectIdea(idea.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[var(--border)] hover:text-rose-600 text-xs font-medium transition-colors"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:text-rose-600 text-xs font-medium transition-colors"
                     >
                       <X className="w-3.5 h-3.5" />
                       <span>Reject</span>
@@ -325,23 +325,23 @@ export function RunDetailClient({
 
       {/* Harvested Research Sources */}
       {findings.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4 shadow-xs">
-          <h2 className="text-sm font-semibold text-[var(--foreground)]">
+        <div className="rounded-2xl border border-border bg-surface p-6 space-y-4 shadow-xs">
+          <h2 className="text-sm font-semibold text-foreground">
             Harvested Grounding Sources ({findings.length})
           </h2>
           <div className="grid gap-2 sm:grid-cols-2">
             {findings.map((f, idx) => (
               <div
                 key={idx}
-                className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs space-y-1"
+                className="p-3 rounded-xl border border-border bg-surface-hover text-xs space-y-1"
               >
-                <p className="font-medium text-[var(--foreground)] truncate">{f.title}</p>
-                <p className="text-[11px] text-[var(--muted)] line-clamp-2">{f.snippet}</p>
+                <p className="font-medium text-foreground truncate">{f.title}</p>
+                <p className="text-[11px] text-muted line-clamp-2">{f.snippet}</p>
                 <a
                   href={f.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-[var(--accent)] hover:underline pt-1"
+                  className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline pt-1"
                 >
                   <span>Open URL</span>
                   <ExternalLink className="w-3 h-3" />
@@ -353,11 +353,11 @@ export function RunDetailClient({
       )}
 
       {/* Frozen Config Snapshot (Observability W11) */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-3 shadow-xs">
-        <h2 className="text-sm font-semibold text-[var(--foreground)]">
+      <div className="rounded-2xl border border-border bg-surface p-6 space-y-3 shadow-xs">
+        <h2 className="text-sm font-semibold text-foreground">
           Frozen Configuration Snapshots (Auditing)
         </h2>
-        <p className="text-xs text-[var(--muted)]">
+        <p className="text-xs text-muted">
           The exact research and media policies active when this run was initiated:
         </p>
         <pre className="p-4 rounded-xl bg-neutral-950 text-neutral-300 text-[11px] font-mono overflow-x-auto max-h-48">

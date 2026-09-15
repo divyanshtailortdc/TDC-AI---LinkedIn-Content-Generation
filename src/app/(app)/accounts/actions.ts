@@ -263,6 +263,7 @@ export async function updateAccountAction(input: UpdateAccountInput) {
 
     // 6. Revalidate cache
     revalidatePath('/')
+    revalidatePath('/accounts')
     revalidatePath(`/accounts/${validated.id}`)
     revalidatePath(`/accounts/${validated.id}/voice`)
     revalidatePath(`/accounts/${validated.id}/goals`)

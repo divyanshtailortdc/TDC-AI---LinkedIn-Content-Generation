@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   BookOpen,
   Calendar,
-  Layers,
   Mic,
   Play,
   SlidersHorizontal,
@@ -80,33 +79,33 @@ export function AccountHeader({ account }: AccountHeaderProps) {
   ]
 
   return (
-    <div className="mb-8 border-b border-[var(--border)] pb-0">
-      {/* Back to dashboard */}
+    <div className="mb-8 border-b border-border pb-0">
+      {/* Back to accounts list */}
       <Link
-        href="/"
-        className="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+        href="/accounts"
+        className="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Dashboard
+        Accounts
       </Link>
 
       {/* Identity Card */}
       <div className="mb-6 flex items-center gap-4">
-        <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent)] text-lg font-bold text-white shadow-xs">
+        <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl bg-accent text-lg font-bold text-background shadow-xs">
           {initials}
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight text-[var(--foreground)] truncate">
+            <h1 className="text-xl font-bold tracking-tight text-foreground truncate">
               {account.name}
             </h1>
-            <span className="rounded-full bg-[var(--surface-hover)] px-2.5 py-0.5 text-xs font-medium text-[var(--muted)] capitalize shrink-0">
+            <span className="rounded-full bg-surface-hover px-2.5 py-0.5 text-xs font-medium text-muted capitalize shrink-0">
               {account.accountType}
             </span>
           </div>
           {account.headline && (
-            <p className="mt-0.5 text-xs text-[var(--muted)] truncate">
+            <p className="mt-0.5 text-xs text-muted truncate">
               {account.headline}
             </p>
           )}
@@ -126,8 +125,8 @@ export function AccountHeader({ account }: AccountHeaderProps) {
               href={href}
               className={`flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs font-medium transition-colors shrink-0 ${
                 active
-                  ? 'border-[var(--accent)] text-[var(--accent)] font-semibold'
-                  : 'border-transparent text-[var(--muted)] hover:border-[var(--border)] hover:text-[var(--foreground)]'
+                  ? 'border-accent text-accent font-semibold'
+                  : 'border-transparent text-muted hover:border-border hover:text-foreground'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />

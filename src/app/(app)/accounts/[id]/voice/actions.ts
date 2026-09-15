@@ -242,6 +242,7 @@ export async function saveVoiceConfigAction(data: SaveVoiceInput) {
 
     revalidatePath(`/accounts/${validated.accountId}`)
     revalidatePath(`/accounts/${validated.accountId}/voice`)
+    revalidatePath('/accounts')
     revalidatePath('/')
 
     return { success: true }

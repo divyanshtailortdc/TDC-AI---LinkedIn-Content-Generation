@@ -62,6 +62,7 @@ export async function createGoal(accountId: string, payload: GoalPayload) {
 
   revalidatePath(`/accounts/${accountId}/goals`)
   revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/accounts')
   revalidatePath('/')
   return { success: true }
 }
@@ -81,6 +82,7 @@ export async function toggleGoalActive(
 
   revalidatePath(`/accounts/${accountId}/goals`)
   revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/accounts')
   revalidatePath('/')
   return { success: true }
 }
@@ -92,6 +94,7 @@ export async function deleteGoal(goalId: string, accountId: string) {
 
   revalidatePath(`/accounts/${accountId}/goals`)
   revalidatePath(`/accounts/${accountId}`)
+  revalidatePath('/accounts')
   revalidatePath('/')
   return { success: true }
 }

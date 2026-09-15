@@ -338,28 +338,28 @@ export function PostsClient({
   return (
     <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
               Review &amp; Ship Posts
             </h1>
-            <span className="rounded-full bg-[var(--accent)]/10 text-[var(--accent)] px-2.5 py-0.5 text-xs font-semibold">
+            <span className="rounded-full bg-accent/10 text-accent px-2.5 py-0.5 text-xs font-semibold">
               Daily Surface
             </span>
           </div>
-          <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">
+          <p className="text-xs sm:text-sm text-muted mt-1">
             Pixel-accurate preview with the ~200-char fold line, citations, and instant copy-to-clipboard.
           </p>
         </div>
 
         {/* Identity Filter */}
         <div className="flex items-center gap-2">
-          <Filter className="w-3.5 h-3.5 text-[var(--muted)]" />
+          <Filter className="w-3.5 h-3.5 text-muted" />
           <select
             value={selectedAccountId}
             onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
+            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
           >
             <option value="all">All Personas ({posts.length})</option>
             {accounts.map((acc) => (
@@ -372,10 +372,10 @@ export function PostsClient({
       </div>
 
       {filteredPosts.length === 0 || !activePost ? (
-        <div className="p-16 text-center rounded-2xl border-2 border-dashed border-[var(--border)] bg-[var(--surface)]">
-          <FileCheck className="w-10 h-10 text-[var(--muted)] mx-auto mb-3" />
-          <h3 className="text-sm font-semibold text-[var(--foreground)]">No drafted posts waiting for review</h3>
-          <p className="text-xs text-[var(--muted)] mt-1 max-w-sm mx-auto">
+        <div className="p-16 text-center rounded-2xl border-2 border-dashed border-border bg-surface">
+          <FileCheck className="w-10 h-10 text-muted mx-auto mb-3" />
+          <h3 className="text-sm font-semibold text-foreground">No drafted posts waiting for review</h3>
+          <p className="text-xs text-muted mt-1 max-w-sm mx-auto">
             Approve concepts from the Idea Gate to draft grounded posts.
           </p>
         </div>
@@ -393,8 +393,8 @@ export function PostsClient({
                     onClick={() => handleSelectPost(p)}
                     className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium shrink-0 transition-colors cursor-pointer border ${
                       p.id === activePost?.id
-                        ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-xs'
-                        : 'bg-[var(--surface)] border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]'
+                        ? 'bg-accent text-background border-accent shadow-xs'
+                        : 'bg-surface border-border text-muted hover:text-foreground'
                     }`}
                   >
                     <span>Post #{idx + 1}</span>
@@ -406,13 +406,13 @@ export function PostsClient({
 
             {/* Alternate Hooks Bar (Above Preview) */}
             {alternateHooks.length > 0 && (
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2.5">
+              <div className="rounded-xl border border-border bg-surface p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-accent" />
                     Alternate Hooks (Click to swap):
                   </span>
-                  <span className="text-[11px] font-mono text-[var(--muted)]">
+                  <span className="text-[11px] font-mono text-muted">
                     {editedHook.length} chars
                   </span>
                 </div>
@@ -424,11 +424,11 @@ export function PostsClient({
                       onClick={() => handleSwapHook(alt.content)}
                       className={`text-left p-2.5 rounded-lg border text-xs transition-all ${
                         editedHook === alt.content
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 font-medium text-[var(--foreground)]'
-                          : 'border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--muted)]'
+                          ? 'border-accent bg-accent/10 font-medium text-foreground'
+                          : 'border-border hover:bg-surface-hover text-muted'
                       }`}
                     >
-                      <span className="font-mono text-[10px] text-[var(--accent)] mr-1.5 uppercase">
+                      <span className="font-mono text-[10px] text-accent mr-1.5 uppercase">
                         Swap:
                       </span>
                       &quot;{alt.content}&quot;
@@ -440,51 +440,51 @@ export function PostsClient({
 
             {/* In-place text editor or standard preview */}
             {isEditing ? (
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
+              <div className="rounded-2xl border border-border bg-surface p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[var(--foreground)]">Edit Draft Copy</span>
-                  <span className="text-xs font-mono text-[var(--muted)]">
+                  <span className="text-xs font-semibold text-foreground">Edit Draft Copy</span>
+                  <span className="text-xs font-mono text-muted">
                     Hook: {editedHook.length} chars (fold ~200)
                   </span>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--muted)] mb-1">
+                  <label className="block text-xs font-medium text-muted mb-1">
                     Opening Hook
                   </label>
                   <textarea
                     value={editedHook}
                     onChange={(e) => setEditedHook(e.target.value)}
                     rows={3}
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-xs text-[var(--foreground)] focus:border-[var(--accent)] outline-none"
+                    className="w-full rounded-xl border border-border bg-surface-hover p-3 text-xs text-foreground focus:border-accent outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--muted)] mb-1">
+                  <label className="block text-xs font-medium text-muted mb-1">
                     Body
                   </label>
                   <textarea
                     value={editedBody}
                     onChange={(e) => setEditedBody(e.target.value)}
                     rows={8}
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-xs text-[var(--foreground)] focus:border-[var(--accent)] outline-none font-mono"
+                    className="w-full rounded-xl border border-border bg-surface-hover p-3 text-xs text-foreground focus:border-accent outline-none font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--muted)] mb-1">
+                  <label className="block text-xs font-medium text-muted mb-1">
                     First Comment
                   </label>
                   <textarea
                     value={editedComment}
                     onChange={(e) => setEditedComment(e.target.value)}
                     rows={2}
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-3 text-xs text-[var(--foreground)] focus:border-[var(--accent)] outline-none"
+                    className="w-full rounded-xl border border-border bg-surface-hover p-3 text-xs text-foreground focus:border-accent outline-none"
                   />
                 </div>
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setIsEditing(false)}
-                    className="px-3 py-1.5 text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+                    className="px-3 py-1.5 text-xs text-muted hover:text-foreground"
                   >
                     Cancel
                   </button>
@@ -492,7 +492,7 @@ export function PostsClient({
                     type="button"
                     onClick={handleSaveEdits}
                     disabled={isSaving}
-                    className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold"
+                    className="px-4 py-2 rounded-lg bg-accent text-background text-xs font-semibold"
                   >
                     Save Changes
                   </button>
@@ -519,7 +519,7 @@ export function PostsClient({
           {/* Right Column: Citations, Media, Linting & First Comment */}
           <div className="lg:col-span-5 space-y-6">
             {/* Action Bar */}
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-xs">
+            <div className="rounded-2xl border border-border bg-surface p-5 space-y-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${
@@ -529,14 +529,14 @@ export function PostsClient({
                   }`}>
                     {activePost.status}
                   </span>
-                  <span className="text-xs text-[var(--muted)] font-mono">
+                  <span className="text-xs text-muted font-mono">
                     {activePost.charCount} chars
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsEditing(!isEditing)}
-                  className="inline-flex items-center gap-1.5 text-xs text-[var(--accent)] hover:underline font-medium"
+                  className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   <span>{isEditing ? 'Preview' : 'Edit Text'}</span>
@@ -548,7 +548,7 @@ export function PostsClient({
                 <button
                   type="button"
                   onClick={handleCopyPost}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                 >
                   {copiedPost ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   <span>{copiedPost ? 'Copied Post!' : 'Copy Post'}</span>
@@ -558,7 +558,7 @@ export function PostsClient({
                   type="button"
                   onClick={handleCopyComment}
                   disabled={!editedComment}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--foreground)] text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-border hover:bg-surface-hover text-foreground text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {copiedComment ? <Check className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
                   <span>{copiedComment ? 'Copied Comment!' : 'Copy Comment'}</span>
@@ -566,11 +566,11 @@ export function PostsClient({
               </div>
 
               {/* Approve / Reject */}
-              <div className="flex items-center justify-between gap-3 pt-2 border-t border-[var(--border)]">
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-border">
                 <button
                   type="button"
                   onClick={handleReject}
-                  className="text-xs text-[var(--muted)] hover:text-rose-600 transition-colors"
+                  className="text-xs text-muted hover:text-rose-600 transition-colors"
                 >
                   Reject with Reason
                 </button>
@@ -589,21 +589,21 @@ export function PostsClient({
 
             {/* First Comment Box */}
             {editedComment && (
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-2">
+              <div className="rounded-2xl border border-border bg-surface p-5 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                     <MessageSquare className="w-3.5 h-3.5 text-[#0a66c2]" />
                     First Comment (External Link Strategy)
                   </span>
                   <button
                     type="button"
                     onClick={handleCopyComment}
-                    className="text-[11px] text-[var(--accent)] hover:underline"
+                    className="text-[11px] text-accent hover:underline"
                   >
                     {copiedComment ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
-                <p className="text-xs text-[var(--muted)] bg-[var(--surface-hover)] p-3 rounded-xl break-words font-mono">
+                <p className="text-xs text-muted bg-surface-hover p-3 rounded-xl break-words font-mono">
                   {editedComment}
                 </p>
               </div>
@@ -820,8 +820,8 @@ export function PostsClient({
 
             {/* Citations Drawer */}
             {activePost.citations && activePost.citations.length > 0 && (
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3">
-                <span className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
+              <div className="rounded-2xl border border-border bg-surface p-5 space-y-3">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Quote className="w-3.5 h-3.5 text-emerald-500" />
                   Grounded Citations ({activePost.citations.length})
                 </span>
@@ -829,11 +829,11 @@ export function PostsClient({
                   {activePost.citations.map((c) => (
                     <div
                       key={c.id}
-                      className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs space-y-1"
+                      className="p-3 rounded-xl border border-border bg-surface-hover text-xs space-y-1"
                     >
-                      <p className="font-medium text-[var(--foreground)]">{c.claim}</p>
+                      <p className="font-medium text-foreground">{c.claim}</p>
                       {c.quote && (
-                        <p className="text-[11px] text-[var(--muted)] italic">
+                        <p className="text-[11px] text-muted italic">
                           &quot;{c.quote}&quot;
                         </p>
                       )}
@@ -842,7 +842,7 @@ export function PostsClient({
                           href={c.sourceUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-[var(--accent)] hover:underline pt-1"
+                          className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline pt-1"
                         >
                           <span>{c.sourceTitle || 'View Source'}</span>
                           <ExternalLink className="w-3 h-3" />
@@ -856,12 +856,12 @@ export function PostsClient({
 
             {/* Deterministic Linter Findings */}
             {activePost.lintFindings && activePost.lintFindings.length > 0 && (
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3">
-                <span className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5">
-                  <FileCheck className="w-3.5 h-3.5 text-[var(--accent)]" />
+              <div className="rounded-2xl border border-border bg-surface p-5 space-y-3">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <FileCheck className="w-3.5 h-3.5 text-accent" />
                   Deterministic Lint Findings
                 </span>
-                <div className="divide-y divide-[var(--border)] text-xs">
+                <div className="divide-y divide-border text-xs">
                   {activePost.lintFindings.map((finding, idx) => (
                     <div key={idx} className="py-2.5 flex items-start gap-2.5">
                       {finding.passed ? (
@@ -872,10 +872,10 @@ export function PostsClient({
                         <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       )}
                       <div className="min-w-0">
-                        <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--muted)] block">
+                        <span className="font-mono text-[11px] uppercase tracking-wider text-muted block">
                           {finding.rule}
                         </span>
-                        <p className="text-xs text-[var(--foreground)] mt-0.5">
+                        <p className="text-xs text-foreground mt-0.5">
                           {finding.message}
                         </p>
                       </div>
