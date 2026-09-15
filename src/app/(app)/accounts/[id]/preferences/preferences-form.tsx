@@ -330,14 +330,18 @@ export function PreferencesForm({
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-foreground text-2xl font-bold">
-          Generation Preferences
-        </h1>
-        <p className="text-muted mt-1 text-sm">
-          Configure content pillars, generation cadence, research &amp; citation
-          policies, media styling, and compliance guardrails.
-        </p>
+
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-surface to-surface-hover border border-border p-8 shadow-xs">
+        <div className="relative z-10">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Generation Preferences</h1>
+          <p className="text-sm text-muted mt-2 max-w-2xl">
+            Configure content pillars, generation cadence, research & citation policies, media styling, and compliance guardrails to fine-tune your agent.
+          </p>
+        </div>
+        <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+          <SlidersHorizontal className="w-32 h-32" />
+        </div>
+
       </div>
 
       {error && (
@@ -347,11 +351,15 @@ export function PreferencesForm({
       )}
 
       {/* Section 1: Content Pillars (Sum to 100%) */}
-      <section className="border-border bg-surface space-y-5 rounded-xl border p-6">
+
+      <section className="rounded-2xl border border-border bg-surface p-6 sm:p-8 space-y-6 shadow-xs hover:shadow-sm hover:border-accent/20 transition-all">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-              <SlidersHorizontal className="text-accent h-4 w-4" />
+            <h2 className="text-base font-semibold text-foreground flex items-center gap-2.5">
+              <div className="bg-accent/10 p-1.5 rounded-lg">
+                <SlidersHorizontal className="w-4 h-4 text-accent" />
+              </div>
+
               1. Content Pillars ({totalPillarWeight}% / 100%)
             </h2>
             <p className="text-muted mt-0.5 text-xs">
@@ -472,10 +480,14 @@ export function PreferencesForm({
       </section>
 
       {/* Section 2: Cadence & Generation Volume */}
-      <section className="border-border bg-surface space-y-5 rounded-xl border p-6">
+
+      <section className="rounded-2xl border border-border bg-surface p-6 sm:p-8 space-y-6 shadow-xs hover:shadow-sm hover:border-accent/20 transition-all">
         <div>
-          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-            <Calendar className="text-accent h-4 w-4" />
+          <h2 className="text-base font-semibold text-foreground flex items-center gap-2.5">
+            <div className="bg-accent/10 p-1.5 rounded-lg">
+              <Calendar className="w-4 h-4 text-accent" />
+            </div>
+
             2. Cadence &amp; Ideas per Run
           </h2>
           <p className="text-muted mt-0.5 text-xs">
@@ -582,10 +594,14 @@ export function PreferencesForm({
       </section>
 
       {/* Section 3: Research & Citation Policy */}
-      <section className="border-border bg-surface space-y-5 rounded-xl border p-6">
+
+      <section className="rounded-2xl border border-border bg-surface p-6 sm:p-8 space-y-6 shadow-xs hover:shadow-sm hover:border-accent/20 transition-all">
         <div>
-          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-            <Search className="text-accent h-4 w-4" />
+          <h2 className="text-base font-semibold text-foreground flex items-center gap-2.5">
+            <div className="bg-accent/10 p-1.5 rounded-lg">
+              <Search className="w-4 h-4 text-accent" />
+            </div>
+
             3. Research &amp; Fact-Checking Policy
           </h2>
           <p className="text-muted mt-0.5 text-xs">
@@ -765,10 +781,14 @@ export function PreferencesForm({
       </section>
 
       {/* Section 4: Media Policy */}
-      <section className="border-border bg-surface space-y-4 rounded-xl border p-6">
+
+      <section className="rounded-2xl border border-border bg-surface p-6 sm:p-8 space-y-5 shadow-xs hover:shadow-sm hover:border-accent/20 transition-all">
         <div>
-          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-            <ImageIcon className="text-accent h-4 w-4" />
+          <h2 className="text-base font-semibold text-foreground flex items-center gap-2.5">
+            <div className="bg-accent/10 p-1.5 rounded-lg">
+              <ImageIcon className="w-4 h-4 text-accent" />
+            </div>
+
             4. Visual Media Policy
           </h2>
           <p className="text-muted mt-0.5 text-xs">
@@ -850,10 +870,14 @@ export function PreferencesForm({
       </section>
 
       {/* Section 5: Post Constraints (The Fold) */}
-      <section className="border-border bg-surface space-y-4 rounded-xl border p-6">
+
+      <section className="rounded-2xl border border-border bg-surface p-6 sm:p-8 space-y-5 shadow-xs hover:shadow-sm hover:border-accent/20 transition-all">
         <div>
-          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-            <FileText className="text-accent h-4 w-4" />
+          <h2 className="text-base font-semibold text-foreground flex items-center gap-2.5">
+            <div className="bg-accent/10 p-1.5 rounded-lg">
+              <FileText className="w-4 h-4 text-accent" />
+            </div>
+
             5. Post Constraints &amp; The Fold
           </h2>
           <p className="text-muted mt-0.5 text-xs">
@@ -988,10 +1012,14 @@ export function PreferencesForm({
       </section>
 
       {/* Section 6: Guardrails & Banned Clichés */}
-      <section className="border-border bg-surface space-y-4 rounded-xl border p-6">
+
+      <section className="rounded-2xl border border-border bg-surface p-6 sm:p-8 space-y-5 shadow-xs hover:shadow-sm hover:border-rose-500/20 transition-all">
         <div>
-          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold text-rose-500">
-            <ShieldAlert className="h-4 w-4" />
+          <h2 className="text-base font-semibold flex items-center gap-2.5 text-rose-500">
+            <div className="bg-rose-500/10 p-1.5 rounded-lg">
+              <ShieldAlert className="w-4 h-4 text-rose-500" />
+            </div>
+
             6. Guardrails &amp; Pre-Seeded Banned Words
           </h2>
           <p className="text-muted mt-0.5 text-xs">

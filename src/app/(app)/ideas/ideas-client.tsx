@@ -171,8 +171,13 @@ export function IdeasClient({
             )}
           </>
         }
-        bottomContent={
-          <>
+      />
+
+      {/* Scrollable Ideas List & Filters */}
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Filters Row */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-1.5 p-1 rounded-xl bg-surface border border-border text-xs w-full sm:w-auto overflow-x-auto">
               {(['proposed', 'approved', 'rejected', 'all'] as const).map((st) => {
                 const count =
@@ -212,20 +217,14 @@ export function IdeasClient({
                 ))}
               </select>
             </div>
-            
-            {message && (
-              <div className="w-full mt-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{message}</span>
-              </div>
-            )}
-          </>
-        }
-      />
-
-      {/* Scrollable Ideas List */}
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
-        <div className="max-w-4xl mx-auto">
+          </div>
+          
+          {message && (
+            <div className="w-full p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{message}</span>
+            </div>
+          )}
           {filteredIdeas.length === 0 ? (
             <div className="p-12 text-center rounded-2xl border-2 border-dashed border-border bg-surface">
               <Sparkles className="w-8 h-8 text-muted mx-auto mb-3" />

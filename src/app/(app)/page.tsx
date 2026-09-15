@@ -16,7 +16,6 @@ import {
   BookOpen,
   CheckCircle2,
   Mic,
-  Pencil,
   Plus,
   SlidersHorizontal,
   Target,
@@ -70,8 +69,8 @@ export default async function DashboardPage() {
         }
       />
 
-      <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-6 sm:p-8">
-        <div className="mx-auto max-w-5xl space-y-8">
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="mx-auto max-w-7xl space-y-8">
           {/* Capability status panel — always visible */}
           <div className="border-border bg-surface mb-8 overflow-hidden rounded-xl border">
             <div className="border-border border-b px-5 py-4">
@@ -307,8 +306,35 @@ function AccountCard({
     preferences: hasPreferences
   }
 
+  const getStepColor = (key: string, isCompleted: boolean) => {
+    if (!isCompleted) return 'bg-surface-hover text-muted hover:text-foreground'
+    switch (key) {
+      case 'voice':
+        return 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400'
+      case 'knowledge':
+        return 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400'
+      case 'goals':
+        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
+      case 'preferences':
+        return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400'
+      default:
+        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
+    }
+  }
+
+  const getStepIconColor = (key: string, isCompleted: boolean) => {
+    if (!isCompleted) return ''
+    switch (key) {
+      case 'voice': return 'text-indigo-500'
+      case 'knowledge': return 'text-blue-500'
+      case 'goals': return 'text-amber-500'
+      case 'preferences': return 'text-rose-500'
+      default: return 'text-emerald-500'
+    }
+  }
+
   return (
-    <div className="border-border bg-surface hover:border-accent/40 rounded-xl border p-5 transition-colors">
+    <div className="border-border bg-surface hover:border-accent/40 rounded-2xl border p-6 transition-all shadow-xs hover:shadow-sm">
       {/* Account header */}
       <div className="mb-5 flex items-start gap-4">
         <div className="bg-accent text-background flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
@@ -336,11 +362,9 @@ function AccountCard({
         <div className="flex shrink-0 items-center gap-2">
           <Link
             href={`/accounts/${account.id}`}
-            className="text-muted hover:text-foreground hover:bg-surface-hover flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-            title="Edit identity"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
           >
-            <Pencil className="h-3.5 w-3.5" />
-            <span>Edit Identity</span>
+            Edit
           </Link>
           <span className="bg-border h-3 w-px" />
           <DeleteIdentityDialog
@@ -360,18 +384,14 @@ function AccountCard({
             <Link
               key={key}
               href={`/accounts/${account.id}/${key}`}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                completed[key]
-                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
-                  : 'bg-surface-hover text-muted hover:text-foreground'
-              }`}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${getStepColor(key, !!completed[key])}`}
             >
               <Icon className="h-3.5 w-3.5" />
               {label}
               {completed[key] ? (
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                <CheckCircle2 className={`h-3 w-3 ${getStepIconColor(key, !!completed[key])}`} />
               ) : (
-                <span className="border-border inline-block h-3 w-3 rounded-full border" />
+                <span className="border-border inline-block h-3 w-3 rounded-full border bg-background/50" />
               )}
             </Link>
           ))}

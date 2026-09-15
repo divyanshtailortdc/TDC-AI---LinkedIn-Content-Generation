@@ -114,7 +114,7 @@ export default function NewAccountPage() {
   )
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="p-8 max-w-7xl mx-auto">
       {/* Back link */}
       <Link
         href="/"

@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
-import { AccountHeader } from '~/components/account-header'
-import { db } from '~/db'
-import { accountsTable, voiceConfigsTable } from '~/db/schema'
+import { AccountHeader } from '@/components/account-header'
+import { db } from '@/db'
+import { accountsTable, voiceConfigsTable } from '@/db/schema'
 import { VoiceForm } from './voice-form'
 
 export const dynamic = 'force-dynamic'
@@ -25,9 +25,13 @@ export default async function VoicePage({ params }: VoicePageProps) {
   })
 
   return (
-    <div className="mx-auto max-w-5xl p-6 sm:p-8">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
-      <VoiceForm accountId={account.id} initialConfig={voiceConfig} />
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-7xl mx-auto">
+          <VoiceForm accountId={account.id} initialConfig={voiceConfig} />
+        </div>
+      </div>
     </div>
   )
 }

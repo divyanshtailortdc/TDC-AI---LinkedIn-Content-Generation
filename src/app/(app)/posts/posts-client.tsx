@@ -27,8 +27,8 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import type { LintFinding } from '~/lib/lint/run-linter'
-import { getUserFacingRelevance } from '~/lib/media/media-brief'
+import type { LintFinding } from '@/lib/lint/run-linter'
+import { getUserFacingRelevance } from '@/lib/media/media-brief'
 import {
   approveDraft,
   regeneratePostMediaAction,
@@ -455,8 +455,8 @@ export function PostsClient({
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <PageHeader
         title="Review & Ship Posts"
-        badge="Content Review Workspace"
-        description="Verify post copy, validate visual media alignment, and approve ready-to-publish content."
+        badge="Daily Surface"
+        description="Final polish before publishing. Review formatting, media, and platform-specific nuances."
         bottomContent={
           <div className="flex items-center gap-2">
             <Filter className="w-3.5 h-3.5 text-muted" />

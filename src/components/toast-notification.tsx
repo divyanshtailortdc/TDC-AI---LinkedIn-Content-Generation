@@ -56,10 +56,10 @@ export function ToastContainer() {
             key={toast.id}
             role="status"
             className={`pointer-events-auto relative flex items-start gap-3 rounded-2xl border p-4 shadow-xl backdrop-blur-md transition-all duration-200 animate-in slide-in-from-top-3 fade-in ${isSuccess
-              ? 'border-emerald-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-emerald-500/20'
+              ? 'border-emerald-500/30 bg-surface text-foreground ring-1 ring-emerald-500/20'
               : isError
-                ? 'border-red-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-red-500/20'
-                : 'border-blue-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-blue-500/20'
+                ? 'border-red-500/30 bg-surface text-foreground ring-1 ring-red-500/20'
+                : 'border-blue-500/30 bg-surface text-foreground ring-1 ring-blue-500/20'
               }`}
           >
             {/* Icon */}
@@ -81,11 +81,11 @@ export function ToastContainer() {
 
             {/* Content */}
             <div className="min-w-0 flex-1">
-              <h4 className="text-xs font-semibold text-[var(--foreground)]">
+              <h4 className="text-xs font-semibold text-foreground">
                 {toast.title}
               </h4>
               {toast.message && (
-                <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">
                   {toast.message}
                 </p>
               )}
@@ -97,7 +97,7 @@ export function ToastContainer() {
               onClick={() =>
                 setToasts(prev => prev.filter(t => t.id !== toast.id))
               }
-              className="shrink-0 rounded-lg p-1 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="shrink-0 rounded-lg p-1 text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
             </button>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ThumbsUp, MessageSquare, Repeat2, Send, Globe, MoreHorizontal } from 'lucide-react'
+import Image from 'next/image'
 
 interface LinkedInPreviewProps {
   authorName: string
@@ -131,12 +132,14 @@ export function LinkedInPreview({
 
       {/* Media Attachment Preview */}
       {mediaUrl && (
-        <div className="mt-2 border-y border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/40">
-          <img
+        <div className="mt-2 border-y border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/40 relative">
+          <Image
             src={mediaUrl}
             alt={mediaAltText || 'Post illustration'}
+            width={1200}
+            height={630}
             className="w-full max-h-[380px] object-cover"
-            loading="lazy"
+            unoptimized
           />
         </div>
       )}

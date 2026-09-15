@@ -44,7 +44,7 @@ export default async function GoalsPage({ params }: PageProps) {
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
       <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           <GoalsClient
             accountId={account.id}
             accountName={account.name}

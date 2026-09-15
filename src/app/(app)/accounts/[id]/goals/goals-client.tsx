@@ -567,7 +567,7 @@ export function GoalsClient({
           {/* Dos and Don'ts */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="text-foreground mb-1 flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 <Check className="h-3.5 w-3.5" />
                 Dos (one per line)
               </label>
@@ -581,7 +581,7 @@ export function GoalsClient({
             </div>
 
             <div>
-              <label className="text-foreground mb-1 flex items-center gap-1 text-xs font-medium text-rose-500">
+              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-rose-500">
                 <X className="h-3.5 w-3.5" />
                 Don&apos;ts (one per line)
               </label>

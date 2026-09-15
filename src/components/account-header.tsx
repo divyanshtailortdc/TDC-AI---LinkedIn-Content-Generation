@@ -80,32 +80,34 @@ export function AccountHeader({ account }: AccountHeaderProps) {
   ]
 
   const titleNode = (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-sm font-bold text-background shadow-xs">
+    <div className="flex items-center gap-2.5">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-[11px] font-bold text-background shadow-xs">
         {initials}
       </div>
-      <span className="text-xl font-bold tracking-tight text-foreground truncate">
+      <span className="text-lg font-bold tracking-tight text-foreground truncate">
         {account.name}
       </span>
     </div>
   )
 
   return (
-    <PageHeader
-      preTitle={
-        <Link
-          href="/accounts"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Accounts
-        </Link>
-      }
-      title={titleNode}
-      badge={account.accountType}
-      description={account.headline || undefined}
-      bottomContent={
-        <nav className="flex items-center gap-1 overflow-x-auto pb-px w-full">
+    <div className="flex flex-col bg-background w-full">
+      <PageHeader
+        preTitle={
+          <Link
+            href="/accounts"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Accounts
+          </Link>
+        }
+        title={titleNode}
+        badge={account.accountType}
+        description={account.headline || undefined}
+      />
+      <div className="px-4 sm:px-6 border-b border-border">
+        <nav className="flex items-center gap-1 overflow-x-auto w-full h-11">
           {tabs.map(({ label, icon: Icon, href, exact }) => {
             const active = exact
               ? pathname === href
@@ -115,7 +117,7 @@ export function AccountHeader({ account }: AccountHeaderProps) {
               <Link
                 key={label}
                 href={href}
-                className={`flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs font-medium transition-colors shrink-0 ${
+                className={`flex items-center gap-2 border-b-2 px-3.5 h-full text-xs font-medium transition-colors shrink-0 ${
                   active
                     ? 'border-accent text-accent font-semibold'
                     : 'border-transparent text-muted hover:border-border hover:text-foreground'
@@ -127,7 +129,7 @@ export function AccountHeader({ account }: AccountHeaderProps) {
             )
           })}
         </nav>
-      }
-    />
+      </div>
+    </div>
   )
 }

@@ -115,7 +115,7 @@ export function RunDetailClient({
   const approvedCount = ideas.filter((i) => i.status === 'approved').length
 
   return (
-    <div className="p-6 sm:p-8 max-w-5xl mx-auto space-y-8">
+    <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-8">
       {/* Header */}
       <div>
         <Link

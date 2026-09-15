@@ -7,7 +7,6 @@ export interface PageHeaderProps {
   description?: string
   preTitle?: React.ReactNode
   actions?: React.ReactNode
-  bottomContent?: React.ReactNode
 }
 
 export function PageHeader({
@@ -15,14 +14,13 @@ export function PageHeader({
   badge,
   description,
   preTitle,
-  actions,
-  bottomContent
+  actions
 }: PageHeaderProps) {
   return (
-    <div className="flex-none p-6 sm:px-8 sm:pt-8 sm:pb-4 border-b border-border bg-background z-10 w-full">
+    <div className="flex-none px-4 py-2 sm:px-6 sm:py-3 border-b border-border bg-background z-10 w-full">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          {preTitle && <div className="mb-3">{preTitle}</div>}
+          {preTitle && <div className="mb-1.5">{preTitle}</div>}
           <div className="flex items-center gap-2.5">
             {typeof title === 'string' ? (
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
@@ -51,12 +49,6 @@ export function PageHeader({
           </div>
         </div>
       </div>
-
-      {bottomContent && (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-          {bottomContent}
-        </div>
-      )}
     </div>
   )
 }

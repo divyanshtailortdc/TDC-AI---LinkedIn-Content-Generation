@@ -5,7 +5,7 @@ export default function SettingsPage() {
   const capabilities = getCapabilities()
 
   return (
-    <div className="p-8 max-w-2xl mx-auto">
+    <div className="p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
         <p className="text-sm text-muted mt-1">

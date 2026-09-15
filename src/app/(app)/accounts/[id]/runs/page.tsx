@@ -48,9 +48,13 @@ export default async function AccountRunsPage({ params }: AccountRunsPageProps) 
   }))
 
   return (
-    <div className="mx-auto max-w-5xl p-6 sm:p-8 space-y-6">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
-      <RunsClient initialRuns={formattedRuns} accounts={[{ id: account.id, name: account.name }]} />
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <RunsClient initialRuns={formattedRuns} accounts={[{ id: account.id, name: account.name }]} hideHeader={true} />
+        </div>
+      </div>
     </div>
   )
 }

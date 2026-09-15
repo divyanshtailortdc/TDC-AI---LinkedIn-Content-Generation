@@ -64,7 +64,7 @@ export function RunsClient({
   }
 
   const content = (
-    <div className="max-w-5xl mx-auto space-y-8">
+    <div className="max-w-7xl mx-auto space-y-8">
       {/* Generate Now Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
@@ -112,6 +112,21 @@ export function RunsClient({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Inline Header (Only when PageHeader is hidden) */}
+      {hideHeader && (
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground">Pipeline Runs</h2>
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-background text-xs font-semibold shadow-xs hover:bg-accent-hover transition-colors"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Generate Now</span>
+          </button>
         </div>
       )}
 
