@@ -46,7 +46,7 @@ export function ToastContainer() {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed top-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
+    <div className="pointer-events-none fixed top-5 right-5 z-50 flex w-full max-w-sm flex-col gap-2.5">
       {toasts.map(toast => {
         const isSuccess = toast.type === 'success' || !toast.type
         const isError = toast.type === 'error'
@@ -55,16 +55,16 @@ export function ToastContainer() {
           <div
             key={toast.id}
             role="status"
-            className={`pointer-events-auto relative flex items-start gap-3 rounded-2xl border p-4 shadow-xl backdrop-blur-md transition-all duration-200 animate-in slide-in-from-top-3 fade-in ${
+            className={`animate-in slide-in-from-top-3 fade-in pointer-events-auto relative flex items-start gap-3 rounded-2xl border p-4 shadow-xl backdrop-blur-md transition-all duration-200 ${
               isSuccess
-                ? 'border-emerald-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-emerald-500/20'
+                ? 'border-emerald-500/30 bg-surface text-foreground ring-1 ring-emerald-500/20'
                 : isError
-                  ? 'border-red-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-red-500/20'
-                  : 'border-blue-500/30 bg-[var(--surface)] text-[var(--foreground)] ring-1 ring-blue-500/20'
+                  ? 'border-red-500/30 bg-surface text-foreground ring-1 ring-red-500/20'
+                  : 'border-blue-500/30 bg-surface text-foreground ring-1 ring-blue-500/20'
             }`}
           >
             {/* Icon */}
-            <div className="shrink-0 mt-0.5">
+            <div className="mt-0.5 shrink-0">
               {isSuccess ? (
                 <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
                   <CheckCircle2 className="h-4 w-4" />
@@ -86,7 +86,7 @@ export function ToastContainer() {
                 {toast.title}
               </h4>
               {toast.message && (
-                <p className="mt-0.5 text-xs text-[var(--muted)] leading-relaxed">
+                <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">
                   {toast.message}
                 </p>
               )}
@@ -95,8 +95,10 @@ export function ToastContainer() {
             {/* Dismiss */}
             <button
               type="button"
-              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
-              className="shrink-0 rounded-lg p-1 text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] transition-colors"
+              onClick={() =>
+                setToasts(prev => prev.filter(t => t.id !== toast.id))
+              }
+              className="shrink-0 rounded-lg p-1 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             >
               <X className="h-3.5 w-3.5" />
             </button>
