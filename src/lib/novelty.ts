@@ -1,3 +1,4 @@
+//todo: can we remove this
 /**
  * Novelty Guard for LinkedIn Content Generation
  *
@@ -72,7 +73,10 @@ export function checkNovelty(
       .slice(0, 5)
       .join(' ')
 
-    if (newFirstFiveWords.length > 10 && newFirstFiveWords === pastFirstFiveWords) {
+    if (
+      newFirstFiveWords.length > 10 &&
+      newFirstFiveWords === pastFirstFiveWords
+    ) {
       return {
         isNovel: false,
         highestSimilarity: 1.0,

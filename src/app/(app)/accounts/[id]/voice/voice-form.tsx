@@ -1,8 +1,8 @@
 'use client'
 
+import { showToast } from '@/components/toast-notification'
 import {
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Plus,
   RotateCcw,
@@ -115,8 +115,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
-  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
@@ -238,12 +236,16 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   const handleAnalyze = async () => {
     if (!samplesText.trim()) {
       setError('Please paste sample posts into the box before analyzing.')
+      showToast({
+        type: 'error',
+        title: 'Sample Posts Required',
+        message: 'Please paste sample posts into the box before analyzing.'
+      })
       return
     }
 
     setError(null)
     setIsAnalyzing(true)
-    setAnalysisNotice(null)
 
     // Reset all AI-generated voice fields to empty/unselected state before analysis starts
     resetAllVoiceFields()
@@ -300,13 +302,24 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
           : []
       )
 
-      setAnalysisNotice(
+      const noticeMessage =
         res.provider === 'claude'
           ? `Analyzed successfully with Claude (${res.modelUsed || 'Claude via AI Gateway'}). All style sliders pre-filled.`
-          : 'Analyzed with linguistic engine. Add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to .env.local to use Claude.'
-      )
+          : 'Analyzed with linguistic engine. All style sliders pre-filled.'
+
+      showToast({
+        type: 'success',
+        title: 'Voice Analyzed Successfully',
+        message: noticeMessage
+      })
     } catch (err: any) {
-      setError(err.message || 'Error running voice analysis')
+      const errMsg = err.message || 'Error running voice analysis'
+      setError(errMsg)
+      showToast({
+        type: 'error',
+        title: 'Voice Analysis Failed',
+        message: errMsg
+      })
       // Fields stay empty/unselected on failure and are re-enabled in finally block
     } finally {
       setIsAnalyzing(false)
@@ -316,7 +329,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   // Handle Save
   const handleSave = () => {
     setError(null)
-    setSaveSuccess(false)
 
     // 1. Comprehensive client-side validation
     const errorsMap: Record<string, string> = {}
@@ -370,6 +382,11 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
       } else {
         setError(Object.values(errorsMap).join(' • '))
       }
+      showToast({
+        type: 'error',
+        title: 'Validation Error',
+        message: 'Please complete the highlighted voice fields before saving.'
+      })
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
@@ -401,13 +418,23 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
       })
 
       if (res.success) {
-        setSaveSuccess(true)
         setError(null)
         setFieldErrors({})
+        showToast({
+          type: 'success',
+          title: 'Voice Profile Saved',
+          message: 'Voice profile and style rubric saved successfully.'
+        })
         router.refresh()
-        setTimeout(() => setSaveSuccess(false), 4000)
       } else {
-        setError(cleanErrorMessage(res.error) || 'Failed to save voice profile')
+        const errMsg =
+          cleanErrorMessage(res.error) || 'Failed to save voice profile'
+        setError(errMsg)
+        showToast({
+          type: 'error',
+          title: 'Save Failed',
+          message: errMsg
+        })
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }
     })
@@ -569,7 +596,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="space-y-1">
-              <p className="font-semibold leading-relaxed">
+              <p className="leading-relaxed font-semibold">
                 {cleanErrorMessage(error)}
               </p>
               {Object.keys(fieldErrors).length > 0 && (
@@ -589,31 +616,17 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         </div>
       )}
 
-      {analysisNotice && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>{analysisNotice}</p>
-        </div>
-      )}
-
-      {saveSuccess && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>Voice profile saved! Your setup checklist is updated.</p>
-        </div>
-      )}
-
       {/* 1. VOICE_SAMPLES */}
-      <section className="rounded-2xl border border-border bg-surface p-6 shadow-xs">
+      <section className="border-border bg-surface rounded-2xl border p-6 shadow-xs">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+            <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
               VOICE_SAMPLES
             </span>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="text-muted mt-0.5 text-xs">
               Paste 5–15 real past posts that sound like you. Separate distinct
               posts with{' '}
-              <code className="rounded bg-surface-hover px-1 font-mono text-[11px]">
+              <code className="bg-surface-hover rounded px-1 font-mono text-[11px]">
                 ---
               </code>
               .
@@ -627,7 +640,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               setSamplesText(DEMO_SAMPLES)
               resetAllVoiceFields()
             }}
-            className="flex items-center gap-1.5 text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            className="text-accent flex items-center gap-1.5 text-xs hover:underline disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Load sample posts
@@ -640,7 +653,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
           value={samplesText}
           onChange={e => handleSamplesChange(e.target.value)}
           placeholder="Paste 5–15 real past posts..."
-          className="w-full rounded-xl border border-border bg-background p-4 font-mono text-xs leading-relaxed text-foreground placeholder-muted/50 focus:border-accent focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-60"
+          className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent w-full rounded-xl border p-4 font-mono text-xs leading-relaxed focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-60"
         />
 
         <div className="mt-4 flex items-center justify-between">
@@ -648,7 +661,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             type="button"
             disabled={isAnalyzing}
             onClick={handleAnalyze}
-            className="flex items-center gap-2 rounded-xl bg-foreground px-5 py-2.5 text-xs font-semibold text-background shadow-xs transition-all hover:opacity-90 disabled:opacity-50"
+            className="bg-foreground text-background flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold shadow-xs transition-all hover:opacity-90 disabled:opacity-50"
           >
             {isAnalyzing ? (
               <>
@@ -663,7 +676,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             )}
           </button>
 
-          <span className="text-xs text-muted">
+          <span className="text-muted text-xs">
             {samplesText.trim().length > 0
               ? `${samplesText.split(/\s+/).filter(Boolean).length} words parsed`
               : 'Pasting real posts gives the best results'}
@@ -681,7 +694,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         {/* 2. DERIVED_STYLE_RUBRIC — AUTO-WRITTEN BY CLAUDE */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+            <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
               DERIVED_STYLE_RUBRIC — AUTO-WRITTEN BY CLAUDE
             </span>
             {fieldErrors.derivedRubric && (
@@ -717,24 +730,24 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
         {/* 3. GRID OF VOICE SLIDERS & CONTROLS (Image 2 style) */}
         <section className="space-y-4">
-          <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+          <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
             VOICE_SLIDERS & DIMENSIONS
           </span>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Formality Slider */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.formality
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   FORMALITY
                 </span>
-                <span className="font-mono font-bold text-foreground">
+                <span className="text-foreground font-mono font-bold">
                   {formality !== null ? (
                     `${formality} / 5`
                   ) : fieldErrors.formality ? (
@@ -742,7 +755,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                       Required
                     </span>
                   ) : (
-                    <span className="text-[11px] font-normal text-muted">
+                    <span className="text-muted text-[11px] font-normal">
                       Not set
                     </span>
                   )}
@@ -757,9 +770,9 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setFormality(Number(e.target.value))
                   clearFieldError('formality')
                 }}
-                className={`mt-3 w-full accent-accent ${formality === null ? 'opacity-30' : ''}`}
+                className={`accent-accent mt-3 w-full ${formality === null ? 'opacity-30' : ''}`}
               />
-              <div className="mt-1 flex justify-between text-[10px] text-muted">
+              <div className="text-muted mt-1 flex justify-between text-[10px]">
                 <span>Casual</span>
                 <span>Formal</span>
               </div>
@@ -767,17 +780,17 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Warmth Slider */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.warmth
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   WARMTH
                 </span>
-                <span className="font-mono font-bold text-foreground">
+                <span className="text-foreground font-mono font-bold">
                   {warmth !== null ? (
                     `${warmth} / 5`
                   ) : fieldErrors.warmth ? (
@@ -785,7 +798,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                       Required
                     </span>
                   ) : (
-                    <span className="text-[11px] font-normal text-muted">
+                    <span className="text-muted text-[11px] font-normal">
                       Not set
                     </span>
                   )}
@@ -800,9 +813,9 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setWarmth(Number(e.target.value))
                   clearFieldError('warmth')
                 }}
-                className={`mt-3 w-full accent-accent ${warmth === null ? 'opacity-30' : ''}`}
+                className={`accent-accent mt-3 w-full ${warmth === null ? 'opacity-30' : ''}`}
               />
-              <div className="mt-1 flex justify-between text-[10px] text-muted">
+              <div className="text-muted mt-1 flex justify-between text-[10px]">
                 <span>Clinical</span>
                 <span>Empathetic</span>
               </div>
@@ -810,17 +823,17 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Directness Slider */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.directness
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   DIRECTNESS
                 </span>
-                <span className="font-mono font-bold text-foreground">
+                <span className="text-foreground font-mono font-bold">
                   {directness !== null ? (
                     `${directness} / 5`
                   ) : fieldErrors.directness ? (
@@ -828,7 +841,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                       Required
                     </span>
                   ) : (
-                    <span className="text-[11px] font-normal text-muted">
+                    <span className="text-muted text-[11px] font-normal">
                       Not set
                     </span>
                   )}
@@ -843,9 +856,9 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setDirectness(Number(e.target.value))
                   clearFieldError('directness')
                 }}
-                className={`mt-3 w-full accent-accent ${directness === null ? 'opacity-30' : ''}`}
+                className={`accent-accent mt-3 w-full ${directness === null ? 'opacity-30' : ''}`}
               />
-              <div className="mt-1 flex justify-between text-[10px] text-muted">
+              <div className="text-muted mt-1 flex justify-between text-[10px]">
                 <span>Diplomatic</span>
                 <span>Punchy</span>
               </div>
@@ -853,14 +866,14 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Humor Selector */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.humor
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   HUMOR
                 </span>
                 {fieldErrors.humor && (
@@ -875,7 +888,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setHumor(e.target.value)
                   clearFieldError('humor')
                 }}
-                className={`mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold ${
+                className={`border-border bg-background mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold ${
                   humor ? 'text-foreground' : 'text-muted'
                 }`}
               >
@@ -888,14 +901,14 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Energy Selector */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.energy
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   ENERGY
                 </span>
                 {fieldErrors.energy && (
@@ -910,7 +923,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setEnergy(e.target.value)
                   clearFieldError('energy')
                 }}
-                className={`mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold ${
+                className={`border-border bg-background mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold ${
                   energy ? 'text-foreground' : 'text-muted'
                 }`}
               >
@@ -922,14 +935,14 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Perspective Selector */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.perspective
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   PERSPECTIVE
                 </span>
                 {fieldErrors.perspective && (
@@ -944,10 +957,8 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setPerspective(e.target.value)
                   clearFieldError('perspective')
                 }}
-                className={`mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold ${
-                  perspective
-                    ? 'text-foreground'
-                    : 'text-muted'
+                className={`border-border bg-background mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold ${
+                  perspective ? 'text-foreground' : 'text-muted'
                 }`}
               >
                 <option value="">Select perspective...</option>
@@ -961,17 +972,17 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Story vs Data */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.storyVsData
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   STORY_VS_DATA
                 </span>
-                <span className="font-mono font-bold text-foreground">
+                <span className="text-foreground font-mono font-bold">
                   {storyVsData !== null ? (
                     `${storyVsData} / 5`
                   ) : fieldErrors.storyVsData ? (
@@ -979,7 +990,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                       Required
                     </span>
                   ) : (
-                    <span className="text-[11px] font-normal text-muted">
+                    <span className="text-muted text-[11px] font-normal">
                       Not set
                     </span>
                   )}
@@ -994,9 +1005,9 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setStoryVsData(Number(e.target.value))
                   clearFieldError('storyVsData')
                 }}
-                className={`mt-3 w-full accent-accent ${storyVsData === null ? 'opacity-30' : ''}`}
+                className={`accent-accent mt-3 w-full ${storyVsData === null ? 'opacity-30' : ''}`}
               />
-              <div className="mt-1 flex justify-between text-[10px] text-muted">
+              <div className="text-muted mt-1 flex justify-between text-[10px]">
                 <span>Personal story</span>
                 <span>Data-driven</span>
               </div>
@@ -1004,14 +1015,14 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Emoji Policy */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.emojiPolicy
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   EMOJI_POLICY
                 </span>
                 {fieldErrors.emojiPolicy && (
@@ -1026,10 +1037,8 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setEmojiPolicy(e.target.value)
                   clearFieldError('emojiPolicy')
                 }}
-                className={`mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold ${
-                  emojiPolicy
-                    ? 'text-foreground'
-                    : 'text-muted'
+                className={`border-border bg-background mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold ${
+                  emojiPolicy ? 'text-foreground' : 'text-muted'
                 }`}
               >
                 <option value="">Select emoji policy...</option>
@@ -1040,9 +1049,9 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Hashtag Policy */}
-            <div className="rounded-xl border border-border bg-surface p-4 shadow-2xs">
+            <div className="border-border bg-surface rounded-xl border p-4 shadow-2xs">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   HASHTAG_POLICY
                 </span>
               </div>
@@ -1051,20 +1060,20 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 value={hashtagPolicy}
                 onChange={e => setHashtagPolicy(e.target.value)}
                 placeholder="e.g. 0-3, end of post"
-                className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold text-foreground placeholder-muted/50"
+                className="border-border bg-background text-foreground placeholder-muted/50 mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold"
               />
             </div>
 
             {/* Sentence Length */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.sentenceLength
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   SENTENCE_LENGTH
                 </span>
                 {fieldErrors.sentenceLength && (
@@ -1079,10 +1088,8 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setSentenceLength(e.target.value)
                   clearFieldError('sentenceLength')
                 }}
-                className={`mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold ${
-                  sentenceLength
-                    ? 'text-foreground'
-                    : 'text-muted'
+                className={`border-border bg-background mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold ${
+                  sentenceLength ? 'text-foreground' : 'text-muted'
                 }`}
               >
                 <option value="">Select sentence length...</option>
@@ -1094,14 +1101,14 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
             {/* Paragraph Style */}
             <div
-              className={`rounded-xl border bg-surface p-4 shadow-2xs transition-colors ${
+              className={`bg-surface rounded-xl border p-4 shadow-2xs transition-colors ${
                 fieldErrors.paragraphStyle
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             >
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   PARAGRAPH_STYLE
                 </span>
                 {fieldErrors.paragraphStyle && (
@@ -1116,10 +1123,8 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   setParagraphStyle(e.target.value)
                   clearFieldError('paragraphStyle')
                 }}
-                className={`mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold ${
-                  paragraphStyle
-                    ? 'text-foreground'
-                    : 'text-muted'
+                className={`border-border bg-background mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold ${
+                  paragraphStyle ? 'text-foreground' : 'text-muted'
                 }`}
               >
                 <option value="">Select paragraph style...</option>
@@ -1130,9 +1135,9 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             </div>
 
             {/* Reading Level Target */}
-            <div className="rounded-xl border border-border bg-surface p-4 shadow-2xs">
+            <div className="border-border bg-surface rounded-xl border p-4 shadow-2xs">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-[11px] font-semibold text-muted uppercase">
+                <span className="text-muted font-mono text-[11px] font-semibold uppercase">
                   READING_LEVEL_TARGET
                 </span>
               </div>
@@ -1141,19 +1146,19 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 value={readingLevelTarget}
                 onChange={e => setReadingLevelTarget(e.target.value)}
                 placeholder="e.g. grade 7-9"
-                className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs font-semibold text-foreground placeholder-muted/50"
+                className="border-border bg-background text-foreground placeholder-muted/50 mt-2 w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-semibold"
               />
             </div>
           </div>
         </section>
 
         {/* 4. BANNED_WORDS[] */}
-        <section className="rounded-xl border border-border bg-surface p-5 shadow-xs">
+        <section className="border-border bg-surface rounded-xl border p-5 shadow-xs">
           <div className="mb-3 flex items-center justify-between">
-            <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+            <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
               BANNED_WORDS[]
             </span>
-            <span className="text-xs text-muted">
+            <span className="text-muted text-xs">
               Terms strictly filtered out by the deterministic linter
             </span>
           </div>
@@ -1162,7 +1167,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             {bannedWords.map(word => (
               <span
                 key={word}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-3 py-1 font-mono text-xs text-foreground"
+                className="border-border bg-surface-hover text-foreground inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 font-mono text-xs"
               >
                 <span>{word}</span>
                 <button
@@ -1175,7 +1180,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               </span>
             ))}
             {bannedWords.length === 0 && (
-              <span className="text-xs text-muted italic">
+              <span className="text-muted text-xs italic">
                 No banned words yet.
               </span>
             )}
@@ -1190,12 +1195,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 e.key === 'Enter' && (e.preventDefault(), addBannedWord())
               }
               placeholder="Add banned word..."
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder-muted/50 focus:border-accent focus:outline-hidden"
+              className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent flex-1 rounded-lg border px-3 py-1.5 text-xs focus:outline-hidden"
             />
             <button
               type="button"
               onClick={addBannedWord}
-              className="flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-xs font-medium text-foreground hover:bg-border"
+              className="border-border bg-surface-hover text-foreground hover:bg-border flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add</span>
@@ -1204,12 +1209,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         </section>
 
         {/* 5. WRITING_PATTERNS[] */}
-        <section className="rounded-xl border border-border bg-surface p-5 shadow-xs">
+        <section className="border-border bg-surface rounded-xl border p-5 shadow-xs">
           <div className="mb-3 flex items-center justify-between">
-            <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+            <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
               WRITING_PATTERNS[]
             </span>
-            <span className="text-xs text-muted">
+            <span className="text-muted text-xs">
               Syntactic frames &amp; contrast structures detected from your
               posts (e.g. &quot;X isn&apos;t the problem. Y is.&quot;)
             </span>
@@ -1232,7 +1237,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               </span>
             ))}
             {writingPatterns.length === 0 && (
-              <span className="text-xs text-muted italic">
+              <span className="text-muted text-xs italic">
                 No custom patterns yet. Claude will extract them during
                 analysis, or add your own below.
               </span>
@@ -1248,12 +1253,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 e.key === 'Enter' && (e.preventDefault(), addWritingPattern())
               }
               placeholder="e.g. You don't need X. You need Y."
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder-muted/50 focus:border-accent focus:outline-hidden"
+              className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent flex-1 rounded-lg border px-3 py-1.5 text-xs focus:outline-hidden"
             />
             <button
               type="button"
               onClick={addWritingPattern}
-              className="flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-xs font-medium text-foreground hover:bg-border"
+              className="border-border bg-surface-hover text-foreground hover:bg-border flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add Pattern</span>
@@ -1262,12 +1267,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         </section>
 
         {/* 6. SIGNATURE_PHRASES[] */}
-        <section className="rounded-xl border border-border bg-surface p-5 shadow-xs">
+        <section className="border-border bg-surface rounded-xl border p-5 shadow-xs">
           <div className="mb-3 flex items-center justify-between">
-            <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+            <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
               SIGNATURE_PHRASES[]
             </span>
-            <span className="text-xs text-muted">
+            <span className="text-muted text-xs">
               Phrases you genuinely say to give posts your authentic rhythm
             </span>
           </div>
@@ -1276,7 +1281,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             {signaturePhrases.map(phrase => (
               <span
                 key={phrase}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-3 py-1 font-mono text-xs text-foreground"
+                className="border-border bg-surface-hover text-foreground inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 font-mono text-xs"
               >
                 <span>{phrase}</span>
                 <button
@@ -1289,7 +1294,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               </span>
             ))}
             {signaturePhrases.length === 0 && (
-              <span className="text-xs text-muted italic">
+              <span className="text-muted text-xs italic">
                 No signature phrases yet.
               </span>
             )}
@@ -1304,12 +1309,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 e.key === 'Enter' && (e.preventDefault(), addSignaturePhrase())
               }
               placeholder="Add signature phrase..."
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder-muted/50 focus:border-accent focus:outline-hidden"
+              className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent flex-1 rounded-lg border px-3 py-1.5 text-xs focus:outline-hidden"
             />
             <button
               type="button"
               onClick={addSignaturePhrase}
-              className="flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-xs font-medium text-foreground hover:bg-border"
+              className="border-border bg-surface-hover text-foreground hover:bg-border flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add</span>
@@ -1320,12 +1325,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         {/* 7. OPENING & CLOSING STYLES */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           {/* Opening Styles */}
-          <section className="rounded-xl border border-border bg-surface p-5 shadow-xs">
+          <section className="border-border bg-surface rounded-xl border p-5 shadow-xs">
             <div className="mb-3 flex items-center justify-between">
-              <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+              <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
                 OPENING_HOOK_STYLES[]
               </span>
-              <span className="text-xs text-muted">
+              <span className="text-muted text-xs">
                 Observed sample patterns
               </span>
             </div>
@@ -1334,7 +1339,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               {openingStyles.map(style => (
                 <span
                   key={style}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-2.5 py-1 text-xs text-foreground"
+                  className="border-border bg-surface-hover text-foreground inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs"
                 >
                   <span>{style}</span>
                   <button
@@ -1347,7 +1352,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 </span>
               ))}
               {openingStyles.length === 0 && (
-                <span className="text-xs text-muted italic">
+                <span className="text-muted text-xs italic">
                   No opening hook styles yet.
                 </span>
               )}
@@ -1362,20 +1367,20 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   e.key === 'Enter' && (e.preventDefault(), addOpeningStyle())
                 }
                 placeholder="Add opening style..."
-                className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder-muted/50 focus:border-accent focus:outline-hidden"
+                className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent flex-1 rounded-lg border px-3 py-1.5 text-xs focus:outline-hidden"
               />
               <button
                 type="button"
                 onClick={addOpeningStyle}
-                className="flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-xs font-medium text-foreground hover:bg-border"
+                className="border-border bg-surface-hover text-foreground hover:bg-border flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Add</span>
               </button>
             </div>
 
-            <div className="mt-3 border-t border-border pt-2.5">
-              <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">
+            <div className="border-border mt-3 border-t pt-2.5">
+              <span className="text-muted text-[10px] font-semibold tracking-wider uppercase">
                 Quick Suggestions:
               </span>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -1404,12 +1409,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
           </section>
 
           {/* Closing Styles */}
-          <section className="rounded-xl border border-border bg-surface p-5 shadow-xs">
+          <section className="border-border bg-surface rounded-xl border p-5 shadow-xs">
             <div className="mb-3 flex items-center justify-between">
-              <span className="font-mono text-xs font-semibold tracking-wider text-muted uppercase">
+              <span className="text-muted font-mono text-xs font-semibold tracking-wider uppercase">
                 CLOSING_STYLES[]
               </span>
-              <span className="text-xs text-muted">
+              <span className="text-muted text-xs">
                 Observed sample patterns
               </span>
             </div>
@@ -1418,7 +1423,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               {closingStyles.map(style => (
                 <span
                   key={style}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-2.5 py-1 text-xs text-foreground"
+                  className="border-border bg-surface-hover text-foreground inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs"
                 >
                   <span>{style}</span>
                   <button
@@ -1431,7 +1436,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                 </span>
               ))}
               {closingStyles.length === 0 && (
-                <span className="text-xs text-muted italic">
+                <span className="text-muted text-xs italic">
                   No closing styles yet.
                 </span>
               )}
@@ -1446,20 +1451,20 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
                   e.key === 'Enter' && (e.preventDefault(), addClosingStyle())
                 }
                 placeholder="Add closing style..."
-                className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder-muted/50 focus:border-accent focus:outline-hidden"
+                className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent flex-1 rounded-lg border px-3 py-1.5 text-xs focus:outline-hidden"
               />
               <button
                 type="button"
                 onClick={addClosingStyle}
-                className="flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-xs font-medium text-foreground hover:bg-border"
+                className="border-border bg-surface-hover text-foreground hover:bg-border flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Add</span>
               </button>
             </div>
 
-            <div className="mt-3 border-t border-border pt-2.5">
-              <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">
+            <div className="border-border mt-3 border-t pt-2.5">
+              <span className="text-muted text-[10px] font-semibold tracking-wider uppercase">
                 Quick Suggestions:
               </span>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -1490,22 +1495,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
       </fieldset>
 
       {/* 7. SAVE BUTTON FOOTER */}
-      <div className="sticky bottom-4 z-20 flex items-center justify-between rounded-2xl border border-border bg-surface/95 p-4 shadow-lg backdrop-blur-md">
-        <div className="text-xs text-muted">
-          {saveSuccess ? (
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-              ✓ Voice profile saved and active
-            </span>
-          ) : (
-            <span>Ready to commit voice rubric and style preferences</span>
-          )}
-        </div>
-
+      <div className="border-border bg-surface/95 sticky bottom-4 z-20 flex items-center justify-end rounded-2xl border p-4 shadow-lg backdrop-blur-md">
         <button
           type="button"
           disabled={isPending || isAnalyzing}
           onClick={handleSave}
-          className="flex items-center gap-2 rounded-xl bg-accent px-6 py-2.5 text-xs font-semibold text-background shadow-sm transition-all hover:bg-accent-hover disabled:opacity-50"
+          className="bg-accent text-background hover:bg-accent-hover flex items-center gap-2 rounded-xl px-6 py-2.5 text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
         >
           {isPending ? (
             <>

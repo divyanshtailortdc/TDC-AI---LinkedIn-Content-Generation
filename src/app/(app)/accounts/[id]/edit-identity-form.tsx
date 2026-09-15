@@ -1,11 +1,13 @@
 'use client'
 
+import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
+import { showToast } from '@/components/toast-notification'
 import {
   AlertCircle,
   Briefcase,
   Building2,
-  CheckCircle2,
   Loader2,
+  Lock,
   Plus,
   Save,
   Trash2,
@@ -13,7 +15,6 @@ import {
   Users,
   X
 } from 'lucide-react'
-import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { updateAccountAction } from '../actions'
@@ -226,6 +227,11 @@ export function EditIdentityForm({
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       setError('Please fill in all required fields marked with *.')
+      showToast({
+        type: 'error',
+        title: 'Validation Error',
+        message: 'Please fill in all required fields marked with *.'
+      })
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
@@ -269,10 +275,20 @@ export function EditIdentityForm({
 
       if (res.success) {
         setSaveSuccess(true)
+        showToast({
+          type: 'success',
+          title: 'Identity Updated',
+          message: `Identity "${name.trim()}" has been updated successfully.`
+        })
         router.refresh()
-        setTimeout(() => setSaveSuccess(false), 4000)
+        setTimeout(() => setSaveSuccess(false), 3000)
       } else {
         setError(res.error || 'Failed to update identity')
+        showToast({
+          type: 'error',
+          title: 'Update Failed',
+          message: res.error || 'Failed to update identity'
+        })
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }
     })
@@ -304,79 +320,80 @@ export function EditIdentityForm({
         </div>
       )}
 
-      {saveSuccess && (
-        <div className="animate-in fade-in flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-600 duration-200 dark:text-emerald-400">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          <p className="font-medium">
-            LinkedIn Identity updated successfully! Profile header and setup
-            details are synced.
-          </p>
+      {/* Section 1 — Identity Type (Disabled in update mode) */}
+      <section className="border-border bg-surface/60 rounded-xl border p-6 shadow-xs">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <label className="text-foreground block text-sm font-semibold">
+            What kind of Identity is this?
+          </label>
+          <span className="bg-surface-hover text-muted inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium">
+            <Lock className="h-3 w-3" />
+            Disabled in update mode
+          </span>
         </div>
-      )}
-
-      {/* Section 1 — Identity Type */}
-      <section className="rounded-xl border border-border bg-surface p-6 shadow-xs">
-        <label className="mb-1 block text-sm font-semibold text-foreground">
-          What kind of Identity is this?
-        </label>
-        <p className="mb-4 text-xs text-muted">
+        <p className="text-muted mb-4 text-xs">
           Defines whether the AI drafts content from an executive individual
-          perspective or a brand/company voice.
+          perspective or a brand/company voice (configured at creation).
         </p>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {typeOptions.map(opt => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setAccountType(opt.value)}
-              className={`flex items-start gap-3 rounded-xl border-2 p-4 text-left transition-all ${
-                accountType === opt.value
-                  ? 'border-accent bg-accent/5'
-                  : 'border-border bg-surface hover:border-accent/40'
-              }`}
-            >
-              <span
-                className={`mt-0.5 shrink-0 ${
-                  accountType === opt.value
-                    ? 'text-accent'
-                    : 'text-muted'
+          {typeOptions.map(opt => {
+            const isSelected = accountType === opt.value
+            return (
+              <div
+                key={opt.value}
+                aria-disabled="true"
+                className={`flex cursor-not-allowed items-start gap-3 rounded-xl border-2 p-4 text-left transition-all select-none ${
+                  isSelected
+                    ? 'border-accent/50 bg-accent/5'
+                    : 'border-border/50 bg-surface/30 opacity-40'
                 }`}
               >
-                {opt.icon}
-              </span>
-              <div>
-                <p
-                  className={`text-sm font-semibold ${
-                    accountType === opt.value
-                      ? 'text-accent'
-                      : 'text-foreground'
+                <span
+                  className={`mt-0.5 shrink-0 ${
+                    isSelected ? 'text-accent' : 'text-muted'
                   }`}
                 >
-                  {opt.label}
-                </p>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                  {opt.description}
-                </p>
+                  {opt.icon}
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p
+                      className={`text-sm font-semibold ${
+                        isSelected ? 'text-foreground' : 'text-muted'
+                      }`}
+                    >
+                      {opt.label}
+                    </p>
+                    {isSelected && (
+                      <span className="text-accent text-[10px] font-semibold tracking-wider uppercase">
+                        Selected
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-muted mt-0.5 text-xs leading-relaxed">
+                    {opt.description}
+                  </p>
+                </div>
               </div>
-            </button>
-          ))}
+            )
+          })}
         </div>
       </section>
 
       {/* Section 2 — Core identity */}
-      <section className="space-y-5 rounded-xl border border-border bg-surface p-6 shadow-xs">
+      <section className="border-border bg-surface space-y-5 rounded-xl border p-6 shadow-xs">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">
+            <h2 className="text-foreground text-base font-semibold">
               Core identity
             </h2>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="text-muted mt-0.5 text-xs">
               Essential background information used by AI across ideation,
               hooks, and drafts.
             </p>
           </div>
-          <span className="font-mono text-xs font-semibold text-muted uppercase">
+          <span className="text-muted font-mono text-xs font-semibold uppercase">
             ID: {account.id.slice(0, 8)}...
           </span>
         </div>
@@ -384,7 +401,7 @@ export function EditIdentityForm({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           {/* Display Name */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <label className="text-foreground mb-1.5 block text-sm font-medium">
               Display name <span className="text-rose-500">*</span>
             </label>
             <input
@@ -399,7 +416,7 @@ export function EditIdentityForm({
                   ? 'e.g. Aditya Sharma'
                   : 'e.g. Acme AI'
               }
-              className={`w-full rounded-lg border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden ${
+              className={`bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden ${
                 fieldErrors.name
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
@@ -412,7 +429,7 @@ export function EditIdentityForm({
 
           {/* LinkedIn handle / slug */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <label className="text-foreground mb-1.5 block text-sm font-medium">
               LinkedIn handle / slug <span className="text-rose-500">*</span>
             </label>
             <input
@@ -423,13 +440,13 @@ export function EditIdentityForm({
                 clearFieldError('handle')
               }}
               placeholder="e.g. aditya-sharma"
-              className={`w-full rounded-lg border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden ${
+              className={`bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden ${
                 fieldErrors.handle
                   ? 'border-red-500/60 ring-1 ring-red-500/30'
                   : 'border-border'
               }`}
             />
-            <p className="mt-1.5 text-xs text-muted">
+            <p className="text-muted mt-1.5 text-xs">
               Unique identifier slug for this identity
             </p>
             {fieldErrors.handle && (
@@ -440,7 +457,7 @@ export function EditIdentityForm({
 
         {/* Headline */}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">
+          <label className="text-foreground mb-1.5 block text-sm font-medium">
             Headline <span className="text-rose-500">*</span>
           </label>
           <input
@@ -455,13 +472,13 @@ export function EditIdentityForm({
                 ? 'e.g. Founder & CEO @ Acme | Scaling AI to 1M Users'
                 : 'e.g. The Autonomous LinkedIn AI Engine for High-Growth Founders'
             }
-            className={`w-full rounded-lg border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden ${
+            className={`bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden ${
               fieldErrors.headline
                 ? 'border-red-500/60 ring-1 ring-red-500/30'
                 : 'border-border'
             }`}
           />
-          <p className="mt-1.5 text-xs text-muted">
+          <p className="text-muted mt-1.5 text-xs">
             Paste it verbatim — the AI uses this to match how you present
             yourself.
           </p>
@@ -472,7 +489,7 @@ export function EditIdentityForm({
 
         {/* Bio / About */}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">
+          <label className="text-foreground mb-1.5 block text-sm font-medium">
             Bio / About
           </label>
           <textarea
@@ -480,7 +497,7 @@ export function EditIdentityForm({
             value={bio}
             onChange={e => setBio(e.target.value)}
             placeholder="Paste your LinkedIn 'About' section or a short overview of your background, experience, and ethos."
-            className="w-full resize-none rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden"
+            className="border-border bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full resize-none rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden"
           />
         </div>
 
@@ -488,7 +505,7 @@ export function EditIdentityForm({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           {accountType === 'personal' ? (
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
+              <label className="text-foreground mb-1.5 block text-sm font-medium">
                 Current company / Project
               </label>
               <input
@@ -496,12 +513,12 @@ export function EditIdentityForm({
                 value={company}
                 onChange={e => setCompany(e.target.value)}
                 placeholder="e.g. The Developer Company"
-                className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden"
+                className="border-border bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden"
               />
             </div>
           ) : (
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
+              <label className="text-foreground mb-1.5 block text-sm font-medium">
                 Parent Company / Brand
               </label>
               <input
@@ -509,13 +526,13 @@ export function EditIdentityForm({
                 value={company}
                 onChange={e => setCompany(e.target.value)}
                 placeholder="e.g. Acme Corp"
-                className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden"
+                className="border-border bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden"
               />
             </div>
           )}
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <label className="text-foreground mb-1.5 block text-sm font-medium">
               Website URL
             </label>
             <input
@@ -523,14 +540,14 @@ export function EditIdentityForm({
               value={websiteUrl}
               onChange={e => setWebsiteUrl(e.target.value)}
               placeholder="https://example.com"
-              className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden"
+              className="border-border bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden"
             />
           </div>
         </div>
 
         {/* Avatar URL */}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">
+          <label className="text-foreground mb-1.5 block text-sm font-medium">
             Profile avatar URL
           </label>
           <input
@@ -538,23 +555,23 @@ export function EditIdentityForm({
             value={avatarUrl}
             onChange={e => setAvatarUrl(e.target.value)}
             placeholder="https://images.unsplash.com/... or https://media.licdn.com/..."
-            className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/40 focus:outline-hidden"
+            className="border-border bg-surface text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-accent/40 w-full rounded-lg border px-3.5 py-2.5 text-sm transition-colors focus:ring-2 focus:outline-hidden"
           />
-          <p className="mt-1.5 text-xs text-muted">
+          <p className="text-muted mt-1.5 text-xs">
             Image URL used for avatar and LinkedIn post previews.
           </p>
         </div>
       </section>
 
       {/* Section 3 — Offerings (What you sell & Proof points) */}
-      <section className="space-y-5 rounded-xl border border-border bg-surface p-6 shadow-xs">
+      <section className="border-border bg-surface space-y-5 rounded-xl border p-6 shadow-xs">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-              <Briefcase className="h-4 w-4 text-accent" />
+            <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+              <Briefcase className="text-accent h-4 w-4" />
               Offerings & Proof Points
             </h2>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="text-muted mt-0.5 text-xs">
               What you sell, who it is for, and real proof points (metrics,
               customers, logos) to prevent hallucinations.
             </p>
@@ -562,7 +579,7 @@ export function EditIdentityForm({
           <button
             type="button"
             onClick={addOffering}
-            className="flex items-center gap-1.5 rounded-lg border border-accent/20 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+            className="border-accent/20 text-accent hover:bg-accent/10 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
             Add offering
@@ -570,8 +587,8 @@ export function EditIdentityForm({
         </div>
 
         {offerings.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border bg-background/50 py-8 text-center">
-            <p className="text-xs text-muted">
+          <div className="border-border bg-background/50 rounded-xl border border-dashed py-8 text-center">
+            <p className="text-muted text-xs">
               No offerings added yet. Click &quot;Add offering&quot; to define
               what you sell.
             </p>
@@ -581,12 +598,12 @@ export function EditIdentityForm({
             {offerings.map((offering, idx) => (
               <div
                 key={idx}
-                className="relative space-y-3 rounded-xl border border-border bg-surface-hover p-4 shadow-2xs"
+                className="border-border bg-surface-hover relative space-y-3 rounded-xl border p-4 shadow-2xs"
               >
                 <button
                   type="button"
                   onClick={() => removeOffering(idx)}
-                  className="absolute top-3 right-3 p-1 text-muted transition-colors hover:text-rose-500"
+                  className="text-muted absolute top-3 right-3 p-1 transition-colors hover:text-rose-500"
                   title="Remove offering"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -594,7 +611,7 @@ export function EditIdentityForm({
 
                 <div className="grid grid-cols-1 gap-3 pr-8 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-foreground">
+                    <label className="text-foreground mb-1 block text-xs font-medium">
                       Offering Name
                     </label>
                     <input
@@ -604,11 +621,11 @@ export function EditIdentityForm({
                         updateOffering(idx, 'name', e.target.value)
                       }
                       placeholder="e.g. AI Engineering Consulting"
-                      className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                      className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-foreground">
+                    <label className="text-foreground mb-1 block text-xs font-medium">
                       Type
                     </label>
                     <select
@@ -616,7 +633,7 @@ export function EditIdentityForm({
                       onChange={e =>
                         updateOffering(idx, 'type', e.target.value)
                       }
-                      className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                      className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                     >
                       <option value="service">Service / Agency</option>
                       <option value="product">SaaS / Software Product</option>
@@ -630,7 +647,7 @@ export function EditIdentityForm({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-foreground">
+                  <label className="text-foreground mb-1 block text-xs font-medium">
                     Who it is for &amp; Problem solved
                   </label>
                   <input
@@ -640,12 +657,12 @@ export function EditIdentityForm({
                       updateOffering(idx, 'tagline', e.target.value)
                     }
                     placeholder="e.g. For Seed-Stage CTOs struggling with AI accuracy and latency"
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                    className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-foreground">
+                  <label className="text-foreground mb-1 block text-xs font-medium">
                     Description &amp; Proof Points (Real numbers, client
                     results)
                   </label>
@@ -656,12 +673,12 @@ export function EditIdentityForm({
                       updateOffering(idx, 'description', e.target.value)
                     }
                     placeholder="e.g. Helped TechCorp reduce LLM cost by 62% in 3 weeks. 15 enterprise deployments completed."
-                    className="w-full resize-none rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                    className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-foreground">
+                  <label className="text-foreground mb-1 block text-xs font-medium">
                     Offering URL (optional)
                   </label>
                   <input
@@ -669,7 +686,7 @@ export function EditIdentityForm({
                     value={offering.url}
                     onChange={e => updateOffering(idx, 'url', e.target.value)}
                     placeholder="https://acme.com/services"
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                    className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                   />
                 </div>
               </div>
@@ -679,14 +696,14 @@ export function EditIdentityForm({
       </section>
 
       {/* Section 4 — Target Audiences */}
-      <section className="space-y-5 rounded-xl border border-border bg-surface p-6 shadow-xs">
+      <section className="border-border bg-surface space-y-5 rounded-xl border p-6 shadow-xs">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-              <Users className="h-4 w-4 text-accent" />
+            <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+              <Users className="text-accent h-4 w-4" />
               Target Audiences
             </h2>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="text-muted mt-0.5 text-xs">
               Define the job titles, seniority, pain points, and desires of who
               you write for.
             </p>
@@ -694,7 +711,7 @@ export function EditIdentityForm({
           <button
             type="button"
             onClick={addAudience}
-            className="flex items-center gap-1.5 rounded-lg border border-accent/20 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+            className="border-accent/20 text-accent hover:bg-accent/10 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
             Add audience
@@ -702,8 +719,8 @@ export function EditIdentityForm({
         </div>
 
         {audiences.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border bg-background/50 py-8 text-center">
-            <p className="text-xs text-muted">
+          <div className="border-border bg-background/50 rounded-xl border border-dashed py-8 text-center">
+            <p className="text-muted text-xs">
               No audiences added yet. Click &quot;Add audience&quot; to define
               your target reader.
             </p>
@@ -713,19 +730,19 @@ export function EditIdentityForm({
             {audiences.map((audience, idx) => (
               <div
                 key={idx}
-                className="relative space-y-3 rounded-xl border border-border bg-surface-hover p-4 shadow-2xs"
+                className="border-border bg-surface-hover relative space-y-3 rounded-xl border p-4 shadow-2xs"
               >
                 <button
                   type="button"
                   onClick={() => removeAudience(idx)}
-                  className="absolute top-3 right-3 p-1 text-muted transition-colors hover:text-rose-500"
+                  className="text-muted absolute top-3 right-3 p-1 transition-colors hover:text-rose-500"
                   title="Remove audience"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
 
                 <div className="pr-8">
-                  <label className="mb-1 block text-xs font-medium text-foreground">
+                  <label className="text-foreground mb-1 block text-xs font-medium">
                     Audience Segment &amp; Seniority
                   </label>
                   <input
@@ -733,13 +750,13 @@ export function EditIdentityForm({
                     value={audience.name}
                     onChange={e => updateAudience(idx, 'name', e.target.value)}
                     placeholder="e.g. Senior Product Managers & VP of Product at B2B SaaS"
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                    className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-foreground">
+                    <label className="text-foreground mb-1 block text-xs font-medium">
                       Pain points (one per line)
                     </label>
                     <textarea
@@ -749,11 +766,11 @@ export function EditIdentityForm({
                         updateAudience(idx, 'painPointsText', e.target.value)
                       }
                       placeholder="e.g. AI prototypes failing in production&#10;High token costs&#10;Lack of evaluation benchmarks"
-                      className="w-full resize-none rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-accent"
+                      className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border px-3 py-1.5 text-xs focus:ring-1"
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-foreground">
+                    <label className="text-foreground mb-1 block text-xs font-medium">
                       Goals &amp; Desires (one per line)
                     </label>
                     <textarea
@@ -763,7 +780,7 @@ export function EditIdentityForm({
                         updateAudience(idx, 'goalsText', e.target.value)
                       }
                       placeholder="e.g. Ship reliable AI features faster&#10;Proven architectures they can show leadership&#10;Clear ROI"
-                      className="w-full resize-none rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-accent"
+                      className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border px-3 py-1.5 text-xs focus:ring-1"
                     />
                   </div>
                 </div>
@@ -780,8 +797,9 @@ export function EditIdentityForm({
             <h2 className="text-sm font-semibold text-amber-600 dark:text-amber-400">
               Deactivate Identity
             </h2>
-            <p className="mt-0.5 text-xs text-muted">
-              Mark this LinkedIn identity as inactive. You can reactivate it back to active anytime.
+            <p className="text-muted mt-0.5 text-xs">
+              Mark this LinkedIn identity as inactive. You can reactivate it
+              back to active anytime.
             </p>
           </div>
           <DeleteIdentityDialog
@@ -794,8 +812,8 @@ export function EditIdentityForm({
       </section>
 
       {/* Sticky Save Footer */}
-      <div className="sticky bottom-4 z-20 flex items-center justify-between rounded-2xl border border-border bg-surface/95 p-4 shadow-lg backdrop-blur-md">
-        <div className="text-xs text-muted">
+      <div className="border-border bg-surface/95 sticky bottom-4 z-20 flex items-center justify-between rounded-2xl border p-4 shadow-lg backdrop-blur-md">
+        <div className="text-muted text-xs">
           {saveSuccess ? (
             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
               ✓ Core identity updated and saved
@@ -809,7 +827,7 @@ export function EditIdentityForm({
           type="button"
           disabled={isPending}
           onClick={handleSave}
-          className="flex cursor-pointer items-center gap-2 rounded-xl bg-accent px-6 py-2.5 text-xs font-semibold text-background shadow-sm transition-all hover:bg-accent-hover disabled:opacity-50"
+          className="bg-accent text-background hover:bg-accent-hover flex cursor-pointer items-center gap-2 rounded-xl px-6 py-2.5 text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
         >
           {isPending ? (
             <>

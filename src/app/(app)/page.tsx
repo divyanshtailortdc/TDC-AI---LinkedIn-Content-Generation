@@ -1,5 +1,5 @@
 import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
-import { EditIdentityDialog } from '@/components/edit-identity-dialog'
+import { PageHeader } from '@/components/page-header'
 import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
 import { db } from '@/db'
 import {
@@ -16,13 +16,13 @@ import {
   BookOpen,
   CheckCircle2,
   Mic,
+  Pencil,
   Plus,
   SlidersHorizontal,
   Target,
   Users
 } from 'lucide-react'
 import Link from 'next/link'
-import { PageHeader } from '@/components/page-header'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
   const hasAnyAccounts = accounts.length > 0
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Dashboard"
         description="Your LinkedIn content generation workspace"
@@ -70,63 +70,65 @@ export default async function DashboardPage() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+      <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-6 sm:p-8">
         <div className="mx-auto max-w-5xl space-y-8">
-
-      {/* Capability status panel — always visible */}
-      <div className="border-border bg-surface mb-8 overflow-hidden rounded-xl border">
-        <div className="border-border border-b px-5 py-4">
-          <h2 className="text-foreground text-sm font-semibold">
-            Capabilities
-          </h2>
-          <p className="text-muted mt-0.5 text-xs">
-            Based on the keys present in{' '}
-            <code className="bg-surface-hover rounded px-1.5 py-0.5 font-mono text-[11px]">
-              .env.local
-            </code>
-          </p>
-        </div>
-        <div className="divide-border divide-y">
-          {capabilities.map(cap => (
-            <div key={cap.name} className="flex items-center gap-4 px-5 py-4">
-              {cap.status === 'live' ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-              ) : (
-                <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-foreground text-sm font-medium">
-                  {cap.name}
-                </p>
-                <p className="text-muted text-xs">{cap.description}</p>
-              </div>
-              {cap.status === 'live' ? (
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950/40">
-                  Active
-                </span>
-              ) : (
-                <span className="bg-surface-hover text-muted rounded px-2 py-0.5 font-mono text-xs">
-                  {cap.missingKey} not set
-                </span>
-              )}
+          {/* Capability status panel — always visible */}
+          <div className="border-border bg-surface mb-8 overflow-hidden rounded-xl border">
+            <div className="border-border border-b px-5 py-4">
+              <h2 className="text-foreground text-sm font-semibold">
+                Capabilities
+              </h2>
+              <p className="text-muted mt-0.5 text-xs">
+                Based on the keys present in{' '}
+                <code className="bg-surface-hover rounded px-1.5 py-0.5 font-mono text-[11px]">
+                  .env.local
+                </code>
+              </p>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="divide-border divide-y">
+              {capabilities.map(cap => (
+                <div
+                  key={cap.name}
+                  className="flex items-center gap-4 px-5 py-4"
+                >
+                  {cap.status === 'live' ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-foreground text-sm font-medium">
+                      {cap.name}
+                    </p>
+                    <p className="text-muted text-xs">{cap.description}</p>
+                  </div>
+                  {cap.status === 'live' ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950/40">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="bg-surface-hover text-muted rounded px-2 py-0.5 font-mono text-xs">
+                      {cap.missingKey} not set
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
 
-      {/* Empty state / Account list */}
-      {!hasAnyAccounts ? (
-        <EmptyState />
-      ) : (
-        <AccountList
-          activeAccounts={activeAccounts}
-          inactiveAccounts={inactiveAccounts}
-          voiceAccountIds={voiceAccountIds}
-          knowledgeAccountIds={knowledgeAccountIds}
-          goalAccountIds={goalAccountIds}
-          prefAccountIds={prefAccountIds}
-        />
-      )}
+          {/* Empty state / Account list */}
+          {!hasAnyAccounts ? (
+            <EmptyState />
+          ) : (
+            <AccountList
+              activeAccounts={activeAccounts}
+              inactiveAccounts={inactiveAccounts}
+              voiceAccountIds={voiceAccountIds}
+              knowledgeAccountIds={knowledgeAccountIds}
+              goalAccountIds={goalAccountIds}
+              prefAccountIds={prefAccountIds}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -332,7 +334,14 @@ function AccountCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <EditIdentityDialog account={account} />
+          <Link
+            href={`/accounts/${account.id}`}
+            className="text-muted hover:text-foreground hover:bg-surface-hover flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+            title="Edit identity"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            <span>Edit Identity</span>
+          </Link>
           <span className="bg-border h-3 w-px" />
           <DeleteIdentityDialog
             accountId={account.id}

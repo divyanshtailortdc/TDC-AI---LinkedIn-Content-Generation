@@ -1,27 +1,29 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { showToast } from '@/components/toast-notification'
 import {
-  ArrowLeft,
-  Target,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  Loader2,
-  Link as LinkIcon,
-  MessageSquare,
-  Users,
-  Compass,
+  Award,
   BookOpen,
   Calendar,
-  Sparkles,
-  Award,
   Check,
+  Compass,
+  Link as LinkIcon,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Target,
+  Trash2,
+  Users,
   X
 } from 'lucide-react'
-import { createGoal, toggleGoalActive, deleteGoal, type GoalPayload } from './actions'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+import {
+  createGoal,
+  deleteGoal,
+  toggleGoalActive,
+  type GoalPayload
+} from './actions'
 
 type Audience = {
   id: string
@@ -62,13 +64,16 @@ export function GoalsClient({
   // Form states
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [objectiveType, setObjectiveType] = useState<GoalPayload['objectiveType']>('authority')
+  const [objectiveType, setObjectiveType] =
+    useState<GoalPayload['objectiveType']>('authority')
   const [audienceId, setAudienceId] = useState(audiences[0]?.id || '')
   const [keyMessage, setKeyMessage] = useState('')
   const [selectedProofIds, setSelectedProofIds] = useState<string[]>([])
   const [desiredAction, setDesiredAction] = useState('')
   const [targetUrl, setTargetUrl] = useState('')
-  const [linkStrategy, setLinkStrategy] = useState<'body' | 'first_comment'>('first_comment')
+  const [linkStrategy, setLinkStrategy] = useState<'body' | 'first_comment'>(
+    'first_comment'
+  )
   const [successMetric, setSuccessMetric] = useState('')
   const [weight, setWeight] = useState(7)
   const [startDate, setStartDate] = useState('')
@@ -96,7 +101,9 @@ export function GoalsClient({
       return
     }
     if (!keyMessage.trim()) {
-      setError('The Key Message to Land is required — the agent needs to know the exact belief to move.')
+      setError(
+        'The Key Message to Land is required — the agent needs to know the exact belief to move.'
+      )
       return
     }
 
@@ -104,8 +111,14 @@ export function GoalsClient({
     setIsSubmitting(true)
 
     try {
-      const dos = dosText.split('\n').map(s => s.trim()).filter(Boolean)
-      const donts = dontsText.split('\n').map(s => s.trim()).filter(Boolean)
+      const dos = dosText
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean)
+      const donts = dontsText
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean)
 
       await createGoal(accountId, {
         title,
@@ -127,6 +140,12 @@ export function GoalsClient({
         targetCount
       })
 
+      showToast({
+        type: 'success',
+        title: 'Goal Saved',
+        message: `Campaign goal "${title.trim()}" created successfully.`
+      })
+
       setTitle('')
       setDescription('')
       setKeyMessage('')
@@ -140,6 +159,11 @@ export function GoalsClient({
       router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to create goal')
+      showToast({
+        type: 'error',
+        title: 'Goal Creation Failed',
+        message: err.message || 'Failed to create goal'
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -149,9 +173,19 @@ export function GoalsClient({
     setActionId(goalId)
     try {
       await toggleGoalActive(goalId, accountId, !current)
+      showToast({
+        type: 'info',
+        title: !current ? 'Goal Activated' : 'Goal Paused',
+        message: `Campaign goal has been ${!current ? 'activated' : 'paused'}.`
+      })
       router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to update goal')
+      showToast({
+        type: 'error',
+        title: 'Update Failed',
+        message: err.message || 'Failed to update goal'
+      })
     } finally {
       setActionId(null)
     }
@@ -162,15 +196,25 @@ export function GoalsClient({
     setActionId(goalId)
     try {
       await deleteGoal(goalId, accountId)
+      showToast({
+        type: 'info',
+        title: 'Goal Deleted',
+        message: 'Campaign goal has been removed.'
+      })
       router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to delete goal')
+      showToast({
+        type: 'error',
+        title: 'Delete Failed',
+        message: err.message || 'Failed to delete goal'
+      })
     } finally {
       setActionId(null)
     }
   }
 
-  const parsedGoals = initialGoals.map((g) => {
+  const parsedGoals = initialGoals.map(g => {
     try {
       const data = JSON.parse(g.title)
       if (data && typeof data === 'object' && data.title) {
@@ -184,7 +228,8 @@ export function GoalsClient({
           proofAssetIds: (data.proofAssetIds as string[]) || [],
           desiredAction: (data.desiredAction as string) || '',
           targetUrl: (data.targetUrl as string) || '',
-          linkStrategy: (data.linkStrategy as 'body' | 'first_comment') || 'first_comment',
+          linkStrategy:
+            (data.linkStrategy as 'body' | 'first_comment') || 'first_comment',
           successMetric: (data.successMetric as string) || '',
           weight: (data.weight as number) || 5,
           startDate: (data.startDate as string) || '',
@@ -192,7 +237,7 @@ export function GoalsClient({
           dos: (data.dos as string[]) || [],
           donts: (data.donts as string[]) || [],
           targetCount: g.targetCount,
-          isActive: g.isActive,
+          isActive: g.isActive
         }
       }
     } catch {}
@@ -214,52 +259,55 @@ export function GoalsClient({
       dos: [],
       donts: [],
       targetCount: g.targetCount,
-      isActive: g.isActive,
+      isActive: g.isActive
     }
   })
 
   return (
     <div className="space-y-8">
-
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Campaign Goals</h1>
-          <p className="text-sm text-muted mt-1">
-            Define the business objectives, key messages to land, proof assets, and CTAs that steer generated posts.
+          <h1 className="text-foreground text-2xl font-bold">Campaign Goals</h1>
+          <p className="text-muted mt-1 text-sm">
+            Define the business objectives, key messages to land, proof assets,
+            and CTAs that steer generated posts.
           </p>
         </div>
         {!showNewGoal && (
           <button
             type="button"
             onClick={() => setShowNewGoal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors shadow-sm shrink-0"
+            className="bg-accent hover:bg-accent-hover text-background flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             New Goal
           </button>
         )}
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm">
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
           {error}
         </div>
       )}
 
       {/* New Goal Form */}
       {showNewGoal && (
-        <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-surface p-6 space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-border">
-            <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
-              <Compass className="w-4 h-4 text-accent" />
+        <form
+          onSubmit={handleSubmit}
+          className="border-border bg-surface space-y-6 rounded-xl border p-6"
+        >
+          <div className="border-border flex items-center justify-between border-b pb-3">
+            <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+              <Compass className="text-accent h-4 w-4" />
               Define New Campaign Goal
             </h2>
             {initialGoals.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowNewGoal(false)}
-                className="text-xs text-muted hover:text-foreground"
+                className="text-muted hover:text-foreground text-xs"
               >
                 Cancel
               </button>
@@ -267,59 +315,77 @@ export function GoalsClient({
           </div>
 
           {/* Title & Objective */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">
+              <label className="text-foreground mb-1 block text-xs font-medium">
                 Goal Title <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={e => setTitle(e.target.value)}
                 placeholder="e.g. Q4 AI Cost Optimization Campaign"
                 required
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-accent"
+                className="border-border bg-surface-hover text-foreground focus:ring-accent w-full rounded-md border px-3 py-2 text-sm focus:ring-1"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Objective Type</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Objective Type
+              </label>
               <select
                 value={objectiveType}
-                onChange={(e) => setObjectiveType(e.target.value as any)}
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                onChange={e => setObjectiveType(e.target.value as any)}
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               >
-                <option value="awareness">Awareness (Reach &amp; Impressions)</option>
-                <option value="engagement">Engagement (Meaningful discussions &amp; DMs)</option>
-                <option value="authority">Authority (Thought leadership &amp; POV)</option>
-                <option value="lead_gen">Lead Gen (Inbound inquiries &amp; demos)</option>
-                <option value="recruiting">Recruiting (Attracting top engineering talent)</option>
-                <option value="community">Community (Peer network building)</option>
+                <option value="awareness">
+                  Awareness (Reach &amp; Impressions)
+                </option>
+                <option value="engagement">
+                  Engagement (Meaningful discussions &amp; DMs)
+                </option>
+                <option value="authority">
+                  Authority (Thought leadership &amp; POV)
+                </option>
+                <option value="lead_gen">
+                  Lead Gen (Inbound inquiries &amp; demos)
+                </option>
+                <option value="recruiting">
+                  Recruiting (Attracting top engineering talent)
+                </option>
+                <option value="community">
+                  Community (Peer network building)
+                </option>
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-foreground mb-1">Campaign Description (Optional)</label>
+            <label className="text-foreground mb-1 block text-xs font-medium">
+              Campaign Description (Optional)
+            </label>
             <input
               type="text"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={e => setDescription(e.target.value)}
               placeholder="Why this campaign matters right now..."
-              className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+              className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
             />
           </div>
 
           {/* Target Audience */}
           {audiences.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Target Audience</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Target Audience
+              </label>
               <select
                 value={audienceId}
-                onChange={(e) => setAudienceId(e.target.value)}
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                onChange={e => setAudienceId(e.target.value)}
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               >
-                {audiences.map((aud) => (
+                {audiences.map(aud => (
                   <option key={aud.id} value={aud.id}>
                     {aud.name}
                   </option>
@@ -329,40 +395,45 @@ export function GoalsClient({
           )}
 
           {/* The One Key Message to Land */}
-          <div className="p-4 rounded-xl border border-accent/30 bg-accent/5 space-y-1.5">
-            <label className="block text-xs font-bold text-accent uppercase tracking-wider">
-              The One Key Message to Land <span className="text-rose-500">*</span>
+          <div className="border-accent/30 bg-accent/5 space-y-1.5 rounded-xl border p-4">
+            <label className="text-accent block text-xs font-bold tracking-wider uppercase">
+              The One Key Message to Land{' '}
+              <span className="text-rose-500">*</span>
             </label>
-            <p className="text-xs text-muted">
-              The foundational belief or thesis this content must move. Posts aimed at a belief consistently outperform generic topic posts.
+            <p className="text-muted text-xs">
+              The foundational belief or thesis this content must move. Posts
+              aimed at a belief consistently outperform generic topic posts.
             </p>
             <textarea
               rows={2}
               value={keyMessage}
-              onChange={(e) => setKeyMessage(e.target.value)}
+              onChange={e => setKeyMessage(e.target.value)}
               required
               placeholder="e.g. Building custom RAG from scratch is a massive trap; standard evals with clean prompt engineering resolve 90% of issues at 1/10th the cost."
-              className="w-full rounded-md border border-border bg-surface p-3 text-sm text-foreground focus:ring-1 focus:ring-accent resize-none"
+              className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border p-3 text-sm focus:ring-1"
             />
           </div>
 
           {/* Supporting Proof Assets */}
           {proofAssets.length > 0 && (
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-foreground">
+              <label className="text-foreground block text-xs font-medium">
                 Supporting Proof Assets (From Knowledge Base)
               </label>
-              <p className="text-xs text-muted">Select verified documents the AI will cite for statistics and quotes.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto p-2 rounded-lg border border-border bg-surface-hover">
-                {proofAssets.map((asset) => {
+              <p className="text-muted text-xs">
+                Select verified documents the AI will cite for statistics and
+                quotes.
+              </p>
+              <div className="border-border bg-surface-hover grid max-h-44 grid-cols-1 gap-2 overflow-y-auto rounded-lg border p-2 sm:grid-cols-2">
+                {proofAssets.map(asset => {
                   const isChecked = selectedProofIds.includes(asset.id)
                   return (
                     <label
                       key={asset.id}
                       onClick={() => toggleProofAsset(asset.id)}
-                      className={`flex items-center gap-2 p-2 rounded-md cursor-pointer text-xs transition-colors ${
+                      className={`flex cursor-pointer items-center gap-2 rounded-md p-2 text-xs transition-colors ${
                         isChecked
-                          ? 'bg-accent/10 text-foreground font-medium border border-accent/30'
+                          ? 'bg-accent/10 text-foreground border-accent/30 border font-medium'
                           : 'hover:bg-surface text-muted'
                       }`}
                     >
@@ -372,7 +443,7 @@ export function GoalsClient({
                         onChange={() => {}}
                         className="accent-accent"
                       />
-                      <BookOpen className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <BookOpen className="text-accent h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">{asset.title}</span>
                     </label>
                   )
@@ -382,59 +453,69 @@ export function GoalsClient({
           )}
 
           {/* CTA & Link Strategy */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">
+              <label className="text-foreground mb-1 block text-xs font-medium">
                 Desired Action / Call to Action
               </label>
               <input
                 type="text"
                 value={desiredAction}
-                onChange={(e) => setDesiredAction(e.target.value)}
+                onChange={e => setDesiredAction(e.target.value)}
                 placeholder="e.g. DM me for the architecture doc"
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Target URL (Optional)</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Target URL (Optional)
+              </label>
               <input
                 type="url"
                 value={targetUrl}
-                onChange={(e) => setTargetUrl(e.target.value)}
+                onChange={e => setTargetUrl(e.target.value)}
                 placeholder="https://company.com/checklist"
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Link Strategy</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Link Strategy
+              </label>
               <select
                 value={linkStrategy}
-                onChange={(e) => setLinkStrategy(e.target.value as 'body' | 'first_comment')}
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                onChange={e =>
+                  setLinkStrategy(e.target.value as 'body' | 'first_comment')
+                }
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               >
-                <option value="first_comment">First comment (Algorithmic reach)</option>
+                <option value="first_comment">
+                  First comment (Algorithmic reach)
+                </option>
                 <option value="body">In post body (Direct conversion)</option>
               </select>
             </div>
           </div>
 
           {/* Metrics, Weight & Dates */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Success Metric</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Success Metric
+              </label>
               <input
                 type="text"
                 value={successMetric}
-                onChange={(e) => setSuccessMetric(e.target.value)}
+                onChange={e => setSuccessMetric(e.target.value)}
                 placeholder="e.g. 15 inbound DMs"
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">
+              <label className="text-foreground mb-1 block text-xs font-medium">
                 Priority Weight (1–10)
               </label>
               <input
@@ -442,83 +523,87 @@ export function GoalsClient({
                 min={1}
                 max={10}
                 value={weight}
-                onChange={(e) => setWeight(Number(e.target.value))}
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground font-mono"
+                onChange={e => setWeight(Number(e.target.value))}
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 font-mono text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Target Posts Count</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Target Posts Count
+              </label>
               <input
                 type="number"
                 min={1}
                 max={50}
                 value={targetCount}
-                onChange={(e) => setTargetCount(Number(e.target.value))}
-                className="w-full rounded-md border border-border bg-surface-hover px-3 py-2 text-sm text-foreground"
+                onChange={e => setTargetCount(Number(e.target.value))}
+                className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-foreground mb-1">Date Range (Optional)</label>
+              <label className="text-foreground mb-1 block text-xs font-medium">
+                Date Range (Optional)
+              </label>
               <div className="flex items-center gap-1.5">
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-md border border-border bg-surface-hover px-2 py-2 text-xs text-foreground"
+                  onChange={e => setStartDate(e.target.value)}
+                  className="border-border bg-surface-hover text-foreground w-full rounded-md border px-2 py-2 text-xs"
                 />
-                <span className="text-xs text-muted">–</span>
+                <span className="text-muted text-xs">–</span>
                 <input
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-md border border-border bg-surface-hover px-2 py-2 text-xs text-foreground"
+                  onChange={e => setEndDate(e.target.value)}
+                  className="border-border bg-surface-hover text-foreground w-full rounded-md border px-2 py-2 text-xs"
                 />
               </div>
             </div>
           </div>
 
           {/* Dos and Don'ts */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                <Check className="w-3.5 h-3.5" />
+              <label className="text-foreground mb-1 flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <Check className="h-3.5 w-3.5" />
                 Dos (one per line)
               </label>
               <textarea
                 rows={3}
                 value={dosText}
-                onChange={(e) => setDosText(e.target.value)}
+                onChange={e => setDosText(e.target.value)}
                 placeholder="Cite our 62% latency benchmark&#10;Share firsthand production debugging lessons&#10;Tag the open-source repo"
-                className="w-full rounded-md border border-border bg-surface-hover p-2.5 text-xs text-foreground resize-none"
+                className="border-border bg-surface-hover text-foreground w-full resize-none rounded-md border p-2.5 text-xs"
               />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1 text-rose-500">
-                <X className="w-3.5 h-3.5" />
+              <label className="text-foreground mb-1 flex items-center gap-1 text-xs font-medium text-rose-500">
+                <X className="h-3.5 w-3.5" />
                 Don&apos;ts (one per line)
               </label>
               <textarea
                 rows={3}
                 value={dontsText}
-                onChange={(e) => setDontsText(e.target.value)}
+                onChange={e => setDontsText(e.target.value)}
                 placeholder="Don't mention competitors by name&#10;Avoid vague hype words like 'revolutionize'&#10;Don't disclose client contract sizes"
-                className="w-full rounded-md border border-border bg-surface-hover p-2.5 text-xs text-foreground resize-none"
+                className="border-border bg-surface-hover text-foreground w-full resize-none rounded-md border p-2.5 text-xs"
               />
             </div>
           </div>
 
-          <div className="pt-3 flex justify-end gap-3 border-t border-border">
+          <div className="border-border flex justify-end gap-3 border-t pt-3">
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
+              className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Saving goal…
                 </>
               ) : (
@@ -532,100 +617,111 @@ export function GoalsClient({
       {/* Goals List */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
-            <Target className="w-4 h-4 text-accent" />
+          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+            <Target className="text-accent h-4 w-4" />
             Configured Goals ({parsedGoals.length})
           </h2>
-          <span className="text-xs text-muted">
-            Weights balance multi-goal post generation into a defensible content calendar
+          <span className="text-muted text-xs">
+            Weights balance multi-goal post generation into a defensible content
+            calendar
           </span>
         </div>
 
         {parsedGoals.length === 0 ? (
-          <div className="py-12 text-center rounded-xl border border-dashed border-border bg-surface">
-            <p className="text-sm font-medium text-foreground">No goals defined yet</p>
-            <p className="text-xs text-muted mt-1">
-              Create your first campaign goal above to direct what the AI writes to achieve.
+          <div className="border-border bg-surface rounded-xl border border-dashed py-12 text-center">
+            <p className="text-foreground text-sm font-medium">
+              No goals defined yet
+            </p>
+            <p className="text-muted mt-1 text-xs">
+              Create your first campaign goal above to direct what the AI writes
+              to achieve.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            {parsedGoals.map((g) => {
+            {parsedGoals.map(g => {
               const audience = audiences.find(a => a.id === g.audienceId)
 
               return (
                 <div
                   key={g.id}
-                  className={`rounded-xl border p-5 space-y-4 transition-colors ${
+                  className={`space-y-4 rounded-xl border p-5 transition-colors ${
                     g.isActive
                       ? 'border-border bg-surface'
                       : 'border-border bg-surface/50 opacity-60'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="text-[11px] font-semibold uppercase px-2.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <span className="bg-accent/10 text-accent rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase">
                           {g.objectiveType}
                         </span>
-                        <h3 className="text-base font-semibold text-foreground">{g.displayTitle}</h3>
-                        <span className="text-xs font-mono font-medium bg-surface-hover px-2 py-0.5 rounded text-foreground">
+                        <h3 className="text-foreground text-base font-semibold">
+                          {g.displayTitle}
+                        </h3>
+                        <span className="bg-surface-hover text-foreground rounded px-2 py-0.5 font-mono text-xs font-medium">
                           Weight: {g.weight}/10
                         </span>
-                        <span className="text-xs text-muted font-mono bg-surface-hover px-2 py-0.5 rounded">
+                        <span className="text-muted bg-surface-hover rounded px-2 py-0.5 font-mono text-xs">
                           Target: {g.targetCount} posts
                         </span>
                         {audience && (
-                          <span className="text-xs text-muted bg-surface-hover px-2 py-0.5 rounded flex items-center gap-1">
-                            <Users className="w-3 h-3 text-accent" />
+                          <span className="text-muted bg-surface-hover flex items-center gap-1 rounded px-2 py-0.5 text-xs">
+                            <Users className="text-accent h-3 w-3" />
                             {audience.name}
                           </span>
                         )}
                       </div>
 
                       {g.description && (
-                        <p className="text-xs text-muted mt-1">{g.description}</p>
+                        <p className="text-muted mt-1 text-xs">
+                          {g.description}
+                        </p>
                       )}
 
                       {/* Key Message Box */}
                       {g.keyMessage && (
-                        <div className="mt-3 p-3 rounded-lg border border-accent/20 bg-accent/5 text-xs space-y-1">
-                          <span className="font-semibold text-accent uppercase tracking-wide text-[10px]">
+                        <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
+                          <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
                             Key Message To Land:
                           </span>
-                          <p className="text-foreground font-medium leading-relaxed">
+                          <p className="text-foreground leading-relaxed font-medium">
                             &quot;{g.keyMessage}&quot;
                           </p>
                         </div>
                       )}
 
                       {/* Proof Assets & Metadata */}
-                      <div className="flex items-center gap-4 mt-3 text-xs text-muted flex-wrap">
+                      <div className="text-muted mt-3 flex flex-wrap items-center gap-4 text-xs">
                         {g.proofAssetIds.length > 0 && (
-                          <span className="flex items-center gap-1 text-accent font-medium">
-                            <BookOpen className="w-3.5 h-3.5" />
+                          <span className="text-accent flex items-center gap-1 font-medium">
+                            <BookOpen className="h-3.5 w-3.5" />
                             {g.proofAssetIds.length} proof assets attached
                           </span>
                         )}
                         {g.desiredAction && (
                           <span className="flex items-center gap-1">
-                            <MessageSquare className="w-3.5 h-3.5 text-accent" />
+                            <MessageSquare className="text-accent h-3.5 w-3.5" />
                             CTA: {g.desiredAction}
                           </span>
                         )}
                         <span className="flex items-center gap-1">
-                          <LinkIcon className="w-3.5 h-3.5" />
-                          Link in: {g.linkStrategy === 'first_comment' ? 'First comment' : 'Post body'}
+                          <LinkIcon className="h-3.5 w-3.5" />
+                          Link in:{' '}
+                          {g.linkStrategy === 'first_comment'
+                            ? 'First comment'
+                            : 'Post body'}
                         </span>
                         {g.successMetric && (
                           <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                            <Award className="w-3.5 h-3.5" />
+                            <Award className="h-3.5 w-3.5" />
                             Target: {g.successMetric}
                           </span>
                         )}
                         {(g.startDate || g.endDate) && (
                           <span className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5" />
+                            <Calendar className="h-3.5 w-3.5" />
                             {g.startDate || 'Any'} to {g.endDate || 'Ongoing'}
                           </span>
                         )}
@@ -633,22 +729,32 @@ export function GoalsClient({
 
                       {/* Dos & Don'ts pills */}
                       {(g.dos.length > 0 || g.donts.length > 0) && (
-                        <div className="mt-3 pt-3 border-t border-border flex gap-4 text-[11px] flex-wrap">
+                        <div className="border-border mt-3 flex flex-wrap gap-4 border-t pt-3 text-[11px]">
                           {g.dos.length > 0 && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">Dos:</span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                Dos:
+                              </span>
                               {g.dos.map((d, i) => (
-                                <span key={i} className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded">
+                                <span
+                                  key={i}
+                                  className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                >
                                   {d}
                                 </span>
                               ))}
                             </div>
                           )}
                           {g.donts.length > 0 && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-semibold text-rose-500">Don&apos;ts:</span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-semibold text-rose-500">
+                                Don&apos;ts:
+                              </span>
                               {g.donts.map((d, i) => (
-                                <span key={i} className="bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 px-2 py-0.5 rounded">
+                                <span
+                                  key={i}
+                                  className="rounded bg-rose-50 px-2 py-0.5 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                                >
                                   {d}
                                 </span>
                               ))}
@@ -658,14 +764,14 @@ export function GoalsClient({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex shrink-0 items-center gap-3">
                       <button
                         type="button"
                         onClick={() => handleToggle(g.id, g.isActive)}
                         disabled={actionId === g.id}
-                        className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                           g.isActive
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                            ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
                             : 'bg-surface-hover text-muted'
                         }`}
                       >
@@ -676,10 +782,10 @@ export function GoalsClient({
                         type="button"
                         onClick={() => handleDelete(g.id)}
                         disabled={actionId === g.id}
-                        className="text-muted hover:text-rose-500 transition-colors p-1"
+                        className="text-muted p-1 transition-colors hover:text-rose-500"
                         title="Delete goal"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
