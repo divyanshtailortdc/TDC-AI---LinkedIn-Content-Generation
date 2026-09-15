@@ -40,7 +40,7 @@ export function LinkedInPreview({
   const hookOverflowAfterFold = cleanHook.slice(foldCharLimit)
 
   return (
-    <div className="w-full max-w-[555px] rounded-xl border border-[#e0e0e0] dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm font-sans text-neutral-900 dark:text-neutral-100 overflow-hidden text-sm">
+    <div className="w-full max-w-138.75 rounded-xl border border-[#e0e0e0] dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm font-sans text-neutral-900 dark:text-neutral-100 overflow-hidden text-sm">
       {/* LinkedIn Post Header */}
       <div className="p-4 pb-2 flex items-start justify-between">
         <div className="flex items-center gap-3">
@@ -54,7 +54,7 @@ export function LinkedInPreview({
               </span>
               <span className="text-xs text-neutral-500">• 1st</span>
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate max-w-[340px]">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate max-w-85">
               {authorHeadline || 'Industry Leader & Content Creator'}
             </p>
             <div className="flex items-center gap-1 text-[11px] text-neutral-400 mt-0.5">
@@ -73,7 +73,7 @@ export function LinkedInPreview({
       </div>
 
       {/* Post Text Area with Fold Line indicator */}
-      <div className="px-4 py-2 text-[14px] leading-[1.45] break-words whitespace-pre-wrap selection:bg-[#0a66c2]/20">
+      <div className="px-4 py-2 text-[14px] leading-[1.45] wrap-break-word whitespace-pre-wrap selection:bg-[#0a66c2]/20">
         {/* Hook preview */}
         <div className="font-medium text-neutral-950 dark:text-neutral-50">
           <span>{visibleHookBeforeFold}</span>
@@ -153,7 +153,7 @@ export function LinkedInPreview({
                 alt={mediaAltText || 'Post illustration'}
                 width={1200}
                 height={630}
-                className="w-full max-h-[380px] object-cover"
+                className="w-full max-h-95 object-cover"
                 unoptimized
               />
               <span className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
@@ -167,7 +167,7 @@ export function LinkedInPreview({
               alt={mediaAltText || 'Post illustration'}
               width={1200}
               height={630}
-              className="w-full max-h-[380px] object-cover"
+              className="w-full max-h-95 object-cover"
               unoptimized
             />
           )}

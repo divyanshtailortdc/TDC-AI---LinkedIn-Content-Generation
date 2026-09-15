@@ -201,7 +201,7 @@ export function ImageLightbox({
       role="dialog"
       aria-modal="true"
       aria-label={`Zoomed image: ${alt}`}
-      className="fixed inset-0 z-[100] flex flex-col bg-black/90 backdrop-blur-sm"
+      className="fixed inset-0 z-100 flex flex-col bg-black/90 backdrop-blur-sm"
     >
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
         <p className="min-w-0 truncate text-xs text-white/70">{alt}</p>

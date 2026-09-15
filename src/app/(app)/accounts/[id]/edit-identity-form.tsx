@@ -791,7 +791,7 @@ export function EditIdentityForm({
       </section>
 
       {/* Account Status / Deactivate Zone */}
-      <section className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.02] p-6">
+      <section className="rounded-2xl border border-amber-500/20 bg-amber-500/2 p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-amber-600 dark:text-amber-400">

@@ -1195,7 +1195,7 @@ export function PostsClientInner({
                           }
                           aria-invalid={showPromptError}
                           aria-describedby="image-prompt-hint"
-                          className="w-full resize-y rounded-lg border border-border bg-surface px-2.5 py-2 text-xs text-foreground outline-none focus:border-accent aria-[invalid=true]:border-rose-500"
+                          className="w-full resize-y rounded-lg border border-border bg-surface px-2.5 py-2 text-xs text-foreground outline-none focus:border-accent aria-invalid:border-rose-500"
                         />
                         <div
                           id="image-prompt-hint"
@@ -1404,7 +1404,7 @@ export function PostsClientInner({
                         </div>
                       </div>
                       <p
-                        className={`text-xs text-muted bg-surface-hover/60 p-3 rounded-xl break-words font-mono ${
+                        className={`text-xs text-muted bg-surface-hover/60 p-3 rounded-xl wrap-break-word font-mono ${
                           showFirstCommentDetail ? '' : 'line-clamp-2'
                         }`}
                       >
@@ -1658,7 +1658,7 @@ export function PostsClientInner({
                             <span className="text-[11px] font-medium text-muted block mb-1">
                               Raw Image Prompt
                             </span>
-                            <p className="rounded-lg bg-surface-hover p-2.5 font-mono text-[10px] leading-relaxed text-muted break-words">
+                            <p className="rounded-lg bg-surface-hover p-2.5 font-mono text-[10px] leading-relaxed text-muted wrap-break-word">
                               {activePost.media.promptOrQuery}
                             </p>
                           </div>
