@@ -1,9 +1,10 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { LinkedInPreview } from '@/components/linkedin-preview'
+import Image from 'next/image'
 import {
   AlertTriangle,
   Check,
@@ -12,7 +13,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleStop,
   Copy,
+  Download,
   Edit2,
   ExternalLink,
   FileCheck,
@@ -21,6 +24,7 @@ import {
   Info,
   Loader2,
   MessageSquare,
+  Paperclip,
   Quote,
   Search,
   Sparkles,
@@ -29,6 +33,14 @@ import {
 } from 'lucide-react'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import { getUserFacingRelevance } from '@/lib/media/media-brief'
+import {
+  IMAGE_PROMPT_MAX_LENGTH,
+  validateImagePrompt,
+  validateImageUrl,
+  validateReferenceDimensions,
+  validateReferenceFile,
+  validateStockQuery
+} from '@/lib/media/image-input'
 import {
   approveDraft,
   regeneratePostMediaAction,
@@ -68,6 +80,10 @@ export interface PostDetail {
     imageUrl?: string | null
     altText?: string | null
     promptOrQuery?: string | null
+    source?: string
+    workflow?: 'generate' | 'edit'
+    width?: number | null
+    height?: number | null
     fallbackApplied?: boolean
     visualType?: string
     relevanceScore?: number
@@ -154,11 +170,22 @@ export function PostsClientInner({
   const [stockSearchQuery, setStockSearchQuery] = useState('')
   const [showCustomUrlInput, setShowCustomUrlInput] = useState(false)
   const [customImageUrl, setCustomImageUrl] = useState('')
-  const [showRejectionInput, setShowRejectionInput] = useState(false)
-  const [rejectionReasonInput, setRejectionReasonInput] = useState('')
   const [showPostRejection, setShowPostRejection] = useState(false)
   const [postRejectionReason, setPostRejectionReason] = useState('')
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
+  const [showMediaPreview, setShowMediaPreview] = useState(false)
+
+  // Prompt-driven image generation
+  const [imagePrompt, setImagePrompt] = useState('')
+  const [referenceImage, setReferenceImage] = useState<string | null>(null)
+  const [referenceImageName, setReferenceImageName] = useState<string | null>(null)
+  const referenceInputRef = useRef<HTMLInputElement>(null)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [mediaNotice, setMediaNotice] = useState<string | null>(null)
+  const generationAbortRef = useRef<AbortController | null>(null)
+
+  // Leaving the page must not leave a generation running that would still save.
+  useEffect(() => () => generationAbortRef.current?.abort(), [])
 
   // Collapsible drawers (all collapsed by default as requested)
   const [showAlternateHooks, setShowAlternateHooks] = useState(false)
@@ -185,12 +212,14 @@ export function PostsClientInner({
     setIsEditing(false)
     setShowStockInput(false)
     setShowCustomUrlInput(false)
-    setShowRejectionInput(false)
-    setRejectionReasonInput('')
     setShowPostRejection(false)
     setPostRejectionReason('')
     setMediaMenuOpen(false)
     setMediaError(null)
+    setMediaNotice(null)
+    setShowMediaPreview(false)
+    setImagePrompt('')
+    clearReferenceImage()
   }
 
   const handlePrevPost = () => {
@@ -207,45 +236,183 @@ export function PostsClientInner({
     }
   }
 
-  const handleRegenerateAIMedia = async (customReason?: string) => {
-    if (!activePost) return
-    setIsMediaLoading(true)
-    setMediaLoadingText('Generating new concept...')
+  const clearReferenceImage = () => {
+    setReferenceImage(null)
+    setReferenceImageName(null)
+    if (referenceInputRef.current) referenceInputRef.current.value = ''
+  }
+
+  const loadReferenceImage = (file: File) => {
+    const fileError = validateReferenceFile(file)
+    if (fileError) {
+      setMediaError(fileError)
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      // The MIME type only says what the file claims to be; decoding proves it is
+      // a real image and tells us whether it is large enough to guide an HD edit.
+      // `window.Image` because `Image` in this module is next/image.
+      const probe = new window.Image()
+      probe.onload = () => {
+        const sizeError = validateReferenceDimensions(
+          probe.naturalWidth,
+          probe.naturalHeight
+        )
+        if (sizeError) {
+          setMediaError(sizeError)
+          return
+        }
+        setReferenceImage(dataUrl)
+        setReferenceImageName(file.name || 'Pasted image')
+        setMediaError(null)
+      }
+      probe.onerror = () =>
+        setMediaError('That image could not be read — the file may be corrupt.')
+      probe.src = dataUrl
+    }
+    reader.onerror = () => setMediaError('Could not read that image file.')
+    reader.readAsDataURL(file)
+  }
+
+  // Lets the user iterate on the image already attached to the post ("make this
+  // warmer") without downloading and re-uploading it.
+  const useCurrentImageAsReference = () => {
+    const current = activePost?.media?.imageUrl
+    if (!current) return
+    setReferenceImage(current)
+    setReferenceImageName(`Current image (v${activePost?.media?.version || 1})`)
     setMediaError(null)
+  }
+
+  const clearPromptAndReference = () => {
+    setImagePrompt('')
+    clearReferenceImage()
+    setMediaError(null)
+  }
+
+  const handleReferencePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const image = Array.from(e.clipboardData.files).find((f) =>
+      f.type.startsWith('image/')
+    )
+    if (image) {
+      e.preventDefault()
+      loadReferenceImage(image)
+    }
+  }
+
+  const handleGenerateFromPrompt = async () => {
+    if (!activePost || isMediaLoading) return
+
+    const promptProblem = validateImagePrompt(imagePrompt)
+    if (promptProblem) {
+      setMediaError(promptProblem)
+      return
+    }
+
+    const postId = activePost.id
+    const controller = new AbortController()
+    generationAbortRef.current = controller
+
+    setIsMediaLoading(true)
+    setIsGenerating(true)
+    setMediaLoadingText(
+      referenceImage
+        ? 'Editing your reference image in HD...'
+        : 'Generating your image in HD...'
+    )
+    setMediaError(null)
+    setMediaNotice(null)
     setMediaMenuOpen(false)
 
-    const timer = setTimeout(() => {
-      setMediaLoadingText('Synthesizing visual...')
-    }, 1200)
-
     try {
-      const reason = customReason || rejectionReasonInput.trim() || undefined
-      const res = await regeneratePostMediaAction(activePost.id, {
-        mode: 'ai_generated',
-        rejectionReason: reason
+      const response = await fetch(`/api/posts/${postId}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: imagePrompt.trim(),
+          referenceImages: referenceImage ? [referenceImage] : undefined
+        }),
+        signal: controller.signal
       })
-      if (res.success && res.media) {
+      const res = await response.json().catch(() => null)
+
+      if (response.ok && res?.success && res.media) {
         setPosts((prev) =>
-          prev.map((p) =>
-            p.id === activePost.id ? { ...p, media: res.media } : p
-          )
+          prev.map((p) => (p.id === postId ? { ...p, media: res.media } : p))
         )
-        setRejectionReasonInput('')
-        setShowRejectionInput(false)
+        setShowMediaPreview(true)
       } else {
-        setMediaError(res.error || 'Failed to generate visual')
+        setMediaError(
+          res?.error || `Image generation failed (HTTP ${response.status}).`
+        )
       }
     } catch (err: any) {
-      setMediaError(err?.message || 'Failed to generate visual')
+      if (controller.signal.aborted) {
+        setMediaNotice('Generation stopped. Edit your prompt and try again.')
+      } else {
+        setMediaError(
+          err?.message
+            ? `Could not reach the server: ${err.message}`
+            : 'Could not reach the server. Check your connection and try again.'
+        )
+      }
     } finally {
-      clearTimeout(timer)
+      if (generationAbortRef.current === controller) generationAbortRef.current = null
+      setIsGenerating(false)
       setIsMediaLoading(false)
       setMediaLoadingText('')
     }
   }
 
+  // Aborting the fetch closes the request, which cancels generation server-side.
+  const handleStopGeneration = () => {
+    generationAbortRef.current?.abort()
+  }
+
+  const handleDownloadMedia = async () => {
+    const imageUrl = activePost?.media?.imageUrl
+    if (!imageUrl) return
+
+    const extension =
+      imageUrl.startsWith('data:') && imageUrl.includes('/')
+        ? imageUrl.slice(imageUrl.indexOf('/') + 1, imageUrl.indexOf(';')) || 'png'
+        : 'png'
+    const fileName = `linkedin-visual-v${activePost?.media?.version || 1}.${extension}`
+
+    let objectUrl: string | null = null
+    try {
+      let href = imageUrl
+      if (!imageUrl.startsWith('data:')) {
+        const res = await fetch(imageUrl)
+        if (!res.ok) throw new Error(`Image responded with ${res.status}`)
+        objectUrl = URL.createObjectURL(await res.blob())
+        href = objectUrl
+      }
+
+      const link = document.createElement('a')
+      link.href = href
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch {
+      // Remote hosts can block cross-origin reads; open the asset so it can be saved manually.
+      window.open(imageUrl, '_blank', 'noopener,noreferrer')
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }
+
   const handleSearchStockMedia = async () => {
-    if (!activePost) return
+    if (!activePost || isMediaLoading) return
+    const queryProblem = validateStockQuery(stockSearchQuery)
+    if (queryProblem) {
+      setMediaError(queryProblem)
+      return
+    }
     setIsMediaLoading(true)
     setMediaLoadingText('Searching royalty-free stock imagery...')
     setMediaError(null)
@@ -275,10 +442,11 @@ export function PostsClientInner({
   }
 
   const handleApplyCustomUrl = async () => {
-    if (!activePost) return
+    if (!activePost || isMediaLoading) return
     const url = customImageUrl.trim()
-    if (!url) {
-      setMediaError('Please enter a valid image URL')
+    const urlProblem = validateImageUrl(url)
+    if (urlProblem) {
+      setMediaError(urlProblem)
       return
     }
 
@@ -443,9 +611,19 @@ export function PostsClientInner({
   const totalLintCount = lintFindings.length
   const hasLintIssues = totalLintCount > 0 && passedLintCount < totalLintCount
 
-  // Evaluate honest user-facing media relevance
+  // Buttons stay disabled until their input is valid; messages only appear once the
+  // user has typed something, so an untouched field is not shown as an error.
+  const promptError = validateImagePrompt(imagePrompt)
+  const showPromptError = imagePrompt.trim().length > 0 && promptError !== null
+  const stockQueryError = validateStockQuery(stockSearchQuery)
+  const customUrlError = validateImageUrl(customImageUrl)
+
+  // Relevance is scored against the post thesis, which only makes sense for media
+  // the pipeline derived itself. When the user dictated the image, skip the verdict.
+  const isUserPromptedMedia = activePost?.media?.source === 'user_prompt'
+
   const relevanceInfo = getUserFacingRelevance(
-    activePost?.media?.imageUrl
+    activePost?.media?.imageUrl && !isUserPromptedMedia
       ? {
           relevanceScore: activePost.media.relevanceScore,
           topicMatch: activePost.media.topicMatch,
@@ -699,8 +877,27 @@ export function PostsClientInner({
                     </div>
                   )}
 
+                  {/* NEUTRAL NOTICE (e.g. generation stopped) */}
+                  {mediaNotice && (
+                    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface-hover p-3 text-xs text-muted">
+                      <span className="flex items-center gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        {mediaNotice}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMediaNotice(null)}
+                        className="p-1 hover:text-foreground cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* MEDIA RELEVANCE WARNING (if weak or unrelated) */}
-                  {activePost.media?.imageUrl && !relevanceInfo.isPass && (
+                  {activePost.media?.imageUrl &&
+                    !isUserPromptedMedia &&
+                    !relevanceInfo.isPass && (
                     <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs space-y-2.5">
                       <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400 font-medium">
                         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
@@ -713,14 +910,6 @@ export function PostsClientInner({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="button"
-                          disabled={isMediaLoading}
-                          onClick={() => handleRegenerateAIMedia()}
-                          className="px-2.5 py-1 rounded-lg bg-accent text-background text-[11px] font-semibold hover:bg-accent-hover transition-colors cursor-pointer"
-                        >
-                          Regenerate
-                        </button>
                         <button
                           type="button"
                           disabled={isMediaLoading}
@@ -751,7 +940,12 @@ export function PostsClientInner({
                         <ImageIcon className="w-3.5 h-3.5 text-accent" />
                         Media Attachment
                       </span>
-                      {activePost.media?.imageUrl ? (
+                      {activePost.media?.imageUrl && isUserPromptedMedia ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                          <Sparkles className="h-3 w-3" />
+                          Your prompt
+                        </span>
+                      ) : activePost.media?.imageUrl ? (
                         <div className="flex items-center gap-1.5">
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
@@ -792,67 +986,92 @@ export function PostsClientInner({
                         </p>
                       </div>
                     ) : activePost.media?.imageUrl ? (
-                      <div className="flex items-start gap-3 p-2.5 rounded-xl bg-surface-hover/40 border border-border/60">
-                        {/* Compact 64x64 thumbnail */}
-                        <div className="relative w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-border bg-neutral-900">
-                          <img
-                            src={activePost.media.imageUrl}
-                            alt={activePost.media.altText || 'Media thumbnail'}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">
-                            &quot;{mediaHeadline}&quot;
-                          </p>
-                          <div className="flex items-center gap-2 text-[11px] text-muted">
-                            <span>Media v{activePost.media.version || 1}</span>
-                            <span>•</span>
-                            <span className="capitalize">
-                              {activePost.media.mode.replace('_', ' ')}
-                            </span>
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-3 p-2.5 rounded-xl bg-surface-hover/40 border border-border/60">
+                          {/* Compact 64x64 thumbnail */}
+                          <button
+                            type="button"
+                            onClick={() => setShowMediaPreview(!showMediaPreview)}
+                            title={showMediaPreview ? 'Hide full image' : 'View full image'}
+                            className="relative w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-border bg-neutral-900 cursor-pointer"
+                          >
+                            <Image
+                              src={activePost.media.imageUrl}
+                              alt={activePost.media.altText || 'Media thumbnail'}
+                              width={64}
+                              height={64}
+                              className="w-full h-full object-cover"
+                              unoptimized
+                            />
+                          </button>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">
+                              &quot;{mediaHeadline}&quot;
+                            </p>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+                              <span>Media v{activePost.media.version || 1}</span>
+                              <span>•</span>
+                              {activePost.media.width && activePost.media.height ? (
+                                <span className="font-medium text-foreground">
+                                  {activePost.media.width} × {activePost.media.height} HD
+                                </span>
+                              ) : (
+                                <span className="capitalize">
+                                  {activePost.media.mode.replace('_', ' ')}
+                                </span>
+                              )}
+                              {activePost.media.workflow === 'edit' && (
+                                <>
+                                  <span>•</span>
+                                  <span>edited</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2.5 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => setShowMediaPreview(!showMediaPreview)}
+                                className="text-[11px] font-medium text-accent hover:underline cursor-pointer"
+                              >
+                                {showMediaPreview ? 'Hide full image' : 'View full image'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleDownloadMedia}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Download HD
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isMediaLoading}
+                                onClick={handleRemoveMedia}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Remove
+                              </button>
+                            </div>
                           </div>
                         </div>
+
+                        {showMediaPreview && (
+                          <div className="rounded-xl overflow-hidden border border-border bg-neutral-900">
+                            <Image
+                              src={activePost.media.imageUrl}
+                              alt={activePost.media.altText || 'Generated visual'}
+                              width={2048}
+                              height={1072}
+                              className="w-full h-auto object-contain"
+                              unoptimized
+                            />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="p-3.5 text-center rounded-xl border border-dashed border-border bg-surface-hover/20 text-xs text-muted">
                         No visual media attached. Post will publish as text-only.
-                      </div>
-                    )}
-
-                    {/* Rejection Feedback Box */}
-                    {showRejectionInput && (
-                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                            Why is this concept being rejected?
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setShowRejectionInput(false)}
-                            className="text-xs text-muted hover:text-foreground cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          value={rejectionReasonInput}
-                          onChange={(e) => setRejectionReasonInput(e.target.value)}
-                          placeholder="e.g. Visual represents data reconciliation, but post is about automation vs judgment"
-                          className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:border-accent outline-none"
-                        />
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            disabled={isMediaLoading}
-                            onClick={() => handleRegenerateAIMedia(rejectionReasonInput)}
-                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-background hover:bg-accent-hover transition-colors"
-                          >
-                            Regenerate with Negative Context
-                          </button>
-                        </div>
                       </div>
                     )}
 
@@ -869,18 +1088,25 @@ export function PostsClientInner({
                             onChange={(e) => setStockSearchQuery(e.target.value)}
                             placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
                             className="flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+                            aria-invalid={stockSearchQuery.trim().length > 0 && stockQueryError !== null}
                             onKeyDown={(e) =>
-                              e.key === 'Enter' && handleSearchStockMedia()
+                              e.key === 'Enter' && !stockQueryError && handleSearchStockMedia()
                             }
                           />
                           <button
                             type="button"
+                            disabled={isMediaLoading || stockQueryError !== null}
                             onClick={handleSearchStockMedia}
-                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-hover"
+                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Search
                           </button>
                         </div>
+                        {stockSearchQuery.trim().length > 0 && stockQueryError && (
+                          <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                            {stockQueryError}
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -897,38 +1123,176 @@ export function PostsClientInner({
                             onChange={(e) => setCustomImageUrl(e.target.value)}
                             placeholder="https://images.unsplash.com/..."
                             className="flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+                            aria-invalid={customImageUrl.trim().length > 0 && customUrlError !== null}
                             onKeyDown={(e) =>
-                              e.key === 'Enter' && handleApplyCustomUrl()
+                              e.key === 'Enter' && !customUrlError && handleApplyCustomUrl()
                             }
                           />
                           <button
                             type="button"
+                            disabled={isMediaLoading || customUrlError !== null}
                             onClick={handleApplyCustomUrl}
-                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-hover"
+                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Apply
                           </button>
                         </div>
+                        {customImageUrl.trim().length > 0 && customUrlError && (
+                          <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                            {customUrlError}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Prompt-driven generation */}
+                    {!isMediaLoading && (
+                      <div className="space-y-2 rounded-xl border border-border bg-surface-hover/50 p-3">
+                        <div className="flex items-center justify-between">
+                          <label
+                            htmlFor="image-prompt"
+                            className="block text-[11px] font-semibold text-foreground"
+                          >
+                            {referenceImage
+                              ? 'Describe the change you want'
+                              : 'Describe the image you want'}
+                          </label>
+                          {(imagePrompt || referenceImage) && (
+                            <button
+                              type="button"
+                              onClick={clearPromptAndReference}
+                              className="text-[11px] font-medium text-muted hover:text-foreground cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <textarea
+                          id="image-prompt"
+                          value={imagePrompt}
+                          onChange={(e) => setImagePrompt(e.target.value)}
+                          onPaste={handleReferencePaste}
+                          rows={3}
+                          placeholder={
+                            referenceImage
+                              ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
+                              : 'e.g. A minimal isometric illustration of two paths splitting, muted blues, lots of negative space'
+                          }
+                          aria-invalid={showPromptError}
+                          aria-describedby="image-prompt-hint"
+                          className="w-full resize-y rounded-lg border border-border bg-surface px-2.5 py-2 text-xs text-foreground outline-none focus:border-accent aria-[invalid=true]:border-rose-500"
+                        />
+                        <div
+                          id="image-prompt-hint"
+                          className="flex items-start justify-between gap-2 text-[11px]"
+                        >
+                          <span className="text-rose-600 dark:text-rose-400">
+                            {showPromptError ? promptError : ''}
+                          </span>
+                          <span
+                            className={`shrink-0 tabular-nums ${
+                              imagePrompt.trim().length > IMAGE_PROMPT_MAX_LENGTH
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-muted'
+                            }`}
+                          >
+                            {imagePrompt.trim().length}/{IMAGE_PROMPT_MAX_LENGTH}
+                          </span>
+                        </div>
+
+                        {referenceImage ? (
+                          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-surface p-2">
+                            <Image
+                              src={referenceImage}
+                              alt="Reference"
+                              width={40}
+                              height={40}
+                              className="h-10 w-10 shrink-0 rounded object-cover border border-border"
+                              unoptimized
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[11px] font-medium text-foreground">
+                                {referenceImageName}
+                              </p>
+                              <p className="text-[10px] text-muted">
+                                Will be edited — unchanged parts are preserved
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={clearReferenceImage}
+                              title="Remove reference image"
+                              className="p-1 text-muted hover:text-foreground cursor-pointer"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <button
+                              type="button"
+                              onClick={() => referenceInputRef.current?.click()}
+                              className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted hover:text-foreground cursor-pointer"
+                            >
+                              <Paperclip className="h-3 w-3" />
+                              Attach a reference image (or paste one above)
+                            </button>
+                            {activePost.media?.imageUrl && (
+                              <button
+                                type="button"
+                                onClick={useCurrentImageAsReference}
+                                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-accent hover:underline cursor-pointer"
+                              >
+                                <ImageIcon className="h-3 w-3" />
+                                Use current image
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <input
+                          ref={referenceInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) loadReferenceImage(file)
+                            // Reset so choosing the same file again still fires onChange.
+                            e.target.value = ''
+                          }}
+                        />
                       </div>
                     )}
 
                     {/* Primary & Secondary Media Actions */}
                     <div className="flex items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        disabled={isMediaLoading}
-                        onClick={() => handleRegenerateAIMedia()}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {isMediaLoading ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
-                        )}
-                        <span>
-                          {activePost.media?.imageUrl ? 'Regenerate' : 'Generate AI Visual'}
-                        </span>
-                      </button>
+                      {isGenerating ? (
+                        <button
+                          type="button"
+                          onClick={handleStopGeneration}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          <CircleStop className="w-3.5 h-3.5" />
+                          <span>Stop generating</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isMediaLoading || promptError !== null}
+                          onClick={handleGenerateFromPrompt}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isMediaLoading ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                          <span>
+                            {activePost.media?.imageUrl ? 'Regenerate image' : 'Generate image'}
+                          </span>
+                        </button>
+                      )}
 
                       <div className="relative">
                         <button
@@ -947,20 +1311,8 @@ export function PostsClientInner({
                               type="button"
                               onClick={() => {
                                 setMediaMenuOpen(false)
-                                handleRegenerateAIMedia()
-                              }}
-                              className="w-full text-left px-3.5 py-2 hover:bg-surface-hover text-foreground flex items-center gap-2 cursor-pointer"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-accent" />
-                              <span>Generate new AI visual</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMediaMenuOpen(false)
                                 setShowStockInput(true)
                                 setShowCustomUrlInput(false)
-                                setShowRejectionInput(false)
                               }}
                               className="w-full text-left px-3.5 py-2 hover:bg-surface-hover text-foreground flex items-center gap-2 cursor-pointer"
                             >
@@ -973,7 +1325,6 @@ export function PostsClientInner({
                                 setMediaMenuOpen(false)
                                 setShowCustomUrlInput(true)
                                 setShowStockInput(false)
-                                setShowRejectionInput(false)
                               }}
                               className="w-full text-left px-3.5 py-2 hover:bg-surface-hover text-foreground flex items-center gap-2 cursor-pointer"
                             >
@@ -998,22 +1349,6 @@ export function PostsClientInner({
                       </div>
                     </div>
 
-                    {/* Tertiary Feedback Action */}
-                    {activePost.media?.imageUrl && (
-                      <div className="text-center pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowRejectionInput(!showRejectionInput)
-                            setShowStockInput(false)
-                            setShowCustomUrlInput(false)
-                          }}
-                          className="text-[11px] text-muted hover:text-foreground underline transition-colors cursor-pointer"
-                        >
-                          Not relevant? Give feedback
-                        </button>
-                      </div>
-                    )}
                   </div>
 
                   {/* 2. FIRST COMMENT CARD (Compact with preview & edit) */}
@@ -1275,8 +1610,9 @@ export function PostsClientInner({
                           <div className="p-2 rounded-lg bg-surface-hover">
                             <span className="text-muted block">Relevance Score</span>
                             <span className="font-semibold text-foreground">
-                              {activePost.media?.relevanceScore ?? 'N/A'}/100 (
-                              {relevanceInfo.level})
+                              {isUserPromptedMedia
+                                ? 'Not scored (your prompt)'
+                                : `${activePost.media?.relevanceScore ?? 'N/A'}/100 (${relevanceInfo.level})`}
                             </span>
                           </div>
                           <div className="p-2 rounded-lg bg-surface-hover">

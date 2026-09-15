@@ -10,6 +10,7 @@ import {
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
+import { validateImageUrl } from '~/lib/media/image-input'
 
 export async function updateDraft(
   draftId: string,
@@ -115,6 +116,12 @@ export async function updatePostMediaAction(
   }
 ) {
   try {
+    // The client disables Apply for bad URLs, but this action is callable directly.
+    if (payload.mode !== 'none' && payload.imageUrl) {
+      const urlError = validateImageUrl(payload.imageUrl)
+      if (urlError) throw new Error(urlError)
+    }
+
     const existingDraft = await db.query.postDraftsTable.findFirst({
       where: eq(postDraftsTable.id, draftId)
     })

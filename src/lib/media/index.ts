@@ -349,6 +349,121 @@ export async function searchStockImage(
 }
 
 /**
+ * Every prompt-driven image is produced at one fixed size: LinkedIn's 1.91:1
+ * feed ratio (1200x627), at ~1.7x that resolution so it stays HD when LinkedIn
+ * recompresses it.
+ *
+ * Both dimensions are multiples of 16, which the flux models require — a
+ * request like 2400x1256 is silently rounded to 2400x1248 and loses the ratio.
+ */
+export const LINKEDIN_IMAGE = { width: 2048, height: 1072 } as const
+const LINKEDIN_IMAGE_SIZE =
+  `${LINKEDIN_IMAGE.width}x${LINKEDIN_IMAGE.height}` as const
+
+/**
+ * True when decoded dimensions are exactly the LinkedIn size.
+ *
+ * Checked on the returned bytes rather than trusted from the request: models
+ * silently return something else when asked (kontext downscales to 1024,
+ * flux-pro-1.1-ultra ignores size and returns 2816x1472), so asking is not
+ * the same as getting.
+ */
+export function isLinkedInImageSize(dimensions: {
+  width: number
+  height: number
+}): boolean {
+  return (
+    dimensions.width === LINKEDIN_IMAGE.width &&
+    dimensions.height === LINKEDIN_IMAGE.height
+  )
+}
+
+/**
+ * Models verified to return exactly 2048x1072 through the gateway.
+ *
+ * `aspectRatio` is silently ignored by these models, so `size` is the only
+ * control that works.
+ */
+const TEXT_TO_IMAGE_MODELS = ['bfl/flux-2-pro', 'bfl/flux-2-max', 'bfl/flux-2-flex']
+
+/**
+ * Reference-guided editing, restricted to models verified to hold 2048x1072 with
+ * a reference attached — including square references reframed to landscape.
+ */
+const IMAGE_EDIT_MODELS = ['bfl/flux-2-pro', 'bfl/flux-2-max', 'bfl/flux-2-flex']
+
+/**
+ * Reads pixel dimensions straight from encoded image bytes.
+ *
+ * Returns null when the format is not recognised, which callers treat as
+ * "unverifiable" rather than "too small" — refusing an image we simply cannot
+ * measure would be worse than trusting the size we asked for.
+ */
+export function readImageDimensions(
+  buffer: Buffer
+): { width: number; height: number } | null {
+  // PNG: IHDR width/height are the two big-endian uint32s after the chunk header.
+  if (buffer.length > 24 && buffer[0] === 0x89 && buffer[1] === 0x50) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+  }
+
+  // JPEG: walk the marker segments to the start-of-frame, which carries the size.
+  if (buffer.length > 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset++
+        continue
+      }
+      const marker = buffer[offset + 1]!
+      const isStartOfFrame =
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      if (isStartOfFrame) {
+        return {
+          height: buffer.readUInt16BE(offset + 5),
+          width: buffer.readUInt16BE(offset + 7)
+        }
+      }
+      offset += 2 + buffer.readUInt16BE(offset + 2)
+    }
+  }
+
+  // WebP (VP8X / VP8L / lossy VP8) — 14-bit or 24-bit packed dimensions.
+  if (
+    buffer.length > 30 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    const chunk = buffer.toString('ascii', 12, 16)
+    if (chunk === 'VP8X') {
+      return {
+        width: buffer.readUIntLE(24, 3) + 1,
+        height: buffer.readUIntLE(27, 3) + 1
+      }
+    }
+    if (chunk === 'VP8 ') {
+      return {
+        width: buffer.readUInt16LE(26) & 0x3fff,
+        height: buffer.readUInt16LE(28) & 0x3fff
+      }
+    }
+    if (chunk === 'VP8L') {
+      const bits = buffer.readUInt32LE(21)
+      return {
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >> 14) & 0x3fff) + 1
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Generates an image using AI SDK via AI Gateway (Tier 1),
  * with automatic fallback to Serper Stock Search (Tier 2),
  * and Curated High-Res Fallback (Tier 3).
@@ -367,13 +482,7 @@ export async function generateAIImage(
 
   if (gatewayClient && env.AI_GATEWAY_API_KEY) {
     try {
-      const modelsToAttempt = [
-        'openai/dall-e-3',
-        'black-forest-labs/flux-1.1-pro',
-        'google/imagen-3'
-      ]
-
-      for (const modelId of modelsToAttempt) {
+      for (const modelId of TEXT_TO_IMAGE_MODELS) {
         try {
           const result = await generateImage({
             model: gatewayClient.imageModel(modelId),
@@ -423,6 +532,172 @@ export async function generateAIImage(
     fallbackApplied: true,
     promptOrQuery: prompt
   }
+}
+
+export interface CustomImageRequest {
+  /** Exactly what the user asked for, used verbatim as the generation prompt. */
+  prompt: string
+  /** Optional reference images as data URLs or public http(s) URLs. Presence switches to edit mode. */
+  referenceImages?: string[]
+  seed?: number
+  /** Cancels the in-flight provider call; no further models are tried once it fires. */
+  abortSignal?: AbortSignal
+}
+
+/** Thrown when generation is cancelled through `abortSignal`, so callers can skip saving. */
+export class ImageGenerationAbortedError extends Error {
+  constructor() {
+    super('Image generation was stopped.')
+    this.name = 'ImageGenerationAbortedError'
+  }
+}
+
+export interface CustomImageResult {
+  imageUrl: string
+  altText: string
+  promptOrQuery: string
+  /** 'generate' from a prompt alone, 'edit' when reference images were supplied. */
+  workflow: 'generate' | 'edit'
+  modelId: string
+  /** Measured from the returned bytes, not the size that was requested. */
+  width: number | null
+  height: number | null
+  mediaType: string
+  bytes: number
+  referenceImageCount: number
+  seed: number
+}
+
+/**
+ * Wraps an edit instruction so the model changes only what was asked and leaves
+ * the rest of the reference untouched.
+ *
+ * The instruction is quoted rather than merged so a style request ("make it
+ * watercolour") still wins — only elements the instruction does not mention are
+ * pinned. Without this, edit models tend to redraw the whole scene.
+ */
+function buildEditPrompt(instruction: string): string {
+  return [
+    `Edit the provided reference image. Apply only this change: "${instruction}".`,
+    'Keep every element the instruction does not mention exactly as it appears in the reference:',
+    'composition, layout, proportions, colours, typography, lighting and background.',
+    'Do not redraw, restyle or reinterpret unchanged areas, and reproduce any text you were',
+    'not asked to change with its original wording and spelling.',
+    // The output is a fixed 1.91:1 landscape, so a reference of another shape has
+    // to be reframed. Without this the model invents a new background to fill it.
+    'The output is a wide 1.91:1 landscape image. If the reference has a different shape,',
+    'keep the main subject whole and undistorted, and extend the existing background in the',
+    'same colour, texture and style to fill the frame rather than stretching or cropping it.'
+  ].join(' ')
+}
+
+/**
+ * Two workflows over one entry point:
+ *
+ * - generate: a prompt alone produces a new HD image.
+ * - edit: a prompt plus reference images modifies that image in place, preserving
+ *   the original design (see buildEditPrompt).
+ *
+ * Unlike createMediaPlan/regenerateMediaPlan this skips media-brief derivation and
+ * semantic validation — the user stated what they want, so the prompt is honoured
+ * as written. It also never falls back to stock imagery: an unrelated stock photo
+ * is not a useful answer to an explicit prompt, so failures surface as errors.
+ */
+export async function generateCustomImage(
+  req: CustomImageRequest
+): Promise<CustomImageResult> {
+  const prompt = (req.prompt || '').trim()
+  if (!prompt) {
+    throw new Error('Describe the image you want before generating.')
+  }
+
+  if (!gatewayClient || !env.AI_GATEWAY_API_KEY) {
+    throw new Error(
+      'Image generation is not configured. Add AI_GATEWAY_API_KEY to enable it.'
+    )
+  }
+
+  const references = (req.referenceImages || []).filter(
+    (img): img is string => typeof img === 'string' && img.trim().length > 0
+  )
+  const workflow: 'generate' | 'edit' = references.length > 0 ? 'edit' : 'generate'
+  const models = workflow === 'edit' ? IMAGE_EDIT_MODELS : TEXT_TO_IMAGE_MODELS
+  const seed = req.seed ?? Math.floor(Math.random() * 1000000)
+
+  const finalPrompt = workflow === 'edit' ? buildEditPrompt(prompt) : prompt
+
+  let firstFailure: string | undefined
+
+  for (const modelId of models) {
+    if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
+
+    try {
+      const result = await generateImage({
+        model: gatewayClient.imageModel(modelId),
+        prompt:
+          workflow === 'edit'
+            ? { text: finalPrompt, images: references }
+            : finalPrompt,
+        size: LINKEDIN_IMAGE_SIZE,
+        seed,
+        abortSignal: req.abortSignal
+      })
+
+      const first = result.images?.[0]
+      if (!first?.base64) {
+        firstFailure = firstFailure || `${modelId} returned no image`
+        continue
+      }
+
+      const buffer = Buffer.from(first.base64, 'base64')
+      const dimensions = readImageDimensions(buffer)
+
+      // A model that returned any other size has not met the brief; move to the next.
+      if (dimensions && !isLinkedInImageSize(dimensions)) {
+        const got = `${dimensions.width}x${dimensions.height}`
+        console.warn(
+          `Discarding "${modelId}" result: got ${got}, need exactly ${LINKEDIN_IMAGE_SIZE}.`
+        )
+        firstFailure = firstFailure || `${modelId} returned ${got}, not ${LINKEDIN_IMAGE_SIZE}`
+        continue
+      }
+
+      if (!dimensions) {
+        console.warn(
+          `Could not verify dimensions of "${first.mediaType}" from "${modelId}"; accepting the requested ${LINKEDIN_IMAGE_SIZE}.`
+        )
+      }
+
+      const mediaType = first.mediaType || 'image/png'
+      return {
+        imageUrl: `data:${mediaType};base64,${first.base64}`,
+        altText: prompt.slice(0, 300),
+        promptOrQuery: prompt,
+        workflow,
+        modelId,
+        width: dimensions?.width ?? null,
+        height: dimensions?.height ?? null,
+        mediaType,
+        bytes: buffer.length,
+        referenceImageCount: references.length,
+        seed
+      }
+    } catch (err: any) {
+      // The gateway surfaces an abort as a GatewayResponseError, not an AbortError,
+      // so check the signal itself. Falling through would start the next model.
+      if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
+
+      const message = err?.message || 'request failed'
+      firstFailure = firstFailure || `${modelId}: ${message}`
+      console.warn(`Custom image ${workflow} failed on "${modelId}":`, message)
+    }
+  }
+
+  throw new Error(
+    workflow === 'edit'
+      ? `Could not edit the reference image. ${firstFailure || ''}`.trim()
+      : `Could not generate an image from your prompt. ${firstFailure || ''}`.trim()
+  )
 }
 
 /**

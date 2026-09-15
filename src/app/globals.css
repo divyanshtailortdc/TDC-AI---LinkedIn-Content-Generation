@@ -61,6 +61,16 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  /* Only text fields should show a blinking caret. Browsers in caret-browsing
+     mode (F7) otherwise draw one wherever you click, which reads as an input. */
+  caret-color: transparent;
+}
+
+input,
+textarea,
+select,
+[contenteditable]:not([contenteditable='false']) {
+  caret-color: auto;
 }
 
 /* Smooth scrollbars */
