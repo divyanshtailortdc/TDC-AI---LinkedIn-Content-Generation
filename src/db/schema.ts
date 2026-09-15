@@ -456,6 +456,11 @@ export const postMediaTable = pgTable('post_media', {
   draftId: uuid('draft_id')
     .notNull()
     .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+  version: integer('version').default(1).notNull(),
+  status: varchar('status', { length: 20 }).default('active').notNull(), // 'active' | 'superseded' | 'rejected'
+  previousMediaId: uuid('previous_media_id'),
+  regenerationAttempt: integer('regeneration_attempt').default(0).notNull(),
+  rejectionReason: text('rejection_reason'),
   mode: varchar('mode', { length: 20 }).notNull(), // 'ai_generated' | 'stock' | 'none'
   imageUrl: text('image_url'),
   altText: text('alt_text'),

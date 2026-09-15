@@ -60,6 +60,7 @@ export default async function PostsPage() {
           .select()
           .from(postMediaTable)
           .where(inArray(postMediaTable.draftId, draftIds))
+          .orderBy(desc(postMediaTable.version), desc(postMediaTable.createdAt))
       : Promise.resolve([])
   ])
 
@@ -78,7 +79,11 @@ export default async function PostsPage() {
         sourceTitle: c.sourceTitle
       }))
 
-    const media = allMedia.find((m) => m.draftId === draft.id) || null
+    const postMediaList = allMedia.filter((m) => m.draftId === draft.id)
+    const media =
+      postMediaList.find((m) => m.status === 'active') ||
+      postMediaList[0] ||
+      null
 
     return {
       id: draft.id,
@@ -97,11 +102,25 @@ export default async function PostsPage() {
       citations,
       media: media
         ? {
+            id: media.id,
+            version: media.version || 1,
+            status: media.status || 'active',
             mode: media.mode,
             imageUrl: media.imageUrl,
             altText: media.altText,
             promptOrQuery: media.promptOrQuery,
-            fallbackApplied: Boolean((media.metadata as any)?.fallbackApplied)
+            fallbackApplied: Boolean((media.metadata as any)?.fallbackApplied),
+            visualType: (media.metadata as any)?.visualType,
+            relevanceScore: (media.metadata as any)?.relevanceScore,
+            relevanceExplanation: (media.metadata as any)?.relevanceExplanation,
+            topicMatch: (media.metadata as any)?.topicMatch,
+            thesisMatch: (media.metadata as any)?.thesisMatch,
+            introducesUnrelatedTopic: (media.metadata as any)?.introducesUnrelatedTopic,
+            mediaBrief: (media.metadata as any)?.mediaBrief,
+            readability: (media.metadata as any)?.readability,
+            providerRequestId: (media.metadata as any)?.providerRequestId,
+            seed: (media.metadata as any)?.seed,
+            regenerationAttempt: media.regenerationAttempt || 0
           }
         : null,
       lintFindings: (draft.lintFindings as any[]) || []

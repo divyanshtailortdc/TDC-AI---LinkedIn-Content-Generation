@@ -7,9 +7,9 @@ import {
   postDraftsTable,
   postMediaTable
 } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
-import { createMediaPlan } from '~/lib/media'
+import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 
 export async function updateDraft(
   draftId: string,
@@ -183,7 +183,7 @@ export async function removePostMediaAction(draftId: string) {
   }
 }
 
-export async function regeneratePostMediaAction(
+export async function generatePostMediaAction(
   draftId: string,
   options?: {
     mode?: 'ai_generated' | 'stock'
@@ -229,53 +229,211 @@ export async function regeneratePostMediaAction(
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
-      const existingMedia = await db.query.postMediaTable.findFirst({
-        where: eq(postMediaTable.draftId, draftId)
-      })
-
-      const mediaMetadata = {
-        sourcePageUrl: mediaPlan.sourcePageUrl,
-        fallbackApplied: mediaPlan.fallbackApplied || false,
-        visualType: mediaPlan.visualType,
-        relevanceScore: mediaPlan.relevanceScore,
-        relevanceExplanation: mediaPlan.relevanceExplanation,
-        alignedConcepts: mediaPlan.alignedConcepts,
-        textOverlay: mediaPlan.textOverlay,
-        mediaBrief: mediaPlan.mediaBrief
-      }
-
-      if (existingMedia) {
-        await db
-          .update(postMediaTable)
-          .set({
-            mode: mediaPlan.mode,
-            imageUrl: mediaPlan.imageUrl,
-            altText: mediaPlan.altText || null,
-            promptOrQuery: mediaPlan.promptOrQuery || null,
-            metadata: mediaMetadata,
-            updatedAt: new Date()
-          })
-          .where(eq(postMediaTable.draftId, draftId))
-      } else {
-        await db.insert(postMediaTable).values({
+      const [insertedMedia] = await db
+        .insert(postMediaTable)
+        .values({
           draftId,
+          version: 1,
+          status: 'active',
+          regenerationAttempt: 0,
           mode: mediaPlan.mode,
           imageUrl: mediaPlan.imageUrl,
           altText: mediaPlan.altText || null,
           promptOrQuery: mediaPlan.promptOrQuery || null,
-          metadata: mediaMetadata
+          metadata: {
+            sourcePageUrl: mediaPlan.sourcePageUrl,
+            fallbackApplied: mediaPlan.fallbackApplied || false,
+            visualType: mediaPlan.visualType,
+            relevanceScore: mediaPlan.relevanceScore,
+            relevanceExplanation: mediaPlan.relevanceExplanation,
+            alignedConcepts: mediaPlan.alignedConcepts,
+            textOverlay: mediaPlan.textOverlay,
+            mediaBrief: mediaPlan.mediaBrief
+          }
         })
-      }
+        .returning()
+
+      if (!insertedMedia) throw new Error('Failed to insert initial media record')
 
       revalidatePath('/posts')
+      revalidatePath(`/posts/${draftId}`)
       return {
         success: true,
         media: {
+          id: insertedMedia.id,
+          version: insertedMedia.version,
+          status: insertedMedia.status,
           mode: mediaPlan.mode,
           imageUrl: mediaPlan.imageUrl,
           altText: mediaPlan.altText,
           promptOrQuery: mediaPlan.promptOrQuery,
-          fallbackApplied: mediaPlan.fallbackApplied
+          fallbackApplied: mediaPlan.fallbackApplied,
+          visualType: mediaPlan.visualType,
+          relevanceScore: mediaPlan.relevanceScore
+        }
+      }
+    }
+
+    return { success: false, error: 'Could not generate visual for this post' }
+  } catch (err: any) {
+    console.error('Error generating post media:', err)
+    return {
+      success: false,
+      error: err?.message || 'Failed to generate media'
+    }
+  }
+}
+
+export async function regeneratePostMediaAction(
+  draftId: string,
+  options?: {
+    mode?: 'ai_generated' | 'stock'
+    customPrompt?: string
+    rejectionReason?: string
+    previousMediaId?: string
+  }
+) {
+  try {
+    const draft = await db.query.postDraftsTable.findFirst({
+      where: eq(postDraftsTable.id, draftId)
+    })
+    if (!draft) throw new Error('Post draft not found')
+
+    let topic = 'Business strategy'
+    let coreArgument: string | undefined = undefined
+    let thesis: string | undefined = undefined
+    let evidence: any[] = []
+
+    if (draft.ideaId) {
+      const idea = await db.query.ideasTable.findFirst({
+        where: eq(ideasTable.id, draft.ideaId)
+      })
+      if (idea) {
+        topic = idea.pillar || idea.title || topic
+        coreArgument = idea.coreArgument || undefined
+        thesis = idea.thesis || idea.coreArgument || undefined
+        evidence = (idea.supportingEvidence as any[]) || []
+      }
+    }
+
+    // 1. Fetch the existing media record for negative context
+    const existingMedia =
+      (await db.query.postMediaTable.findFirst({
+        where: and(
+          eq(postMediaTable.draftId, draftId),
+          eq(postMediaTable.status, 'active')
+        ),
+        orderBy: desc(postMediaTable.createdAt)
+      })) ||
+      (await db.query.postMediaTable.findFirst({
+        where: eq(postMediaTable.draftId, draftId),
+        orderBy: desc(postMediaTable.createdAt)
+      }))
+
+    const previousConcept =
+      (existingMedia?.metadata as any)?.mediaBrief?.primaryConcept ||
+      existingMedia?.promptOrQuery ||
+      undefined
+    const previousImagePrompt = existingMedia?.promptOrQuery || undefined
+    const previousImageUrl = existingMedia?.imageUrl || undefined
+    const currentVersion = existingMedia?.version || 1
+    const currentAttempt = existingMedia?.regenerationAttempt || 0
+
+    // 2. Mark existing media record as superseded (never return or overwrite existing media)
+    if (existingMedia) {
+      await db
+        .update(postMediaTable)
+        .set({
+          status: 'superseded',
+          rejectionReason:
+            options?.rejectionReason || 'User triggered media regeneration for new concept',
+          updatedAt: new Date()
+        })
+        .where(eq(postMediaTable.id, existingMedia.id))
+    }
+
+    const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
+    const rejectionReason =
+      options?.rejectionReason ||
+      'Previous visual was rejected. Generate a fresh, distinctly different visual concept strictly aligned with post thesis.'
+
+    // 3. Call regenerateMediaPlan with negative rejection context
+    const mediaPlan = await regenerateMediaPlan({
+      draftId,
+      postText: fullPostContent,
+      thesis: thesis || coreArgument || topic,
+      previousMediaId: existingMedia?.id,
+      previousConcept,
+      previousImagePrompt,
+      previousImageUrl,
+      rejectionReason,
+      regenerationAttempt: currentAttempt,
+      version: currentVersion,
+      evidence
+    })
+
+    if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
+      // 4. Insert a completely NEW media version
+      const [newMedia] = await db
+        .insert(postMediaTable)
+        .values({
+          draftId,
+          version: mediaPlan.version,
+          status: 'active',
+          previousMediaId: existingMedia?.id || null,
+          regenerationAttempt: mediaPlan.regenerationAttempt,
+          rejectionReason,
+          mode: mediaPlan.mode,
+          imageUrl: mediaPlan.imageUrl,
+          altText: mediaPlan.altText || null,
+          promptOrQuery: mediaPlan.promptOrQuery || null,
+          metadata: {
+            sourcePageUrl: mediaPlan.sourcePageUrl,
+            fallbackApplied: mediaPlan.fallbackApplied || false,
+            visualType: mediaPlan.visualType,
+            relevanceScore: mediaPlan.relevanceScore,
+            relevanceExplanation: mediaPlan.relevanceExplanation,
+            alignedConcepts: mediaPlan.alignedConcepts,
+            textOverlay: mediaPlan.textOverlay,
+            mediaBrief: mediaPlan.mediaBrief,
+            conceptDifference: mediaPlan.conceptDifference,
+            providerRequestId: mediaPlan.providerRequestId,
+            seed: mediaPlan.seed,
+            topicMatch: mediaPlan.topicMatch,
+            thesisMatch: mediaPlan.thesisMatch,
+            introducesUnrelatedTopic: mediaPlan.introducesUnrelatedTopic,
+            readability: mediaPlan.readability
+          }
+        })
+        .returning()
+
+      if (!newMedia) throw new Error('Failed to insert regenerated media record')
+
+      revalidatePath('/posts')
+      revalidatePath(`/posts/${draftId}`)
+
+      return {
+        success: true,
+        media: {
+          id: newMedia.id,
+          version: newMedia.version,
+          status: newMedia.status,
+          mode: mediaPlan.mode,
+          imageUrl: mediaPlan.imageUrl,
+          altText: mediaPlan.altText,
+          promptOrQuery: mediaPlan.promptOrQuery,
+          fallbackApplied: mediaPlan.fallbackApplied,
+          visualType: mediaPlan.visualType,
+          relevanceScore: mediaPlan.relevanceScore,
+          relevanceExplanation: mediaPlan.relevanceExplanation,
+          topicMatch: mediaPlan.topicMatch,
+          thesisMatch: mediaPlan.thesisMatch,
+          introducesUnrelatedTopic: mediaPlan.introducesUnrelatedTopic,
+          mediaBrief: mediaPlan.mediaBrief,
+          readability: mediaPlan.readability,
+          providerRequestId: mediaPlan.providerRequestId,
+          seed: mediaPlan.seed,
+          regenerationAttempt: newMedia.regenerationAttempt
         }
       }
     }

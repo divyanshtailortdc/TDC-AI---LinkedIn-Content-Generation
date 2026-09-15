@@ -54,6 +54,24 @@ export interface HeadlineValidationResult {
   reason?: string
 }
 
+export interface MediaReadabilityResult {
+  readabilityScore: number // 0 - 100
+  mobileReadable: boolean
+  visualComplexity: 'low' | 'moderate' | 'high' | 'excessive'
+  textDensity: 'minimal' | 'balanced' | 'dense' | 'excessive'
+  reasons: string[]
+}
+
+export type UserFacingRelevanceLevel = 'Highly relevant' | 'Relevant' | 'Weak match' | 'Not relevant'
+
+export interface UserFacingRelevanceInfo {
+  level: UserFacingRelevanceLevel
+  label: string
+  badgeVariant: 'success' | 'info' | 'warning' | 'destructive'
+  isPass: boolean
+  warningMessage?: string
+}
+
 export interface SemanticValidationResult {
   relevanceScore: number // 0 - 100
   thesisMatch: boolean
@@ -66,6 +84,7 @@ export interface SemanticValidationResult {
   missingConcepts: string[]
   unrelatedElements: string[]
   headlineValidation?: HeadlineValidationResult
+  readability?: MediaReadabilityResult
 }
 
 // Backwards compatibility alias
@@ -822,15 +841,39 @@ export function validateMediaBriefSemantics(
     score -= 30
   }
 
+  // 5. Readability & Mobile Feed Scaling Validation
+  const readability = validateMediaReadability(brief)
+  if (!readability.mobileReadable) {
+    score -= 30
+    missingConcepts.push(`Readability warning: ${readability.reasons.join('; ')}`)
+  }
+  if (readability.visualComplexity === 'excessive') {
+    score -= 40
+    unrelatedElements.push('Excessive visual complexity with unreadable nodes/process architecture')
+  }
+
   // If any hard failure condition occurred, cap the score strictly below 90
-  if (introducesUnrelatedTopic || !thesisMatch || !topicMatch || !headlineValid) {
+  if (
+    introducesUnrelatedTopic ||
+    !thesisMatch ||
+    !topicMatch ||
+    !headlineValid ||
+    readability.visualComplexity === 'excessive'
+  ) {
     score = Math.min(score, 60)
   }
 
   const finalScore = Math.max(0, Math.min(100, Math.round(score)))
   let reason = ''
 
-  if (finalScore >= 90 && thesisMatch && topicMatch && !introducesUnrelatedTopic && headlineValid) {
+  if (
+    finalScore >= 90 &&
+    thesisMatch &&
+    topicMatch &&
+    !introducesUnrelatedTopic &&
+    headlineValid &&
+    readability.mobileReadable
+  ) {
     reason = `Media brief strongly aligned (${finalScore}/100). Headline and decision-routing framework directly represent thesis without extraneous topics.`
   } else {
     const issues: string[] = []
@@ -838,6 +881,7 @@ export function validateMediaBriefSemantics(
     if (!headlineValid) issues.push(`headline invalid (${headlineValidation.reason})`)
     if (!thesisMatch) issues.push('headline does not express core thesis')
     if (!topicMatch) issues.push('visual concept does not match topic')
+    if (!readability.mobileReadable) issues.push(`readability issues: ${readability.reasons.join(', ')}`)
     reason = `Semantic validation failed (${finalScore}/100): ${issues.join('; ')}`
   }
 
@@ -852,12 +896,385 @@ export function validateMediaBriefSemantics(
     alignedConcepts,
     missingConcepts,
     unrelatedElements,
-    headlineValidation
+    headlineValidation,
+    readability
   }
 }
 
 // Backwards compatibility alias
 export const validateMediaBriefRelevance = validateMediaBriefSemantics
+
+/**
+ * Validates the visual complexity and mobile/feed readability of proposed media.
+ * Evaluates:
+ * - Headline length (<= 8 words preferred, > 10 flagged)
+ * - Supporting points count (<= 3 preferred) and word count (<= 12 words per point)
+ * - Node count / process architecture (flags 8-10 tiny nodes, complex ETL flows, small annotations)
+ * - Text density & mobile readability
+ */
+export function validateMediaReadability(
+  brief?: MediaBrief | null,
+  promptText?: string | null
+): MediaReadabilityResult {
+  const reasons: string[] = []
+  let score = 100
+  let visualComplexity: 'low' | 'moderate' | 'high' | 'excessive' = 'low'
+  let textDensity: 'minimal' | 'balanced' | 'dense' | 'excessive' = 'minimal'
+
+  const headline = brief?.textOverlay?.headline || ''
+  const supportingPoints = brief?.textOverlay?.supportingPoints || []
+  const headlineWords = headline.trim().split(/\s+/).filter(Boolean)
+  const combined = `${headline} ${supportingPoints.join(' ')} ${brief?.primaryConcept || ''} ${brief?.visualMetaphor || ''} ${promptText || ''}`.toLowerCase()
+
+  // 1. Headline length check (prefer <= 8 words, > 10 penalized)
+  if (headlineWords.length > 10) {
+    score -= 25
+    reasons.push(`Headline is too long for mobile feed readability (${headlineWords.length} words; prefer <= 8)`)
+  } else if (headlineWords.length > 8) {
+    score -= 10
+  }
+
+  // 2. Supporting points check (prefer <= 3 short points)
+  if (supportingPoints.length > 4) {
+    score -= 20
+    reasons.push(`Too many supporting points (${supportingPoints.length}; max 3 recommended)`)
+  }
+
+  const longPoints = supportingPoints.filter(
+    p => p.trim().split(/\s+/).length > 12 || p.length > 70
+  )
+  if (longPoints.length > 0) {
+    score -= 20
+    reasons.push('Supporting points contain dense text that degrades feed readability')
+  }
+
+  // 3. Visual complexity & node density checks (detect 8-10 tiny nodes, ETL diagrams, dense flowcharts)
+  const complexProcessPatterns = [
+    /\b(8|9|10|11|12|\d{2})\s*(nodes|steps|stages|boxes|micro-nodes|blocks|elements)\b/i,
+    /\b(etl|data reconciliation|dense architecture|microservice diagram|complex flow chart)\b/i,
+    /\b(tiny labels|small annotations|dense grid|many small text nodes|microscopic)\b/i,
+    /\b(8-10|8 to 10)\s*(nodes|labels|steps)\b/i
+  ]
+
+  let hasComplexProcess = false
+  for (const pattern of complexProcessPatterns) {
+    if (pattern.test(combined)) {
+      hasComplexProcess = true
+      score -= 40
+      reasons.push('Visual contains excessive nodes or complex process architecture unsuitable for LinkedIn feed')
+      break
+    }
+  }
+
+  // 4. Classify visual complexity & text density
+  if (hasComplexProcess) {
+    visualComplexity = 'excessive'
+    textDensity = 'excessive'
+  } else if (supportingPoints.length >= 3 && longPoints.length > 0) {
+    visualComplexity = 'high'
+    textDensity = 'dense'
+  } else if (headlineWords.length <= 8 && supportingPoints.length <= 3) {
+    visualComplexity = 'low'
+    textDensity = headlineWords.length <= 5 && supportingPoints.length <= 2 ? 'minimal' : 'balanced'
+  } else {
+    visualComplexity = 'moderate'
+    textDensity = 'balanced'
+  }
+
+  const finalScore = Math.max(0, Math.min(100, score))
+  const mobileReadable = finalScore >= 70 && visualComplexity !== 'excessive' && textDensity !== 'excessive'
+
+  return {
+    readabilityScore: finalScore,
+    mobileReadable,
+    visualComplexity,
+    textDensity,
+    reasons
+  }
+}
+
+/**
+ * Maps raw validation results to honest, user-facing relevance levels.
+ *
+ * Rules:
+ * - 90-100: "Highly relevant" ONLY IF topicMatch === true AND thesisMatch === true AND !introducesUnrelatedTopic
+ * - 75-89: "Relevant" IF topic and thesis match
+ * - 60-74: "Weak match"
+ * - <60 OR topic mismatch OR thesis mismatch OR introducesUnrelatedTopic: "Not relevant"
+ *
+ * Never displays misleading "100% Aligned" when unrelated topics are introduced.
+ */
+export function getUserFacingRelevance(validation?: {
+  relevanceScore?: number
+  topicMatch?: boolean
+  thesisMatch?: boolean
+  introducesUnrelatedTopic?: boolean
+} | null): UserFacingRelevanceInfo {
+  if (!validation) {
+    return {
+      level: 'Weak match',
+      label: 'Weak match',
+      badgeVariant: 'warning',
+      isPass: false,
+      warningMessage: 'Media has not completed semantic validation.'
+    }
+  }
+
+  const score = validation.relevanceScore ?? 0
+  const topicMatch = validation.topicMatch ?? false
+  const thesisMatch = validation.thesisMatch ?? false
+  const introducesUnrelated = validation.introducesUnrelatedTopic ?? false
+
+  // Strict semantic condition: if topic or thesis does not match, or it introduces an unrelated topic
+  if (introducesUnrelated || !topicMatch || !thesisMatch || score < 60) {
+    return {
+      level: 'Not relevant',
+      label: 'Not relevant',
+      badgeVariant: 'destructive',
+      isPass: false,
+      warningMessage: introducesUnrelated
+        ? 'Generated media appears to introduce a different or unrelated topic.'
+        : 'Generated media does not reflect the central thesis of this post.'
+    }
+  }
+
+  if (score >= 90) {
+    return {
+      level: 'Highly relevant',
+      label: 'Highly relevant',
+      badgeVariant: 'success',
+      isPass: true
+    }
+  }
+
+  if (score >= 75) {
+    return {
+      level: 'Relevant',
+      label: 'Relevant',
+      badgeVariant: 'info',
+      isPass: true
+    }
+  }
+
+  return {
+    level: 'Weak match',
+    label: 'Weak match',
+    badgeVariant: 'warning',
+    isPass: false,
+    warningMessage: 'Media is only loosely related to the topic.'
+  }
+}
+
+export interface ConceptDifferenceResult {
+  similarityScore: number // 0 - 100
+  isMeaningfullyDifferent: boolean
+  reason?: string
+}
+
+/**
+ * Compares a newly generated media concept with the previously rejected concept.
+ * Enforces isMeaningfullyDifferent === true and similarityScore < 70,
+ * and ensures no blocked concepts are reintroduced.
+ */
+export function validateConceptDifference(
+  newConcept: string,
+  previousConcept?: string,
+  blockedConcepts: string[] = []
+): ConceptDifferenceResult {
+  const normNew = (newConcept || '').toLowerCase().trim()
+  const normPrev = (previousConcept || '').toLowerCase().trim()
+
+  if (!normNew) {
+    return {
+      similarityScore: 100,
+      isMeaningfullyDifferent: false,
+      reason: 'New concept is empty'
+    }
+  }
+
+  if (!normPrev) {
+    return {
+      similarityScore: 0,
+      isMeaningfullyDifferent: true
+    }
+  }
+
+  // 1. Check if newConcept contains any blocked concepts
+  const allBlocked = new Set<string>(blockedConcepts.map(c => c.toLowerCase().trim()))
+
+  if (normPrev.includes('data reconciliation') || normPrev.includes('reconciliation')) {
+    allBlocked.add('data reconciliation')
+    allBlocked.add('reconciliation')
+    allBlocked.add('etl pipelines')
+    allBlocked.add('etl')
+    allBlocked.add('source a/source b comparison')
+    allBlocked.add('extract-load-compare workflow')
+  }
+
+  for (const blocked of allBlocked) {
+    if (blocked && normNew.includes(blocked)) {
+      return {
+        similarityScore: 100,
+        isMeaningfullyDifferent: false,
+        reason: `New concept contains rejected/blocked concept: "${blocked}"`
+      }
+    }
+  }
+
+  // 2. Exact match check
+  if (normNew === normPrev) {
+    return {
+      similarityScore: 100,
+      isMeaningfullyDifferent: false,
+      reason: 'New concept is identical to previous rejected concept'
+    }
+  }
+
+  // 3. Jaccard token similarity check
+  const tokenize = (str: string) =>
+    new Set(
+      str
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(
+          w =>
+            w.length > 2 &&
+            !['the', 'and', 'for', 'with', 'vs', 'concept', 'diagram', 'visual', 'showing'].includes(
+              w
+            )
+        )
+    )
+
+  const tokensNew = tokenize(normNew)
+  const tokensPrev = tokenize(normPrev)
+
+  if (tokensNew.size === 0 || tokensPrev.size === 0) {
+    return {
+      similarityScore: 0,
+      isMeaningfullyDifferent: true
+    }
+  }
+
+  const intersection = new Set([...tokensNew].filter(x => tokensPrev.has(x)))
+  const union = new Set([...tokensNew, ...tokensPrev])
+
+  const jaccard = union.size === 0 ? 0 : (intersection.size / union.size) * 100
+  const similarityScore = Math.round(jaccard)
+
+  const isMeaningfullyDifferent = similarityScore < 70
+
+  return {
+    similarityScore,
+    isMeaningfullyDifferent,
+    reason: isMeaningfullyDifferent
+      ? undefined
+      : `New concept is too similar to previous concept (${similarityScore}% token similarity)`
+  }
+}
+
+export interface RegenerationContext {
+  postText: string
+  thesis: string
+  previousConcept?: string
+  previousPrompt?: string
+  previousImageUrl?: string
+  rejectionReason?: string
+  blockedConcepts?: string[]
+  regenerationAttempt?: number
+  evidence?: EvidenceSource[]
+}
+
+/**
+ * Regenerates the MediaBrief using negative rejection context and blocked concepts.
+ * Tells the pipeline: "The previous concept was rejected. Do not repeat the same headline,
+ * layout, metaphor, or adjacent topic."
+ */
+export function regenerateMediaBriefWithNegativeContext(
+  ctx: RegenerationContext
+): MediaBrief {
+  const attempt = ctx.regenerationAttempt || 1
+  const prevConcept = (ctx.previousConcept || '').toLowerCase()
+  const rejectionReason = (ctx.rejectionReason || '').toLowerCase()
+
+  // 1. Build comprehensive blocked concepts list
+  const blockedConcepts = new Set<string>(
+    (ctx.blockedConcepts || []).map(c => c.toLowerCase().trim())
+  )
+
+  if (prevConcept) {
+    blockedConcepts.add(prevConcept)
+  }
+
+  // If previous concept was Data Reconciliation Process or related to reconciliation/ETL
+  if (
+    prevConcept.includes('data reconciliation') ||
+    prevConcept.includes('reconciliation') ||
+    rejectionReason.includes('reconciliation')
+  ) {
+    blockedConcepts.add('data reconciliation')
+    blockedConcepts.add('reconciliation')
+    blockedConcepts.add('etl pipelines')
+    blockedConcepts.add('etl pipeline')
+    blockedConcepts.add('etl')
+    blockedConcepts.add('source a/source b comparison')
+    blockedConcepts.add('extract-load-compare workflow')
+  }
+
+  // If previous concept was supply chain
+  if (prevConcept.includes('supply chain') || rejectionReason.includes('supply chain')) {
+    blockedConcepts.add('supply chain visibility')
+    blockedConcepts.add('supply chain')
+    blockedConcepts.add('logistics tracking')
+    blockedConcepts.add('warehouse management')
+  }
+
+  // 2. Extract fresh base brief
+  const baseBrief = extractMediaBrief(ctx.postText, ctx.thesis, ctx.evidence, {
+    preventProductPitch: true
+  })
+
+  // 3. Inject all blocked concepts into prohibitedVisualConcepts and avoidConcepts
+  for (const b of blockedConcepts) {
+    if (!baseBrief.prohibitedVisualConcepts.includes(b)) {
+      baseBrief.prohibitedVisualConcepts.push(b)
+    }
+    if (!baseBrief.avoidConcepts.includes(b)) {
+      baseBrief.avoidConcepts.push(b)
+    }
+  }
+
+  // 4. Ensure distinct conceptual variation across regeneration attempts
+  const isAutomationVsJudgment =
+    baseBrief.coreThesis.toLowerCase().includes('predictable') &&
+    (baseBrief.coreThesis.toLowerCase().includes('judgment') ||
+      baseBrief.coreThesis.toLowerCase().includes('human') ||
+      baseBrief.coreThesis.toLowerCase().includes('automate'))
+
+  if (isAutomationVsJudgment) {
+    if (attempt % 2 === 0) {
+      baseBrief.primaryConcept =
+        'Human-in-the-loop workflow: deterministic rules automate routine cases while exceptions escalate to human judgment'
+      baseBrief.visualMetaphor =
+        'Human-in-the-loop operational workflow showing automated throughput for predictable cases and human oversight for exceptions'
+      baseBrief.textOverlay.supportingPoints = [
+        'Predictable throughput: Deterministic rules → Automate',
+        'Nuanced exceptions: Relationship context → Human oversight'
+      ]
+    } else {
+      baseBrief.primaryConcept =
+        'Decision-routing framework: allocating predictable decisions to automation and judgment decisions to human review'
+      baseBrief.visualMetaphor =
+        'Decision-routing framework: a clean operational triage diagram showing predictable rules routing to automation and exception-based judgment routing to human review'
+      baseBrief.textOverlay.supportingPoints = [
+        'Predictable: Clear rules, complete information → Automate',
+        'Judgment: Exceptions, relationship context → Human review'
+      ]
+    }
+    baseBrief.textOverlay.headline = 'Automate the predictable. Keep judgment human.'
+  }
+
+  return baseBrief
+}
 
 /**
  * Regenerates the MediaBrief to strictly align with the core thesis when validation fails.

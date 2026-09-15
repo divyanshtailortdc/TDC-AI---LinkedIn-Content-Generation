@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { generateImage } from 'ai'
 import { env } from '~/env'
 import { gatewayClient } from '~/lib/ai'
@@ -8,10 +9,14 @@ import {
   type RelevanceValidationResult,
   type TextOverlaySpec,
   type EvidenceSource,
+  type ConceptDifferenceResult,
+  type RegenerationContext,
   extractMediaBrief,
   selectVisualType,
   validateMediaBriefSemantics,
   validateMediaBriefRelevance,
+  validateConceptDifference,
+  regenerateMediaBriefWithNegativeContext,
   regenerateMediaBriefStrict,
   buildImagePromptFromBrief,
   validateImagePromptAgainstPost
@@ -45,6 +50,10 @@ export interface MediaPlanResult {
   relevanceExplanation?: string
   alignedConcepts?: string[]
   textOverlay?: TextOverlaySpec
+  topicMatch?: boolean
+  thesisMatch?: boolean
+  introducesUnrelatedTopic?: boolean
+  readability?: any
 }
 
 interface CuratedStockCategory {
@@ -214,27 +223,52 @@ export function buildLinkedInImagePrompt(req: MediaPlanRequest): string {
 
 /**
  * Picks a curated high-res Unsplash image matching topic keywords.
+ * When called during regeneration, excludes previous image URLs and shifts offset by attempt.
  */
-export function getCuratedFallbackImage(topicOrBrief: string): {
+export function getCuratedFallbackImage(
+  topicOrBrief: string,
+  options?: { excludeUrls?: string[]; attemptOffset?: number }
+): {
   imageUrl: string
   altText: string
 } {
   const query = (topicOrBrief || '').toLowerCase()
+  const excludeUrls = (options?.excludeUrls || []).map(u => u.split('?')[0])
+  const offset = options?.attemptOffset || 0
 
   for (const cat of CURATED_FALLBACK_CATALOG) {
     if (cat.keywords.some(k => query.includes(k))) {
-      const index = Math.abs(query.length) % cat.images.length
-      const selected = cat.images[index] || cat.images[0]!
+      const available = cat.images.filter(img => !excludeUrls.includes(img.url.split('?')[0]))
+      const pool = available.length > 0 ? available : cat.images
+      const index = (Math.abs(query.length) + offset) % pool.length
+      const selected = pool[index] || pool[0]!
       return { imageUrl: selected.url, altText: selected.altText }
     }
   }
 
   // Default fallback: high-end modern business architecture
+  const defaultImages = [
+    {
+      url: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80',
+      altText: 'Modern architectural business innovation visual for professional publication'
+    },
+    {
+      url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
+      altText: 'Clean modern corporate decision space'
+    },
+    {
+      url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80',
+      altText: 'Global connected strategic operational network'
+    }
+  ]
+  const availableDefaults = defaultImages.filter(
+    img => !excludeUrls.includes(img.url.split('?')[0])
+  )
+  const pool = availableDefaults.length > 0 ? availableDefaults : defaultImages
+  const selected = pool[offset % pool.length] || pool[0]!
   return {
-    imageUrl:
-      'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80',
-    altText:
-      'Modern architectural business innovation visual for professional publication'
+    imageUrl: selected.url,
+    altText: selected.altText
   }
 }
 
@@ -243,10 +277,13 @@ export function getCuratedFallbackImage(topicOrBrief: string): {
  * with graceful fallback to curated stock catalog.
  */
 export async function searchStockImage(
-  query: string
+  query: string,
+  options?: { excludeUrls?: string[]; attempt?: number }
 ): Promise<MediaPlanResult> {
   const cleanQuery = query.trim() || 'professional business insight'
   const altText = `Professional editorial image representing: ${cleanQuery}`
+  const attempt = options?.attempt || 0
+  const excludeUrls = options?.excludeUrls || []
 
   if (env.SERPER_API_KEY && env.SERPER_API_KEY.trim().length > 0) {
     try {
@@ -258,7 +295,7 @@ export async function searchStockImage(
         },
         body: JSON.stringify({
           q: `${cleanQuery} minimal aesthetic high quality professional`,
-          num: 5
+          num: 10
         })
       })
 
@@ -272,13 +309,20 @@ export async function searchStockImage(
         }>
 
         if (Array.isArray(images) && images.length > 0) {
-          const firstImage = images.find(img => img.imageUrl)
-          if (firstImage?.imageUrl) {
+          const freshImages = images.filter(
+            img => img.imageUrl && !excludeUrls.some(u => img.imageUrl?.includes(u.split('?')[0] || '___'))
+          )
+          const pool = freshImages.length > 0 ? freshImages : images
+          const selectedImage = pool[attempt % pool.length] || pool[0]
+          if (selectedImage?.imageUrl) {
+            const sep = selectedImage.imageUrl.includes('?') ? '&' : '?'
+            const finalUrl = `${selectedImage.imageUrl}${sep}v=${Date.now()}&attempt=${attempt}`
+
             return {
               mode: 'stock',
-              imageUrl: firstImage.imageUrl,
-              sourcePageUrl: firstImage.link || firstImage.domain,
-              altText: firstImage.title || altText,
+              imageUrl: finalUrl,
+              sourcePageUrl: selectedImage.link || selectedImage.domain,
+              altText: selectedImage.title || altText,
               promptOrQuery: cleanQuery
             }
           }
@@ -289,11 +333,14 @@ export async function searchStockImage(
     }
   }
 
-  // Curated stock fallback
-  const curated = getCuratedFallbackImage(cleanQuery)
+  // Curated stock fallback with cache buster
+  const curated = getCuratedFallbackImage(cleanQuery, { excludeUrls, attemptOffset: attempt })
+  const sep = curated.imageUrl.includes('?') ? '&' : '?'
+  const finalUrl = `${curated.imageUrl}${sep}v=${Date.now()}&attempt=${attempt}`
+
   return {
     mode: 'stock',
-    imageUrl: curated.imageUrl,
+    imageUrl: finalUrl,
     sourcePageUrl: `https://unsplash.com/s/photos/${encodeURIComponent(cleanQuery.slice(0, 30))}`,
     altText: curated.altText,
     promptOrQuery: cleanQuery,
@@ -307,10 +354,16 @@ export async function searchStockImage(
  * and Curated High-Res Fallback (Tier 3).
  */
 export async function generateAIImage(
-  req: MediaPlanRequest
+  req: MediaPlanRequest & {
+    excludeUrls?: string[]
+    attempt?: number
+    seed?: number
+  }
 ): Promise<MediaPlanResult> {
   const prompt = req.imagePrompt || buildLinkedInImagePrompt(req)
   const query = req.brief || req.topic || req.hook || 'professional business insight'
+  const attempt = req.attempt || 0
+  const seed = req.seed ?? Math.floor(Math.random() * 1000000)
 
   if (gatewayClient && env.AI_GATEWAY_API_KEY) {
     try {
@@ -325,7 +378,8 @@ export async function generateAIImage(
           const result = await generateImage({
             model: gatewayClient.imageModel(modelId),
             prompt,
-            aspectRatio: req.aspectRatio === '1:1' ? '1:1' : '16:9'
+            aspectRatio: req.aspectRatio === '1:1' ? '1:1' : '16:9',
+            seed
           })
 
           const first = result.images?.[0]
@@ -359,7 +413,10 @@ export async function generateAIImage(
   console.info(
     'AI Image Generation unavailable or failed; executing Tier 2/3 stock fallback for post visual.'
   )
-  const stockResult = await searchStockImage(query)
+  const stockResult = await searchStockImage(query, {
+    excludeUrls: req.excludeUrls,
+    attempt
+  })
   return {
     ...stockResult,
     mode: 'ai_generated', // preserves intention while applying graceful visual fallback
@@ -447,13 +504,196 @@ export async function createMediaPlan(
     result = await generateAIImage(enhancedReq)
   }
 
-  return {
+    return {
     ...result,
     mediaBrief,
     visualType,
     relevanceScore: validation.relevanceScore,
     relevanceExplanation: validation.explanation,
     alignedConcepts: validation.alignedConcepts,
-    textOverlay: mediaBrief.textOverlay
+    textOverlay: mediaBrief.textOverlay,
+    topicMatch: validation.topicMatch,
+    thesisMatch: validation.thesisMatch,
+    introducesUnrelatedTopic: validation.introducesUnrelatedTopic,
+    readability: validation.readability
   }
 }
+
+export interface RegenerateMediaPlanRequest {
+  draftId?: string
+  postText?: string
+  thesis?: string
+  previousMediaId?: string
+  previousConcept?: string
+  previousImagePrompt?: string
+  previousImageUrl?: string
+  rejectionReason?: string
+  blockedConcepts?: string[]
+  regenerationAttempt?: number
+  version?: number
+  evidence?: EvidenceSource[]
+  aspectRatio?: '1:1' | '16:9' | '4:5'
+}
+
+export interface RegenerateMediaPlanResult extends MediaPlanResult {
+  version: number
+  regenerationAttempt: number
+  previousMediaId?: string
+  rejectionReason?: string
+  conceptDifference?: ConceptDifferenceResult
+  providerRequestId?: string
+  seed?: number
+}
+
+/**
+ * Executes a full, non-cached regeneration cycle:
+ * Rejection Context -> Blocked Concepts -> New Media Brief ->
+ * Concept Difference Validation (similarity < 70) -> Thesis Validation ->
+ * Fresh Provider Request with Non-reused Seed -> Multi-version Metadata.
+ */
+export async function regenerateMediaPlan(
+  req: RegenerateMediaPlanRequest
+): Promise<RegenerateMediaPlanResult> {
+  const postContent = (req.postText || '').trim()
+  const thesis = req.thesis || 'Operational thought leadership'
+  const attempt = (req.regenerationAttempt ?? 0) + 1
+  const version = (req.version ?? 1) + 1
+  const seed = Math.floor(Math.random() * 1000000)
+  const providerRequestId = crypto.randomUUID()
+
+  // 1. Build negative context & derive NEW media brief
+  let mediaBrief = regenerateMediaBriefWithNegativeContext({
+    postText: postContent,
+    thesis,
+    previousConcept: req.previousConcept,
+    previousPrompt: req.previousImagePrompt,
+    previousImageUrl: req.previousImageUrl,
+    rejectionReason: req.rejectionReason,
+    blockedConcepts: req.blockedConcepts,
+    regenerationAttempt: attempt,
+    evidence: req.evidence
+  })
+
+  // 2. Validate Concept Difference from rejected concept
+  let diffCheck = validateConceptDifference(
+    mediaBrief.primaryConcept,
+    req.previousConcept,
+    req.blockedConcepts
+  )
+
+  if (!diffCheck.isMeaningfullyDifferent || diffCheck.similarityScore >= 70) {
+    console.warn(
+      `Regenerated concept too similar to previous (${diffCheck.similarityScore}%): ${diffCheck.reason}. Enforcing alternate layout...`
+    )
+    mediaBrief = regenerateMediaBriefWithNegativeContext({
+      postText: postContent,
+      thesis,
+      previousConcept: req.previousConcept,
+      previousPrompt: req.previousImagePrompt,
+      rejectionReason: req.rejectionReason,
+      blockedConcepts: [...(req.blockedConcepts || []), mediaBrief.primaryConcept],
+      regenerationAttempt: attempt + 1,
+      evidence: req.evidence
+    })
+    diffCheck = validateConceptDifference(
+      mediaBrief.primaryConcept,
+      req.previousConcept,
+      req.blockedConcepts
+    )
+  }
+
+  // 3. Validate Semantics & Thesis Match
+  let validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
+  let visualType = selectVisualType(postContent, mediaBrief, req.evidence)
+
+  if (
+    validation.relevanceScore < 90 ||
+    !validation.thesisMatch ||
+    !validation.topicMatch ||
+    validation.introducesUnrelatedTopic
+  ) {
+    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
+    visualType = selectVisualType(postContent, mediaBrief, req.evidence)
+    validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
+  }
+
+  // 4. Build Image Prompt
+  let imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
+    aspectRatio: req.aspectRatio
+  })
+
+  const promptCheck = validateImagePromptAgainstPost(imagePrompt, mediaBrief, thesis)
+  if (!promptCheck.isValid) {
+    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
+    imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
+      aspectRatio: req.aspectRatio
+    })
+  }
+
+  // 5. Exclude previous image URL and force fresh provider execution
+  const excludeUrls = req.previousImageUrl ? [req.previousImageUrl] : []
+  const imageResult = await generateAIImage({
+    mode: 'ai_generated',
+    brief: mediaBrief.primaryConcept,
+    topic: mediaBrief.coreThesis,
+    postText: postContent,
+    thesis,
+    imagePrompt,
+    aspectRatio: req.aspectRatio,
+    excludeUrls,
+    attempt,
+    seed
+  })
+
+  const finalImageUrl = imageResult.imageUrl || ''
+
+  // 6. Structured Logging as specified in instructions
+  const mediaBriefHash = crypto
+    .createHash('md5')
+    .update(mediaBrief.primaryConcept)
+    .digest('hex')
+    .slice(0, 8)
+  const imagePromptHash = crypto
+    .createHash('md5')
+    .update(imagePrompt)
+    .digest('hex')
+    .slice(0, 8)
+
+  console.info(
+    '[MediaRegenerationLog]',
+    JSON.stringify({
+      postId: req.draftId || 'unknown',
+      previousMediaId: req.previousMediaId || null,
+      regenerationAttempt: attempt,
+      mediaBriefHash,
+      imagePromptHash,
+      providerCalled: true,
+      providerRequestId,
+      generatedAssetId: crypto.randomUUID(),
+      generatedImageUrl: finalImageUrl
+    })
+  )
+
+  return {
+    ...imageResult,
+    imageUrl: finalImageUrl,
+    version,
+    regenerationAttempt: attempt,
+    previousMediaId: req.previousMediaId,
+    rejectionReason: req.rejectionReason,
+    conceptDifference: diffCheck,
+    providerRequestId,
+    seed,
+    mediaBrief,
+    visualType,
+    relevanceScore: validation.relevanceScore,
+    relevanceExplanation: validation.explanation,
+    alignedConcepts: validation.alignedConcepts,
+    textOverlay: mediaBrief.textOverlay,
+    topicMatch: validation.topicMatch,
+    thesisMatch: validation.thesisMatch,
+    introducesUnrelatedTopic: validation.introducesUnrelatedTopic,
+    readability: validation.readability
+  }
+}
+
