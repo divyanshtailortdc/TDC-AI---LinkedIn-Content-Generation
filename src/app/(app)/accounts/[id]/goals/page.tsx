@@ -41,15 +41,19 @@ export default async function GoalsPage({ params }: PageProps) {
   ])
 
   return (
-    <div className="mx-auto max-w-5xl p-6 sm:p-8">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
-      <GoalsClient
-        accountId={account.id}
-        accountName={account.name}
-        initialGoals={goals}
-        audiences={audiences.map((a) => ({ id: a.id, name: a.name }))}
-        proofAssets={knowledgeDocs}
-      />
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-5xl mx-auto">
+          <GoalsClient
+            accountId={account.id}
+            accountName={account.name}
+            initialGoals={goals}
+            audiences={audiences.map((a) => ({ id: a.id, name: a.name }))}
+            proofAssets={knowledgeDocs}
+          />
+        </div>
+      </div>
     </div>
   )
 }

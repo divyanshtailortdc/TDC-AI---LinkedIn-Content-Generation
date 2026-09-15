@@ -20,6 +20,7 @@ import {
   preferencesTable,
   voiceConfigsTable
 } from '@/db/schema'
+import { PageHeader } from '@/components/page-header'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,25 +52,25 @@ export default async function AccountsPage() {
   const hasAnyAccounts = accounts.length > 0
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Accounts</h1>
-          <p className="text-sm text-muted mt-0.5">
-            Manage your LinkedIn identities and their configurations
-          </p>
-        </div>
-        {hasAnyAccounts && (
-          <Link
-            href="/accounts/new"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add identity
-          </Link>
-        )}
-      </div>
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      <PageHeader
+        title="Accounts"
+        description="Manage your LinkedIn identities and their configurations"
+        actions={
+          hasAnyAccounts ? (
+            <Link
+              href="/accounts/new"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add identity
+            </Link>
+          ) : null
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-5xl mx-auto space-y-8">
 
       {!hasAnyAccounts ? (
         <EmptyState />
@@ -123,6 +124,8 @@ export default async function AccountsPage() {
           )}
         </>
       )}
+        </div>
+      </div>
     </div>
   )
 }

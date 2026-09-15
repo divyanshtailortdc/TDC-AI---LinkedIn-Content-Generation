@@ -15,6 +15,7 @@ import {
   Plus
 } from 'lucide-react'
 import { triggerNewRun } from './actions'
+import { PageHeader } from '@/components/page-header'
 
 interface RunSummary {
   id: string
@@ -33,10 +34,12 @@ interface RunSummary {
 
 export function RunsClient({
   initialRuns,
-  accounts
+  accounts,
+  hideHeader
 }: {
   initialRuns: RunSummary[]
   accounts: Array<{ id: string; name: string }>
+  hideHeader?: boolean
 }) {
   const router = useRouter()
   const [runs, setRuns] = useState<RunSummary[]>(initialRuns)
@@ -60,29 +63,8 @@ export function RunsClient({
     }
   }
 
-  return (
-    <div className="p-6 sm:p-8 max-w-5xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Run Engine &amp; Observability
-          </h1>
-          <p className="text-xs sm:text-sm text-muted mt-1">
-            Track background pipeline execution, stages, token counts, and costs.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-        >
-          <Play className="w-4 h-4 fill-current" />
-          <span>Generate Now</span>
-        </button>
-      </div>
-
+  const content = (
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* Generate Now Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
@@ -203,6 +185,32 @@ export function RunsClient({
           </div>
         </div>
       )}
+    </div>
+  )
+
+  if (hideHeader) {
+    return content
+  }
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      <PageHeader
+        title="Run Engine & Observability"
+        description="Track background pipeline execution, stages, token counts, and costs."
+        actions={
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>Generate Now</span>
+          </button>
+        }
+      />
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        {content}
+      </div>
     </div>
   )
 }

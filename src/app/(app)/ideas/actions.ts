@@ -51,7 +51,7 @@ export async function rejectIdea(ideaId: string, reason?: string) {
   }
 }
 
-export async function editAndApproveIdea(
+export async function editIdea(
   ideaId: string,
   payload: {
     angle?: string
@@ -78,7 +78,6 @@ export async function editAndApproveIdea(
           ...currentMedia,
           mode: payload.mediaMode ?? currentMedia.mode
         },
-        status: 'approved',
         updatedAt: new Date()
       })
       .where(eq(ideasTable.id, ideaId))
@@ -87,7 +86,7 @@ export async function editAndApproveIdea(
     revalidatePath('/runs')
     return { success: true }
   } catch (err: any) {
-    return { success: false, error: err.message || 'Failed to edit & approve idea' }
+    return { success: false, error: err.message || 'Failed to edit idea' }
   }
 }
 
@@ -121,5 +120,22 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
     return { success: true, draftedCount: results.length }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to draft approved ideas' }
+  }
+}
+
+export async function approveAllIdeas(ideaIds: string[]) {
+  try {
+    if (ideaIds.length === 0) return { success: true }
+
+    await db
+      .update(ideasTable)
+      .set({ status: 'approved', updatedAt: new Date() })
+      .where(inArray(ideasTable.id, ideaIds))
+
+    revalidatePath('/ideas')
+    revalidatePath('/runs')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to approve ideas' }
   }
 }

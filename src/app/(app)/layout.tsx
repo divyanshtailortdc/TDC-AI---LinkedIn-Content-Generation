@@ -9,7 +9,7 @@ export default function AppLayout({
   return (
     <div className="flex h-full min-h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-background">
+      <main className="flex-1 overflow-y-auto bg-background relative flex flex-col">
         {children}
       </main>
       <ToastContainer />

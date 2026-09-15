@@ -27,13 +27,17 @@ export default async function KnowledgePage({ params }: PageProps) {
     .orderBy(desc(knowledgeDocumentsTable.createdAt))
 
   return (
-    <div className="mx-auto max-w-5xl p-6 sm:p-8">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
-      <KnowledgeClient
-        accountId={account.id}
-        accountName={account.name}
-        initialDocs={docs}
-      />
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-5xl mx-auto">
+          <KnowledgeClient
+            accountId={account.id}
+            accountName={account.name}
+            initialDocs={docs}
+          />
+        </div>
+      </div>
     </div>
   )
 }

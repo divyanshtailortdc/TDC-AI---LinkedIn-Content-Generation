@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { PageHeader } from '@/components/page-header'
 import { LinkedInPreview } from '@/components/linkedin-preview'
 import {
   AlertTriangle,
@@ -336,40 +337,32 @@ export function PostsClient({
   const alternateHooks = activePost?.variants?.filter((v) => v.variantType === 'hook') || []
 
   return (
-    <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Review &amp; Ship Posts
-            </h1>
-            <span className="rounded-full bg-accent/10 text-accent px-2.5 py-0.5 text-xs font-semibold">
-              Daily Surface
-            </span>
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      <PageHeader
+        title="Review & Ship Posts"
+        badge="Daily Surface"
+        description="Final polish before publishing. Review formatting, media, and platform-specific nuances."
+        bottomContent={
+          <div className="flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5 text-muted" />
+            <select
+              value={selectedAccountId}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
+              className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+            >
+              <option value="all">All Identities</option>
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <p className="text-xs sm:text-sm text-muted mt-1">
-            Pixel-accurate preview with the ~200-char fold line, citations, and instant copy-to-clipboard.
-          </p>
-        </div>
+        }
+      />
 
-        {/* Identity Filter */}
-        <div className="flex items-center gap-2">
-          <Filter className="w-3.5 h-3.5 text-muted" />
-          <select
-            value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
-          >
-            <option value="all">All Personas ({posts.length})</option>
-            {accounts.map((acc) => (
-              <option key={acc.id} value={acc.id}>
-                {acc.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-7xl mx-auto space-y-6">
 
       {filteredPosts.length === 0 || !activePost ? (
         <div className="p-16 text-center rounded-2xl border-2 border-dashed border-border bg-surface">
@@ -887,6 +880,8 @@ export function PostsClient({
           </div>
         </div>
       )}
+      </div>
+      </div>
     </div>
   )
 }

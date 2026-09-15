@@ -22,6 +22,7 @@ import {
   Users
 } from 'lucide-react'
 import Link from 'next/link'
+import { PageHeader } from '@/components/page-header'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,25 +53,25 @@ export default async function DashboardPage() {
   const hasAnyAccounts = accounts.length > 0
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
-      {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-foreground text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted mt-0.5 text-sm">
-            Your LinkedIn content generation workspace
-          </p>
-        </div>
-        {hasAnyAccounts && (
-          <Link
-            href="/accounts/new"
-            className="bg-accent text-background hover:bg-accent-hover flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add identity
-          </Link>
-        )}
-      </div>
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      <PageHeader
+        title="Dashboard"
+        description="Your LinkedIn content generation workspace"
+        actions={
+          hasAnyAccounts ? (
+            <Link
+              href="/accounts/new"
+              className="bg-accent text-background hover:bg-accent-hover flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add identity
+            </Link>
+          ) : null
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="mx-auto max-w-5xl space-y-8">
 
       {/* Capability status panel — always visible */}
       <div className="border-border bg-surface mb-8 overflow-hidden rounded-xl border">
@@ -126,6 +127,8 @@ export default async function DashboardPage() {
           prefAccountIds={prefAccountIds}
         />
       )}
+        </div>
+      </div>
     </div>
   )
 }

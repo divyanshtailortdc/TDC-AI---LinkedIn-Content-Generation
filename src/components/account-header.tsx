@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { PageHeader } from '@/components/page-header'
 
 interface AccountHeaderProps {
   account: {
@@ -78,63 +79,55 @@ export function AccountHeader({ account }: AccountHeaderProps) {
     }
   ]
 
-  return (
-    <div className="mb-8 border-b border-border pb-0">
-      {/* Back to accounts list */}
-      <Link
-        href="/accounts"
-        className="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Accounts
-      </Link>
-
-      {/* Identity Card */}
-      <div className="mb-6 flex items-center gap-4">
-        <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl bg-accent text-lg font-bold text-background shadow-xs">
-          {initials}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight text-foreground truncate">
-              {account.name}
-            </h1>
-            <span className="rounded-full bg-surface-hover px-2.5 py-0.5 text-xs font-medium text-muted capitalize shrink-0">
-              {account.accountType}
-            </span>
-          </div>
-          {account.headline && (
-            <p className="mt-0.5 text-xs text-muted truncate">
-              {account.headline}
-            </p>
-          )}
-        </div>
+  const titleNode = (
+    <div className="flex items-center gap-3">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-sm font-bold text-background shadow-xs">
+        {initials}
       </div>
-
-      {/* Tabs Row */}
-      <nav className="flex items-center gap-1 overflow-x-auto pb-px">
-        {tabs.map(({ label, icon: Icon, href, exact }) => {
-          const active = exact
-            ? pathname === href
-            : pathname === href || pathname.startsWith(href + '/')
-
-          return (
-            <Link
-              key={label}
-              href={href}
-              className={`flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs font-medium transition-colors shrink-0 ${
-                active
-                  ? 'border-accent text-accent font-semibold'
-                  : 'border-transparent text-muted hover:border-border hover:text-foreground'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </Link>
-          )
-        })}
-      </nav>
+      <span className="text-xl font-bold tracking-tight text-foreground truncate">
+        {account.name}
+      </span>
     </div>
+  )
+
+  return (
+    <PageHeader
+      preTitle={
+        <Link
+          href="/accounts"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Accounts
+        </Link>
+      }
+      title={titleNode}
+      badge={account.accountType}
+      description={account.headline || undefined}
+      bottomContent={
+        <nav className="flex items-center gap-1 overflow-x-auto pb-px w-full">
+          {tabs.map(({ label, icon: Icon, href, exact }) => {
+            const active = exact
+              ? pathname === href
+              : pathname === href || pathname.startsWith(href + '/')
+
+            return (
+              <Link
+                key={label}
+                href={href}
+                className={`flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs font-medium transition-colors shrink-0 ${
+                  active
+                    ? 'border-accent text-accent font-semibold'
+                    : 'border-transparent text-muted hover:border-border hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </Link>
+            )
+          })}
+        </nav>
+      }
+    />
   )
 }

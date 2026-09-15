@@ -94,10 +94,11 @@ export default async function AccountPage({
   const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
 
   return (
-    <div className="mx-auto max-w-5xl p-6 sm:p-8 space-y-6">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
-
-      {/* Setup Complete Banner */}
+      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+        <div className="max-w-5xl mx-auto space-y-6">
+          {/* Setup Complete Banner */}
       {allDone && (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-950/20 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -173,6 +174,8 @@ export default async function AccountPage({
         initialOfferings={offerings}
         initialAudiences={audiences}
       />
+        </div>
+      </div>
     </div>
   )
 }
