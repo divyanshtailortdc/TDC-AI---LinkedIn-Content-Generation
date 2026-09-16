@@ -17,6 +17,8 @@ import {
 import { getUserFacingRelevance } from '@/lib/media/relevance'
 import {
   AlertTriangle,
+  ArrowUpDown,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -44,7 +46,13 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import {
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react'
 import {
   approveDraft,
   fetchPostMediaImage,
@@ -129,6 +137,129 @@ function getHumanRuleLabel(rule: string): string {
     .replace(/\b\w/g, c => c.toUpperCase())
 }
 
+type DateRange = 'all' | 'today' | '7d' | '30d'
+type StatusFilter = 'all' | 'awaiting_review' | 'approved' | 'rejected'
+type SortOrder = 'newest' | 'oldest'
+
+const DATE_RANGE_LABELS: Record<DateRange, string> = {
+  all: 'All time',
+  today: 'Today',
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days'
+}
+
+const STATUS_LABELS: Record<StatusFilter, string> = {
+  all: 'All statuses',
+  awaiting_review: 'Awaiting review',
+  approved: 'Approved',
+  rejected: 'Rejected'
+}
+
+const DAY_MS = 86_400_000
+
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+]
+
+function toDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value)
+}
+
+/** Oldest boundary for a range, or null when unbounded. */
+function rangeStart(range: DateRange): Date | null {
+  if (range === 'all') return null
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  if (range === 'today') return start
+  return new Date(start.getTime() - (range === '7d' ? 6 : 29) * DAY_MS)
+}
+
+/**
+ * Dates are formatted by hand rather than through `toLocaleString`, which
+ * renders with Node's locale on the server and the browser's locale on the
+ * client ("9/16/2026" vs "16/09/2026") and breaks hydration.
+ */
+function formatAbsoluteDate(value: Date | string): string {
+  const date = toDate(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const day = date.getDate()
+  const month = MONTHS[date.getMonth()]
+  const year = date.getFullYear()
+  return year === new Date().getFullYear()
+    ? `${day} ${month}`
+    : `${day} ${month} ${year}`
+}
+
+function formatAbsoluteDateTime(value: Date | string): string {
+  const date = toDate(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`
+}
+
+/**
+ * Stable grouping key. Group boundaries are derived from this rather than from
+ * the display label, so swapping "16 Sep" for "Today" after mount never
+ * reshuffles the list.
+ */
+function dayKey(value: Date | string): string {
+  const date = toDate(value)
+  if (Number.isNaN(date.getTime())) return 'unknown'
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
+/** Short, scannable timestamp for a dense queue list. Depends on "now". */
+function formatRelativeDate(value: Date | string): string {
+  const date = toDate(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const diffMs = Date.now() - date.getTime()
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d ago`
+
+  return formatAbsoluteDate(date)
+}
+
+/** Day header text. Relative wording is only used once mounted. */
+function bucketLabel(value: Date | string, relative: boolean): string {
+  const absolute = formatAbsoluteDate(value)
+  if (!relative) return absolute
+
+  const today = new Date()
+  if (dayKey(value) === dayKey(today)) return 'Today'
+  if (dayKey(value) === dayKey(new Date(today.getTime() - DAY_MS))) {
+    return 'Yesterday'
+  }
+  return absolute
+}
+
+/**
+ * False during SSR and the hydration render, true afterwards. Lets "now"-relative
+ * text render only on the client without tripping a hydration mismatch.
+ */
+const emptySubscribe = () => () => {}
+function useHasMounted(): boolean {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  )
+}
+
+function countLintErrors(findings: LintFinding[] | undefined): number {
+  return (findings || []).filter(f => f.severity === 'error' && !f.passed).length
+}
+
 export function PostsClientInner({
   initialPosts,
   accounts
@@ -139,6 +270,7 @@ export function PostsClientInner({
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterRunId = searchParams.get('runId')
+  const hasMounted = useHasMounted()
 
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
   const [selectedPostId, setSelectedPostId] = useState<string>(
@@ -147,9 +279,65 @@ export function PostsClientInner({
       ''
   )
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all')
+  const [dateRange, setDateRange] = useState<DateRange>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
 
   // Active post editing state
-  const activePost = posts.find(p => p.id === selectedPostId) || posts[0]
+  // Posts matching everything except the status facet, so the status counts can
+  // show what switching to another status would actually reveal.
+  const scopedPosts = posts.filter(p => {
+    if (filterRunId && p.runId !== filterRunId) return false
+    if (selectedAccountId !== 'all' && p.accountId !== selectedAccountId) {
+      return false
+    }
+
+    const start = rangeStart(dateRange)
+    if (start && toDate(p.createdAt) < start) return false
+
+    const query = searchQuery.trim().toLowerCase()
+    if (query) {
+      const haystack =
+        `${p.hook} ${p.body} ${p.accountName} ${(p.hashtags || []).join(' ')}`.toLowerCase()
+      if (!haystack.includes(query)) return false
+    }
+
+    return true
+  })
+
+  const statusCounts = {
+    all: scopedPosts.length,
+    awaiting_review: scopedPosts.filter(p => p.status === 'awaiting_review')
+      .length,
+    approved: scopedPosts.filter(p => p.status === 'approved').length,
+    rejected: scopedPosts.filter(p => p.status === 'rejected').length
+  }
+
+  const filteredPosts = scopedPosts
+    .filter(p => statusFilter === 'all' || p.status === statusFilter)
+    .sort((a, b) => {
+      const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+      return sortOrder === 'newest' ? diff : -diff
+    })
+
+  const hasActiveFilters =
+    selectedAccountId !== 'all' ||
+    dateRange !== 'all' ||
+    statusFilter !== 'all' ||
+    searchQuery.trim().length > 0
+
+  const clearFilters = () => {
+    setSelectedAccountId('all')
+    setDateRange('all')
+    setStatusFilter('all')
+    setSearchQuery('')
+  }
+
+  // The open post always comes from the filtered queue, so changing a filter
+  // cannot leave a post on screen that is no longer in the list.
+  const activePost =
+    filteredPosts.find(p => p.id === selectedPostId) || filteredPosts[0]
   const [isEditing, setIsEditing] = useState(false)
   const [editedHook, setEditedHook] = useState(activePost?.hook || '')
   const [editedBody, setEditedBody] = useState(activePost?.body || '')
@@ -225,15 +413,14 @@ export function PostsClientInner({
   const [showAdvancedMedia, setShowAdvancedMedia] = useState(false)
   const [showFirstCommentDetail, setShowFirstCommentDetail] = useState(false)
 
-  // Filter posts
-  const filteredPosts = posts.filter(p => {
-    if (filterRunId && p.runId !== filterRunId) return false
-    if (selectedAccountId === 'all') return true
-    return p.accountId === selectedAccountId
-  })
-
   const currentIndex = filteredPosts.findIndex(p => p.id === activePost?.id)
   const totalPosts = filteredPosts.length
+
+  const clearReferenceImage = () => {
+    setReferenceImage(null)
+    setReferenceImageName(null)
+    if (referenceInputRef.current) referenceInputRef.current.value = ''
+  }
 
   const handleSelectPost = (post: PostDetail) => {
     setSelectedPostId(post.id)
@@ -266,11 +453,35 @@ export function PostsClientInner({
     }
   }
 
-  const clearReferenceImage = () => {
-    setReferenceImage(null)
-    setReferenceImageName(null)
-    if (referenceInputRef.current) referenceInputRef.current.value = ''
-  }
+  // Reviewing a long queue is mostly next/next/next, so keep hands on the keyboard.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+
+      if (event.key === 'j' || event.key === 'ArrowDown') {
+        event.preventDefault()
+        handleNextPost()
+      } else if (event.key === 'k' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        handlePrevPost()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, totalPosts, filteredPosts])
 
   const loadReferenceImage = (file: File) => {
     const fileError = validateReferenceFile(file)
@@ -841,43 +1052,262 @@ export function PostsClientInner({
         badge="Daily Surface"
         description="Final polish before publishing. Review formatting, media, and platform-specific nuances."
         bottomContent={
-          <div className="flex items-center gap-2">
-            <Filter className="text-muted h-3.5 w-3.5" />
-            <select
-              value={selectedAccountId}
-              onChange={e => setSelectedAccountId(e.target.value)}
-              className="border-border bg-surface text-foreground focus:border-accent rounded-lg border px-3 py-1.5 text-xs outline-none"
-            >
-              <option value="all">All Identities</option>
-              {accounts.map(acc => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.name}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-col gap-2.5">
+            {/* Status is the primary triage axis, so it gets counts and one click. */}
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
+              ).map(status => {
+                const count = statusCounts[status]
+                const isActive = statusFilter === status
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setStatusFilter(status)}
+                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isActive
+                        ? 'border-accent bg-accent/10 text-accent'
+                        : 'border-border bg-surface text-muted hover:text-foreground'
+                    }`}
+                  >
+                    {STATUS_LABELS[status]}
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                        isActive
+                          ? 'bg-accent/15'
+                          : 'bg-surface-hover text-muted'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+                <Search className="text-muted pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search hooks, body, hashtags…"
+                  className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border py-1.5 pr-3 pl-8 text-xs outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <Filter className="text-muted h-3.5 w-3.5" />
+                <select
+                  value={selectedAccountId}
+                  onChange={e => setSelectedAccountId(e.target.value)}
+                  className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                >
+                  <option value="all">All identities</option>
+                  {accounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <CalendarDays className="text-muted h-3.5 w-3.5" />
+                <select
+                  value={dateRange}
+                  onChange={e => setDateRange(e.target.value as DateRange)}
+                  className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                >
+                  {(Object.keys(DATE_RANGE_LABELS) as DateRange[]).map(range => (
+                    <option key={range} value={range}>
+                      {DATE_RANGE_LABELS[range]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <ArrowUpDown className="text-muted h-3.5 w-3.5" />
+                <select
+                  value={sortOrder}
+                  onChange={e => setSortOrder(e.target.value as SortOrder)}
+                  className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </div>
+
+              {(hasActiveFilters || filterRunId) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearFilters()
+                    if (filterRunId) router.push('/posts')
+                  }}
+                  className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         }
       />
 
-      <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-7xl space-y-6">
+      <div className="flex flex-1 overflow-hidden">
+        {/* QUEUE RAIL — replaces a strip of "Post #1…#90" pills that carried no
+            information about the posts they pointed at. */}
+        <aside className="border-border bg-surface hidden w-[320px] shrink-0 flex-col border-r lg:flex">
+          <div className="border-border text-muted flex items-center justify-between border-b px-4 py-2.5 text-[11px] font-semibold tracking-wider uppercase">
+            <span>Queue</span>
+            <span className="tabular-nums">
+              {totalPosts} post{totalPosts === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {filteredPosts.length === 0 ? (
+              <p className="text-muted px-4 py-6 text-xs leading-relaxed">
+                No posts match these filters.
+              </p>
+            ) : (
+              filteredPosts.map((post, idx) => {
+                const isActive = post.id === activePost?.id
+                const showBucket =
+                  idx === 0 ||
+                  dayKey(filteredPosts[idx - 1]!.createdAt) !==
+                    dayKey(post.createdAt)
+                const errors = countLintErrors(post.lintFindings)
+
+                return (
+                  <div key={post.id}>
+                    {showBucket && (
+                      <div className="bg-surface-hover/60 text-muted border-border/60 border-y px-4 py-1.5 text-[10px] font-semibold tracking-wider uppercase">
+                        {bucketLabel(post.createdAt, hasMounted)}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectPost(post)}
+                      className={`border-border/60 w-full cursor-pointer border-b px-4 py-3 text-left transition-colors ${
+                        isActive
+                          ? 'bg-accent/10 border-l-accent border-l-2'
+                          : 'hover:bg-surface-hover border-l-2 border-l-transparent'
+                      }`}
+                    >
+                      <div className="mb-1.5 flex items-center gap-1.5">
+                        <span
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                            post.status === 'approved'
+                              ? 'bg-emerald-500'
+                              : post.status === 'rejected'
+                                ? 'bg-rose-500'
+                                : 'bg-amber-500'
+                          }`}
+                          aria-hidden
+                        />
+                        <span className="text-muted truncate text-[11px] font-medium">
+                          {post.accountName}
+                        </span>
+                        <span
+                          className="text-muted ml-auto shrink-0 text-[10px]"
+                          title={formatAbsoluteDateTime(post.createdAt)}
+                        >
+                          {hasMounted
+                            ? formatRelativeDate(post.createdAt)
+                            : formatAbsoluteDate(post.createdAt)}
+                        </span>
+                      </div>
+
+                      {/* The hook is what actually identifies a post. */}
+                      <p
+                        className={`line-clamp-2 text-xs leading-relaxed ${
+                          isActive
+                            ? 'text-foreground font-medium'
+                            : 'text-foreground/80'
+                        }`}
+                      >
+                        {post.hook}
+                      </p>
+
+                      <div className="text-muted mt-1.5 flex items-center gap-2.5 text-[10px]">
+                        <span className="tabular-nums">
+                          {post.charCount} chars
+                        </span>
+                        {post.media && (
+                          <span className="flex items-center gap-0.5">
+                            <ImageIcon className="h-2.5 w-2.5" />
+                            Media
+                          </span>
+                        )}
+                        {post.citations.length > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Quote className="h-2.5 w-2.5" />
+                            {post.citations.length}
+                          </span>
+                        )}
+                        {errors > 0 && (
+                          <span className="flex items-center gap-0.5 text-rose-500">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {errors}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </aside>
+
+        <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <div className="mx-auto max-w-6xl space-y-6">
           {filteredPosts.length === 0 || !activePost ? (
             <div className="border-border bg-surface rounded-2xl border-2 border-dashed p-16 text-center">
-              <FileCheck className="text-muted mx-auto mb-3 h-10 w-10" />
-              <h3 className="text-foreground text-sm font-semibold">
-                No drafted posts waiting for review
-              </h3>
-              <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
-                Approve concepts from the Idea Gate to draft grounded posts.
-              </p>
-              {filterRunId && (
-                <button
-                  type="button"
-                  onClick={() => router.push('/posts')}
-                  className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors"
-                >
-                  Clear Run Filter
-                </button>
+              {posts.length === 0 ? (
+                <>
+                  <FileCheck className="text-muted mx-auto mb-3 h-10 w-10" />
+                  <h3 className="text-foreground text-sm font-semibold">
+                    No drafted posts yet
+                  </h3>
+                  <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
+                    Approve concepts on the Ideas page to draft grounded posts.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/ideas')}
+                    className="bg-accent text-background mt-4 cursor-pointer rounded-lg px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90"
+                  >
+                    Go to Ideas
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Search className="text-muted mx-auto mb-3 h-10 w-10" />
+                  <h3 className="text-foreground text-sm font-semibold">
+                    No posts match these filters
+                  </h3>
+                  <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
+                    {posts.length} post{posts.length === 1 ? '' : 's'} exist in
+                    total. Widen the date range or clear the filters to see them.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearFilters()
+                      if (filterRunId) router.push('/posts')
+                    }}
+                    className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 cursor-pointer rounded-lg border px-4 py-2 text-xs font-semibold transition-colors"
+                  >
+                    Clear all filters
+                  </button>
+                </>
               )}
             </div>
           ) : (
@@ -891,6 +1321,16 @@ export function PostsClientInner({
                   <span className="text-muted text-xs">•</span>
                   <span className="text-muted text-xs font-medium">
                     {activePost.accountName}
+                  </span>
+                  <span className="text-muted text-xs">•</span>
+                  <span
+                    className="text-muted text-xs"
+                    title={formatAbsoluteDateTime(activePost.createdAt)}
+                  >
+                    Drafted{' '}
+                    {hasMounted
+                      ? formatRelativeDate(activePost.createdAt)
+                      : formatAbsoluteDate(activePost.createdAt)}
                   </span>
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${
@@ -928,31 +1368,18 @@ export function PostsClientInner({
                     <span>Next</span>
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
+                  <span className="text-muted ml-1 hidden text-[10px] xl:inline">
+                    or press{' '}
+                    <kbd className="border-border bg-surface-hover rounded border px-1 py-0.5 font-mono">
+                      J
+                    </kbd>{' '}
+                    /{' '}
+                    <kbd className="border-border bg-surface-hover rounded border px-1 py-0.5 font-mono">
+                      K
+                    </kbd>
+                  </span>
                 </div>
               </div>
-
-              {/* QUICK POST TABS STRIP (if multiple posts) */}
-              {totalPosts > 1 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                  {filteredPosts.map((p, idx) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleSelectPost(p)}
-                      className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        p.id === activePost?.id
-                          ? 'bg-accent text-background border-accent shadow-xs'
-                          : 'bg-surface border-border text-muted hover:text-foreground'
-                      }`}
-                    >
-                      <span>Post #{idx + 1}</span>
-                      <span className="text-[10px] opacity-80">
-                        {p.status === 'approved' ? '✓' : ''}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* TWO-COLUMN REVIEW WORKSPACE (Left: LinkedIn Preview; Right: Compact Review Panel) */}
               <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
@@ -2020,6 +2447,7 @@ export function PostsClientInner({
               </div>
             </>
           )}
+          </div>
         </div>
       </div>
     </div>
