@@ -356,12 +356,20 @@ export const runsTable = pgTable('runs', {
     .default({}),
   mediaConfig: jsonb('media_config').$type<Record<string, any>>().default({}),
   timings: jsonb('timings').$type<Record<string, number>>().default({}),
+  // Summed from run_steps by refreshRunTotals; see src/lib/ai/usage.ts.
   tokenCounts: jsonb('token_counts')
     .$type<{
+      calls?: number
       inputTokens?: number
+      noCacheInputTokens?: number
       outputTokens?: number
+      reasoningTokens?: number
       totalTokens?: number
       cacheReadTokens?: number
+      cacheWriteTokens?: number
+      costUsd?: number
+      billedCalls?: number
+      estimatedCalls?: number
     }>()
     .default({}),
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),

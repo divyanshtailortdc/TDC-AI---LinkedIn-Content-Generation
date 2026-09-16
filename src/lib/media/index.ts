@@ -3,6 +3,12 @@ import { generateImage } from 'ai'
 import { env } from '~/env'
 import { gatewayClient } from '~/lib/ai'
 import {
+  addUsage,
+  EMPTY_USAGE,
+  readImageCost,
+  type CallUsage
+} from '~/lib/ai/usage'
+import {
   deriveMediaBrief,
   guardMediaBrief,
   type BriefGuardResult,
@@ -46,6 +52,10 @@ export interface MediaPlanResult {
   issues?: string[]
   /** Set when no image could be produced, so the run step can say why. */
   error?: string
+  /** Model calls behind this plan: the brief, its retry, and every image attempt. */
+  usage?: CallUsage
+  /** Image attempts made, including ones discarded for returning the wrong size. */
+  imageAttempts?: number
 }
 
 interface CuratedStockCategory {
@@ -494,15 +504,22 @@ export async function generateAIImage(
   const target = sizeForAspectRatio(req.aspectRatio)
   const size = `${target.width}x${target.height}` as const
 
+  // Every attempt is billed, including images discarded below for the wrong size.
+  let usage: CallUsage = EMPTY_USAGE
+  let imageAttempts = 0
+
   if (gatewayClient && env.AI_GATEWAY_API_KEY) {
     for (const modelId of TEXT_TO_IMAGE_MODELS) {
       try {
+        imageAttempts++
         const result = await generateImage({
           model: gatewayClient.imageModel(modelId),
           prompt,
           size,
           seed
         })
+
+        usage = addUsage(usage, readImageCost(result))
 
         const first = result.images?.[0]
         if (!first?.base64) continue
@@ -527,7 +544,9 @@ export async function generateAIImage(
           // The caller supplies alt text written from the brief, which
           // describes the actual composition far better than the query does.
           altText: `Illustration for: ${query}`,
-          promptOrQuery: prompt
+          promptOrQuery: prompt,
+          usage,
+          imageAttempts
         }
       } catch (err: any) {
         console.warn(
@@ -548,7 +567,9 @@ export async function generateAIImage(
   return {
     ...stockResult,
     fallbackApplied: true,
-    promptOrQuery: prompt
+    promptOrQuery: prompt,
+    usage,
+    imageAttempts
   }
 }
 
@@ -751,13 +772,14 @@ export async function createMediaPlan(
     accountName: req.accountName
   })
 
-  if (!derived) {
+  if (!derived.derived || !derived.guard) {
     // Without a brief an image would be decoration at best; say so rather than
     // attaching something unrelated.
     return {
       mode: 'none',
       error:
-        'Could not derive a visual concept for this post. Check that an AI provider key is configured.'
+        'Could not derive a visual concept for this post. Check that an AI provider key is configured.',
+      usage: derived.usage
     }
   }
 
@@ -790,7 +812,8 @@ export async function createMediaPlan(
     relevanceScore: guard.relevanceScore,
     relevanceExplanation: guard.explanation,
     alignedConcepts: guard.alignedConcepts,
-    issues: guard.issues
+    issues: guard.issues,
+    usage: addUsage(derived.usage, result.usage)
   }
 }
 
@@ -859,7 +882,7 @@ export async function regenerateMediaPlan(
     styleGuidance: [req.styleGuidance, steer].filter(Boolean).join(' ')
   })
 
-  if (!derived) {
+  if (!derived.derived || !derived.guard) {
     return {
       mode: 'none',
       version,
@@ -868,7 +891,8 @@ export async function regenerateMediaPlan(
       rejectionReason: req.rejectionReason,
       providerRequestId,
       seed,
-      error: 'Could not derive a new visual concept.'
+      error: 'Could not derive a new visual concept.',
+      usage: derived.usage
     }
   }
 
@@ -913,6 +937,7 @@ export async function regenerateMediaPlan(
     relevanceScore: guard.relevanceScore,
     relevanceExplanation: guard.explanation,
     alignedConcepts: guard.alignedConcepts,
-    issues: guard.issues
+    issues: guard.issues,
+    usage: addUsage(derived.usage, imageResult.usage)
   }
 }

@@ -20,6 +20,7 @@ import {
   FileText
 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
+import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import { fetchRunStatus } from '../actions'
@@ -239,6 +240,14 @@ export function RunDetailClient({
           })}
         </div>
       </div>
+
+      <RunCostPanel
+        steps={steps}
+        draftCount={
+          steps.filter((s) => s.stage === 'drafting' && s.status === 'completed').length
+        }
+        legacyCostUsd={run.costUsd}
+      />
 
       {/* Embedded Idea Approval Gate if parked */}
       {ideas.length > 0 && (

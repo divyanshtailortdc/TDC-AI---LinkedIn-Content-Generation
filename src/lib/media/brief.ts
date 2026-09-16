@@ -1,6 +1,12 @@
-import { generateText, Output } from 'ai'
+import { generateText, NoObjectGeneratedError, Output } from 'ai'
 import { z } from 'zod'
 import { getLanguageModel } from '~/lib/ai'
+import {
+  addUsage,
+  EMPTY_USAGE,
+  readCallUsage,
+  type CallUsage
+} from '~/lib/ai/usage'
 
 
 /**
@@ -346,30 +352,48 @@ Requirements:
 ${input.styleGuidance ? `- House style to follow: ${input.styleGuidance}` : ''}`
 }
 
+export interface DeriveMediaBriefResult {
+  derived: DerivedMediaBrief | null
+  guard: BriefGuardResult | null
+  /** Every call made, including a failed one and the corrective retry. */
+  usage: CallUsage
+}
+
 /** Asks the model to design the visual, then runs the guard over its answer. */
 export async function deriveMediaBrief(
   input: DeriveMediaBriefInput
-): Promise<{ derived: DerivedMediaBrief; guard: BriefGuardResult } | null> {
+): Promise<DeriveMediaBriefResult> {
   const handle = getLanguageModel('media_brief')
-  if (!handle) return null
+  if (!handle) return { derived: null, guard: null, usage: EMPTY_USAGE }
+
+  let usage: CallUsage = EMPTY_USAGE
 
   const attempt = async (extraInstruction?: string) => {
-    const { output } = await generateText({
-      model: handle.model,
-      providerOptions: handle.providerOptions,
-      instructions:
-        'You are an art director for professional social content. You design one image per post, and the image always argues the post\'s specific point rather than decorating it.',
-      prompt: extraInstruction
-        ? `${buildPrompt(input)}\n\nYour previous attempt was rejected:\n${extraInstruction}\nProduce a different concept that resolves this.`
-        : buildPrompt(input),
-      output: Output.object({ schema: MediaBriefSchema })
-    })
-    return output
+    try {
+      const result = await generateText({
+        model: handle.model,
+        providerOptions: handle.providerOptions,
+        instructions:
+          'You are an art director for professional social content. You design one image per post, and the image always argues the post\'s specific point rather than decorating it.',
+        prompt: extraInstruction
+          ? `${buildPrompt(input)}\n\nYour previous attempt was rejected:\n${extraInstruction}\nProduce a different concept that resolves this.`
+          : buildPrompt(input),
+        output: Output.object({ schema: MediaBriefSchema })
+      })
+      usage = addUsage(usage, readCallUsage(result, handle.modelId))
+      return result.output
+    } catch (err) {
+      // The tokens were generated and billed before validation rejected them.
+      if (NoObjectGeneratedError.isInstance(err)) {
+        usage = addUsage(usage, readCallUsage({ usage: err.usage }, handle.modelId))
+      }
+      throw err
+    }
   }
 
   try {
     let output = await attempt()
-    if (!output) return null
+    if (!output) return { derived: null, guard: null, usage }
 
     let brief: MediaBrief = {
       postTopic: output.postTopic,
@@ -424,11 +448,12 @@ export async function deriveMediaBrief(
         imagePrompt: output.imagePrompt,
         altText: clamp(output.altText, 300)
       },
-      guard
+      guard,
+      usage
     }
   } catch (err) {
     console.warn('Media brief generation failed:', err)
-    return null
+    return { derived: null, guard: null, usage }
   }
 }
 

@@ -308,7 +308,9 @@ export async function generatePostMediaAction(
             relevanceExplanation: mediaPlan.relevanceExplanation,
             alignedConcepts: mediaPlan.alignedConcepts,
             textOverlay: mediaPlan.textOverlay,
-            mediaBrief: mediaPlan.mediaBrief
+            mediaBrief: mediaPlan.mediaBrief,
+            // Generated outside a run, so its spend is recorded here instead.
+            usage: mediaPlan.usage
           }
         })
         .returning()
@@ -464,7 +466,8 @@ export async function regeneratePostMediaAction(
             mediaBrief: mediaPlan.mediaBrief,
             issues: mediaPlan.issues,
             providerRequestId: mediaPlan.providerRequestId,
-            seed: mediaPlan.seed
+            seed: mediaPlan.seed,
+            usage: mediaPlan.usage
           }
         })
         .returning()

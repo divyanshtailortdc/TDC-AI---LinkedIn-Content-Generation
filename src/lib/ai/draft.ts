@@ -9,14 +9,16 @@ import {
   runsTable
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { generateText, Output } from 'ai'
+import { generateText, NoObjectGeneratedError, Output } from 'ai'
 import {
+  addUsage,
+  EMPTY_USAGE,
   EPHEMERAL_CACHE,
-  estimateCostUsd,
   getLanguageModel,
-  readUsage,
-  type StageUsage
+  readCallUsage,
+  type CallUsage
 } from '~/lib/ai'
+import { refreshRunTotals } from './run-accounting'
 import {
   collectBannedWords,
   loadGenerationContext,
@@ -106,13 +108,10 @@ export async function executeDraftingForIdea(
     throw new Error(message)
   }
 
-  const usageTotals: StageUsage = {
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    cacheReadTokens: 0
-  }
-  let costUsd = 0
+  // Kept apart so each lands on its own run step: the draft, the optional
+  // revision pass, and the media plan are separate spend.
+  let draftUsage: CallUsage = EMPTY_USAGE
+  let revisionUsage: CallUsage = EMPTY_USAGE
 
   const exemplars = renderExemplars(ctx)
   const guardrails = renderGuardrailsBlock(ctx)
@@ -182,57 +181,74 @@ Produce:
 7. selfScores — honest 1-10 ratings`
 
   async function callModel(
-    userContent: string
+    userContent: string,
+    record: (usage: CallUsage) => void
   ): Promise<DraftGenerationResult | null> {
-    const result = await generateText({
-      model: handle!.model,
-      providerOptions: handle!.providerOptions,
-      // The stable block goes through `instructions` so it renders ahead of the
-      // messages, and carries cacheControl so later drafts in the run read it
-      // from cache instead of paying for it again.
-      instructions: [
-        {
-          role: 'system',
-          content: stableSystem,
-          providerOptions: EPHEMERAL_CACHE
-        }
-      ],
-      messages: [{ role: 'user', content: userContent }],
-      output: Output.object({ schema: DraftGenerationSchema })
-    })
+    try {
+      const result = await generateText({
+        model: handle!.model,
+        providerOptions: handle!.providerOptions,
+        // The stable block goes through `instructions` so it renders ahead of the
+        // messages, and carries cacheControl so later drafts in the run read it
+        // from cache instead of paying for it again.
+        instructions: [
+          {
+            role: 'system',
+            content: stableSystem,
+            providerOptions: EPHEMERAL_CACHE
+          }
+        ],
+        messages: [{ role: 'user', content: userContent }],
+        output: Output.object({ schema: DraftGenerationSchema })
+      })
 
-    const usage = readUsage(result.usage)
-    usageTotals.inputTokens += usage.inputTokens
-    usageTotals.outputTokens += usage.outputTokens
-    usageTotals.totalTokens += usage.totalTokens
-    usageTotals.cacheReadTokens += usage.cacheReadTokens
-    costUsd += estimateCostUsd(handle!.modelId, usage)
+      record(readCallUsage(result, handle!.modelId))
+      return result.output ?? null
+    } catch (err) {
+      // Tokens generated before a schema rejection were still billed.
+      if (NoObjectGeneratedError.isInstance(err)) {
+        record(readCallUsage({ usage: err.usage }, handle!.modelId))
+      }
+      throw err
+    }
+  }
 
-    return result.output ?? null
+  const recordDraft = (u: CallUsage) => {
+    draftUsage = addUsage(draftUsage, u)
+  }
+  const recordRevision = (u: CallUsage) => {
+    revisionUsage = addUsage(revisionUsage, u)
+  }
+
+  /** A failed draft still spent tokens; record them so run totals stay true. */
+  async function failDraftStep(message: string) {
+    if (!draftStep || !runId) return
+    await db
+      .update(runStepsTable)
+      .set({
+        status: 'failed',
+        completedAt: new Date(),
+        error: message,
+        tokens: draftUsage.totalTokens,
+        costUsd: draftUsage.costUsd.toFixed(4),
+        responseJson: { model: handle!.modelId, usage: draftUsage }
+      })
+      .where(eq(runStepsTable.id, draftStep.id))
+    await refreshRunTotals(runId)
   }
 
   let draft: DraftGenerationResult | null = null
   try {
-    draft = await callModel(ideaBrief)
+    draft = await callModel(ideaBrief, recordDraft)
   } catch (err: any) {
     const message = err?.message || 'Draft generation failed'
-    if (draftStep) {
-      await db
-        .update(runStepsTable)
-        .set({ status: 'failed', completedAt: new Date(), error: message })
-        .where(eq(runStepsTable.id, draftStep.id))
-    }
+    await failDraftStep(message)
     throw new Error(message)
   }
 
   if (!draft?.hook || !draft?.body) {
     const message = 'The model returned an incomplete draft.'
-    if (draftStep) {
-      await db
-        .update(runStepsTable)
-        .set({ status: 'failed', completedAt: new Date(), error: message })
-        .where(eq(runStepsTable.id, draftStep.id))
-    }
+    await failDraftStep(message)
     throw new Error(message)
   }
 
@@ -243,11 +259,11 @@ Produce:
         status: 'completed',
         completedAt: new Date(),
         durationMs: Date.now() - draftStart,
-        tokens: usageTotals.totalTokens,
-        costUsd: costUsd.toFixed(4),
+        tokens: draftUsage.totalTokens,
+        costUsd: draftUsage.costUsd.toFixed(4),
         responseJson: {
           model: handle.modelId,
-          cacheReadTokens: usageTotals.cacheReadTokens
+          usage: draftUsage
         }
       })
       .where(eq(runStepsTable.id, draftStep.id))
@@ -293,7 +309,8 @@ ${draft.body}
 CTA: ${draft.cta}
 
 FAILED CHECKS
-${blocking.map(f => `- ${f.message}`).join('\n')}`
+${blocking.map(f => `- ${f.message}`).join('\n')}`,
+        recordRevision
       )
       if (revision?.hook && revision?.body) {
         const revisedFindings = runLinter(lintOptions(revision))
@@ -323,10 +340,15 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`
       requestSummary: revised
         ? 'Checked platform rules, then revised once to clear blocking findings'
         : 'Checked platform rules, character limits, guardrails and citations',
+      tokens: revisionUsage.totalTokens,
+      costUsd: revisionUsage.costUsd.toFixed(4),
       responseJson: {
         revised,
+        // The revision pass is a full second draft call; its cost belongs here.
+        revisionAttempted: revisionUsage.calls > 0,
         failed: lintFindings.filter(f => !f.passed).map(f => f.rule),
-        errors: lintFindings.filter(f => f.severity === 'error' && !f.passed).length
+        errors: lintFindings.filter(f => f.severity === 'error' && !f.passed).length,
+        usage: revisionUsage
       }
     })
   }
@@ -368,11 +390,15 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`
       durationMs: Date.now() - mediaStart,
       requestSummary: `Media plan (${mediaPlan.mode})`,
       error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced',
+      tokens: mediaPlan.usage?.totalTokens ?? 0,
+      costUsd: (mediaPlan.usage?.costUsd ?? 0).toFixed(4),
       responseJson: {
         mode: mediaPlan.mode,
         fallbackApplied: mediaPlan.fallbackApplied || false,
         relevanceScore: mediaPlan.relevanceScore,
-        concept: mediaPlan.mediaBrief?.primaryConcept
+        concept: mediaPlan.mediaBrief?.primaryConcept,
+        imageAttempts: mediaPlan.imageAttempts ?? 0,
+        usage: mediaPlan.usage ?? EMPTY_USAGE
       }
     })
   }
@@ -444,12 +470,6 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`
 
   // ----------------------------------------------------- run bookkeeping
   if (runId) {
-    const run = await db.query.runsTable.findFirst({
-      where: eq(runsTable.id, runId)
-    })
-    const previous = (run?.tokenCounts || {}) as Partial<StageUsage>
-    const previousCost = Number(run?.costUsd || 0)
-
     const runIdeas = await db.query.ideasTable.findMany({
       where: eq(ideasTable.runId, runId)
     })
@@ -461,17 +481,11 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`
       .set({
         status: pending ? 'drafting' : 'completed',
         currentStep: pending ? 2 : 3,
-        totalSteps: 3,
-        tokenCounts: {
-          inputTokens: (previous.inputTokens || 0) + usageTotals.inputTokens,
-          outputTokens: (previous.outputTokens || 0) + usageTotals.outputTokens,
-          totalTokens: (previous.totalTokens || 0) + usageTotals.totalTokens,
-          cacheReadTokens:
-            (previous.cacheReadTokens || 0) + usageTotals.cacheReadTokens
-        },
-        costUsd: (previousCost + costUsd).toFixed(4)
+        totalSteps: 3
       })
       .where(eq(runsTable.id, runId))
+
+    await refreshRunTotals(runId)
   }
 
   return {

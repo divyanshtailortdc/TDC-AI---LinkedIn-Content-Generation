@@ -3,6 +3,7 @@ import { accountsTable, runsTable } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { AccountHeader } from '@/components/account-header'
+import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from '../../../runs/runs-client'
 
 export const dynamic = 'force-dynamic'
@@ -32,6 +33,7 @@ export default async function AccountRunsPage({ params }: AccountRunsPageProps) 
       currentStep: runsTable.currentStep,
       totalSteps: runsTable.totalSteps,
       costUsd: runsTable.costUsd,
+      tokenCounts: runsTable.tokenCounts,
       model: runsTable.model,
       error: runsTable.error,
       createdAt: runsTable.createdAt,
@@ -41,6 +43,8 @@ export default async function AccountRunsPage({ params }: AccountRunsPageProps) 
     .leftJoin(accountsTable, eq(runsTable.accountId, accountsTable.id))
     .where(eq(runsTable.accountId, id))
     .orderBy(desc(runsTable.createdAt))
+
+  const spend = await getRunSpendSummary(id)
 
   const formattedRuns = accountRuns.map((r) => ({
     ...r,
@@ -52,7 +56,12 @@ export default async function AccountRunsPage({ params }: AccountRunsPageProps) 
       <AccountHeader account={account} />
       <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
         <div className="max-w-7xl mx-auto space-y-6">
-          <RunsClient initialRuns={formattedRuns} activeAccount={{ id: account.id, name: account.name }} hideHeader={true} />
+          <RunsClient
+            initialRuns={formattedRuns}
+            activeAccount={{ id: account.id, name: account.name }}
+            hideHeader={true}
+            spend={spend}
+          />
         </div>
       </div>
     </div>

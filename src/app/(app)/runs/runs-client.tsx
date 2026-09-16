@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { triggerNewRun } from './actions'
 import { PageHeader } from '@/components/page-header'
+import type { RunSpendSummary } from '@/lib/run-spend'
 
 interface RunSummary {
   id: string
@@ -27,6 +28,13 @@ interface RunSummary {
   currentStep: number
   totalSteps: number
   costUsd: string | null
+  tokenCounts?: {
+    outputTokens?: number
+    reasoningTokens?: number
+    totalTokens?: number
+    cacheReadTokens?: number
+    inputTokens?: number
+  } | null
   model: string | null
   error: string | null
   createdAt: Date | string
@@ -35,11 +43,14 @@ interface RunSummary {
 export function RunsClient({
   initialRuns,
   activeAccount,
-  hideHeader
+  hideHeader,
+  spend
 }: {
   initialRuns: RunSummary[]
   activeAccount: { id: string; name: string } | null
   hideHeader?: boolean
+  /** Spend windows computed server-side; see getRunSpendSummary. */
+  spend?: RunSpendSummary
 }) {
   const router = useRouter()
   const [runs, setRuns] = useState<RunSummary[]>(initialRuns)
@@ -60,8 +71,58 @@ export function RunsClient({
     }
   }
 
+  // Spend over time is what shows whether a cost change actually worked.
+  const formatUsd = (value: number) =>
+    value === 0 ? '$0.00' : value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
+  const formatTokens = (value: number) =>
+    value >= 1_000_000
+      ? `${(value / 1_000_000).toFixed(2)}M`
+      : value >= 1_000
+        ? `${(value / 1_000).toFixed(1)}K`
+        : String(value)
+
   const content = (
     <div className="max-w-7xl mx-auto space-y-8">
+      {spend && runs.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            {
+              label: 'Last 7 days',
+              value: formatUsd(spend.week.costUsd),
+              hint: `${spend.week.runs} run${spend.week.runs === 1 ? '' : 's'} · ${formatTokens(spend.week.outputTokens)} output tokens`
+            },
+            {
+              label: 'Last 30 days',
+              value: formatUsd(spend.month.costUsd),
+              hint: `${spend.month.runs} run${spend.month.runs === 1 ? '' : 's'} · ${formatTokens(spend.month.outputTokens)} output tokens`
+            },
+            {
+              label: 'Average per run',
+              value: formatUsd(spend.averageRunCostUsd),
+              hint: `across ${spend.pricedRuns} priced run${spend.pricedRuns === 1 ? '' : 's'}`
+            },
+            {
+              label: 'Projected monthly',
+              // Last week's pace, so it reacts to a cost change within days.
+              value: formatUsd((spend.week.costUsd / 7) * 30),
+              hint: 'at the last 7 days\' pace'
+            }
+          ].map(stat => (
+            <div
+              key={stat.label}
+              className="rounded-xl border border-border bg-surface p-4 shadow-xs"
+            >
+              <p className="text-[10px] font-semibold tracking-wider text-muted uppercase">
+                {stat.label}
+              </p>
+              <p className="mt-1 text-xl font-bold text-foreground tabular-nums">
+                {stat.value}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted">{stat.hint}</p>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Generate Now Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
@@ -171,6 +232,11 @@ export function RunsClient({
                     <span className="font-mono text-foreground block">
                       ${Number(run.costUsd || 0).toFixed(3)}
                     </span>
+                    {(run.tokenCounts?.totalTokens || 0) > 0 && (
+                      <span className="block text-[11px] text-muted tabular-nums">
+                        {formatTokens(run.tokenCounts?.totalTokens || 0)} tokens
+                      </span>
+                    )}
                     <span className="text-[11px] text-muted">
                       Stage {run.currentStep}/{run.totalSteps}
                     </span>

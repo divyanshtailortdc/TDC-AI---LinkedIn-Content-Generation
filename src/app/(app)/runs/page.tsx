@@ -1,6 +1,7 @@
 import { db } from '@/db'
 import { accountsTable, runsTable } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
+import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from './runs-client'
 import { getActiveAccount } from '@/lib/active-account'
 import { NoActiveAccount } from '@/components/no-active-account'
@@ -24,6 +25,7 @@ export default async function RunsPage() {
       currentStep: runsTable.currentStep,
       totalSteps: runsTable.totalSteps,
       costUsd: runsTable.costUsd,
+      tokenCounts: runsTable.tokenCounts,
       model: runsTable.model,
       error: runsTable.error,
       createdAt: runsTable.createdAt,
@@ -34,6 +36,8 @@ export default async function RunsPage() {
     .where(eq(runsTable.accountId, activeAccount.id))
     .orderBy(desc(runsTable.createdAt))
 
+  const spend = await getRunSpendSummary(activeAccount.id)
+
   const formattedRuns = runsRaw.map(r => ({
     ...r,
     accountName: r.accountName || 'Unknown Identity'
@@ -43,6 +47,11 @@ export default async function RunsPage() {
   // component's local state (which only seeds from initialRuns once) resets
   // and reflects the newly active account's data instead of stale state.
   return (
-    <RunsClient key={activeAccount.id} initialRuns={formattedRuns} activeAccount={activeAccount} />
+    <RunsClient
+      key={activeAccount.id}
+      initialRuns={formattedRuns}
+      activeAccount={activeAccount}
+      spend={spend}
+    />
   )
 }

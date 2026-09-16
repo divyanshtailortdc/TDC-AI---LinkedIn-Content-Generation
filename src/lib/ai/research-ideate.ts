@@ -9,12 +9,8 @@ import {
 import { desc, eq } from 'drizzle-orm'
 import { generateText, Output } from 'ai'
 import { env } from '~/env'
-import {
-  estimateCostUsd,
-  getLanguageModel,
-  readUsage,
-  type StageUsage
-} from '~/lib/ai'
+import { getLanguageModel, readCallUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai'
+import { refreshRunTotals } from './run-accounting'
 import {
   loadGenerationContext,
   pickWeightedPillars,
@@ -26,7 +22,8 @@ import {
   type GenerationContext
 } from './context'
 import {
-  IdeasGenerationSchema,
+  IdeaGenerationBatchSchema,
+  resolveGeneratedIdea,
   PERSPECTIVE_ANGLE_GUIDE,
   type GeneratedIdeaItem
 } from './schemas'
@@ -248,6 +245,12 @@ function buildGroundingCorpus(
   }
 }
 
+/**
+ * How many evidence items the ideation prompt shows. Citations are resolved
+ * against exactly this slice, so an out-of-range label gets no source.
+ */
+const PROMPT_EVIDENCE_LIMIT = 30
+
 function renderCorpusForPrompt(
   corpus: GroundingCorpus,
   limit: number
@@ -286,13 +289,7 @@ export async function executeResearchAndIdeate(
     ctx.prefs.research = { ...ctx.prefs.research, ...snapshot }
   }
 
-  const usageTotals: StageUsage = {
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    cacheReadTokens: 0
-  }
-  let costUsd = 0
+  let ideationUsage: CallUsage = EMPTY_USAGE
 
   // ---------------------------------------------------------------- context
   const contextStart = Date.now()
@@ -496,7 +493,7 @@ RULES THAT OVERRIDE EVERYTHING ELSE
 5. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".`
 
   const userPrompt = `EVIDENCE AVAILABLE THIS RUN
-${renderCorpusForPrompt(corpus, 30)}
+${renderCorpusForPrompt(corpus, PROMPT_EVIDENCE_LIMIT)}
 
 ${
   recentHooks
@@ -523,7 +520,8 @@ For each idea provide:
 - hookConcept: the idea for the first ${ctx.prefs.constraints.hook_max_chars} characters, before the fold. A concept, not final copy.
 - coreArgument: the "so what", in full
 - audienceTakeaway: what the reader does or believes differently afterwards
-- supportingEvidence: only claims traceable to the evidence above, each with its sourceUrl and sourceTitle. Leave empty rather than inventing.
+- supportingEvidence: claims traceable to the evidence above. Cite each by its label (evidenceRef "E3") with the claim as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
+- mediaBrief: one sentence of visual direction for the image
 - noveltyNote: why this is not the generic take on the subject
 - risks: anything that could make this land badly
 - estimatedStrength: your honest 1-100 assessment`
@@ -537,17 +535,15 @@ For each idea provide:
       providerOptions: handle.providerOptions,
       instructions: systemPrompt,
       prompt: userPrompt,
-      output: Output.object({ schema: IdeasGenerationSchema })
+      output: Output.object({ schema: IdeaGenerationBatchSchema })
     })
 
-    const usage = readUsage(result.usage)
-    usageTotals.inputTokens += usage.inputTokens
-    usageTotals.outputTokens += usage.outputTokens
-    usageTotals.totalTokens += usage.totalTokens
-    usageTotals.cacheReadTokens += usage.cacheReadTokens
-    costUsd += estimateCostUsd(handle.modelId, usage)
+    ideationUsage = readCallUsage(result, handle.modelId)
 
-    candidates = result.output?.ideas || []
+    const shownEvidence = corpus.verifiedClaims.slice(0, PROMPT_EVIDENCE_LIMIT)
+    candidates = (result.output?.ideas || []).map(generated =>
+      resolveGeneratedIdea(generated, shownEvidence)
+    )
   } catch (err: any) {
     modelError = err?.message || 'Idea generation failed'
     console.error('Idea generation failed:', err)
@@ -640,8 +636,8 @@ For each idea provide:
         status: selected.length > 0 ? 'completed' : 'failed',
         completedAt: new Date(),
         durationMs: Date.now() - ideationStart,
-        tokens: usageTotals.totalTokens,
-        costUsd: costUsd.toFixed(4),
+        tokens: ideationUsage.totalTokens,
+        costUsd: ideationUsage.costUsd.toFixed(4),
         error: selected.length === 0 ? modelError || 'No idea survived grounding and novelty checks' : null,
         responseJson: {
           generated: candidates.length,
@@ -650,7 +646,8 @@ For each idea provide:
           discarded,
           perspectiveAngles: selected.map(i => i.perspectiveAngle),
           averageGroundingScore: averageGrounding,
-          cacheReadTokens: usageTotals.cacheReadTokens
+          model: handle.modelId,
+          usage: ideationUsage
         }
       })
       .where(eq(runStepsTable.id, ideationStep.id))
@@ -662,14 +659,10 @@ For each idea provide:
       'No idea survived grounding and novelty checks. Add knowledge base sources or relax the research policy, then run again.'
     await db
       .update(runsTable)
-      .set({
-        status: 'failed',
-        error: message,
-        tokenCounts: usageTotals,
-        costUsd: costUsd.toFixed(4),
-        model: handle.modelId
-      })
+      .set({ status: 'failed', error: message, model: handle.modelId })
       .where(eq(runsTable.id, runId))
+    // A failed run still spent money; keep the totals honest.
+    await refreshRunTotals(runId)
     throw new Error(message)
   }
 
@@ -679,12 +672,12 @@ For each idea provide:
       status: 'awaiting_idea_approval',
       currentStep: 2,
       totalSteps: 3,
-      tokenCounts: usageTotals,
-      costUsd: costUsd.toFixed(4),
       model: handle.modelId,
       error: null
     })
     .where(eq(runsTable.id, runId))
+
+  await refreshRunTotals(runId)
 
   return {
     ideasCount: selected.length,

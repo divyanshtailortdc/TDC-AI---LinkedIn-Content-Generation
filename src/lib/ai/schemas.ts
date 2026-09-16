@@ -331,6 +331,123 @@ export const IdeasGenerationSchema = z.object({
 
 export type IdeasGenerationResult = z.infer<typeof IdeasGenerationSchema>
 
+/**
+ * What the model is actually asked to write during ideation.
+ *
+ * Narrower than IdeaItemSchema on purpose. Output tokens are most of the cost
+ * of a run, and the full schema had the model write fields the pipeline then
+ * threw away: grounding and originality scores, unsupported claims and source
+ * IDs are all recomputed by the validator, and the media mode is replaced by
+ * the account's policy. Evidence is cited by its [E#] label instead of the
+ * model retyping each URL, title and quote — cheaper, and it removes the chance
+ * of a mistyped link. `resolveGeneratedIdea` maps this back onto the full type.
+ */
+export const IdeaGenerationItemSchema = z.object({
+  title: IdeaItemSchema.shape.title,
+  thesis: IdeaItemSchema.shape.thesis,
+  perspectiveAngle: IdeaItemSchema.shape.perspectiveAngle,
+  angle: IdeaItemSchema.shape.angle,
+  pillar: IdeaItemSchema.shape.pillar,
+  format: IdeaItemSchema.shape.format,
+  whyNow: IdeaItemSchema.shape.whyNow,
+  hookConcept: IdeaItemSchema.shape.hookConcept,
+  coreArgument: IdeaItemSchema.shape.coreArgument,
+  audienceTakeaway: IdeaItemSchema.shape.audienceTakeaway,
+  supportingEvidence: z
+    .array(
+      z.object({
+        evidenceRef: z
+          .string()
+          .describe('The label of the evidence item this claim comes from, e.g. "E3".'),
+        claim: z
+          .string()
+          .describe('The specific claim this idea relies on, as it applies here.')
+      })
+    )
+    .default([])
+    .describe('Claims cited by evidence label. Leave empty rather than inventing.'),
+  mediaBrief: z
+    .string()
+    .optional()
+    .describe('One sentence of visual direction for the accompanying image.'),
+  noveltyNote: IdeaItemSchema.shape.noveltyNote,
+  estimatedStrength: IdeaItemSchema.shape.estimatedStrength,
+  risks: IdeaItemSchema.shape.risks
+})
+
+export type IdeaGenerationItem = z.infer<typeof IdeaGenerationItemSchema>
+
+export const IdeaGenerationBatchSchema = z.object({
+  ideas: z
+    .array(IdeaGenerationItemSchema)
+    .min(1)
+    .describe('List of generated post ideas')
+})
+
+/** Evidence as the validator expects it, resolved from the run's corpus. */
+export interface CorpusEvidenceSource {
+  claim: string
+  quote?: string
+  sourceUrl?: string
+  sourceTitle?: string
+  sourceId?: string
+}
+
+/** Parses "E3", "e3" or "[E3]" into a zero-based corpus index. */
+export function parseEvidenceRef(ref: string | undefined): number | null {
+  const match = /E\s*(\d+)/i.exec(ref || '')
+  if (!match) return null
+  const index = Number(match[1]) - 1
+  return index >= 0 ? index : null
+}
+
+/**
+ * Expands a generated idea into the full item. Source details come from the
+ * corpus entry the model cited, never from the model's own typing. A citation
+ * that points outside the corpus keeps its claim but gets no source, so the
+ * validator judges it on the text alone.
+ */
+export function resolveGeneratedIdea(
+  generated: IdeaGenerationItem,
+  corpus: CorpusEvidenceSource[]
+): GeneratedIdeaItem {
+  return {
+    title: generated.title,
+    thesis: generated.thesis,
+    perspectiveAngle: generated.perspectiveAngle,
+    angle: generated.angle,
+    pillar: generated.pillar,
+    format: generated.format,
+    whyNow: generated.whyNow,
+    hookConcept: generated.hookConcept,
+    coreArgument: generated.coreArgument,
+    audienceTakeaway: generated.audienceTakeaway,
+    supportingEvidence: (generated.supportingEvidence || []).map(ev => {
+      const index = parseEvidenceRef(ev.evidenceRef)
+      const source = index === null ? undefined : corpus[index]
+      return {
+        claim: ev.claim,
+        factType: 'verified' as const,
+        sourceId: source?.sourceId,
+        sourceUrl: source?.sourceUrl,
+        sourceTitle: source?.sourceTitle,
+        quote: source?.quote,
+        // Confidence is decided by the validator's grounding check.
+        confidence: 0.9
+      }
+    }),
+    suggestedMedia: { mode: 'none', brief: generated.mediaBrief },
+    noveltyNote: generated.noveltyNote,
+    estimatedStrength: generated.estimatedStrength,
+    // Recomputed by validateIdea; placeholders until then.
+    groundingScore: 0,
+    originalityScore: 0,
+    unsupportedClaims: [],
+    sourceIds: [],
+    risks: generated.risks || []
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Post Drafting Schema (W9 / Stage 3)
 // ---------------------------------------------------------------------------

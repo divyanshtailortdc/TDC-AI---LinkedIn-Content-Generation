@@ -127,48 +127,13 @@ export const EPHEMERAL_CACHE = {
   anthropic: { cacheControl: { type: 'ephemeral' } }
 } as const
 
-export interface StageUsage {
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  cacheReadTokens: number
-}
-
-/**
- * Normalizes AI SDK usage for run accounting. `cacheReadTokens` staying at zero
- * across a multi-post run means the cached system prefix is being invalidated
- * and every draft is paying full price.
- */
-export function readUsage(usage: unknown): StageUsage {
-  const u = usage as
-    | {
-        inputTokens?: number
-        outputTokens?: number
-        totalTokens?: number
-        inputTokenDetails?: { cacheReadTokens?: number }
-      }
-    | undefined
-
-  return {
-    inputTokens: u?.inputTokens ?? 0,
-    outputTokens: u?.outputTokens ?? 0,
-    totalTokens: u?.totalTokens ?? 0,
-    cacheReadTokens: u?.inputTokenDetails?.cacheReadTokens ?? 0
-  }
-}
-
-/** Published per-MTok rates for the models this pipeline uses. */
-const MODEL_RATES: Record<string, { input: number; output: number }> = {
-  'claude-opus-5': { input: 5, output: 25 },
-  'claude-sonnet-5': { input: 2, output: 10 },
-  'claude-haiku-4-5': { input: 1, output: 5 }
-}
-
-export function estimateCostUsd(modelId: string, usage: StageUsage): number {
-  const key = modelId.replace(/^anthropic\//, '')
-  const rate = MODEL_RATES[key] || MODEL_RATES['claude-opus-5']!
-  return (
-    (usage.inputTokens / 1_000_000) * rate.input +
-    (usage.outputTokens / 1_000_000) * rate.output
-  )
-}
+export {
+  addUsage,
+  cacheHitRate,
+  EMPTY_USAGE,
+  estimateCostUsd,
+  readCallUsage,
+  readGatewayCost,
+  readImageCost,
+  type CallUsage
+} from './ai/usage'
