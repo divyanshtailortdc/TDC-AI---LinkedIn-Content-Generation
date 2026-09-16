@@ -12,7 +12,6 @@ import {
 import { getCapabilities } from '@/lib/capabilities'
 import {
   AlertCircle,
-  Archive,
   BookOpen,
   CheckCircle2,
   Mic,
@@ -47,8 +46,6 @@ export default async function DashboardPage() {
   const goalAccountIds = new Set(goals.map(g => g.accountId))
   const prefAccountIds = new Set(prefs.map(p => p.accountId))
 
-  const activeAccounts = accounts.filter(a => a.isActive !== false)
-  const inactiveAccounts = accounts.filter(a => a.isActive === false)
   const hasAnyAccounts = accounts.length > 0
 
   return (
@@ -120,8 +117,7 @@ export default async function DashboardPage() {
             <EmptyState />
           ) : (
             <AccountList
-              activeAccounts={activeAccounts}
-              inactiveAccounts={inactiveAccounts}
+              accounts={accounts}
               voiceAccountIds={voiceAccountIds}
               knowledgeAccountIds={knowledgeAccountIds}
               goalAccountIds={goalAccountIds}
@@ -169,111 +165,40 @@ const setupSteps = [
 ]
 
 function AccountList({
-  activeAccounts,
-  inactiveAccounts,
+  accounts,
   voiceAccountIds,
   knowledgeAccountIds,
   goalAccountIds,
   prefAccountIds
 }: {
-  activeAccounts: Account[]
-  inactiveAccounts: Account[]
+  accounts: Account[]
   voiceAccountIds: Set<string>
   knowledgeAccountIds: Set<string>
   goalAccountIds: Set<string>
   prefAccountIds: Set<string>
 }) {
-  return (
-    <div className="space-y-8">
-      {/* Active Identities */}
-      <div>
-        <h2 className="text-foreground mb-4 text-sm font-semibold">
-          Identities ({activeAccounts.length})
-        </h2>
-        {activeAccounts.length === 0 ? (
-          <div className="border-border text-muted rounded-xl border border-dashed p-6 text-center text-sm">
-            No active identities. You can reactivate an existing one below or
-            add a new identity.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {activeAccounts.map(account => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                hasVoice={voiceAccountIds.has(account.id)}
-                hasKnowledge={knowledgeAccountIds.has(account.id)}
-                hasGoals={goalAccountIds.has(account.id)}
-                hasPreferences={prefAccountIds.has(account.id)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Inactive Identities Section */}
-      {inactiveAccounts.length > 0 && (
-        <div className="border-border bg-surface/50 rounded-2xl border p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Archive className="text-muted h-4 w-4" />
-              <h3 className="text-foreground text-sm font-semibold">
-                Deactivated Identities ({inactiveAccounts.length})
-              </h3>
-            </div>
-            <span className="text-muted text-xs">
-              Data safely preserved • Can be reactivated anytime
-            </span>
-          </div>
-          <div className="space-y-3">
-            {inactiveAccounts.map(account => (
-              <InactiveAccountCard key={account.id} account={account} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+  // Active first, so deactivated ones settle at the bottom without being hidden.
+  const ordered = [...accounts].sort(
+    (a, b) => Number(b.isActive !== false) - Number(a.isActive !== false)
   )
-}
-
-function InactiveAccountCard({ account }: { account: Account }) {
-  const initials = account.name
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
 
   return (
-    <div className="border-border bg-surface hover:border-accent/30 flex items-center justify-between rounded-xl border px-4 py-3 transition-colors">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="bg-surface-hover text-muted flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
-          {initials}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-foreground truncate text-sm font-semibold">
-              {account.name}
-            </span>
-            <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-              Inactive
-            </span>
-            <span className="bg-surface-hover text-muted shrink-0 rounded-full px-2 py-0.5 text-[10px] capitalize">
-              {account.accountType}
-            </span>
-          </div>
-          {account.headline && (
-            <p className="text-muted mt-0.5 truncate text-xs">
-              {account.headline}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <ReactivateIdentityButton
-          accountId={account.id}
-          accountName={account.name}
-        />
+    <div>
+      <h2 className="text-foreground mb-4 text-sm font-semibold">
+        Identities ({accounts.length})
+      </h2>
+      <div className="space-y-4">
+        {ordered.map(account => (
+          <AccountCard
+            key={account.id}
+            account={account}
+            isActive={account.isActive !== false}
+            hasVoice={voiceAccountIds.has(account.id)}
+            hasKnowledge={knowledgeAccountIds.has(account.id)}
+            hasGoals={goalAccountIds.has(account.id)}
+            hasPreferences={prefAccountIds.has(account.id)}
+          />
+        ))}
       </div>
     </div>
   )
@@ -281,12 +206,14 @@ function InactiveAccountCard({ account }: { account: Account }) {
 
 function AccountCard({
   account,
+  isActive,
   hasVoice,
   hasKnowledge,
   hasGoals,
   hasPreferences
 }: {
   account: Account
+  isActive: boolean
   hasVoice: boolean
   hasKnowledge: boolean
   hasGoals: boolean
@@ -334,23 +261,46 @@ function AccountCard({
   }
 
   return (
-    <div className="border-border bg-surface hover:border-accent/40 rounded-2xl border p-6 transition-all shadow-xs hover:shadow-sm">
+    <div
+      className={`rounded-2xl border p-6 shadow-xs transition-all hover:shadow-sm ${
+        isActive
+          ? 'border-border bg-surface hover:border-accent/40'
+          : 'border-border/70 border-dashed bg-surface-hover/40 hover:border-amber-500/40'
+      }`}
+    >
       {/* Account header */}
       <div className="mb-5 flex items-start gap-4">
-        <div className="bg-accent text-background flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+            isActive ? 'bg-accent text-background' : 'bg-surface-hover text-muted'
+          }`}
+        >
           {initials}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Link
-              href={`/accounts/${account.id}`}
-              className="text-foreground hover:text-accent truncate font-semibold transition-colors"
-            >
-              {account.name}
-            </Link>
-            <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-              Active
-            </span>
+            {isActive ? (
+              <Link
+                href={`/accounts/${account.id}`}
+                className="text-foreground hover:text-accent truncate font-semibold transition-colors"
+              >
+                {account.name}
+              </Link>
+            ) : (
+              <span className="text-foreground truncate font-semibold">
+                {account.name}
+              </span>
+            )}
+            {isActive ? (
+              <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                Active
+              </span>
+            ) : (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Deactivated
+              </span>
+            )}
             <span className="bg-surface-hover text-muted shrink-0 rounded-full px-2 py-0.5 text-xs capitalize">
               {account.accountType}
             </span>
@@ -360,17 +310,36 @@ function AccountCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href={`/accounts/${account.id}`}
-            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
-          >
-            Edit
-          </Link>
+          {isActive ? (
+            <Link
+              href={`/accounts/${account.id}`}
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
+            >
+              Edit
+            </Link>
+          ) : (
+            <span
+              aria-disabled="true"
+              title="Activate this identity to edit it"
+              className="text-muted flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold opacity-50 select-none"
+            >
+              Edit
+            </span>
+          )}
           <span className="bg-border h-3 w-px" />
-          <DeleteIdentityDialog
-            accountId={account.id}
-            accountName={account.name}
-          />
+          {isActive ? (
+            <DeleteIdentityDialog
+              accountId={account.id}
+              accountName={account.name}
+            />
+          ) : (
+            <ReactivateIdentityButton
+              accountId={account.id}
+              accountName={account.name}
+              label="Activate"
+              variant="solid"
+            />
+          )}
         </div>
       </div>
 
@@ -380,21 +349,40 @@ function AccountCard({
           Setup checklist
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          {setupSteps.map(({ key, label, icon: Icon }) => (
-            <Link
-              key={key}
-              href={`/accounts/${account.id}/${key}`}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${getStepColor(key, !!completed[key])}`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-              {completed[key] ? (
-                <CheckCircle2 className={`h-3 w-3 ${getStepIconColor(key, !!completed[key])}`} />
-              ) : (
-                <span className="border-border inline-block h-3 w-3 rounded-full border bg-background/50" />
-              )}
-            </Link>
-          ))}
+          {setupSteps.map(({ key, label, icon: Icon }) => {
+            const stepClasses = `flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              isActive
+                ? getStepColor(key, !!completed[key])
+                : 'bg-surface-hover text-muted cursor-not-allowed opacity-60 select-none'
+            }`
+            const stepContent = (
+              <>
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+                {completed[key] ? (
+                  <CheckCircle2
+                    className={`h-3 w-3 ${isActive ? getStepIconColor(key, !!completed[key]) : ''}`}
+                  />
+                ) : (
+                  <span className="border-border inline-block h-3 w-3 rounded-full border bg-background/50" />
+                )}
+              </>
+            )
+
+            return isActive ? (
+              <Link
+                key={key}
+                href={`/accounts/${account.id}/${key}`}
+                className={stepClasses}
+              >
+                {stepContent}
+              </Link>
+            ) : (
+              <span key={key} aria-disabled="true" className={stepClasses}>
+                {stepContent}
+              </span>
+            )
+          })}
         </div>
       </div>
     </div>

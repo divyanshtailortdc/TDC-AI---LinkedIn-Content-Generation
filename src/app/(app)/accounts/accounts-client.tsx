@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
-import { Archive, Plus, Search, Users, Mic, BookOpen, Target, SlidersHorizontal, CheckCircle2, ChevronRight, Play } from 'lucide-react'
+import { Plus, Search, Users, Mic, BookOpen, Target, SlidersHorizontal, CheckCircle2, ChevronRight, Play } from 'lucide-react'
 import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
 
 type Account = any
@@ -38,57 +38,16 @@ function EmptyState() {
   )
 }
 
-function InactiveAccountCard({ account }: { account: Account }) {
-  const initials = account.name
-    .split(' ')
-    .map((w: string) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
-
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 transition-colors hover:border-accent/30">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-hover text-xs font-semibold text-muted">
-          {initials}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">
-              {account.name}
-            </span>
-            <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-              Inactive
-            </span>
-            <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-muted capitalize">
-              {account.accountType}
-            </span>
-          </div>
-          {account.headline && (
-            <p className="mt-0.5 truncate text-xs text-muted">
-              {account.headline}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <ReactivateIdentityButton
-          accountId={account.id}
-          accountName={account.name}
-        />
-      </div>
-    </div>
-  )
-}
-
 function AccountCard({
   account,
+  isActive,
   hasVoice,
   hasKnowledge,
   hasGoals,
   hasPreferences,
 }: {
   account: Account
+  isActive: boolean
   hasVoice: boolean
   hasKnowledge: boolean
   hasGoals: boolean
@@ -139,9 +98,19 @@ function AccountCard({
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-surface overflow-hidden hover:border-accent/40 transition-all shadow-xs hover:shadow-sm">
+    <div
+      className={`rounded-2xl border overflow-hidden transition-all shadow-xs hover:shadow-sm ${
+        isActive
+          ? 'border-border bg-surface hover:border-accent/40'
+          : 'border-border/70 border-dashed bg-surface-hover/40 hover:border-amber-500/40'
+      }`}
+    >
       <div className="flex items-start gap-4 p-5 border-b border-border">
-        <div className="w-11 h-11 rounded-full bg-accent text-background font-semibold text-sm flex items-center justify-center shrink-0">
+        <div
+          className={`w-11 h-11 rounded-full font-semibold text-sm flex items-center justify-center shrink-0 ${
+            isActive ? 'bg-accent text-background' : 'bg-surface-hover text-muted'
+          }`}
+        >
           {initials}
         </div>
         <div className="flex-1 min-w-0">
@@ -150,9 +119,16 @@ function AccountCard({
             <span className="text-xs capitalize text-muted bg-surface-hover px-2 py-0.5 rounded-full shrink-0">
               {account.accountType}
             </span>
-            <span className="text-xs font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0">
-              Active
-            </span>
+            {isActive ? (
+              <span className="text-xs font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0">
+                Active
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full shrink-0">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Deactivated
+              </span>
+            )}
             {allDone ? (
               <span className="text-xs text-emerald-600 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
@@ -169,7 +145,15 @@ function AccountCard({
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          {allDone && (
+          {!isActive && (
+            <ReactivateIdentityButton
+              accountId={account.id}
+              accountName={account.name}
+              label="Activate"
+              variant="solid"
+            />
+          )}
+          {isActive && allDone && (
             <Link
               href={`/accounts/${account.id}/runs`}
               className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
@@ -178,13 +162,24 @@ function AccountCard({
               Generate
             </Link>
           )}
-          <Link
-            href={`/accounts/${account.id}`}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
-          >
-            Open
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
+          {isActive ? (
+            <Link
+              href={`/accounts/${account.id}`}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
+            >
+              Open
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          ) : (
+            <span
+              aria-disabled="true"
+              title="Activate this identity to open it"
+              className="inline-flex cursor-not-allowed items-center gap-1.5 text-xs font-semibold text-muted opacity-50 select-none"
+            >
+              Open
+              <ChevronRight className="w-3.5 h-3.5" />
+            </span>
+          )}
         </div>
       </div>
 
@@ -192,21 +187,40 @@ function AccountCard({
         <span className="text-xs font-medium text-muted uppercase tracking-wide mr-1">
           Setup:
         </span>
-        {setupSteps.map(({ key, label, icon: Icon, href }) => (
-          <Link
-            key={key}
-            href={`/accounts/${account.id}/${href}`}
-            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${getStepColor(key, !!completed[key])}`}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            {label}
-            {completed[key] ? (
-              <CheckCircle2 className={`w-3 h-3 ${getStepIconColor(key, !!completed[key])}`} />
-            ) : (
-              <span className="w-3 h-3 rounded-full border border-border bg-background/50 inline-block" />
-            )}
-          </Link>
-        ))}
+        {setupSteps.map(({ key, label, icon: Icon, href }) => {
+          const stepClasses = `flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+            isActive
+              ? getStepColor(key, !!completed[key])
+              : 'bg-surface-hover text-muted cursor-not-allowed opacity-60 select-none'
+          }`
+          const stepContent = (
+            <>
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+              {completed[key] ? (
+                <CheckCircle2
+                  className={`w-3 h-3 ${isActive ? getStepIconColor(key, !!completed[key]) : ''}`}
+                />
+              ) : (
+                <span className="w-3 h-3 rounded-full border border-border bg-background/50 inline-block" />
+              )}
+            </>
+          )
+
+          return isActive ? (
+            <Link
+              key={key}
+              href={`/accounts/${account.id}/${href}`}
+              className={stepClasses}
+            >
+              {stepContent}
+            </Link>
+          ) : (
+            <span key={key} aria-disabled="true" className={stepClasses}>
+              {stepContent}
+            </span>
+          )
+        })}
       </div>
     </div>
   )
@@ -234,8 +248,10 @@ export function AccountsClient({
            (a.headline && a.headline.toLowerCase().includes(searchQuery.toLowerCase()))
   )
 
-  const activeAccounts = filteredAccounts.filter((a) => a.isActive !== false)
-  const inactiveAccounts = filteredAccounts.filter((a) => a.isActive === false)
+  // Active first, so deactivated ones settle at the bottom without being hidden.
+  const orderedAccounts = [...filteredAccounts].sort(
+    (a, b) => Number(b.isActive !== false) - Number(a.isActive !== false)
+  )
   const hasAnyAccounts = accounts.length > 0
 
   if (!hasAnyAccounts) {
@@ -256,21 +272,22 @@ export function AccountsClient({
         />
       </div>
 
-      {/* Active Identities */}
+      {/* Identities */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted mb-4">
-          Identities ({activeAccounts.length})
+          Identities ({orderedAccounts.length})
         </p>
-        {activeAccounts.length === 0 ? (
+        {orderedAccounts.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted bg-surface">
-            {searchQuery ? 'No identities match your search.' : 'No active identities. You can reactivate an existing one below or add a new identity.'}
+            {searchQuery ? 'No identities match your search.' : 'No identities yet. Add one to get started.'}
           </div>
         ) : (
           <div className="space-y-4">
-            {activeAccounts.map((account) => (
+            {orderedAccounts.map((account) => (
               <AccountCard
                 key={account.id}
                 account={account}
+                isActive={account.isActive !== false}
                 hasVoice={voiceAccountIds.has(account.id)}
                 hasKnowledge={knowledgeAccountIds.has(account.id)}
                 hasGoals={goalAccountIds.has(account.id)}
@@ -280,28 +297,6 @@ export function AccountsClient({
           </div>
         )}
       </div>
-
-      {/* Inactive Identities */}
-      {inactiveAccounts.length > 0 && (
-        <div className="rounded-2xl border border-border bg-surface/50 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Archive className="h-4 w-4 text-muted" />
-              <h3 className="text-sm font-semibold text-foreground">
-                Deactivated Identities ({inactiveAccounts.length})
-              </h3>
-            </div>
-            <span className="text-xs text-muted">
-              Data safely preserved • Can be reactivated anytime
-            </span>
-          </div>
-          <div className="space-y-3">
-            {inactiveAccounts.map((account) => (
-              <InactiveAccountCard key={account.id} account={account} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

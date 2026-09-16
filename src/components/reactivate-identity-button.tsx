@@ -8,10 +8,16 @@ import { useTransition } from 'react'
 
 export function ReactivateIdentityButton({
   accountId,
-  accountName
+  accountName,
+  label = 'Reactivate',
+  variant = 'outline'
 }: {
   accountId: string
   accountName: string
+  /** Button text. The success toast always says "Reactivated". */
+  label?: string
+  /** 'solid' is the prominent call to action on a deactivated card. */
+  variant?: 'outline' | 'ghost' | 'solid'
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -49,8 +55,14 @@ export function ReactivateIdentityButton({
       type="button"
       disabled={isPending}
       onClick={handleReactivate}
-      className="border-border bg-surface flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/10 hover:text-emerald-700 disabled:opacity-50 dark:text-emerald-400 dark:hover:text-emerald-300"
-      title={`Reactivate ${accountName}`}
+      className={`flex cursor-pointer items-center gap-1.5 rounded-lg text-xs transition-colors disabled:opacity-50 ${
+        variant === 'solid'
+          ? 'bg-emerald-600 px-3 py-1.5 font-semibold text-white shadow-xs hover:bg-emerald-700'
+          : variant === 'ghost'
+            ? 'px-2.5 py-1 font-medium text-muted hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400'
+            : 'border-border bg-surface border px-2.5 py-1 font-medium text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
+      }`}
+      title={`${label} ${accountName}`}
     >
       {isPending ? (
         <>
@@ -60,7 +72,7 @@ export function ReactivateIdentityButton({
       ) : (
         <>
           <RotateCcw className="h-3.5 w-3.5" />
-          <span>Reactivate</span>
+          <span>{label}</span>
         </>
       )}
     </button>
