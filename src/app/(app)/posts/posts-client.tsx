@@ -14,7 +14,7 @@ import {
   validateReferenceFile,
   validateStockQuery
 } from '@/lib/media/image-input'
-import { getUserFacingRelevance } from '@/lib/media/brief'
+import { getUserFacingRelevance } from '@/lib/media/relevance'
 import {
   AlertTriangle,
   Check,
