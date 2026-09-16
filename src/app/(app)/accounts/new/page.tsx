@@ -367,14 +367,14 @@ export default function NewAccountPage() {
                         <label className="text-foreground mb-1 block text-xs font-medium">
                           Who it is for & Problem solved
                         </label>
-                        <input
-                          type="text"
+                        <textarea
+                          rows={2}
                           value={offering.tagline}
                           onChange={e =>
                             updateOffering(idx, 'tagline', e.target.value)
                           }
                           placeholder="e.g. For Seed-Stage CTOs struggling with AI accuracy and latency"
-                          className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
+                          className="border-border bg-surface text-foreground focus:ring-accent w-full resize-y rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                         />
                       </div>
 
@@ -390,7 +390,7 @@ export default function NewAccountPage() {
                             updateOffering(idx, 'description', e.target.value)
                           }
                           placeholder="e.g. Helped TechCorp reduce LLM cost by 62% in 3 weeks. 15 enterprise deployments completed."
-                          className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border px-3 py-1.5 text-sm focus:ring-1"
+                          className="border-border bg-surface text-foreground focus:ring-accent w-full resize-y rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                         />
                       </div>
                     </div>
