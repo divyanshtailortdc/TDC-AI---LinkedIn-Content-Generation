@@ -1,6 +1,6 @@
 import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
 import { PageHeader } from '@/components/page-header'
-import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
+import { UsageSummaryCards } from '@/components/usage-summary-cards'
 import { db } from '@/db'
 import {
   accountsTable,
@@ -9,11 +9,14 @@ import {
   preferencesTable,
   voiceConfigsTable
 } from '@/db/schema'
-import { getCapabilities } from '@/lib/capabilities'
+import { getActiveAccount } from '@/lib/active-account'
+import { getAccountUsageSummary } from '@/lib/run-spend'
+import { getCapabilities, type Capability } from '@/lib/capabilities'
+import { eq } from 'drizzle-orm'
 import {
   AlertCircle,
   BookOpen,
-  CheckCircle2,
+  Check,
   Mic,
   Plus,
   SlidersHorizontal,
@@ -25,28 +28,43 @@ import Link from 'next/link'
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const [accounts, voiceConfigs, knowledgeDocs, goals, prefs, capabilities] =
-    await Promise.all([
-      db.select().from(accountsTable),
-      db
-        .select({ accountId: voiceConfigsTable.accountId })
-        .from(voiceConfigsTable),
-      db
-        .select({ accountId: knowledgeDocumentsTable.accountId })
-        .from(knowledgeDocumentsTable),
-      db.select({ accountId: goalsTable.accountId }).from(goalsTable),
-      db
-        .select({ accountId: preferencesTable.accountId })
-        .from(preferencesTable),
-      Promise.resolve(getCapabilities())
-    ])
+  const activeAccount = await getActiveAccount()
+  const capabilities = getCapabilities()
 
-  const voiceAccountIds = new Set(voiceConfigs.map(vc => vc.accountId))
-  const knowledgeAccountIds = new Set(knowledgeDocs.map(kd => kd.accountId))
-  const goalAccountIds = new Set(goals.map(g => g.accountId))
-  const prefAccountIds = new Set(prefs.map(p => p.accountId))
+  if (!activeAccount) {
+    return (
+      <div className="flex h-[calc(100vh-4rem)] flex-col">
+        <PageHeader title="Dashboard" description="Your LinkedIn content generation workspace" />
+        <div className="flex-1 overflow-y-auto bg-background p-6 sm:p-8">
+          <div className="mx-auto max-w-5xl space-y-6">
+            <CapabilityPanel capabilities={capabilities} />
+            <EmptyState />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
-  const hasAnyAccounts = accounts.length > 0
+  const [account, voiceConfigs, knowledgeDocs, goals, prefs, usage] = await Promise.all([
+    db.query.accountsTable.findFirst({ where: eq(accountsTable.id, activeAccount.id) }),
+    db
+      .select({ accountId: voiceConfigsTable.accountId })
+      .from(voiceConfigsTable)
+      .where(eq(voiceConfigsTable.accountId, activeAccount.id)),
+    db
+      .select({ accountId: knowledgeDocumentsTable.accountId })
+      .from(knowledgeDocumentsTable)
+      .where(eq(knowledgeDocumentsTable.accountId, activeAccount.id)),
+    db
+      .select({ accountId: goalsTable.accountId })
+      .from(goalsTable)
+      .where(eq(goalsTable.accountId, activeAccount.id)),
+    db
+      .select({ accountId: preferencesTable.accountId })
+      .from(preferencesTable)
+      .where(eq(preferencesTable.accountId, activeAccount.id)),
+    getAccountUsageSummary(activeAccount.id)
+  ])
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -54,99 +72,101 @@ export default async function DashboardPage() {
         title="Dashboard"
         description="Your LinkedIn content generation workspace"
         actions={
-          hasAnyAccounts ? (
-            <Link
-              href="/accounts/new"
-              className="bg-accent text-background hover:bg-accent-hover flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              Add identity
-            </Link>
-          ) : null
+          <Link
+            href="/accounts/new"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent-hover"
+          >
+            <Plus className="h-4 w-4" />
+            Add identity
+          </Link>
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
-        <div className="mx-auto max-w-7xl space-y-8">
-          {/* Capability status panel — always visible */}
-          <div className="border-border bg-surface mb-8 overflow-hidden rounded-xl border">
-            <div className="border-border border-b px-5 py-4">
-              <h2 className="text-foreground text-sm font-semibold">
-                Capabilities
-              </h2>
-              <p className="text-muted mt-0.5 text-xs">
-                Based on the keys present in{' '}
-                <code className="bg-surface-hover rounded px-1.5 py-0.5 font-mono text-[11px]">
-                  .env.local
-                </code>
-              </p>
-            </div>
-            <div className="divide-border divide-y">
-              {capabilities.map(cap => (
-                <div
-                  key={cap.name}
-                  className="flex items-center gap-4 px-5 py-4"
-                >
-                  {cap.status === 'live' ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-foreground text-sm font-medium">
-                      {cap.name}
-                    </p>
-                    <p className="text-muted text-xs">{cap.description}</p>
-                  </div>
-                  {cap.status === 'live' ? (
-                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950/40">
-                      Active
-                    </span>
-                  ) : (
-                    <span className="bg-surface-hover text-muted rounded px-2 py-0.5 font-mono text-xs">
-                      {cap.missingKey} not set
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+      <div className="flex-1 overflow-y-auto bg-background p-6 sm:p-8">
+        <div className="mx-auto max-w-5xl space-y-8">
+          <UsageSummaryCards {...usage} />
 
-          {/* Empty state / Account list */}
-          {!hasAnyAccounts ? (
-            <EmptyState />
-          ) : (
-            <AccountList
-              accounts={accounts}
-              voiceAccountIds={voiceAccountIds}
-              knowledgeAccountIds={knowledgeAccountIds}
-              goalAccountIds={goalAccountIds}
-              prefAccountIds={prefAccountIds}
-            />
+          {account && (
+            <section>
+              <h2 className="mb-4 text-sm font-semibold tracking-tight text-foreground">
+                Active identity
+              </h2>
+              <AccountCard
+                account={account}
+                isActive={account.isActive !== false}
+                hasVoice={voiceConfigs.length > 0}
+                hasKnowledge={knowledgeDocs.length > 0}
+                hasGoals={goals.length > 0}
+                hasPreferences={prefs.length > 0}
+              />
+            </section>
           )}
+
+          <CapabilityPanel capabilities={capabilities} />
         </div>
       </div>
     </div>
   )
 }
 
+function CapabilityPanel({ capabilities }: { capabilities: Capability[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-xs">
+      <div className="border-b border-border px-5 py-4">
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">Capabilities</h2>
+        <p className="mt-0.5 text-xs text-muted">
+          Based on the keys present in{' '}
+          <code className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-[11px]">
+            .env.local
+          </code>
+        </p>
+      </div>
+      <div className="divide-y divide-border">
+        {capabilities.map((cap) => (
+          <div key={cap.name} className="flex items-center gap-4 px-5 py-3.5">
+            {cap.status === 'live' ? (
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <Check className="h-3 w-3" strokeWidth={3} />
+              </span>
+            ) : (
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <AlertCircle className="h-3 w-3" />
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">{cap.name}</p>
+              <p className="text-xs text-muted">{cap.description}</p>
+            </div>
+            {cap.status === 'live' ? (
+              <span className="shrink-0 text-xs font-medium text-muted">Active</span>
+            ) : (
+              <span className="shrink-0 rounded bg-surface-hover px-2 py-0.5 font-mono text-xs text-muted">
+                {cap.missingKey} not set
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function EmptyState() {
   return (
-    <div className="border-border bg-surface flex flex-col items-center justify-center rounded-xl border-2 border-dashed py-20">
-      <div className="bg-accent/10 mb-5 flex h-14 w-14 items-center justify-center rounded-2xl">
-        <Users className="text-accent h-7 w-7" />
+    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-surface py-20">
+      <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-hover">
+        <Users className="h-7 w-7 text-muted" />
       </div>
-      <h2 className="text-foreground mb-2 text-lg font-semibold">
+      <h2 className="mb-2 text-lg font-semibold tracking-tight text-foreground">
         Add your first LinkedIn identity
       </h2>
-      <p className="text-muted mb-8 max-w-sm text-center text-sm leading-relaxed">
-        An identity is a persona you want to generate content for — yourself,
-        your company, or a product. Each one gets its own voice, knowledge base,
-        and goals.
+      <p className="mb-8 max-w-sm text-center text-sm leading-relaxed text-muted">
+        An identity is a persona you want to generate content for — yourself, your company, or a
+        product. Each one gets its own voice, knowledge base, and goals.
       </p>
       <Link
         href="/accounts/new"
-        className="bg-accent text-background hover:bg-accent-hover flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+        className="flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent-hover"
       >
         <Plus className="h-4 w-4" />
         Add your first identity
@@ -163,46 +183,6 @@ const setupSteps = [
   { key: 'goals', label: 'Goals', icon: Target },
   { key: 'preferences', label: 'Preferences', icon: SlidersHorizontal }
 ]
-
-function AccountList({
-  accounts,
-  voiceAccountIds,
-  knowledgeAccountIds,
-  goalAccountIds,
-  prefAccountIds
-}: {
-  accounts: Account[]
-  voiceAccountIds: Set<string>
-  knowledgeAccountIds: Set<string>
-  goalAccountIds: Set<string>
-  prefAccountIds: Set<string>
-}) {
-  // Active first, so deactivated ones settle at the bottom without being hidden.
-  const ordered = [...accounts].sort(
-    (a, b) => Number(b.isActive !== false) - Number(a.isActive !== false)
-  )
-
-  return (
-    <div>
-      <h2 className="text-foreground mb-4 text-sm font-semibold">
-        Identities ({accounts.length})
-      </h2>
-      <div className="space-y-4">
-        {ordered.map(account => (
-          <AccountCard
-            key={account.id}
-            account={account}
-            isActive={account.isActive !== false}
-            hasVoice={voiceAccountIds.has(account.id)}
-            hasKnowledge={knowledgeAccountIds.has(account.id)}
-            hasGoals={goalAccountIds.has(account.id)}
-            hasPreferences={prefAccountIds.has(account.id)}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function AccountCard({
   account,
@@ -221,7 +201,7 @@ function AccountCard({
 }) {
   const initials = account.name
     .split(' ')
-    .map(w => w[0])
+    .map((w) => w[0])
     .join('')
     .slice(0, 2)
     .toUpperCase()
@@ -233,154 +213,72 @@ function AccountCard({
     preferences: hasPreferences
   }
 
-  const getStepColor = (key: string, isCompleted: boolean) => {
-    if (!isCompleted) return 'bg-surface-hover text-muted hover:text-foreground'
-    switch (key) {
-      case 'voice':
-        return 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400'
-      case 'knowledge':
-        return 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400'
-      case 'goals':
-        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
-      case 'preferences':
-        return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400'
-      default:
-        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
-    }
-  }
-
-  const getStepIconColor = (key: string, isCompleted: boolean) => {
-    if (!isCompleted) return ''
-    switch (key) {
-      case 'voice': return 'text-indigo-500'
-      case 'knowledge': return 'text-blue-500'
-      case 'goals': return 'text-amber-500'
-      case 'preferences': return 'text-rose-500'
-      default: return 'text-emerald-500'
-    }
-  }
+  const completedCount = Object.values(completed).filter(Boolean).length
 
   return (
-    <div
-      className={`rounded-2xl border p-6 shadow-xs transition-all hover:shadow-sm ${
-        isActive
-          ? 'border-border bg-surface hover:border-accent/40'
-          : 'border-border/70 border-dashed bg-surface-hover/40 hover:border-amber-500/40'
-      }`}
-    >
-      {/* Account header */}
-      <div className="mb-5 flex items-start gap-4">
-        <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-            isActive ? 'bg-accent text-background' : 'bg-surface-hover text-muted'
-          }`}
-        >
+    <div className="rounded-2xl border border-border bg-surface p-6 shadow-xs">
+      <div className="mb-6 flex items-start gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-background">
           {initials}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {isActive ? (
-              <Link
-                href={`/accounts/${account.id}`}
-                className="text-foreground hover:text-accent truncate font-semibold transition-colors"
-              >
-                {account.name}
-              </Link>
-            ) : (
-              <span className="text-foreground truncate font-semibold">
-                {account.name}
-              </span>
-            )}
-            {isActive ? (
-              <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                Active
-              </span>
-            ) : (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                Deactivated
-              </span>
-            )}
-            <span className="bg-surface-hover text-muted shrink-0 rounded-full px-2 py-0.5 text-xs capitalize">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/accounts/${account.id}`}
+              className="truncate font-semibold tracking-tight text-foreground transition-colors hover:text-muted"
+            >
+              {account.name}
+            </Link>
+            <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-[11px] capitalize text-muted">
               {account.accountType}
             </span>
           </div>
-          <p className="text-muted mt-0.5 truncate text-sm">
-            {account.headline}
-          </p>
+          <p className="mt-0.5 truncate text-sm text-muted">{account.headline}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {isActive ? (
-            <Link
-              href={`/accounts/${account.id}`}
-              className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
-            >
-              Edit
-            </Link>
-          ) : (
-            <span
-              aria-disabled="true"
-              title="Activate this identity to edit it"
-              className="text-muted flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold opacity-50 select-none"
-            >
-              Edit
-            </span>
-          )}
-          <span className="bg-border h-3 w-px" />
-          {isActive ? (
-            <DeleteIdentityDialog
-              accountId={account.id}
-              accountName={account.name}
-            />
-          ) : (
-            <ReactivateIdentityButton
-              accountId={account.id}
-              accountName={account.name}
-              label="Activate"
-              variant="solid"
-            />
-          )}
+          <Link
+            href={`/accounts/${account.id}`}
+            className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+          >
+            Edit
+          </Link>
+          <span className="h-3 w-px bg-border" />
+          <DeleteIdentityDialog accountId={account.id} accountName={account.name} />
         </div>
       </div>
 
-      {/* Setup checklist */}
       <div>
-        <p className="text-muted mb-3 text-xs font-medium tracking-wide uppercase">
-          Setup checklist
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="mb-3 flex items-baseline justify-between gap-2">
+          <p className="text-[10px] font-semibold tracking-wider text-muted uppercase">
+            Setup checklist
+          </p>
+          <p className="text-[11px] text-muted tabular-nums">
+            {completedCount} of {setupSteps.length}
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {setupSteps.map(({ key, label, icon: Icon }) => {
-            const stepClasses = `flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              isActive
-                ? getStepColor(key, !!completed[key])
-                : 'bg-surface-hover text-muted cursor-not-allowed opacity-60 select-none'
-            }`
-            const stepContent = (
-              <>
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-                {completed[key] ? (
-                  <CheckCircle2
-                    className={`h-3 w-3 ${isActive ? getStepIconColor(key, !!completed[key]) : ''}`}
-                  />
-                ) : (
-                  <span className="border-border inline-block h-3 w-3 rounded-full border bg-background/50" />
-                )}
-              </>
-            )
-
-            return isActive ? (
+            const done = !!completed[key]
+            return (
               <Link
                 key={key}
                 href={`/accounts/${account.id}/${key}`}
-                className={stepClasses}
+                className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors ${
+                  done
+                    ? 'border-border bg-surface-hover/50 text-foreground hover:border-foreground/15'
+                    : 'border-dashed border-border text-muted hover:border-foreground/15 hover:text-foreground'
+                }`}
               >
-                {stepContent}
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1 truncate">{label}</span>
+                {done ? (
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                  </span>
+                ) : (
+                  <span className="h-4 w-4 shrink-0 rounded-full border border-dashed border-border" />
+                )}
               </Link>
-            ) : (
-              <span key={key} aria-disabled="true" className={stepClasses}>
-                {stepContent}
-              </span>
             )
           })}
         </div>
