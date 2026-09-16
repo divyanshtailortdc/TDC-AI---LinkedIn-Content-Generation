@@ -745,12 +745,12 @@ export function EditIdentityForm({
                   <label className="text-foreground mb-1 block text-xs font-medium">
                     Audience Segment &amp; Seniority
                   </label>
-                  <input
-                    type="text"
+                  <textarea
+                    rows={2}
                     value={audience.name}
                     onChange={e => updateAudience(idx, 'name', e.target.value)}
                     placeholder="e.g. Senior Product Managers & VP of Product at B2B SaaS"
-                    className="border-border bg-surface text-foreground focus:ring-accent w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1"
+                    className="border-border bg-surface text-foreground focus:ring-accent w-full resize-y rounded-md border px-3 py-1.5 text-sm focus:ring-1"
                   />
                 </div>
 
@@ -766,7 +766,7 @@ export function EditIdentityForm({
                         updateAudience(idx, 'painPointsText', e.target.value)
                       }
                       placeholder="e.g. AI prototypes failing in production&#10;High token costs&#10;Lack of evaluation benchmarks"
-                      className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border px-3 py-1.5 text-xs focus:ring-1"
+                      className="border-border bg-surface text-foreground focus:ring-accent w-full resize-y rounded-md border px-3 py-1.5 text-xs focus:ring-1"
                     />
                   </div>
                   <div>
@@ -780,7 +780,7 @@ export function EditIdentityForm({
                         updateAudience(idx, 'goalsText', e.target.value)
                       }
                       placeholder="e.g. Ship reliable AI features faster&#10;Proven architectures they can show leadership&#10;Clear ROI"
-                      className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border px-3 py-1.5 text-xs focus:ring-1"
+                      className="border-border bg-surface text-foreground focus:ring-accent w-full resize-y rounded-md border px-3 py-1.5 text-xs focus:ring-1"
                     />
                   </div>
                 </div>
