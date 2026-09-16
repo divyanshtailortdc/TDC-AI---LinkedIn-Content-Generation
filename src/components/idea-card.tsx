@@ -10,6 +10,16 @@ export interface IdeaCardData {
   audienceTakeaway: string | null
   supportingEvidence: any
   status: string
+  thesis?: string | null
+  coreArgument?: string | null
+  noveltyNote?: string | null
+  pillar?: string | null
+  perspectiveAngle?: string | null
+  score?: number | null
+  groundingScore?: number | null
+  originalityScore?: number | null
+  /** Grounding problems found during validation. Shown before approval. */
+  risks?: string[] | null
 }
 
 interface IdeaCardProps {
@@ -26,6 +36,16 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
   const [isBusy, setIsBusy] = useState(false)
 
   const evidence = (idea.supportingEvidence as any[]) || []
+  const risks = idea.risks || []
+
+  // Grounding is the number that should change an approve/reject decision, so
+  // it is shown plainly rather than as a colour alone.
+  const groundingTone =
+    (idea.groundingScore ?? 0) >= 75
+      ? 'text-emerald-500'
+      : (idea.groundingScore ?? 0) >= 60
+        ? 'text-amber-500'
+        : 'text-rose-500'
 
   const handleSaveEdit = async () => {
     setIsBusy(true)
@@ -114,8 +134,39 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
         )}
       </div>
 
+      {/* The argument itself, so the gate is a real decision and not a coin flip */}
+      {(idea.thesis || idea.coreArgument) && (
+        <p className="text-foreground/90 mb-4 text-sm leading-relaxed">
+          {idea.thesis || idea.coreArgument}
+        </p>
+      )}
+
+      {idea.noveltyNote && (
+        <p className="text-muted mb-4 text-xs leading-relaxed italic">
+          Why this is not the generic take: {idea.noveltyNote}
+        </p>
+      )}
+
       {/* Meta Context */}
       <div className="flex flex-wrap items-center gap-3 mb-5 text-[11px] font-medium">
+        {typeof idea.groundingScore === 'number' && (
+          <span className="border-border bg-surface-hover text-muted inline-flex items-center rounded-full border px-2.5 py-1">
+            Grounding:{' '}
+            <span className={`ml-1 font-semibold ${groundingTone}`}>
+              {idea.groundingScore}/100
+            </span>
+          </span>
+        )}
+        {typeof idea.score === 'number' && (
+          <span className="border-border bg-surface-hover text-muted inline-flex items-center rounded-full border px-2.5 py-1">
+            Strength: <span className="text-foreground ml-1">{idea.score}/100</span>
+          </span>
+        )}
+        {idea.pillar && (
+          <span className="border-border bg-surface-hover text-muted inline-flex items-center rounded-full border px-2.5 py-1">
+            Pillar: <span className="text-foreground ml-1">{idea.pillar}</span>
+          </span>
+        )}
         {idea.angle && (
           <span className="inline-flex items-center rounded-full bg-surface-hover px-2.5 py-1 text-muted border border-border">
             Angle: <span className="text-foreground ml-1">{idea.angle.replace(/_/g, ' ')}</span>
@@ -160,6 +211,23 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Anything the grounding checks flagged, before you commit to drafting */}
+      {risks.length > 0 && (
+        <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-amber-600 uppercase dark:text-amber-400">
+            <AlertTriangle className="h-3 w-3" />
+            Check before approving
+          </span>
+          <ul className="space-y-1">
+            {risks.slice(0, 4).map((risk, idx) => (
+              <li key={idx} className="text-muted text-xs leading-relaxed">
+                • {risk}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

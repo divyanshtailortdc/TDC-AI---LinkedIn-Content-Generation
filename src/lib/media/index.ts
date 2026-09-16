@@ -3,26 +3,15 @@ import { generateImage } from 'ai'
 import { env } from '~/env'
 import { gatewayClient } from '~/lib/ai'
 import {
-  type MediaBrief,
-  type VisualType,
-  type SemanticValidationResult,
-  type RelevanceValidationResult,
-  type TextOverlaySpec,
+  deriveMediaBrief,
+  guardMediaBrief,
+  type BriefGuardResult,
   type EvidenceSource,
-  type ConceptDifferenceResult,
-  type RegenerationContext,
-  extractMediaBrief,
-  selectVisualType,
-  validateMediaBriefSemantics,
-  validateMediaBriefRelevance,
-  validateConceptDifference,
-  regenerateMediaBriefWithNegativeContext,
-  regenerateMediaBriefStrict,
-  buildImagePromptFromBrief,
-  validateImagePromptAgainstPost
-} from './media-brief'
+  type MediaBrief,
+  type VisualType
+} from './brief'
 
-export * from './media-brief'
+export * from './brief'
 
 export interface MediaPlanRequest {
   mode: 'ai_generated' | 'stock' | 'none'
@@ -35,6 +24,9 @@ export interface MediaPlanRequest {
   evidence?: EvidenceSource[]
   aspectRatio?: '1:1' | '16:9' | '4:5'
   imagePrompt?: string | null
+  /** The account's configured house style for generated images. */
+  styleGuidance?: string
+  accountName?: string
 }
 
 export interface MediaPlanResult {
@@ -49,11 +41,11 @@ export interface MediaPlanResult {
   relevanceScore?: number
   relevanceExplanation?: string
   alignedConcepts?: string[]
-  textOverlay?: TextOverlaySpec
-  topicMatch?: boolean
-  thesisMatch?: boolean
-  introducesUnrelatedTopic?: boolean
-  readability?: any
+  textOverlay?: MediaBrief['textOverlay']
+  /** Problems the guard found with the brief, surfaced in the review UI. */
+  issues?: string[]
+  /** Set when no image could be produced, so the run step can say why. */
+  error?: string
 }
 
 interface CuratedStockCategory {
@@ -368,6 +360,25 @@ const LINKEDIN_IMAGE_SIZE =
  * flux-pro-1.1-ultra ignores size and returns 2816x1472), so asking is not
  * the same as getting.
  */
+/**
+ * Concrete pixel sizes per configured aspect ratio.
+ *
+ * `aspectRatio` is silently ignored by the flux models, so `size` is the only
+ * control that works — the same lesson generateCustomImage already encodes.
+ * Every dimension is a multiple of 16 or the model rounds it and loses the ratio.
+ */
+const ASPECT_SIZES = {
+  '16:9': { width: 2048, height: 1072 },
+  '1:1': { width: 1440, height: 1440 },
+  '4:5': { width: 1152, height: 1440 }
+} as const
+
+export function sizeForAspectRatio(
+  aspectRatio?: '1:1' | '16:9' | '4:5'
+): { width: number; height: number } {
+  return ASPECT_SIZES[aspectRatio || '16:9']
+}
+
 export function isLinkedInImageSize(dimensions: {
   width: number
   height: number
@@ -476,59 +487,66 @@ export async function generateAIImage(
   }
 ): Promise<MediaPlanResult> {
   const prompt = req.imagePrompt || buildLinkedInImagePrompt(req)
-  const query = req.brief || req.topic || req.hook || 'professional business insight'
+  const query =
+    req.brief || req.topic || req.hook || 'professional business insight'
   const attempt = req.attempt || 0
-  const seed = req.seed ?? Math.floor(Math.random() * 1000000)
+  const seed = req.seed ?? Math.floor(Math.random() * 1_000_000)
+  const target = sizeForAspectRatio(req.aspectRatio)
+  const size = `${target.width}x${target.height}` as const
 
   if (gatewayClient && env.AI_GATEWAY_API_KEY) {
-    try {
-      for (const modelId of TEXT_TO_IMAGE_MODELS) {
-        try {
-          const result = await generateImage({
-            model: gatewayClient.imageModel(modelId),
-            prompt,
-            aspectRatio: req.aspectRatio === '1:1' ? '1:1' : '16:9',
-            seed
-          })
+    for (const modelId of TEXT_TO_IMAGE_MODELS) {
+      try {
+        const result = await generateImage({
+          model: gatewayClient.imageModel(modelId),
+          prompt,
+          size,
+          seed
+        })
 
-          const first = result.images?.[0]
-          if (first?.base64) {
-            const mediaType = first.mediaType || 'image/png'
-            const dataUrl = `data:${mediaType};base64,${first.base64}`
+        const first = result.images?.[0]
+        if (!first?.base64) continue
 
-            return {
-              mode: 'ai_generated',
-              imageUrl: dataUrl,
-              altText: `AI-generated visual illustration for: ${query}`,
-              promptOrQuery: prompt
-            }
-          }
-        } catch (attemptErr: any) {
+        // Verify the bytes rather than trusting the request: these models
+        // silently return a different size when they feel like it.
+        const dimensions = readImageDimensions(Buffer.from(first.base64, 'base64'))
+        if (
+          dimensions &&
+          (dimensions.width !== target.width || dimensions.height !== target.height)
+        ) {
           console.warn(
-            `AI image generation attempt with model "${modelId}" failed:`,
-            attemptErr?.message || attemptErr
+            `Discarding "${modelId}" result: got ${dimensions.width}x${dimensions.height}, need ${size}.`
           )
+          continue
         }
+
+        const mediaType = first.mediaType || 'image/png'
+        return {
+          mode: 'ai_generated',
+          imageUrl: `data:${mediaType};base64,${first.base64}`,
+          // The caller supplies alt text written from the brief, which
+          // describes the actual composition far better than the query does.
+          altText: `Illustration for: ${query}`,
+          promptOrQuery: prompt
+        }
+      } catch (err: any) {
+        console.warn(
+          `AI image generation failed on "${modelId}":`,
+          err?.message || err
+        )
       }
-    } catch (gatewayErr: any) {
-      console.warn(
-        'AI image generation through AI Gateway encountered an error:',
-        gatewayErr?.message || gatewayErr
-      )
     }
   }
 
-  // Tier 2 & Tier 3 Fallback: Serper or Curated Stock
-  console.info(
-    'AI Image Generation unavailable or failed; executing Tier 2/3 stock fallback for post visual.'
-  )
+  // Falling back to stock. Report it as stock — labelling a stock photo
+  // "ai_generated" made the review UI and the run log both lie about it.
+  console.info('AI image generation unavailable; falling back to stock search.')
   const stockResult = await searchStockImage(query, {
     excludeUrls: req.excludeUrls,
     attempt
   })
   return {
     ...stockResult,
-    mode: 'ai_generated', // preserves intention while applying graceful visual fallback
     fallbackApplied: true,
     promptOrQuery: prompt
   }
@@ -701,12 +719,12 @@ export async function generateCustomImage(
 }
 
 /**
- * Main media planner:
+ * Plans the image for a post.
  *
- * Implements Target Flow:
- * Approved Post -> Extract Media Brief -> Select Visual Type -> Build Visual Concept ->
- * Semantic Relevance Validation (>=80 threshold) -> Generate Image Prompt ->
- * Final Media Validation -> Generate Image -> Save Image + Alt Text + Metadata.
+ * The brief is written by the model from the post itself and then checked by a
+ * small domain-neutral guard. The old flow derived the brief from a fixed
+ * keyword table and demanded a 90/100 keyword-overlap score, which almost every
+ * post failed, so nearly every image came from the same generic fallback set.
  */
 export async function createMediaPlan(
   req: MediaPlanRequest
@@ -716,81 +734,63 @@ export async function createMediaPlan(
   }
 
   const postContent = (
-    req.postText ||
-    `${req.hook || ''}\n\n${req.coreArgument || ''}\n\n${req.brief || ''}`
+    req.postText || `${req.hook || ''}\n\n${req.coreArgument || ''}`
   ).trim()
 
-  const thesis = req.thesis || req.coreArgument || req.topic || 'Operational thought leadership'
-
-  // 1. Extract Media Brief
-  let mediaBrief = extractMediaBrief(postContent, thesis, req.evidence)
-
-  // 2. Select Visual Type
-  let visualType = selectVisualType(postContent, mediaBrief, req.evidence)
-
-  // 3. Hard Semantic Validation BEFORE Calling Image Generation
-  let validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
-
-  // Image generation is allowed ONLY when:
-  // relevanceScore >= 90 AND thesisMatch === true AND topicMatch === true AND introducesUnrelatedTopic === false
-  if (
-    validation.relevanceScore < 90 ||
-    !validation.thesisMatch ||
-    !validation.topicMatch ||
-    validation.introducesUnrelatedTopic
-  ) {
-    console.warn(
-      `Media brief failed semantic validation (${validation.relevanceScore}/100): ${validation.reason}. Regenerating media brief...`
-    )
-    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
-    visualType = selectVisualType(postContent, mediaBrief, req.evidence)
-    validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
+  if (!postContent) {
+    return { mode: 'none', error: 'No post content to illustrate.' }
   }
 
-  // 4. Build Image Prompt from Brief
-  let imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
-    aspectRatio: req.aspectRatio
+  const derived = await deriveMediaBrief({
+    postText: postContent,
+    thesis: req.thesis,
+    hook: req.hook,
+    evidence: req.evidence,
+    styleGuidance: req.styleGuidance,
+    aspectRatio: req.aspectRatio,
+    accountName: req.accountName
   })
 
-  // 5. Final Media Validation (Prompt vs Post Thesis)
-  const promptCheck = validateImagePromptAgainstPost(imagePrompt, mediaBrief, thesis)
-  if (!promptCheck.isValid) {
-    console.warn(
-      'Image prompt failed semantic check; applying sanitized constraints:',
-      promptCheck.reason
-    )
-    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
-    imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
-      aspectRatio: req.aspectRatio
-    })
+  if (!derived) {
+    // Without a brief an image would be decoration at best; say so rather than
+    // attaching something unrelated.
+    return {
+      mode: 'none',
+      error:
+        'Could not derive a visual concept for this post. Check that an AI provider key is configured.'
+    }
   }
 
-  const enhancedReq: MediaPlanRequest = {
-    ...req,
-    imagePrompt,
-    brief: mediaBrief.primaryConcept,
-    topic: mediaBrief.coreThesis
-  }
+  const { brief, imagePrompt, altText } = derived.derived
+  const guard = derived.guard
+
+  const searchQuery = brief.primaryConcept || brief.postTopic
 
   let result: MediaPlanResult
   if (req.mode === 'stock') {
-    result = await searchStockImage(mediaBrief.primaryConcept || mediaBrief.coreThesis)
+    result = await searchStockImage(searchQuery)
   } else {
-    result = await generateAIImage(enhancedReq)
+    result = await generateAIImage({
+      ...req,
+      imagePrompt,
+      brief: brief.primaryConcept,
+      topic: brief.postTopic
+    })
   }
 
-    return {
+  return {
     ...result,
-    mediaBrief,
-    visualType,
-    relevanceScore: validation.relevanceScore,
-    relevanceExplanation: validation.explanation,
-    alignedConcepts: validation.alignedConcepts,
-    textOverlay: mediaBrief.textOverlay,
-    topicMatch: validation.topicMatch,
-    thesisMatch: validation.thesisMatch,
-    introducesUnrelatedTopic: validation.introducesUnrelatedTopic,
-    readability: validation.readability
+    // A generated image was made from the brief, so the brief's alt text
+    // describes it accurately. A stock image is whatever the search returned,
+    // so its own caption is the honest description.
+    altText: result.mode === 'ai_generated' ? altText : result.altText || altText,
+    mediaBrief: brief,
+    visualType: brief.visualType,
+    textOverlay: brief.textOverlay,
+    relevanceScore: guard.relevanceScore,
+    relevanceExplanation: guard.explanation,
+    alignedConcepts: guard.alignedConcepts,
+    issues: guard.issues
   }
 }
 
@@ -808,6 +808,9 @@ export interface RegenerateMediaPlanRequest {
   version?: number
   evidence?: EvidenceSource[]
   aspectRatio?: '1:1' | '16:9' | '4:5'
+  styleGuidance?: string
+  accountName?: string
+  mode?: 'ai_generated' | 'stock'
 }
 
 export interface RegenerateMediaPlanResult extends MediaPlanResult {
@@ -815,160 +818,101 @@ export interface RegenerateMediaPlanResult extends MediaPlanResult {
   regenerationAttempt: number
   previousMediaId?: string
   rejectionReason?: string
-  conceptDifference?: ConceptDifferenceResult
   providerRequestId?: string
   seed?: number
 }
 
 /**
- * Executes a full, non-cached regeneration cycle:
- * Rejection Context -> Blocked Concepts -> New Media Brief ->
- * Concept Difference Validation (similarity < 70) -> Thesis Validation ->
- * Fresh Provider Request with Non-reused Seed -> Multi-version Metadata.
+ * Produces a genuinely different visual after a rejection, seeding the brief
+ * with what was rejected and why so the model does not land in the same place.
  */
 export async function regenerateMediaPlan(
   req: RegenerateMediaPlanRequest
 ): Promise<RegenerateMediaPlanResult> {
   const postContent = (req.postText || '').trim()
-  const thesis = req.thesis || 'Operational thought leadership'
   const attempt = (req.regenerationAttempt ?? 0) + 1
   const version = (req.version ?? 1) + 1
-  const seed = Math.floor(Math.random() * 1000000)
+  const seed = Math.floor(Math.random() * 1_000_000)
   const providerRequestId = crypto.randomUUID()
 
-  // 1. Build negative context & derive NEW media brief
-  let mediaBrief = regenerateMediaBriefWithNegativeContext({
+  const rejected = [
+    ...(req.blockedConcepts || []),
+    req.previousConcept || ''
+  ].filter(Boolean)
+
+  const steer = [
+    rejected.length > 0
+      ? `These concepts were already rejected, do not return to them: ${rejected.join('; ')}.`
+      : '',
+    req.rejectionReason ? `The reviewer said: "${req.rejectionReason}".` : '',
+    'Choose a different visual form and a different central metaphor.'
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const derived = await deriveMediaBrief({
     postText: postContent,
-    thesis,
-    previousConcept: req.previousConcept,
-    previousPrompt: req.previousImagePrompt,
-    previousImageUrl: req.previousImageUrl,
-    rejectionReason: req.rejectionReason,
-    blockedConcepts: req.blockedConcepts,
-    regenerationAttempt: attempt,
-    evidence: req.evidence
-  })
-
-  // 2. Validate Concept Difference from rejected concept
-  let diffCheck = validateConceptDifference(
-    mediaBrief.primaryConcept,
-    req.previousConcept,
-    req.blockedConcepts
-  )
-
-  if (!diffCheck.isMeaningfullyDifferent || diffCheck.similarityScore >= 70) {
-    console.warn(
-      `Regenerated concept too similar to previous (${diffCheck.similarityScore}%): ${diffCheck.reason}. Enforcing alternate layout...`
-    )
-    mediaBrief = regenerateMediaBriefWithNegativeContext({
-      postText: postContent,
-      thesis,
-      previousConcept: req.previousConcept,
-      previousPrompt: req.previousImagePrompt,
-      rejectionReason: req.rejectionReason,
-      blockedConcepts: [...(req.blockedConcepts || []), mediaBrief.primaryConcept],
-      regenerationAttempt: attempt + 1,
-      evidence: req.evidence
-    })
-    diffCheck = validateConceptDifference(
-      mediaBrief.primaryConcept,
-      req.previousConcept,
-      req.blockedConcepts
-    )
-  }
-
-  // 3. Validate Semantics & Thesis Match
-  let validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
-  let visualType = selectVisualType(postContent, mediaBrief, req.evidence)
-
-  if (
-    validation.relevanceScore < 90 ||
-    !validation.thesisMatch ||
-    !validation.topicMatch ||
-    validation.introducesUnrelatedTopic
-  ) {
-    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
-    visualType = selectVisualType(postContent, mediaBrief, req.evidence)
-    validation = validateMediaBriefSemantics(mediaBrief, postContent, thesis)
-  }
-
-  // 4. Build Image Prompt
-  let imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
-    aspectRatio: req.aspectRatio
-  })
-
-  const promptCheck = validateImagePromptAgainstPost(imagePrompt, mediaBrief, thesis)
-  if (!promptCheck.isValid) {
-    mediaBrief = regenerateMediaBriefStrict(postContent, thesis, req.evidence, validation)
-    imagePrompt = buildImagePromptFromBrief(mediaBrief, visualType, {
-      aspectRatio: req.aspectRatio
-    })
-  }
-
-  // 5. Exclude previous image URL and force fresh provider execution
-  const excludeUrls = req.previousImageUrl ? [req.previousImageUrl] : []
-  const imageResult = await generateAIImage({
-    mode: 'ai_generated',
-    brief: mediaBrief.primaryConcept,
-    topic: mediaBrief.coreThesis,
-    postText: postContent,
-    thesis,
-    imagePrompt,
+    thesis: req.thesis,
+    evidence: req.evidence,
     aspectRatio: req.aspectRatio,
-    excludeUrls,
-    attempt,
-    seed
+    accountName: req.accountName,
+    styleGuidance: [req.styleGuidance, steer].filter(Boolean).join(' ')
   })
 
-  const finalImageUrl = imageResult.imageUrl || ''
-
-  // 6. Structured Logging as specified in instructions
-  const mediaBriefHash = crypto
-    .createHash('md5')
-    .update(mediaBrief.primaryConcept)
-    .digest('hex')
-    .slice(0, 8)
-  const imagePromptHash = crypto
-    .createHash('md5')
-    .update(imagePrompt)
-    .digest('hex')
-    .slice(0, 8)
-
-  console.info(
-    '[MediaRegenerationLog]',
-    JSON.stringify({
-      postId: req.draftId || 'unknown',
-      previousMediaId: req.previousMediaId || null,
+  if (!derived) {
+    return {
+      mode: 'none',
+      version,
       regenerationAttempt: attempt,
-      mediaBriefHash,
-      imagePromptHash,
-      providerCalled: true,
+      previousMediaId: req.previousMediaId,
+      rejectionReason: req.rejectionReason,
       providerRequestId,
-      generatedAssetId: crypto.randomUUID(),
-      generatedImageUrl: finalImageUrl
-    })
-  )
+      seed,
+      error: 'Could not derive a new visual concept.'
+    }
+  }
+
+  const { brief, imagePrompt, altText } = derived.derived
+  const guard = derived.guard
+  const excludeUrls = req.previousImageUrl ? [req.previousImageUrl] : []
+
+  const imageResult =
+    req.mode === 'stock'
+      ? await searchStockImage(brief.primaryConcept || brief.postTopic, {
+          excludeUrls,
+          attempt
+        })
+      : await generateAIImage({
+          mode: 'ai_generated',
+          brief: brief.primaryConcept,
+          topic: brief.postTopic,
+          postText: postContent,
+          thesis: req.thesis,
+          imagePrompt,
+          aspectRatio: req.aspectRatio,
+          excludeUrls,
+          attempt,
+          seed
+        })
 
   return {
     ...imageResult,
-    imageUrl: finalImageUrl,
+    altText:
+      imageResult.mode === 'ai_generated'
+        ? altText
+        : imageResult.altText || altText,
     version,
     regenerationAttempt: attempt,
     previousMediaId: req.previousMediaId,
     rejectionReason: req.rejectionReason,
-    conceptDifference: diffCheck,
     providerRequestId,
     seed,
-    mediaBrief,
-    visualType,
-    relevanceScore: validation.relevanceScore,
-    relevanceExplanation: validation.explanation,
-    alignedConcepts: validation.alignedConcepts,
-    textOverlay: mediaBrief.textOverlay,
-    topicMatch: validation.topicMatch,
-    thesisMatch: validation.thesisMatch,
-    introducesUnrelatedTopic: validation.introducesUnrelatedTopic,
-    readability: validation.readability
+    mediaBrief: brief,
+    visualType: brief.visualType,
+    textOverlay: brief.textOverlay,
+    relevanceScore: guard.relevanceScore,
+    relevanceExplanation: guard.explanation,
+    alignedConcepts: guard.alignedConcepts,
+    issues: guard.issues
   }
 }
-

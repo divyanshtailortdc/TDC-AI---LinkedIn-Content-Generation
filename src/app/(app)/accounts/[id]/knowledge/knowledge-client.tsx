@@ -29,6 +29,8 @@ type KnowledgeDoc = {
   sourceUrl: string | null
   content: string
   summary: string | null
+  keyClaims: Array<{ claim: string; quote: string; confidence?: number }> | null
+  wordCount?: number
   createdAt: Date | string
 }
 
@@ -425,19 +427,22 @@ export function KnowledgeClient({
         ) : (
           <div className="space-y-4">
             {initialDocs.map(doc => {
-              let parsedSummary: {
-                summaryText?: string
-                claims?: Array<{ claim: string; quote: string }>
-              } = {}
-              try {
-                if (doc.summary) {
-                  parsedSummary = JSON.parse(doc.summary)
+              // Summary and claims live in their own columns; rows written before
+              // that still carry the packed JSON blob in `summary`.
+              let summaryText = doc.summary || undefined
+              let claims = doc.keyClaims || []
+              if (summaryText?.trim().startsWith('{')) {
+                try {
+                  const packed = JSON.parse(summaryText)
+                  summaryText = packed.summaryText || packed.summary || undefined
+                  if (claims.length === 0 && Array.isArray(packed.claims)) {
+                    claims = packed.claims
+                  }
+                } catch {
+                  // Leave the raw value alone if it will not parse.
                 }
-              } catch {
-                parsedSummary = { summaryText: doc.summary || undefined }
               }
-
-              const claims = parsedSummary.claims || []
+              const parsedSummary = { summaryText }
               const isExpanded = expandedDocId === doc.id
 
               return (

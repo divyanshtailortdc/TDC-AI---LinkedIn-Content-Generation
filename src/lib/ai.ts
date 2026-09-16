@@ -1,5 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createGateway } from 'ai'
+import { createGateway, type LanguageModel } from 'ai'
 import { env } from '~/env'
 
 export const hasAIGateway = Boolean(
@@ -20,38 +20,155 @@ export const anthropicClient = hasAnthropicKey
   ? createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })
   : null
 
-// Backwards compatibility export
-export const anthropic = anthropicClient || createAnthropic({ apiKey: 'dummy' })
-export const defaultModel = 'claude-3-5-sonnet-20241022'
-export const fastModel = 'claude-3-haiku-20240307'
+/** Reasoning-heavy work: ideation and drafting. */
+export const defaultModel = 'claude-opus-5'
+/** Bulk extraction where judgment matters less than throughput. */
+export const fastModel = 'claude-haiku-4-5'
+
+/** The gateway namespaces models by provider; the direct client does not. */
+function toGatewayModelId(modelId: string): string {
+  return modelId.includes('/') ? modelId : `anthropic/${modelId}`
+}
+
+export type AIStage =
+  | 'ideation'
+  | 'drafting'
+  | 'media_brief'
+  | 'voice_analysis'
+  | 'extraction'
 
 /**
- * Returns an active AI LanguageModel instance.
- * Prioritizes Vercel AI Gateway when configured, or direct Anthropic.
+ * Effort is the first quality/cost lever. Ideation and drafting carry the
+ * output quality, so they run high; extraction is mechanical.
  */
-export function getLanguageModel(preferredModel?: string) {
-  if (gatewayClient) {
-    const modelId = preferredModel?.includes('/')
-      ? preferredModel
-      : preferredModel?.includes('opus')
-        ? 'anthropic/claude-opus-5'
-        : 'anthropic/claude-sonnet-4.5'
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+/**
+ * Only the provider options this pipeline sets. The provider's full option type
+ * includes non-JSON-serializable members that `providerOptions` rejects.
+ */
+export type StageProviderOptions = {
+  anthropic: {
+    thinking?: { type: 'adaptive' }
+    effort?: Effort
+    structuredOutputMode?: 'outputFormat' | 'jsonTool' | 'auto'
+  }
+}
+
+const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
+  ideation: { model: defaultModel, effort: 'high' },
+  drafting: { model: defaultModel, effort: 'high' },
+  media_brief: { model: defaultModel, effort: 'medium' },
+  voice_analysis: { model: defaultModel, effort: 'medium' },
+  extraction: { model: fastModel, effort: 'low' }
+}
+
+export interface LanguageModelHandle {
+  model: LanguageModel
+  providerName: string
+  modelId: string
+  providerOptions: StageProviderOptions
+}
+
+/**
+ * Returns an active model for a pipeline stage, or null when no key is set.
+ * Callers must handle null rather than assuming AI is available.
+ */
+export function getLanguageModel(
+  stage: AIStage = 'drafting',
+  overrideModelId?: string
+): LanguageModelHandle | null {
+  const settings = STAGE_SETTINGS[stage]
+  const modelId = overrideModelId || settings.model
+
+  // Haiku 4.5 predates adaptive thinking and rejects `effort`.
+  const supportsAdaptiveThinking = !modelId.includes('haiku')
+
+  const providerOptions: StageProviderOptions = {
+    anthropic: {
+      // Pin native structured output. Under 'auto' the provider sometimes falls
+      // back to a tool call and returns the object wrapped in `{parameters:{...}}`,
+      // which then fails schema validation.
+      structuredOutputMode: 'outputFormat',
+      ...(supportsAdaptiveThinking
+        ? { thinking: { type: 'adaptive' as const }, effort: settings.effort }
+        : {})
+    }
+  }
+
+  if (gatewayClient) {
+    const gatewayId = toGatewayModelId(modelId)
     return {
-      model: gatewayClient(modelId),
+      model: gatewayClient(gatewayId),
       providerName: 'Vercel AI Gateway',
-      modelId
+      modelId: gatewayId,
+      providerOptions
     }
   }
 
   if (anthropicClient) {
-    const modelId = preferredModel || defaultModel
     return {
       model: anthropicClient(modelId),
       providerName: 'Anthropic Direct',
-      modelId
+      modelId,
+      providerOptions
     }
   }
 
   return null
+}
+
+/**
+ * Marks a message part as a cacheable prefix. The per-account system block is
+ * identical across every draft in a run, so caching it makes each post after
+ * the first read that prefix at a fraction of the price.
+ */
+export const EPHEMERAL_CACHE = {
+  anthropic: { cacheControl: { type: 'ephemeral' } }
+} as const
+
+export interface StageUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cacheReadTokens: number
+}
+
+/**
+ * Normalizes AI SDK usage for run accounting. `cacheReadTokens` staying at zero
+ * across a multi-post run means the cached system prefix is being invalidated
+ * and every draft is paying full price.
+ */
+export function readUsage(usage: unknown): StageUsage {
+  const u = usage as
+    | {
+        inputTokens?: number
+        outputTokens?: number
+        totalTokens?: number
+        inputTokenDetails?: { cacheReadTokens?: number }
+      }
+    | undefined
+
+  return {
+    inputTokens: u?.inputTokens ?? 0,
+    outputTokens: u?.outputTokens ?? 0,
+    totalTokens: u?.totalTokens ?? 0,
+    cacheReadTokens: u?.inputTokenDetails?.cacheReadTokens ?? 0
+  }
+}
+
+/** Published per-MTok rates for the models this pipeline uses. */
+const MODEL_RATES: Record<string, { input: number; output: number }> = {
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 2, output: 10 },
+  'claude-haiku-4-5': { input: 1, output: 5 }
+}
+
+export function estimateCostUsd(modelId: string, usage: StageUsage): number {
+  const key = modelId.replace(/^anthropic\//, '')
+  const rate = MODEL_RATES[key] || MODEL_RATES['claude-opus-5']!
+  return (
+    (usage.inputTokens / 1_000_000) * rate.input +
+    (usage.outputTokens / 1_000_000) * rate.output
+  )
 }

@@ -126,6 +126,16 @@ export const offeringsTable = pgTable('offerings', {
   type: varchar('type', { length: 30 }).default('service').notNull(),
   tagline: text('tagline'),
   description: text('description'),
+  whoItIsFor: text('who_it_is_for'),
+  problemSolved: text('problem_solved'),
+  keyFeatures: jsonb('key_features').$type<string[]>().default([]),
+  differentiators: jsonb('differentiators').$type<string[]>().default([]),
+  pricingNote: text('pricing_note'),
+  // Real metrics, named customers, case studies. Without a stocked list of true,
+  // specific numbers the model invents plausible ones.
+  proofPoints: jsonb('proof_points')
+    .$type<Array<{ label: string; detail?: string; sourceUrl?: string }>>()
+    .default([]),
   url: text('url'),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
@@ -159,8 +169,21 @@ export const audiencesTable = pgTable('audiences', {
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  jobTitles: jsonb('job_titles').$type<string[]>().default([]),
+  seniority: jsonb('seniority').$type<string[]>().default([]),
+  industries: jsonb('industries').$type<string[]>().default([]),
+  companySize: text('company_size'),
+  geography: text('geography'),
   painPoints: jsonb('pain_points').$type<string[]>().default([]),
   goals: jsonb('goals').$type<string[]>().default([]),
+  desires: jsonb('desires').$type<string[]>().default([]),
+  objections: jsonb('objections').$type<string[]>().default([]),
+  // Controls jargon density: "RAG pipeline" loses novices and insults experts.
+  sophisticationLevel: varchar('sophistication_level', { length: 20 })
+    .default('practitioner')
+    .notNull(),
+  // The belief the content has to move. Posts aimed at a belief beat posts aimed at a topic.
+  whatTheyDontBelieveYet: text('what_they_dont_believe_yet'),
   ...commonFieldDefs.dates
 })
 
@@ -177,7 +200,16 @@ export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
   sourceType: varchar('source_type', { length: 20 }).notNull(),
   sourceUrl: text('source_url'),
   content: text('content').notNull(),
+  author: text('author'),
+  publishedAt: commonFieldDefs.date('published_at'),
+  wordCount: integer('word_count').default(0).notNull(),
   summary: text('summary'),
+  topics: jsonb('topics').$type<string[]>().default([]),
+  // The grounding layer: a draft's assertion points at a claim, which points at
+  // a verbatim quote, which points at a URL.
+  keyClaims: jsonb('key_claims')
+    .$type<Array<{ claim: string; quote: string; confidence?: number }>>()
+    .default([]),
   ...commonFieldDefs.dates
 })
 
@@ -191,9 +223,28 @@ export const goalsTable = pgTable('goals', {
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
+  description: text('description'),
   objective: varchar('objective', { length: 30 })
     .default('thought_leadership')
     .notNull(),
+  audienceId: uuid('audience_id').references(() => audiencesTable.id, {
+    onDelete: 'set null'
+  }),
+  // The single thing every post under this goal has to land.
+  keyMessage: text('key_message'),
+  proofAssetIds: jsonb('proof_asset_ids').$type<string[]>().default([]),
+  desiredAction: text('desired_action'),
+  targetUrl: text('target_url'),
+  linkStrategy: varchar('link_strategy', { length: 20 })
+    .default('first_comment')
+    .notNull(),
+  successMetric: text('success_metric'),
+  // Multiple active goals otherwise compete invisibly; weights turn them into a calendar.
+  weight: integer('weight').default(5).notNull(),
+  startDate: commonFieldDefs.date('start_date'),
+  endDate: commonFieldDefs.date('end_date'),
+  dos: jsonb('dos').$type<string[]>().default([]),
+  donts: jsonb('donts').$type<string[]>().default([]),
   targetCount: integer('target_count').default(5).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
@@ -203,6 +254,60 @@ export const goalsTable = pgTable('goals', {
 // 8. Preferences (1:1 with Account) — cadence and content pillars
 // ---------------------------------------------------------------------------
 
+export type ContentPillar = {
+  name: string
+  description?: string
+  weight_pct: number
+  example_topics?: string[]
+  preferred_formats?: string[]
+}
+
+export type CadencePolicy = {
+  frequency: number
+  days_of_week: string[]
+  time_of_day: string
+  posts_per_run: number
+  ideas_per_run: number
+}
+
+export type ResearchPolicy = {
+  use_knowledge_base: boolean
+  source_ids?: string[]
+  use_web_search: boolean
+  provider: string
+  domain_mode: 'none' | 'allowed' | 'blocked'
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+  freshness_days: number
+  max_searches_per_run: number
+  require_citations: boolean
+  min_citations_per_post: number
+}
+
+export type MediaPolicy = {
+  default_mode: 'ai_generated' | 'stock' | 'none'
+  image_style_prompt: string
+  aspect_ratio: '1:1' | '16:9' | '4:5'
+  always_include_alt_text: boolean
+}
+
+export type PostConstraints = {
+  max_chars: number
+  target_chars: number
+  hook_max_chars: number
+  hashtag_count: number
+  emoji_level: 'none' | 'bullets_only' | 'liberal'
+  link_placement: 'body' | 'first_comment'
+  cta_required: boolean
+  variants_per_post: number
+}
+
+export type Guardrails = {
+  banned_topics: string[]
+  banned_words: string[]
+  compliance_notes: string
+}
+
 export const preferencesTable = pgTable('preferences', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -210,9 +315,15 @@ export const preferencesTable = pgTable('preferences', {
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   postsPerWeek: integer('posts_per_week').default(3).notNull(),
-  pillars: jsonb('pillars')
-    .$type<Array<{ name: string; weight: number }>>()
+  pillars: jsonb('pillars').$type<ContentPillar[]>().default([]),
+  formats: jsonb('formats')
+    .$type<Array<{ format: string; weight: number }>>()
     .default([]),
+  cadence: jsonb('cadence').$type<CadencePolicy | null>(),
+  researchPolicy: jsonb('research_policy').$type<ResearchPolicy | null>(),
+  mediaPolicy: jsonb('media_policy').$type<MediaPolicy | null>(),
+  postConstraints: jsonb('post_constraints').$type<PostConstraints | null>(),
+  guardrails: jsonb('guardrails').$type<Guardrails | null>(),
   ...commonFieldDefs.dates
 })
 

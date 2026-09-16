@@ -177,33 +177,59 @@ export function PreferencesForm({
       'All benchmarks and customer metrics must point to verified claims in the Knowledge Base.'
   }
 
-  // Hydrate if existing
-  if (rawPillars && typeof rawPillars === 'object') {
-    if (Array.isArray(rawPillars)) {
-      initialPillars = rawPillars.map((p: any) => ({
-        name: p.name,
-        description: p.description || '',
-        weight_pct: p.weight_pct || p.weight || 0,
-        example_topics: p.example_topics || [],
-        preferred_formats: p.preferred_formats || []
-      }))
-    } else {
-      if (rawPillars.pillars) initialPillars = rawPillars.pillars
-      if (rawPillars.formats) initialFormats = rawPillars.formats
-      if (rawPillars.cadence)
-        initialCadence = { ...initialCadence, ...rawPillars.cadence }
-      if (rawPillars.research_policy)
-        initialResearch = { ...initialResearch, ...rawPillars.research_policy }
-      if (rawPillars.media_policy)
-        initialMedia = { ...initialMedia, ...rawPillars.media_policy }
-      if (rawPillars.post_constraints)
-        initialConstraints = {
-          ...initialConstraints,
-          ...rawPillars.post_constraints
-        }
-      if (rawPillars.guardrails)
-        initialGuardrails = { ...initialGuardrails, ...rawPillars.guardrails }
+  // Hydrate from the dedicated columns. `pillars` also carried the whole payload
+  // before it was normalized, so an object there is still unpacked for safety.
+  if (Array.isArray(rawPillars) && rawPillars.length > 0) {
+    initialPillars = rawPillars.map((p: any) => ({
+      name: p.name,
+      description: p.description || '',
+      weight_pct: p.weight_pct || p.weight || 0,
+      example_topics: p.example_topics || [],
+      preferred_formats: p.preferred_formats || []
+    }))
+  } else if (rawPillars && typeof rawPillars === 'object') {
+    if (rawPillars.pillars) initialPillars = rawPillars.pillars
+    if (rawPillars.formats) initialFormats = rawPillars.formats
+    if (rawPillars.cadence)
+      initialCadence = { ...initialCadence, ...rawPillars.cadence }
+    if (rawPillars.research_policy)
+      initialResearch = { ...initialResearch, ...rawPillars.research_policy }
+    if (rawPillars.media_policy)
+      initialMedia = { ...initialMedia, ...rawPillars.media_policy }
+    if (rawPillars.post_constraints)
+      initialConstraints = {
+        ...initialConstraints,
+        ...rawPillars.post_constraints
+      }
+    if (rawPillars.guardrails)
+      initialGuardrails = { ...initialGuardrails, ...rawPillars.guardrails }
+  }
+
+  if (Array.isArray(existingPreferences?.formats) && existingPreferences.formats.length > 0) {
+    initialFormats = existingPreferences.formats
+  }
+  if (existingPreferences?.cadence) {
+    initialCadence = { ...initialCadence, ...existingPreferences.cadence }
+  }
+  if (existingPreferences?.researchPolicy) {
+    initialResearch = { ...initialResearch, ...existingPreferences.researchPolicy }
+  }
+  if (existingPreferences?.mediaPolicy) {
+    initialMedia = { ...initialMedia, ...existingPreferences.mediaPolicy }
+  }
+  if (existingPreferences?.postConstraints) {
+    initialConstraints = {
+      ...initialConstraints,
+      ...existingPreferences.postConstraints
     }
+  }
+  if (existingPreferences?.guardrails) {
+    initialGuardrails = { ...initialGuardrails, ...existingPreferences.guardrails }
+  }
+
+  // Older rows stored `stock_search`, which never matched the media pipeline.
+  if ((initialMedia.default_mode as string) === 'stock_search') {
+    initialMedia = { ...initialMedia, default_mode: 'stock' }
   }
 
   // Component states
@@ -811,7 +837,7 @@ export function PreferencesForm({
               <option value="ai_generated">
                 AI Generated (via AI Gateway)
               </option>
-              <option value="stock_search">Stock Image Search (Serper)</option>
+              <option value="stock">Stock Image Search (Serper)</option>
               <option value="none">Text Only</option>
             </select>
           </div>

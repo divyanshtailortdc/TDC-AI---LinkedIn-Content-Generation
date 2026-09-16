@@ -41,7 +41,20 @@ type ProofAsset = {
 type RawGoal = {
   id: string
   title: string
+  description: string | null
   objective: string
+  audienceId: string | null
+  keyMessage: string | null
+  proofAssetIds: string[] | null
+  desiredAction: string | null
+  targetUrl: string | null
+  linkStrategy: string
+  successMetric: string | null
+  weight: number
+  startDate: Date | string | null
+  endDate: Date | string | null
+  dos: string[] | null
+  donts: string[] | null
   targetCount: number
   isActive: boolean
   createdAt: Date | string
@@ -280,54 +293,35 @@ export function GoalsClient({
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const parsedGoals = initialGoals.map(g => {
-    try {
-      const data = JSON.parse(g.title)
-      if (data && typeof data === 'object' && data.title) {
-        return {
-          id: g.id,
-          displayTitle: data.title as string,
-          description: (data.description as string) || '',
-          objectiveType: (data.objectiveType as string) || g.objective,
-          audienceId: (data.audienceId as string) || '',
-          keyMessage: (data.keyMessage as string) || '',
-          proofAssetIds: (data.proofAssetIds as string[]) || [],
-          desiredAction: (data.desiredAction as string) || '',
-          targetUrl: (data.targetUrl as string) || '',
-          linkStrategy:
-            (data.linkStrategy as 'body' | 'first_comment') || 'first_comment',
-          successMetric: (data.successMetric as string) || '',
-          weight: (data.weight as number) || 5,
-          startDate: (data.startDate as string) || '',
-          endDate: (data.endDate as string) || '',
-          dos: (data.dos as string[]) || [],
-          donts: (data.donts as string[]) || [],
-          targetCount: g.targetCount,
-          isActive: g.isActive
-        }
-      }
-    } catch {}
-    return {
-      id: g.id,
-      displayTitle: g.title,
-      description: '',
-      objectiveType: g.objective,
-      audienceId: '',
-      keyMessage: '',
-      proofAssetIds: [],
-      desiredAction: '',
-      targetUrl: '',
-      linkStrategy: 'first_comment' as const,
-      successMetric: '',
-      weight: 5,
-      startDate: '',
-      endDate: '',
-      dos: [],
-      donts: [],
-      targetCount: g.targetCount,
-      isActive: g.isActive
-    }
-  })
+  // Dates come back from Postgres as Date objects; the <input type="date"> needs YYYY-MM-DD.
+  const toDateInput = (value: Date | string | null) => {
+    if (!value) return ''
+    const date = value instanceof Date ? value : new Date(value)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+  }
+
+  const parsedGoals = initialGoals.map(g => ({
+    id: g.id,
+    displayTitle: g.title,
+    description: g.description || '',
+    objectiveType: g.objective,
+    audienceId: g.audienceId || '',
+    keyMessage: g.keyMessage || '',
+    proofAssetIds: g.proofAssetIds || [],
+    desiredAction: g.desiredAction || '',
+    targetUrl: g.targetUrl || '',
+    linkStrategy: (g.linkStrategy === 'body' ? 'body' : 'first_comment') as
+      | 'body'
+      | 'first_comment',
+    successMetric: g.successMetric || '',
+    weight: g.weight ?? 5,
+    startDate: toDateInput(g.startDate),
+    endDate: toDateInput(g.endDate),
+    dos: g.dos || [],
+    donts: g.donts || [],
+    targetCount: g.targetCount,
+    isActive: g.isActive
+  }))
 
   return (
     <div className="space-y-8">

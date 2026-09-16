@@ -14,7 +14,7 @@ import {
   validateReferenceFile,
   validateStockQuery
 } from '@/lib/media/image-input'
-import { getUserFacingRelevance } from '@/lib/media/media-brief'
+import { getUserFacingRelevance } from '@/lib/media/brief'
 import {
   AlertTriangle,
   Check,
@@ -92,17 +92,8 @@ export interface PostDetail {
     visualType?: string
     relevanceScore?: number
     relevanceExplanation?: string
-    topicMatch?: boolean
-    thesisMatch?: boolean
-    introducesUnrelatedTopic?: boolean
+    issues?: string[]
     mediaBrief?: any
-    readability?: {
-      readabilityScore?: number
-      mobileReadable?: boolean
-      visualComplexity?: string
-      textDensity?: string
-      reasons?: string[]
-    } | null
     providerRequestId?: string
     seed?: number
     regenerationAttempt?: number
@@ -803,9 +794,7 @@ export function PostsClientInner({
     activePost?.media?.imageUrl && !isUserPromptedMedia
       ? {
           relevanceScore: activePost.media.relevanceScore,
-          topicMatch: activePost.media.topicMatch,
-          thesisMatch: activePost.media.thesisMatch,
-          introducesUnrelatedTopic: activePost.media.introducesUnrelatedTopic
+          issues: activePost.media.issues
         }
       : null
   )
@@ -1864,14 +1853,12 @@ export function PostsClientInner({
                             </span>
                           </div>
                           <div className="bg-surface-hover rounded-lg p-2">
-                            <span className="text-muted block">
-                              Mobile Readable
-                            </span>
+                            <span className="text-muted block">Relevance</span>
                             <span className="text-foreground font-semibold">
-                              {activePost.media?.readability?.mobileReadable !==
-                              false
-                                ? '✓ Yes'
-                                : '⚠ Unreadable on feed'}
+                              {typeof activePost.media?.relevanceScore ===
+                              'number'
+                                ? `${activePost.media.relevanceScore}/100`
+                                : 'Not scored'}
                             </span>
                           </div>
                         </div>

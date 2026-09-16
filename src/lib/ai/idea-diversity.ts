@@ -79,11 +79,30 @@ export function calculateThesisSimilarity(thesisA: string, thesisB: string): num
 /**
  * Checks if a thesis is primarily about generic disconnected systems / integration sprawl
  */
-export function isGenericIntegrationComplexityThesis(text: string): boolean {
-  const norm = text.toLowerCase()
-  const mentionsDisconnectionOrSilos = /disconnected systems|siloed systems|too many tools|point solutions|best-of-breed|multiple tools|system sprawl/i.test(norm)
-  const mentionsComplexityOrIntegration = /integration overhead|reconciliation lag|integration nightmare|data silos|sync issues|too many systems/i.test(norm)
-  return mentionsDisconnectionOrSilos && mentionsComplexityOrIntegration
+/**
+ * The dominant content words of a thesis, used to stop one theme from taking
+ * over a run. This replaced a hardcoded check for a single B2B-integration
+ * macro-thesis, which only ever applied to one account's domain.
+ */
+export function extractTopicSignature(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 4 && !STOP_WORDS.has(w))
+      .slice(0, 40)
+  )
+}
+
+/** True when two ideas lean on substantially the same vocabulary. */
+export function sharesDominantTopic(a: string, b: string): boolean {
+  const sigA = extractTopicSignature(a)
+  const sigB = extractTopicSignature(b)
+  if (sigA.size < 4 || sigB.size < 4) return false
+  let shared = 0
+  for (const w of sigA) if (sigB.has(w)) shared++
+  return shared / Math.min(sigA.size, sigB.size) >= 0.6
 }
 
 export interface DiversityCheckResult {
@@ -145,19 +164,16 @@ export function filterDiverseIdeas(
       continue
     }
 
-    // 1b. Check for repetitive "disconnected systems -> complexity" macro-thesis
-    const isIntegrationThesis = isGenericIntegrationComplexityThesis(candidateText)
-    if (isIntegrationThesis) {
-      const alreadyHasIntegrationThesis = selected.some((s) =>
-        isGenericIntegrationComplexityThesis(`${s.thesis} ${s.coreArgument}`)
-      )
-      if (alreadyHasIntegrationThesis) {
-        rejected.push({
-          idea: candidate,
-          reason: 'Duplicate macro-thesis: Disconnected systems and integration complexity already covered. Diversifying to other operational perspectives.'
-        })
-        continue
-      }
+    // 1b. Stop one theme from dominating the run, whatever that theme is.
+    const twinTopic = selected.find((s) =>
+      sharesDominantTopic(candidateText, `${s.thesis} ${s.coreArgument}`)
+    )
+    if (twinTopic) {
+      rejected.push({
+        idea: candidate,
+        reason: `Covers substantially the same theme as "${twinTopic.title}"`
+      })
+      continue
     }
 
     // 2. Perspective angle collision check
@@ -188,19 +204,13 @@ export function filterDiverseIdeas(
       const wasRejectedForThesis = rejected.some(
         (r) =>
           r.idea === candidate &&
-          (r.reason.includes('semantic thesis overlap') || r.reason.includes('Duplicate macro-thesis'))
+          (r.reason.includes('semantic thesis overlap') ||
+            r.reason.includes('substantially the same theme'))
       )
       if (wasRejectedForThesis) continue
       if (selected.length >= targetCount) break
 
       const candidateText = `${candidate.thesis} ${candidate.coreArgument}`
-      const isIntegrationThesis = isGenericIntegrationComplexityThesis(candidateText)
-      if (
-        isIntegrationThesis &&
-        selected.some((s) => isGenericIntegrationComplexityThesis(`${s.thesis} ${s.coreArgument}`))
-      ) {
-        continue
-      }
 
       const maxSim = selected.reduce((max, existing) => {
         const sim = calculateThesisSimilarity(candidateText, `${existing.thesis} ${existing.coreArgument}`)

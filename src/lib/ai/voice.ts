@@ -171,7 +171,7 @@ export async function analyzeVoiceSamples(samplesText: string): Promise<{
     throw new Error('Please paste at least one sample post to analyze.')
   }
 
-  const aiInstance = getLanguageModel()
+  const aiInstance = getLanguageModel('voice_analysis')
 
   if (!aiInstance) {
     return {
@@ -185,8 +185,9 @@ export async function analyzeVoiceSamples(samplesText: string): Promise<{
   try {
     const { object } = await generateObject({
       model: aiInstance.model,
+      providerOptions: aiInstance.providerOptions,
       schema: VoiceAnalysisSchema,
-      system: `You are an elite editorial writing coach, speechwriter, and linguistic analyst specializing in LinkedIn thought leadership.
+      instructions: `You are an elite editorial writing coach, speechwriter, and linguistic analyst specializing in LinkedIn thought leadership.
 Your job is to analyze real past LinkedIn posts from an author and extract an actionable, highly accurate Voice Profile.
 
 CRITICAL EDITORIAL RULES:

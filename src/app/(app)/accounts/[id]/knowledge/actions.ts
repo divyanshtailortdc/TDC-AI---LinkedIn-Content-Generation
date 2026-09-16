@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { knowledgeDocumentsTable } from '@/db/schema'
-import { scrapeUrl } from '@/lib/scraper'
+import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { extractKnowledgeClaims } from '@/lib/ai/knowledge-extractor'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -10,6 +10,15 @@ import { revalidatePath } from 'next/cache'
 export async function fetchUrlPreview(url: string) {
   try {
     const scraped = await scrapeUrl(url)
+
+    if (looksLikePlaceholderPage(scraped.title, scraped.content)) {
+      return {
+        success: false,
+        error:
+          'That URL returned an error or placeholder page rather than an article. Check the link, or paste the text in as an artifact instead.',
+      }
+    }
+
     return {
       success: true,
       title: scraped.title,
@@ -37,12 +46,7 @@ export async function saveKnowledgeDocument(payload: {
 
   // Extract summary and verified claims
   const extraction = await extractKnowledgeClaims(payload.title, payload.content)
-
-  // Store summary and claims in the summary column as structured JSON
-  const summaryPayload = JSON.stringify({
-    summaryText: extraction.summary,
-    claims: extraction.claims,
-  })
+  const content = payload.content.trim()
 
   const [inserted] = await db
     .insert(knowledgeDocumentsTable)
@@ -51,8 +55,11 @@ export async function saveKnowledgeDocument(payload: {
       title: payload.title.trim(),
       sourceType: payload.sourceType,
       sourceUrl: payload.sourceUrl || null,
-      content: payload.content.trim(),
-      summary: summaryPayload,
+      content,
+      summary: extraction.summary,
+      topics: extraction.topics,
+      keyClaims: extraction.claims,
+      wordCount: content.split(/\s+/).filter(Boolean).length,
     })
     .returning()
 

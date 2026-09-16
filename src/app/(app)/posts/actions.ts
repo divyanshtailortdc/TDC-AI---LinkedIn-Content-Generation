@@ -2,14 +2,17 @@
 
 import { db } from '@/db'
 import {
+  accountsTable,
   feedbackTable,
   ideasTable,
   postDraftsTable,
-  postMediaTable
+  postMediaTable,
+  preferencesTable
 } from '@/db/schema'
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
+import { DEFAULT_MEDIA_POLICY } from '~/lib/ai/context'
 import { validateImageUrl } from '~/lib/media/image-input'
 
 export async function updateDraft(
@@ -190,6 +193,35 @@ export async function removePostMediaAction(draftId: string) {
   }
 }
 
+
+/**
+ * The account's media policy governs manual generation too, so an image made
+ * from the review screen matches the ones the pipeline produces.
+ */
+async function loadMediaSettings(accountId: string) {
+  const [account, preference] = await Promise.all([
+    db.query.accountsTable.findFirst({ where: eq(accountsTable.id, accountId) }),
+    db.query.preferencesTable.findFirst({
+      where: eq(preferencesTable.accountId, accountId)
+    })
+  ])
+
+  const legacy =
+    preference?.pillars && !Array.isArray(preference.pillars)
+      ? (preference.pillars as Record<string, any>)
+      : null
+  const policy = {
+    ...DEFAULT_MEDIA_POLICY,
+    ...((preference?.mediaPolicy || legacy?.media_policy || {}) as object)
+  }
+
+  return {
+    accountName: account?.name,
+    aspectRatio: policy.aspect_ratio,
+    styleGuidance: policy.image_style_prompt || undefined
+  }
+}
+
 export async function generatePostMediaAction(
   draftId: string,
   options?: {
@@ -224,6 +256,8 @@ export async function generatePostMediaAction(
     const brief = options?.customPrompt?.trim() || draft.hook
     const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
 
+    const mediaSettings = await loadMediaSettings(draft.accountId)
+
     const mediaPlan = await createMediaPlan({
       mode,
       brief,
@@ -232,7 +266,8 @@ export async function generatePostMediaAction(
       postText: fullPostContent,
       thesis: thesis || coreArgument || topic,
       coreArgument,
-      evidence
+      evidence,
+      ...mediaSettings
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
@@ -281,7 +316,10 @@ export async function generatePostMediaAction(
       }
     }
 
-    return { success: false, error: 'Could not generate visual for this post' }
+    return {
+      success: false,
+      error: mediaPlan.error || 'Could not generate a visual for this post'
+    }
   } catch (err: any) {
     console.error('Error generating post media:', err)
     return {
@@ -376,7 +414,8 @@ export async function regeneratePostMediaAction(
       rejectionReason,
       regenerationAttempt: currentAttempt,
       version: currentVersion,
-      evidence
+      evidence,
+      ...(await loadMediaSettings(draft.accountId))
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
@@ -403,13 +442,9 @@ export async function regeneratePostMediaAction(
             alignedConcepts: mediaPlan.alignedConcepts,
             textOverlay: mediaPlan.textOverlay,
             mediaBrief: mediaPlan.mediaBrief,
-            conceptDifference: mediaPlan.conceptDifference,
+            issues: mediaPlan.issues,
             providerRequestId: mediaPlan.providerRequestId,
-            seed: mediaPlan.seed,
-            topicMatch: mediaPlan.topicMatch,
-            thesisMatch: mediaPlan.thesisMatch,
-            introducesUnrelatedTopic: mediaPlan.introducesUnrelatedTopic,
-            readability: mediaPlan.readability
+            seed: mediaPlan.seed
           }
         })
         .returning()
@@ -433,11 +468,8 @@ export async function regeneratePostMediaAction(
           visualType: mediaPlan.visualType,
           relevanceScore: mediaPlan.relevanceScore,
           relevanceExplanation: mediaPlan.relevanceExplanation,
-          topicMatch: mediaPlan.topicMatch,
-          thesisMatch: mediaPlan.thesisMatch,
-          introducesUnrelatedTopic: mediaPlan.introducesUnrelatedTopic,
+          issues: mediaPlan.issues,
           mediaBrief: mediaPlan.mediaBrief,
-          readability: mediaPlan.readability,
           providerRequestId: mediaPlan.providerRequestId,
           seed: mediaPlan.seed,
           regenerationAttempt: newMedia.regenerationAttempt

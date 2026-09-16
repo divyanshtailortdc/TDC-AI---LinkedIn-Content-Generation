@@ -1,22 +1,35 @@
 import { db } from '@/db'
 import {
-  accountsTable,
   ideasTable,
   postCitationsTable,
   postDraftsTable,
   postMediaTable,
   postVariantsTable,
-  preferencesTable,
-  runsTable,
   runStepsTable,
-  samplePostsTable,
-  voiceConfigsTable
+  runsTable
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { generateText, Output } from 'ai'
-import { getLanguageModel } from '~/lib/ai'
+import {
+  EPHEMERAL_CACHE,
+  estimateCostUsd,
+  getLanguageModel,
+  readUsage,
+  type StageUsage
+} from '~/lib/ai'
+import {
+  collectBannedWords,
+  loadGenerationContext,
+  renderAudienceBlock,
+  renderConstraintsBlock,
+  renderGoalBlock,
+  renderGuardrailsBlock,
+  renderIdentityBlock,
+  renderVoiceBlock,
+  type GenerationContext
+} from './context'
 import { DraftGenerationSchema, type DraftGenerationResult } from './schemas'
-import { runLinter } from '~/lib/lint/run-linter'
+import { runLinter, type LintFinding, type LintOptions } from '~/lib/lint/run-linter'
 import { createMediaPlan } from '~/lib/media'
 
 export interface DraftPostResult {
@@ -26,242 +39,390 @@ export interface DraftPostResult {
   status: string
 }
 
-export async function executeDraftingForIdea(ideaId: string): Promise<DraftPostResult> {
+/** The exemplars that teach rhythm better than any slider can. */
+function renderExemplars(ctx: GenerationContext): string {
+  const exemplars = ctx.samplePosts
+    .slice()
+    .sort((a, b) => Number(b.performedWell) - Number(a.performedWell))
+    .slice(0, 4)
+
+  if (exemplars.length === 0) return ''
+
+  return exemplars
+    .map((s, i) => {
+      const label = s.performedWell
+        ? `Example ${i + 1} (performed well${s.engagementNote ? `: ${s.engagementNote}` : ''})`
+        : `Example ${i + 1}`
+      return `${label}:\n"""\n${s.content}\n"""`
+    })
+    .join('\n\n')
+}
+
+export async function executeDraftingForIdea(
+  ideaId: string
+): Promise<DraftPostResult> {
   const idea = await db.query.ideasTable.findFirst({
     where: eq(ideasTable.id, ideaId)
   })
+  if (!idea) throw new Error(`Idea ${ideaId} not found`)
 
-  if (!idea) {
-    throw new Error(`Idea ${ideaId} not found`)
-  }
-
-  const accountId = idea.accountId
   const runId = idea.runId
+  const ctx = await loadGenerationContext(idea.accountId, {
+    goalId: idea.goalId
+  })
 
-  const [account, voiceConfig, samplePosts, preferences] = await Promise.all([
-    db.query.accountsTable.findFirst({ where: eq(accountsTable.id, accountId) }),
-    db.query.voiceConfigsTable.findFirst({ where: eq(voiceConfigsTable.accountId, accountId) }),
-    db.query.samplePostsTable.findMany({ where: eq(samplePostsTable.accountId, accountId) }),
-    db.query.preferencesTable.findFirst({ where: eq(preferencesTable.accountId, accountId) })
-  ])
+  const constraints = ctx.prefs.constraints
+  const goal = ctx.primaryGoal
+  // A goal states its own link strategy; it is more specific than the account default.
+  const linkPlacement = (goal?.linkStrategy === 'body' ||
+  goal?.linkStrategy === 'first_comment'
+    ? goal.linkStrategy
+    : constraints.link_placement) as 'body' | 'first_comment'
 
-  if (!account) {
-    throw new Error(`Account ${accountId} not found`)
+  const draftStart = Date.now()
+  const [draftStep] = runId
+    ? await db
+        .insert(runStepsTable)
+        .values({
+          runId,
+          stage: 'drafting',
+          status: 'running',
+          startedAt: new Date(),
+          requestSummary: `Drafting "${idea.title || idea.hook}"`
+        })
+        .returning()
+    : [null]
+
+  const handle = getLanguageModel('drafting')
+  if (!handle) {
+    const message =
+      'No AI provider configured. Add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to draft posts.'
+    if (draftStep) {
+      await db
+        .update(runStepsTable)
+        .set({ status: 'failed', completedAt: new Date(), error: message })
+        .where(eq(runStepsTable.id, draftStep.id))
+    }
+    throw new Error(message)
   }
 
-  const draftStart = new Date()
+  const usageTotals: StageUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cacheReadTokens: 0
+  }
+  let costUsd = 0
+
+  const exemplars = renderExemplars(ctx)
+  const guardrails = renderGuardrailsBlock(ctx)
+
+  /**
+   * Everything stable for this account and goal goes in one block so it can be
+   * cached. Every draft after the first in a run reads this prefix instead of
+   * paying for it again.
+   */
+  const stableSystem = `You are a ghostwriter producing a finished LinkedIn post for one specific author. You write in their voice, not yours, and you never invent facts.
+
+AUTHOR
+${renderIdentityBlock(ctx)}
+
+READER
+${renderAudienceBlock(ctx, goal)}
+
+GOAL THIS POST SERVES
+${renderGoalBlock(goal)}
+
+VOICE — match this precisely
+${renderVoiceBlock(ctx)}
+
+PLATFORM AND FORMAT RULES
+${renderConstraintsBlock(ctx)}
+${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
+
+TRUTH RULES
+- Use only the evidence supplied with the idea. If a number is not in that evidence, do not write a number.
+- Never claim first-hand experience that is not in the evidence.
+- Write plain text. Real line breaks, no markdown of any kind.
+${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
+
+  const ideaBrief = `Write the post for this approved idea.
+
+Title: ${idea.title}
+Thesis: ${idea.thesis || ''}
+Angle: ${idea.angle || ''}
+Why now: ${idea.whyNow || ''}
+Hook concept (turn this into real copy, do not copy it verbatim): ${idea.hookConcept || idea.hook}
+Core argument: ${idea.coreArgument || ''}
+Reader takeaway: ${idea.audienceTakeaway || ''}
+
+EVIDENCE YOU MAY USE (nothing outside this):
+${
+  (idea.supportingEvidence || []).length > 0
+    ? (idea.supportingEvidence || [])
+        .map(
+          (e, i) =>
+            `[${i + 1}] ${e.claim}${e.quote ? `\n    Quote: "${e.quote}"` : ''}${e.sourceTitle ? `\n    Source: ${e.sourceTitle}` : ''}${e.sourceUrl ? `\n    URL: ${e.sourceUrl}` : ''}`
+        )
+        .join('\n')
+    : 'No external evidence was gathered. Write from reasoning alone and state no statistics.'
+}
+
+Produce:
+1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold
+2. body — plain text, about ${constraints.target_chars} characters total including the hook
+3. cta — ${constraints.cta_required ? 'required' : 'optional'}${goal?.desiredAction ? `; steer toward: ${goal.desiredAction}` : ''}
+4. firstComment — ${
+    linkPlacement === 'first_comment'
+      ? `place any link here${goal?.targetUrl ? ` (use ${goal.targetUrl})` : ''}`
+      : 'optional supporting note'
+  }
+5. hashtags — exactly ${constraints.hashtag_count}, without the # symbol
+6. alternateHooks — ${Math.max(2, Math.min(constraints.variants_per_post, 3))} genuinely different openings
+7. selfScores — honest 1-10 ratings`
+
+  async function callModel(
+    userContent: string
+  ): Promise<DraftGenerationResult | null> {
+    const result = await generateText({
+      model: handle!.model,
+      providerOptions: handle!.providerOptions,
+      // The stable block goes through `instructions` so it renders ahead of the
+      // messages, and carries cacheControl so later drafts in the run read it
+      // from cache instead of paying for it again.
+      instructions: [
+        {
+          role: 'system',
+          content: stableSystem,
+          providerOptions: EPHEMERAL_CACHE
+        }
+      ],
+      messages: [{ role: 'user', content: userContent }],
+      output: Output.object({ schema: DraftGenerationSchema })
+    })
+
+    const usage = readUsage(result.usage)
+    usageTotals.inputTokens += usage.inputTokens
+    usageTotals.outputTokens += usage.outputTokens
+    usageTotals.totalTokens += usage.totalTokens
+    usageTotals.cacheReadTokens += usage.cacheReadTokens
+    costUsd += estimateCostUsd(handle!.modelId, usage)
+
+    return result.output ?? null
+  }
+
+  let draft: DraftGenerationResult | null = null
+  try {
+    draft = await callModel(ideaBrief)
+  } catch (err: any) {
+    const message = err?.message || 'Draft generation failed'
+    if (draftStep) {
+      await db
+        .update(runStepsTable)
+        .set({ status: 'failed', completedAt: new Date(), error: message })
+        .where(eq(runStepsTable.id, draftStep.id))
+    }
+    throw new Error(message)
+  }
+
+  if (!draft?.hook || !draft?.body) {
+    const message = 'The model returned an incomplete draft.'
+    if (draftStep) {
+      await db
+        .update(runStepsTable)
+        .set({ status: 'failed', completedAt: new Date(), error: message })
+        .where(eq(runStepsTable.id, draftStep.id))
+    }
+    throw new Error(message)
+  }
+
+  if (draftStep) {
+    await db
+      .update(runStepsTable)
+      .set({
+        status: 'completed',
+        completedAt: new Date(),
+        durationMs: Date.now() - draftStart,
+        tokens: usageTotals.totalTokens,
+        costUsd: costUsd.toFixed(4),
+        responseJson: {
+          model: handle.modelId,
+          cacheReadTokens: usageTotals.cacheReadTokens
+        }
+      })
+      .where(eq(runStepsTable.id, draftStep.id))
+  }
+
+  // ------------------------------------------------------------------- lint
+  const evidence = idea.supportingEvidence || []
+  const lintOptions = (d: DraftGenerationResult): LintOptions => ({
+    hook: d.hook,
+    body: d.body,
+    cta: d.cta,
+    firstComment: d.firstComment,
+    hashtags: d.hashtags,
+    linkPlacement,
+    bannedWords: collectBannedWords(ctx),
+    bannedTopics: ctx.prefs.guardrails.banned_topics,
+    maxChars: constraints.max_chars,
+    hookMaxChars: constraints.hook_max_chars,
+    hashtagCount: constraints.hashtag_count,
+    emojiLevel: constraints.emoji_level,
+    ctaRequired: constraints.cta_required,
+    citationsCount: evidence.length,
+    minCitations: ctx.prefs.research.min_citations_per_post
+  })
+
+  const lintStart = Date.now()
+  let lintFindings: LintFinding[] = runLinter(lintOptions(draft))
+  let revised = false
+
+  // --------------------------------------------------------- single revision
+  const blocking = lintFindings.filter(f => f.severity === 'error' && !f.passed)
+  if (blocking.length > 0) {
+    try {
+      const revision = await callModel(
+        `${ideaBrief}
+
+Your previous draft failed these checks. Rewrite it so every one passes, keeping the argument and the voice intact.
+
+PREVIOUS DRAFT
+Hook: ${draft.hook}
+Body:
+${draft.body}
+CTA: ${draft.cta}
+
+FAILED CHECKS
+${blocking.map(f => `- ${f.message}`).join('\n')}`
+      )
+      if (revision?.hook && revision?.body) {
+        const revisedFindings = runLinter(lintOptions(revision))
+        const revisedBlocking = revisedFindings.filter(
+          f => f.severity === 'error' && !f.passed
+        )
+        // Only keep the rewrite if it actually improved matters.
+        if (revisedBlocking.length < blocking.length) {
+          draft = revision
+          lintFindings = revisedFindings
+          revised = true
+        }
+      }
+    } catch (err) {
+      console.warn('Revision pass failed; keeping the original draft:', err)
+    }
+  }
+
   if (runId) {
     await db.insert(runStepsTable).values({
       runId,
-      stage: 'drafting',
-      status: 'running',
-      startedAt: draftStart,
-      requestSummary: `Drafting post for approved angle: "${idea.title || idea.hook}"`
+      stage: 'linting',
+      status: 'completed',
+      startedAt: new Date(lintStart),
+      completedAt: new Date(),
+      durationMs: Date.now() - lintStart,
+      requestSummary: revised
+        ? 'Checked platform rules, then revised once to clear blocking findings'
+        : 'Checked platform rules, character limits, guardrails and citations',
+      responseJson: {
+        revised,
+        failed: lintFindings.filter(f => !f.passed).map(f => f.rule),
+        errors: lintFindings.filter(f => f.severity === 'error' && !f.passed).length
+      }
     })
   }
 
-  const aiModelResult = getLanguageModel()
-  let generatedDraft: DraftGenerationResult | null = null
-
-  const exemplarSamples = samplePosts
-    .filter((sp) => sp.performedWell)
-    .slice(0, 3)
-    .map((sp) => sp.content)
-    .join('\n---\n')
-
-  const prefConfig = (preferences?.pillars as any) || {}
-  const postConstraints = prefConfig.post_constraints || {}
-  const targetChars = postConstraints.target_chars || 1300
-  const hookMaxChars = postConstraints.hook_max_chars || 200
-  const linkPlacement = postConstraints.link_placement || 'first_comment'
-
-  if (aiModelResult) {
-    try {
-      const systemPrompt = `
-You are an elite LinkedIn ghostwriter for ${account.name} (${account.headline}).
-You write crisp, believable, punchy LinkedIn posts that respect the platform's visual mechanics and reader psychology.
-
-VOICE RUBRIC:
-${voiceConfig?.derivedStyleRubric || 'Punchy, clear, candid, pragmatic tone.'}
-
-BANNED BUZZWORDS:
-Never use: delve, leverage, unlock, game-changer, "in today's fast-paced world", "I'm thrilled to announce", supercharge, revolutionize, synergy, tapestry.
-
-PLATFORM CONSTRAINTS:
-1. HOOK: Must strictly stay within ${hookMaxChars} characters before the "...see more" fold. Never break mid-sentence or mid-word.
-2. NO MARKDOWN: LinkedIn does NOT render markdown syntax. Do NOT use **bold**, ## headers, or raw [text](url). Use standard punctuation and clean single-line breaks.
-3. BODY: Target length ~${targetChars} characters. Use short, readable paragraphs (1-3 sentences per paragraph).
-4. LINK PLACEMENT: If strategy is "first_comment", keep all external links OUT of the body and place them in firstComment.
-`
-
-      const userPrompt = `
-Draft a complete LinkedIn post based on this approved idea:
-
-Angle: ${idea.angle}
-Core Argument: ${idea.coreArgument}
-Why Now: ${idea.whyNow}
-Hook Concept: ${idea.hookConcept}
-Audience Takeaway: ${idea.audienceTakeaway}
-Supporting Evidence:
-${JSON.stringify(idea.supportingEvidence)}
-
-${exemplarSamples ? `Real High-Performing Past Exemplars to emulate:\n${exemplarSamples}\n` : ''}
-
-Generate:
-1. hook (<= ${hookMaxChars} chars)
-2. body (clean plain text with real double line-breaks \\n\\n)
-3. cta (closing takeaway or soft question)
-4. firstComment (${linkPlacement === 'first_comment' ? 'Include citation link or follow-up note' : 'Optional bonus note'})
-5. hashtags (0-3 clean tags)
-6. 2-3 alternateHooks for rapid testing
-7. selfScores (1-10 for hookStrength, onBrand, clarity, evidenceGrounding, originality)
-`
-
-      const { output } = await generateText({
-        model: aiModelResult.model,
-        system: systemPrompt,
-        prompt: userPrompt,
-        output: Output.object({ schema: DraftGenerationSchema })
-      })
-
-      if (output?.hook && output?.body) {
-        generatedDraft = output
-      }
-    } catch (err) {
-      console.error('AI Draft generation call failed, using heuristic draft:', err)
-    }
+  // ------------------------------------------------------------------ media
+  const suggested = (idea.suggestedMedia || {}) as {
+    mode?: 'ai_generated' | 'stock' | 'none'
+    brief?: string
   }
+  // The idea carries the human's per-idea override from the approval gate;
+  // otherwise the account's media policy decides.
+  const mediaMode = suggested.mode || ctx.prefs.media.default_mode
+  const fullPostText = [draft.hook, draft.body, draft.cta]
+    .filter(Boolean)
+    .join('\n\n')
 
-  // Heuristic draft fallback
-  if (!generatedDraft) {
-    const hook = idea.hookConcept || `Here is what most teams get wrong about ${idea.pillar || 'execution'}:`
-    const body = `${idea.coreArgument}\n\nThree reasons why this shift matters today:\n\n1. Velocity without direction is just accelerating burnout.\n2. When you measure output instead of outcome, vanity metrics win.\n3. The teams winning this quarter are simplifying, not adding complexity.\n\n${idea.audienceTakeaway}`
-    const cta = `What is the biggest operational constraint in your team right now?`
-    const firstComment = `For background and verified metrics on this breakdown, reference our full analysis here: ${account.websiteUrl || 'https://linkedin.com'}`
-
-    generatedDraft = {
-      hook,
-      body,
-      cta,
-      firstComment,
-      hashtags: ['Leadership', 'Operations', 'Growth'],
-      alternateHooks: [
-        `The biggest risk in modern operations isn't failure. It's moving fast in the wrong direction.`,
-        `Stop tracking task volume. Here is the only metric that actually compounds:`
-      ],
-      selfScores: {
-        hookStrength: 8,
-        onBrand: 9,
-        clarity: 9,
-        evidenceGrounding: 8,
-        originality: 8
-      },
-      selfFlags: []
-    }
-  }
-
-  // Stage 4: Deterministic Linter Check
-  const lintFindings = runLinter({
-    hook: generatedDraft.hook,
-    body: generatedDraft.body,
-    firstComment: generatedDraft.firstComment,
-    linkPlacement: linkPlacement as any,
-    bannedWords: voiceConfig?.bannedWords as string[] || [],
-    maxChars: 3000,
-    hookMaxChars: 200,
-    citationsCount: Array.isArray(idea.supportingEvidence) ? idea.supportingEvidence.length : 0
-  })
-
-  // Stage 5: Single-pass Revision if markdown or hook errors detected
-  const hasMarkdownLeak = lintFindings.some((f) => f.rule === 'no_markdown_leakage' && !f.passed)
-  if (hasMarkdownLeak) {
-    // Deterministic cleanup of markdown syntax
-    generatedDraft.body = generatedDraft.body
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1')
-      .replace(/#{1,6}\s+/g, '')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '$1 ($2)')
-  }
-
-  // Stage 6: Media Planning with Semantic Brief & Relevance Validation
-  const suggestedMedia =
-    (idea.suggestedMedia as {
-      mode?: 'ai_generated' | 'stock' | 'none'
-      brief?: string
-    }) || {}
-  const targetMode = suggestedMedia.mode || 'ai_generated'
-  const fullPostContent = `${generatedDraft.hook}\n\n${generatedDraft.body}\n\n${generatedDraft.cta}`
-  const evidenceList = (idea.supportingEvidence as Array<{
-    claim: string
-    sourceUrl?: string
-    sourceTitle?: string
-    quote?: string
-  }>) || []
-
+  const mediaStart = Date.now()
   const mediaPlan = await createMediaPlan({
-    mode: targetMode,
-    brief:
-      suggestedMedia.brief ||
-      idea.title ||
-      idea.pillar ||
-      'Professional business concept',
-    topic: idea.pillar || idea.title || 'Business strategy',
-    hook: generatedDraft.hook,
-    postText: fullPostContent,
+    mode: mediaMode,
+    brief: suggested.brief || null,
+    topic: idea.pillar || idea.title,
+    hook: draft.hook,
+    postText: fullPostText,
     thesis: idea.thesis || idea.coreArgument || idea.title,
     coreArgument: idea.coreArgument || undefined,
-    evidence: evidenceList
+    evidence,
+    aspectRatio: ctx.prefs.media.aspect_ratio,
+    styleGuidance: ctx.prefs.media.image_style_prompt || undefined,
+    accountName: ctx.account.name
   })
 
-  const charCount = fullPostContent.length
+  if (runId && mediaMode !== 'none') {
+    await db.insert(runStepsTable).values({
+      runId,
+      stage: 'media',
+      status: mediaPlan.imageUrl ? 'completed' : 'failed',
+      startedAt: new Date(mediaStart),
+      completedAt: new Date(),
+      durationMs: Date.now() - mediaStart,
+      requestSummary: `Media plan (${mediaPlan.mode})`,
+      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced',
+      responseJson: {
+        mode: mediaPlan.mode,
+        fallbackApplied: mediaPlan.fallbackApplied || false,
+        relevanceScore: mediaPlan.relevanceScore,
+        concept: mediaPlan.mediaBrief?.primaryConcept
+      }
+    })
+  }
 
-  // Insert into postDraftsTable
-  const [draft] = await db
+  // ----------------------------------------------------------------- persist
+  const charCount = fullPostText.length
+
+  const [saved] = await db
     .insert(postDraftsTable)
     .values({
-      accountId,
+      accountId: ctx.account.id,
       ideaId,
-      hook: generatedDraft.hook,
-      body: generatedDraft.body,
-      cta: generatedDraft.cta,
-      firstComment: generatedDraft.firstComment || null,
-      hashtags: generatedDraft.hashtags,
+      hook: draft.hook,
+      body: draft.body,
+      cta: draft.cta,
+      firstComment: draft.firstComment || null,
+      hashtags: draft.hashtags,
+      format: idea.format || 'thought_leadership',
       charCount,
-      selfScores: generatedDraft.selfScores,
-      selfFlags: generatedDraft.selfFlags,
+      selfScores: draft.selfScores,
+      selfFlags: draft.selfFlags,
       lintFindings,
       status: 'awaiting_review'
     })
     .returning()
 
-  if (!draft) {
-    throw new Error('Failed to create post draft record')
-  }
+  if (!saved) throw new Error('Failed to create post draft record')
 
-  // Insert Alternate Hooks into postVariantsTable
-  for (const altHook of generatedDraft.alternateHooks) {
+  const variantLimit = Math.max(1, Math.min(constraints.variants_per_post, 5))
+  for (const altHook of (draft.alternateHooks || []).slice(0, variantLimit)) {
     await db.insert(postVariantsTable).values({
-      draftId: draft.id,
+      draftId: saved.id,
       variantType: 'hook',
       content: altHook
     })
   }
 
-  // Insert Citations into postCitationsTable
-  for (const ev of evidenceList) {
+  for (const ev of evidence) {
     await db.insert(postCitationsTable).values({
-      draftId: draft.id,
+      draftId: saved.id,
       claim: ev.claim,
-      quote: ev.quote || ev.claim,
+      quote: ev.quote || null,
       sourceUrl: ev.sourceUrl || null,
-      sourceTitle: ev.sourceTitle || 'Knowledge Citation'
+      sourceTitle: ev.sourceTitle || null
     })
   }
 
-  // Insert Media into postMediaTable if media mode is not none
   if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
     await db.insert(postMediaTable).values({
-      draftId: draft.id,
+      draftId: saved.id,
       mode: mediaPlan.mode,
       imageUrl: mediaPlan.imageUrl,
       altText: mediaPlan.altText || null,
@@ -269,58 +430,56 @@ Generate:
       metadata: {
         sourcePageUrl: mediaPlan.sourcePageUrl,
         fallbackApplied: mediaPlan.fallbackApplied || false,
-        visualType: mediaPlan.visualType,
         relevanceScore: mediaPlan.relevanceScore,
         relevanceExplanation: mediaPlan.relevanceExplanation,
-        alignedConcepts: mediaPlan.alignedConcepts,
-        textOverlay: mediaPlan.textOverlay,
         mediaBrief: mediaPlan.mediaBrief
       }
     })
   }
 
-  // Update idea status to 'approved'
   await db
     .update(ideasTable)
-    .set({ status: 'approved' })
+    .set({ status: 'drafted', updatedAt: new Date() })
     .where(eq(ideasTable.id, ideaId))
 
-  // Complete drafting stage in runStepsTable
+  // ----------------------------------------------------- run bookkeeping
   if (runId) {
-    await db.insert(runStepsTable).values({
-      runId,
-      stage: 'linting',
-      status: 'completed',
-      durationMs: 40,
-      requestSummary: 'Verified character limits, fold constraint, and markdown leaks'
+    const run = await db.query.runsTable.findFirst({
+      where: eq(runsTable.id, runId)
     })
+    const previous = (run?.tokenCounts || {}) as Partial<StageUsage>
+    const previousCost = Number(run?.costUsd || 0)
 
-    await db.insert(runStepsTable).values({
-      runId,
-      stage: 'media',
-      status: 'completed',
-      durationMs: 80,
-      requestSummary: `Formulated media plan (${mediaPlan.mode})`
-    })
-
-    // Check if other ideas in this run are still awaiting drafting
-    const remainingApproved = await db.query.ideasTable.findMany({
+    const runIdeas = await db.query.ideasTable.findMany({
       where: eq(ideasTable.runId, runId)
     })
+    // A run is finished once nothing is still approved and waiting to be drafted.
+    const pending = runIdeas.some(i => i.status === 'approved')
 
-    const hasUnprocessed = remainingApproved.some((i) => i.status === 'proposed')
-    if (!hasUnprocessed) {
-      await db
-        .update(runsTable)
-        .set({ status: 'completed', currentStep: 3, totalSteps: 3 })
-        .where(eq(runsTable.id, runId))
-    }
+    await db
+      .update(runsTable)
+      .set({
+        status: pending ? 'drafting' : 'completed',
+        currentStep: pending ? 2 : 3,
+        totalSteps: 3,
+        tokenCounts: {
+          inputTokens: (previous.inputTokens || 0) + usageTotals.inputTokens,
+          outputTokens: (previous.outputTokens || 0) + usageTotals.outputTokens,
+          totalTokens: (previous.totalTokens || 0) + usageTotals.totalTokens,
+          cacheReadTokens:
+            (previous.cacheReadTokens || 0) + usageTotals.cacheReadTokens
+        },
+        costUsd: (previousCost + costUsd).toFixed(4)
+      })
+      .where(eq(runsTable.id, runId))
   }
 
   return {
-    draftId: draft.id,
+    draftId: saved.id,
     charCount,
-    lintErrorsCount: lintFindings.filter((f) => f.severity === 'error').length,
+    lintErrorsCount: lintFindings.filter(
+      f => f.severity === 'error' && !f.passed
+    ).length,
     status: 'awaiting_review'
   }
 }

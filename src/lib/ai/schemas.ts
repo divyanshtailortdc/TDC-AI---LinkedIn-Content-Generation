@@ -210,20 +210,45 @@ export function sanitizeVoiceAnalysis(
 // Ideas & Thesis Generation Schemas (W7 / Stage 1)
 // ---------------------------------------------------------------------------
 
+/**
+ * Analytical lenses, deliberately domain-neutral.
+ *
+ * These were previously B2B-distribution specific ("pricing_commercial_rules",
+ * "data_ownership"), which pushed every account's ideas toward that domain no
+ * matter what the account actually did.
+ */
 export const PERSPECTIVE_ANGLES = [
-  'operational_problems',
-  'strategic_decisions',
-  'industry_misconceptions',
-  'technology_architecture',
-  'buyer_behavior',
-  'automation',
-  'contrarian_viewpoints',
-  'customer_experience',
-  'pricing_commercial_rules',
-  'data_ownership',
-  'workflow_design',
-  'scalability_tradeoffs'
+  'contrarian_take',
+  'common_misconception',
+  'practitioner_lesson',
+  'decision_framework',
+  'tradeoff_analysis',
+  'trend_interpretation',
+  'failure_postmortem',
+  'first_principles',
+  'comparison',
+  'prediction',
+  'process_breakdown',
+  'belief_shift'
 ] as const
+
+export const PERSPECTIVE_ANGLE_GUIDE: Record<
+  (typeof PERSPECTIVE_ANGLES)[number],
+  string
+> = {
+  contrarian_take: 'Challenge something the audience currently accepts, with evidence.',
+  common_misconception: 'Name a belief that is widespread in this field and wrong.',
+  practitioner_lesson: 'A lesson only someone who has actually done the work would know.',
+  decision_framework: 'How to decide between options the reader is weighing right now.',
+  tradeoff_analysis: 'Make an unavoidable tradeoff explicit instead of pretending it away.',
+  trend_interpretation: 'What a current, evidenced development actually means for the reader.',
+  failure_postmortem: 'Why a common approach breaks down, and the mechanism behind it.',
+  first_principles: 'Rebuild the reasoning from the ground up and land somewhere non-obvious.',
+  comparison: 'Compare two approaches on criteria the reader has not considered.',
+  prediction: 'A specific, falsifiable claim about where this is heading, and why.',
+  process_breakdown: 'The concrete steps behind a result people usually describe vaguely.',
+  belief_shift: "Aim directly at the audience's stated belief and move it."
+}
 
 export type PerspectiveAngle = (typeof PERSPECTIVE_ANGLES)[number]
 
@@ -248,7 +273,7 @@ export type ThesesGenerationResult = z.infer<typeof ThesesGenerationSchema>
 export const IdeaItemSchema = z.object({
   title: z.string().describe('Short punchy title for this idea'),
   thesis: z.string().describe('The underlying root proposition or defensible claim'),
-  perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).default('operational_problems'),
+  perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).default('practitioner_lesson'),
   angle: z.string().describe('The distinctive POV or contrarian thesis lens'),
   pillar: z.string().describe('Which content pillar this belongs to'),
   format: z.string().default('thought_leadership'),

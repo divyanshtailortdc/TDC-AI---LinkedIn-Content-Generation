@@ -8,7 +8,7 @@ import {
   preferencesTable,
   accountsTable
 } from '@/db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 
 export interface EnqueueRunOptions {
   accountId: string
@@ -29,7 +29,16 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
     throw new Error(`Account ${opts.accountId} not found`)
   }
 
-  const prefConfig = (preference?.pillars as any) || {}
+  // Freeze the policies that produced this run so "why did it write that?"
+  // stays answerable after preferences change.
+  const legacy =
+    preference?.pillars && !Array.isArray(preference.pillars)
+      ? (preference.pillars as Record<string, unknown>)
+      : null
+  const researchConfig =
+    preference?.researchPolicy || (legacy?.research_policy as object) || {}
+  const mediaConfig =
+    preference?.mediaPolicy || (legacy?.media_policy as object) || {}
 
   const [newRun] = await db
     .insert(runsTable)
@@ -42,8 +51,8 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
       status: 'queued',
       currentStep: 0,
       totalSteps: 3,
-      researchConfig: prefConfig.research_policy || {},
-      mediaConfig: prefConfig.media_policy || {},
+      researchConfig,
+      mediaConfig,
       timings: {},
       tokenCounts: {},
       costUsd: '0',
@@ -61,15 +70,22 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
   return newRun
 }
 
+/**
+ * Claims the oldest queued run, or returns null if there is none.
+ *
+ * Two details matter here. The queue is FIFO (`asc`) — ordering by `desc` meant
+ * a busy queue starved its oldest runs. And the UPDATE re-checks `status`, so
+ * if another worker claimed the row between the SELECT and the UPDATE this
+ * returns nothing instead of running the same job twice.
+ */
 export async function claimNextQueuedRun() {
   const nextQueued = await db.query.runsTable.findFirst({
     where: eq(runsTable.status, 'queued'),
-    orderBy: [desc(runsTable.createdAt)]
+    orderBy: [asc(runsTable.createdAt)]
   })
 
   if (!nextQueued) return null
 
-  // Atomically claim
   const [claimed] = await db
     .update(runsTable)
     .set({
@@ -77,10 +93,12 @@ export async function claimNextQueuedRun() {
       currentStep: 1,
       updatedAt: new Date()
     })
-    .where(eq(runsTable.id, nextQueued.id))
+    .where(
+      and(eq(runsTable.id, nextQueued.id), eq(runsTable.status, 'queued'))
+    )
     .returning()
 
-  return claimed
+  return claimed ?? null
 }
 
 export async function getRunDetails(runId: string) {

@@ -20,6 +20,27 @@ function cleanJinaMarkdown(md: string): string {
     .trim()
 }
 
+/**
+ * Error and placeholder pages scrape "successfully" and then sit in the
+ * knowledge base as grounding evidence. Catching them at ingest keeps the
+ * corpus honest.
+ */
+const PLACEHOLDER_TITLE =
+  /^\s*(page not found|404|not found|error|access denied|forbidden|just a moment|attention required|are you a robot|enable javascript|sign in|log in)\b/i
+
+export function looksLikePlaceholderPage(
+  title: string,
+  content: string
+): boolean {
+  if (PLACEHOLDER_TITLE.test(title)) return true
+  const body = content.slice(0, 600).toLowerCase()
+  return (
+    /\b(404|page (?:could not be|cannot be|not) found|this page (?:does not|doesn't) exist)\b/.test(
+      body
+    ) && content.split(/\s+/).filter(Boolean).length < 200
+  )
+}
+
 export async function scrapeUrl(url: string): Promise<ScrapedContent> {
   let validUrl = url.trim()
   if (!validUrl.startsWith('http://') && !validUrl.startsWith('https://')) {
