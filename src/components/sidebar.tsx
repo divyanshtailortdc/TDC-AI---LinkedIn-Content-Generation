@@ -4,22 +4,27 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  Users,
   Lightbulb,
   FileText,
   Play,
   Sparkles
 } from 'lucide-react'
+import { AccountSwitcher, type SwitchableAccount } from '@/components/account-switcher'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/accounts', label: 'Accounts', icon: Users },
   { href: '/ideas', label: 'Ideas', icon: Lightbulb },
   { href: '/posts', label: 'Posts', icon: FileText },
   { href: '/runs', label: 'Run Details', icon: Play },
 ]
 
-export function Sidebar() {
+export function Sidebar({
+  accounts,
+  activeAccount
+}: {
+  accounts: SwitchableAccount[]
+  activeAccount: SwitchableAccount | null
+}) {
   const pathname = usePathname()
 
   return (
@@ -59,9 +64,10 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 py-4 border-t border-sidebar-border">
-        <p className="text-xs text-muted">Phase 1 · v0.1</p>
+      {/* Active identity switcher */}
+      <div className="px-3 py-3 border-t border-sidebar-border">
+        <AccountSwitcher accounts={accounts} activeAccount={activeAccount} />
+        <p className="mt-2.5 px-1 text-xs text-muted">Phase 1 · v0.1</p>
       </div>
     </aside>
   )

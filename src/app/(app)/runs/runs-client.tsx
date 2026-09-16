@@ -34,26 +34,23 @@ interface RunSummary {
 
 export function RunsClient({
   initialRuns,
-  accounts,
+  activeAccount,
   hideHeader
 }: {
   initialRuns: RunSummary[]
-  accounts: Array<{ id: string; name: string }>
+  activeAccount: { id: string; name: string } | null
   hideHeader?: boolean
 }) {
   const router = useRouter()
   const [runs, setRuns] = useState<RunSummary[]>(initialRuns)
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(
-    accounts[0]?.id || ''
-  )
   const [isTriggering, setIsTriggering] = useState(false)
   const [showModal, setShowModal] = useState(false)
 
   const handleGenerateNow = async () => {
-    if (!selectedAccountId) return
+    if (!activeAccount) return
     setIsTriggering(true)
     try {
-      const res = await triggerNewRun(selectedAccountId)
+      const res = await triggerNewRun(activeAccount.id)
       if (res.success && res.runId) {
         setShowModal(false)
         router.push(`/runs/${res.runId}`)
@@ -78,19 +75,11 @@ export function RunsClient({
 
             <div>
               <label className="block text-xs font-medium text-muted mb-1.5">
-                Select Identity
+                Identity
               </label>
-              <select
-                value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="w-full rounded-xl border border-border bg-surface-hover p-2.5 text-xs text-foreground outline-none"
-              >
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name}
-                  </option>
-                ))}
-              </select>
+              <div className="w-full rounded-xl border border-border bg-surface-hover p-2.5 text-xs text-foreground">
+                {activeAccount?.name || 'No active identity selected'}
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -104,8 +93,8 @@ export function RunsClient({
               <button
                 type="button"
                 onClick={handleGenerateNow}
-                disabled={isTriggering}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-background text-xs font-semibold shadow-xs"
+                disabled={isTriggering || !activeAccount}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-background text-xs font-semibold shadow-xs disabled:opacity-60"
               >
                 {isTriggering && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Launch Run</span>

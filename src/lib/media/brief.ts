@@ -2,13 +2,6 @@ import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { getLanguageModel } from '~/lib/ai'
 
-// Re-exported for server callers; the UI imports it from './relevance' directly
-// so it does not pull this module's server dependencies into the client bundle.
-export {
-  getUserFacingRelevance,
-  type UserFacingRelevanceInfo,
-  type UserFacingRelevanceLevel
-} from './relevance'
 
 /**
  * Media briefs are written by the model from the actual post.
@@ -62,6 +55,11 @@ export interface EvidenceSource {
   isFresh?: boolean
   verified?: boolean
 }
+
+// Moved to relevance-label.ts (client-safe, no server env/AI SDK imports).
+// Re-exported here so existing server-side importers keep working.
+export type { UserFacingRelevanceLevel, UserFacingRelevanceInfo } from './relevance-label'
+export { getUserFacingRelevance } from './relevance-label'
 
 export interface BriefGuardResult {
   relevanceScore: number
@@ -433,3 +431,4 @@ export async function deriveMediaBrief(
     return null
   }
 }
+

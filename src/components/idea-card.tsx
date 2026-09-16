@@ -1,5 +1,15 @@
 import { useState } from 'react'
-import { Check, X, Edit3, Loader2, ExternalLink, AlertTriangle } from 'lucide-react'
+import {
+  Check,
+  X,
+  Edit3,
+  Loader2,
+  ExternalLink,
+  AlertTriangle,
+  ChevronDown
+} from 'lucide-react'
+import { cn } from '@/lib/cn'
+import { ConfirmPopover } from '@/components/confirm-popover'
 
 export interface IdeaCardData {
   id: string
@@ -29,23 +39,55 @@ interface IdeaCardProps {
   onEditSave: (id: string, payload: { hookConcept: string; angle: string }) => Promise<void>
 }
 
+const STATUS_STYLE: Record<string, string> = {
+  approved: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-400',
+  rejected: 'text-rose-600 bg-rose-500/10 dark:text-rose-400',
+  proposed: 'text-muted bg-surface-hover'
+}
+
+/**
+ * Decision actions only make sense while an idea is still at the gate.
+ * - proposed: the full decision — Reject, Edit, Approve.
+ * - approved / rejected: Edit stays available, but only the action that
+ *   would move it back the other way makes sense (Reject an approved idea,
+ *   Approve a rejected one) — not both.
+ * - anything else (e.g. already drafted and moved past the gate): the gate
+ *   decision is over, so no gate actions are shown at all.
+ */
+function gateActionsFor(status: string) {
+  switch (status) {
+    case 'proposed':
+      return { canReject: true, canEdit: true, canApprove: true }
+    case 'approved':
+      return { canReject: true, canEdit: true, canApprove: false }
+    case 'rejected':
+      return { canReject: false, canEdit: true, canApprove: true }
+    default:
+      return { canReject: false, canEdit: false, canApprove: false }
+  }
+}
+
 export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProps) {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [editHook, setEditHook] = useState(idea.hookConcept || '')
   const [editAngle, setEditAngle] = useState(idea.angle || '')
+  const [showDetails, setShowDetails] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
 
   const evidence = (idea.supportingEvidence as any[]) || []
   const risks = idea.risks || []
+  const title = idea.hookConcept || idea.title || 'Untitled Idea'
+  const argument = idea.thesis || idea.coreArgument
+  const { canReject, canEdit, canApprove } = gateActionsFor(idea.status)
 
   // Grounding is the number that should change an approve/reject decision, so
   // it is shown plainly rather than as a colour alone.
   const groundingTone =
     (idea.groundingScore ?? 0) >= 75
-      ? 'text-emerald-500'
+      ? 'text-emerald-600 dark:text-emerald-400'
       : (idea.groundingScore ?? 0) >= 60
-        ? 'text-amber-500'
-        : 'text-rose-500'
+        ? 'text-amber-600 dark:text-amber-400'
+        : 'text-rose-600 dark:text-rose-400'
 
   const handleSaveEdit = async () => {
     setIsBusy(true)
@@ -55,6 +97,12 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
     } finally {
       setIsBusy(false)
     }
+  }
+
+  const handleCancelEdit = () => {
+    setEditHook(idea.hookConcept || '')
+    setEditAngle(idea.angle || '')
+    setMode('view')
   }
 
   const handleApproveClick = async () => {
@@ -75,196 +123,284 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
     }
   }
 
-  if (mode === 'edit') {
-    return (
-      <div className="rounded-2xl border border-accent/20 bg-accent/5 p-5 space-y-4">
-        <div>
-          <label className="block text-xs font-semibold text-foreground mb-1.5">Edit Hook Concept</label>
-          <textarea
-            rows={3}
-            value={editHook}
-            onChange={(e) => setEditHook(e.target.value)}
-            className="w-full rounded-xl border border-border bg-surface p-3 text-sm text-foreground focus:outline-none focus:border-accent resize-y"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-foreground mb-1.5">Edit Angle</label>
-          <input
-            type="text"
-            value={editAngle}
-            onChange={(e) => setEditAngle(e.target.value)}
-            className="w-full rounded-xl border border-border bg-surface p-3 text-sm text-foreground focus:outline-none focus:border-accent"
-          />
-        </div>
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={() => setMode('view')}
-            className="px-4 py-2 text-xs font-medium text-muted hover:text-foreground transition-colors cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={handleSaveEdit}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold transition-colors cursor-pointer"
-          >
-            {isBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Save Changes
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="rounded-2xl border border-border bg-surface shadow-xs p-5 sm:p-6 transition-all hover:border-accent/30">
-      {/* Top Header / Core Identity */}
-      <div className="mb-4">
-        <h3 className="text-lg font-bold text-foreground leading-snug">
-          {idea.hookConcept || idea.title || 'Untitled Idea'}
+    <div className="rounded-2xl border border-border bg-surface p-5 sm:p-6 transition-colors hover:border-foreground/15">
+      {/* Identity: the idea itself, front and center */}
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-lg sm:text-xl font-semibold text-foreground leading-snug text-balance">
+          {title}
         </h3>
-        {idea.whyNow && (
-          <p className="mt-2 text-sm text-muted leading-relaxed">
-            <span className="font-semibold text-foreground">Why it matters: </span>
-            {idea.whyNow}
-          </p>
-        )}
-      </div>
-
-      {/* The argument itself, so the gate is a real decision and not a coin flip */}
-      {(idea.thesis || idea.coreArgument) && (
-        <p className="text-foreground/90 mb-4 text-sm leading-relaxed">
-          {idea.thesis || idea.coreArgument}
-        </p>
-      )}
-
-      {idea.noveltyNote && (
-        <p className="text-muted mb-4 text-xs leading-relaxed italic">
-          Why this is not the generic take: {idea.noveltyNote}
-        </p>
-      )}
-
-      {/* Meta Context */}
-      <div className="flex flex-wrap items-center gap-3 mb-5 text-[11px] font-medium">
-        {typeof idea.groundingScore === 'number' && (
-          <span className="border-border bg-surface-hover text-muted inline-flex items-center rounded-full border px-2.5 py-1">
-            Grounding:{' '}
-            <span className={`ml-1 font-semibold ${groundingTone}`}>
-              {idea.groundingScore}/100
-            </span>
-          </span>
-        )}
-        {typeof idea.score === 'number' && (
-          <span className="border-border bg-surface-hover text-muted inline-flex items-center rounded-full border px-2.5 py-1">
-            Strength: <span className="text-foreground ml-1">{idea.score}/100</span>
-          </span>
-        )}
-        {idea.pillar && (
-          <span className="border-border bg-surface-hover text-muted inline-flex items-center rounded-full border px-2.5 py-1">
-            Pillar: <span className="text-foreground ml-1">{idea.pillar}</span>
-          </span>
-        )}
-        {idea.angle && (
-          <span className="inline-flex items-center rounded-full bg-surface-hover px-2.5 py-1 text-muted border border-border">
-            Angle: <span className="text-foreground ml-1">{idea.angle.replace(/_/g, ' ')}</span>
-          </span>
-        )}
-        {idea.audienceTakeaway && (
-          <span className="inline-flex items-center rounded-full bg-surface-hover px-2.5 py-1 text-muted border border-border max-w-[300px] truncate">
-            Audience: <span className="text-foreground ml-1 truncate">{idea.audienceTakeaway}</span>
-          </span>
-        )}
-      </div>
-
-      {/* Evidence */}
-      {evidence.length > 0 && (
-        <div className="mb-6">
-          <span className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2 block">
-            Grounded Evidence
-          </span>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {evidence.slice(0, 2).map((ev, idx) => (
-              <div key={idx} className="rounded-xl border border-border bg-surface-hover p-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                    ev.factType === 'inferred' 
-                      ? 'bg-purple-500/10 text-purple-400' 
-                      : 'bg-emerald-500/10 text-emerald-500'
-                  }`}>
-                    {ev.factType === 'inferred' ? 'Inferred' : 'Verified'}
-                  </span>
-                  {ev.sourceUrl && (
-                    <a href={ev.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline flex items-center gap-1 text-[10px]">
-                      Source <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  )}
-                </div>
-                <p className="text-foreground font-medium line-clamp-2">{ev.claim}</p>
-              </div>
-            ))}
-            {evidence.length > 2 && (
-              <div className="col-span-full text-[11px] text-muted italic pl-1">
-                + {evidence.length - 2} more citations...
-              </div>
+        {idea.status !== 'proposed' && (
+          <span
+            className={cn(
+              'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium capitalize',
+              STATUS_STYLE[idea.status] || STATUS_STYLE.proposed
             )}
+          >
+            {idea.status}
+          </span>
+        )}
+      </div>
+
+      {mode === 'edit' ? (
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-foreground">
+              Hook concept
+            </label>
+            <textarea
+              rows={3}
+              value={editHook}
+              onChange={(e) => setEditHook(e.target.value)}
+              autoFocus
+              className="w-full resize-y rounded-xl border border-border bg-surface-hover p-3 text-sm text-foreground outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-foreground">Angle</label>
+            <input
+              type="text"
+              value={editAngle}
+              onChange={(e) => setEditAngle(e.target.value)}
+              className="w-full rounded-xl border border-border bg-surface-hover p-3 text-sm text-foreground outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-1">
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={handleCancelEdit}
+              className="cursor-pointer px-4 py-2 text-xs font-medium text-muted transition-colors hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={handleSaveEdit}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-background transition-colors hover:bg-accent-hover disabled:opacity-60"
+            >
+              {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save Changes
+            </button>
           </div>
         </div>
-      )}
+      ) : (
+        <>
+          {/* The essentials: why it matters, the argument, who it's for, the angle */}
+          <div className="mt-3 space-y-2.5 text-sm leading-relaxed">
+            {idea.whyNow && (
+              <p className="text-foreground/90">
+                <span className="font-semibold text-foreground">Why it matters — </span>
+                {idea.whyNow}
+              </p>
+            )}
+            {argument && <p className="text-muted">{argument}</p>}
+          </div>
 
-      {/* Anything the grounding checks flagged, before you commit to drafting */}
-      {risks.length > 0 && (
-        <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-amber-600 uppercase dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3" />
-            Check before approving
-          </span>
-          <ul className="space-y-1">
-            {risks.slice(0, 4).map((risk, idx) => (
-              <li key={idx} className="text-muted text-xs leading-relaxed">
-                • {risk}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 text-xs text-muted">
+            {idea.audienceTakeaway && (
+              <span>
+                <span className="font-medium text-foreground">Audience — </span>
+                {idea.audienceTakeaway}
+              </span>
+            )}
+            {idea.angle && (
+              <span>
+                <span className="font-medium text-foreground">Angle — </span>
+                {idea.angle.replace(/_/g, ' ')}
+              </span>
+            )}
+          </div>
 
-      {/* Actions */}
-      <div className="flex items-center justify-end gap-2 pt-4 border-t border-border">
-        {idea.status !== 'rejected' && (
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={handleRejectClick}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border text-muted hover:text-rose-500 hover:border-rose-500/30 text-xs font-medium transition-colors cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-            Reject
-          </button>
-        )}
-        <button
-          type="button"
-          disabled={isBusy}
-          onClick={() => setMode('edit')}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border text-foreground hover:bg-surface-hover text-xs font-medium transition-colors cursor-pointer"
-        >
-          <Edit3 className="w-3.5 h-3.5" />
-          Edit
-        </button>
-        {idea.status !== 'approved' && (
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={handleApproveClick}
-            className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-          >
-            <Check className="w-3.5 h-3.5" />
-            Approve
-          </button>
-        )}
-      </div>
+          {/* Evidence summary only — the rest lives behind View Details */}
+          {evidence.length > 0 && (
+            <p className="mt-3 text-xs text-muted">
+              <span className="font-medium text-foreground">Evidence — </span>
+              {evidence.length} supporting {evidence.length === 1 ? 'source' : 'sources'}
+              {evidence[0]?.claim && <>: “{evidence[0].claim}”</>}
+            </p>
+          )}
+
+          {/* Everything that isn't needed for a first read: scores, risks, full evidence, novelty note */}
+          {(typeof idea.groundingScore === 'number' ||
+            typeof idea.score === 'number' ||
+            risks.length > 0 ||
+            evidence.length > 0 ||
+            idea.noveltyNote) && (
+            <div className="mt-4 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={() => setShowDetails((v) => !v)}
+                className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
+              >
+                <ChevronDown
+                  className={cn('h-3.5 w-3.5 transition-transform', showDetails && 'rotate-180')}
+                />
+                {showDetails ? 'Hide details' : 'View details'}
+              </button>
+
+              {showDetails && (
+                <div className="mt-3 space-y-4">
+                  {/* Scores */}
+                  {(typeof idea.groundingScore === 'number' || typeof idea.score === 'number') && (
+                    <div className="flex flex-wrap gap-6 text-xs">
+                      {typeof idea.groundingScore === 'number' && (
+                        <div>
+                          <div className="text-muted">Grounding score</div>
+                          <div className={cn('mt-0.5 text-sm font-semibold', groundingTone)}>
+                            {idea.groundingScore}/100
+                          </div>
+                        </div>
+                      )}
+                      {typeof idea.score === 'number' && (
+                        <div>
+                          <div className="text-muted">Strength score</div>
+                          <div className="mt-0.5 text-sm font-semibold text-foreground">
+                            {idea.score}/100
+                          </div>
+                        </div>
+                      )}
+                      {idea.pillar && (
+                        <div>
+                          <div className="text-muted">Pillar</div>
+                          <div className="mt-0.5 text-sm font-semibold text-foreground">
+                            {idea.pillar}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {idea.noveltyNote && (
+                    <p className="text-xs leading-relaxed text-muted italic">
+                      Why this is not the generic take: {idea.noveltyNote}
+                    </p>
+                  )}
+
+                  {/* Full evidence */}
+                  {evidence.length > 0 && (
+                    <div>
+                      <span className="mb-2 block text-[10px] font-semibold tracking-wider text-muted uppercase">
+                        Grounded evidence
+                      </span>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {evidence.map((ev, idx) => (
+                          <div
+                            key={idx}
+                            className="rounded-xl border border-border bg-surface-hover p-2.5 text-xs"
+                          >
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <span
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 text-[9px] font-bold uppercase',
+                                  ev.factType === 'inferred'
+                                    ? 'bg-purple-500/10 text-purple-500'
+                                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                )}
+                              >
+                                {ev.factType === 'inferred' ? 'Inferred' : 'Verified'}
+                              </span>
+                              {ev.sourceUrl && (
+                                <a
+                                  href={ev.sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-[10px] text-accent hover:underline"
+                                >
+                                  Source <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              )}
+                            </div>
+                            <p className="font-medium text-foreground">{ev.claim}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Risks flagged during validation */}
+                  {risks.length > 0 && (
+                    <div>
+                      <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-amber-600 uppercase dark:text-amber-400">
+                        <AlertTriangle className="h-3 w-3" />
+                        Check before approving
+                      </span>
+                      <ul className="space-y-1">
+                        {risks.map((risk, idx) => (
+                          <li key={idx} className="text-xs leading-relaxed text-muted">
+                            • {risk}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Decision actions — kept visually distinct from one another, and only
+              shown when the idea is still actionable at the gate */}
+          {(canReject || canEdit || canApprove) && (
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+              {canReject && (
+                <ConfirmPopover
+                  title="Reject this idea?"
+                  description="It will move to Rejected. You can still edit it or approve it later."
+                  confirmLabel="Reject"
+                  tone="danger"
+                  onConfirm={handleRejectClick}
+                  disabled={isBusy}
+                >
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium text-muted transition-colors hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Reject
+                  </button>
+                </ConfirmPopover>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => setMode('edit')}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-60"
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+              )}
+              {canApprove && (
+                <ConfirmPopover
+                  title="Are you sure?"
+                  description="It moves to Approved and becomes eligible for drafting."
+                  confirmLabel="Yes"
+                  tone="success"
+                  onConfirm={handleApproveClick}
+                  disabled={isBusy}
+                >
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-emerald-600 px-5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {isBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                    Approve
+                  </button>
+                </ConfirmPopover>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

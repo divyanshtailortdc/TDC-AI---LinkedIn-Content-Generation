@@ -1,13 +1,35 @@
 'use server'
 
 import { db } from '@/db'
-import { runsTable } from '@/db/schema'
+import { accountsTable, runsTable } from '@/db/schema'
+import { eq } from 'drizzle-orm'
 import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { processRunImmediately } from '~/jobs/worker'
 import { revalidatePath } from 'next/cache'
+import { getActiveAccountId } from '@/lib/active-account'
 
-export async function triggerNewRun(accountId: string, goalId?: string | null) {
+/**
+ * Triggers a run for `explicitAccountId` when given (e.g. the account-scoped
+ * `/accounts/[id]/runs` page, which is deliberately about that one identity),
+ * otherwise falls back to the globally active account (the `/runs` page).
+ * Either way the id is re-validated against real, active accounts here —
+ * never trusted blindly from the client.
+ */
+export async function triggerNewRun(explicitAccountId?: string | null, goalId?: string | null) {
   try {
+    const accountId = explicitAccountId || (await getActiveAccountId())
+
+    if (!accountId) {
+      throw new Error('No active identity selected. Add or activate an identity first.')
+    }
+
+    const account = await db.query.accountsTable.findFirst({
+      where: eq(accountsTable.id, accountId)
+    })
+    if (!account || !account.isActive) {
+      throw new Error('Identity not found or inactive')
+    }
+
     const run = await enqueueRun({
       accountId,
       goalId: goalId || null,

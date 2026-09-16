@@ -5,6 +5,7 @@ import { LinkedInPreview } from '@/components/linkedin-preview'
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
+import type { ActiveAccount } from '@/lib/active-account'
 import {
   IMAGE_PROMPT_MAX_WORDS,
   countWords,
@@ -14,7 +15,7 @@ import {
   validateReferenceFile,
   validateStockQuery
 } from '@/lib/media/image-input'
-import { getUserFacingRelevance } from '@/lib/media/relevance'
+import { getUserFacingRelevance } from '@/lib/media/relevance-label'
 import {
   AlertTriangle,
   ArrowUpDown,
@@ -31,7 +32,6 @@ import {
   Edit2,
   ExternalLink,
   FileCheck,
-  Filter,
   Image as ImageIcon,
   Info,
   Loader2,
@@ -262,10 +262,10 @@ function countLintErrors(findings: LintFinding[] | undefined): number {
 
 export function PostsClientInner({
   initialPosts,
-  accounts
+  activeAccount
 }: {
   initialPosts: PostDetail[]
-  accounts: Array<{ id: string; name: string }>
+  activeAccount: ActiveAccount
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -278,7 +278,6 @@ export function PostsClientInner({
       initialPosts[0]?.id ||
       ''
   )
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('all')
   const [dateRange, setDateRange] = useState<DateRange>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -286,12 +285,11 @@ export function PostsClientInner({
 
   // Active post editing state
   // Posts matching everything except the status facet, so the status counts can
-  // show what switching to another status would actually reveal.
+  // show what switching to another status would actually reveal. All posts
+  // here already belong to the active account (scoped server-side), so there
+  // is no identity facet to filter on.
   const scopedPosts = posts.filter(p => {
     if (filterRunId && p.runId !== filterRunId) return false
-    if (selectedAccountId !== 'all' && p.accountId !== selectedAccountId) {
-      return false
-    }
 
     const start = rangeStart(dateRange)
     if (start && toDate(p.createdAt) < start) return false
@@ -322,13 +320,11 @@ export function PostsClientInner({
     })
 
   const hasActiveFilters =
-    selectedAccountId !== 'all' ||
     dateRange !== 'all' ||
     statusFilter !== 'all' ||
     searchQuery.trim().length > 0
 
   const clearFilters = () => {
-    setSelectedAccountId('all')
     setDateRange('all')
     setStatusFilter('all')
     setSearchQuery('')
@@ -1050,7 +1046,7 @@ export function PostsClientInner({
       <PageHeader
         title="Review & Ship Posts"
         badge="Daily Surface"
-        description="Final polish before publishing. Review formatting, media, and platform-specific nuances."
+        description={`Reviewing drafts for ${activeAccount.name} · @${activeAccount.handle}`}
         bottomContent={
           <div className="flex flex-col gap-2.5">
             {/* Status is the primary triage axis, so it gets counts and one click. */}
@@ -1096,22 +1092,6 @@ export function PostsClientInner({
                   placeholder="Search hooks, body, hashtags…"
                   className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border py-1.5 pr-3 pl-8 text-xs outline-none"
                 />
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <Filter className="text-muted h-3.5 w-3.5" />
-                <select
-                  value={selectedAccountId}
-                  onChange={e => setSelectedAccountId(e.target.value)}
-                  className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                >
-                  <option value="all">All identities</option>
-                  {accounts.map(acc => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.name}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -2456,10 +2436,10 @@ export function PostsClientInner({
 
 export function PostsClient({
   initialPosts,
-  accounts
+  activeAccount
 }: {
   initialPosts: PostDetail[]
-  accounts: Array<{ id: string; name: string }>
+  activeAccount: ActiveAccount
 }) {
   return (
     <Suspense
@@ -2472,7 +2452,7 @@ export function PostsClient({
         </div>
       }
     >
-      <PostsClientInner initialPosts={initialPosts} accounts={accounts} />
+      <PostsClientInner initialPosts={initialPosts} activeAccount={activeAccount} />
     </Suspense>
   )
 }

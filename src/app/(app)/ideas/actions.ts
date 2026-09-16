@@ -2,12 +2,27 @@
 
 import { db } from '@/db'
 import { ideasTable, feedbackTable } from '@/db/schema'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { executeDraftingForIdea } from '~/lib/ai/draft'
 import { revalidatePath } from 'next/cache'
+import { requireActiveAccountId } from '@/lib/active-account'
+
+// These actions mutate a specific idea/run identified by its own id, which is
+// already scoped server-side wherever it's read (the /ideas list is fetched
+// for the active account only, and /runs/[id] loads a specific run's own
+// account). So the idea's real accountId — looked up here, never trusted
+// from the client — is the authoritative scope, not whichever account
+// happens to be "active" in the cookie right now. Requiring a cookie match
+// would break legitimate actions taken from a run's detail page when that
+// run belongs to an account other than the currently active one.
 
 export async function approveIdea(ideaId: string) {
   try {
+    const idea = await db.query.ideasTable.findFirst({
+      where: eq(ideasTable.id, ideaId)
+    })
+    if (!idea) throw new Error('Idea not found')
+
     await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
@@ -95,12 +110,25 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
     let targetIdeaIds: string[] = []
 
     if (options.ideaIds && options.ideaIds.length > 0) {
-      targetIdeaIds = options.ideaIds
-    } else if (options.runId) {
-      const approvedIdeas = await db.query.ideasTable.findMany({
-        where: eq(ideasTable.runId, options.runId)
+      // The ideaIds path is only ever called from the /ideas list (already
+      // scoped to the active account), so re-scope to it defensively against
+      // stale ids from a previous session.
+      const activeAccountId = await requireActiveAccountId()
+      const owned = await db.query.ideasTable.findMany({
+        where: and(
+          inArray(ideasTable.id, options.ideaIds),
+          eq(ideasTable.accountId, activeAccountId)
+        )
       })
-      targetIdeaIds = approvedIdeas.filter((i) => i.status === 'approved').map((i) => i.id)
+      targetIdeaIds = owned.map((i) => i.id)
+    } else if (options.runId) {
+      // The runId path is called from a specific run's own detail page,
+      // which may not belong to the currently active account — the run's
+      // own account is the correct scope here, not the active-account cookie.
+      const approvedIdeas = await db.query.ideasTable.findMany({
+        where: and(eq(ideasTable.runId, options.runId), eq(ideasTable.status, 'approved'))
+      })
+      targetIdeaIds = approvedIdeas.map((i) => i.id)
     }
 
     if (targetIdeaIds.length === 0) {
@@ -127,10 +155,12 @@ export async function approveAllIdeas(ideaIds: string[]) {
   try {
     if (ideaIds.length === 0) return { success: true }
 
+    const activeAccountId = await requireActiveAccountId()
+
     await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
-      .where(inArray(ideasTable.id, ideaIds))
+      .where(and(inArray(ideasTable.id, ideaIds), eq(ideasTable.accountId, activeAccountId)))
 
     revalidatePath('/ideas')
     revalidatePath('/runs')

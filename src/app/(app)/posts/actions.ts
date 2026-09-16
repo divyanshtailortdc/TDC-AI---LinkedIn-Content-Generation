@@ -14,6 +14,7 @@ import { revalidatePath } from 'next/cache'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { DEFAULT_MEDIA_POLICY } from '~/lib/ai/context'
 import { validateImageUrl } from '~/lib/media/image-input'
+import { requireActiveAccountId } from '@/lib/active-account'
 
 export async function updateDraft(
   draftId: string,
@@ -24,8 +25,10 @@ export async function updateDraft(
   }
 ) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
     const existing = await db.query.postDraftsTable.findFirst({
-      where: eq(postDraftsTable.id, draftId)
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
     })
 
     if (!existing) throw new Error('Draft not found')
@@ -59,6 +62,8 @@ export async function updateDraft(
 
 export async function approveDraft(draftId: string) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
     await db
       .update(postDraftsTable)
       .set({
@@ -66,7 +71,7 @@ export async function approveDraft(draftId: string) {
         approvedAt: new Date(),
         updatedAt: new Date()
       })
-      .where(eq(postDraftsTable.id, draftId))
+      .where(and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId)))
 
     revalidatePath('/posts')
     return { success: true }
@@ -77,8 +82,10 @@ export async function approveDraft(draftId: string) {
 
 export async function rejectDraft(draftId: string, reason?: string) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
     const draft = await db.query.postDraftsTable.findFirst({
-      where: eq(postDraftsTable.id, draftId)
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
     })
 
     if (!draft) throw new Error('Draft not found')
@@ -119,6 +126,8 @@ export async function updatePostMediaAction(
   }
 ) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
     // The client disables Apply for bad URLs, but this action is callable directly.
     if (payload.mode !== 'none' && payload.imageUrl) {
       const urlError = validateImageUrl(payload.imageUrl)
@@ -126,7 +135,7 @@ export async function updatePostMediaAction(
     }
 
     const existingDraft = await db.query.postDraftsTable.findFirst({
-      where: eq(postDraftsTable.id, draftId)
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
     })
     if (!existingDraft) throw new Error('Post draft not found')
 
@@ -183,6 +192,13 @@ export async function updatePostMediaAction(
 
 export async function removePostMediaAction(draftId: string) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
+    const draft = await db.query.postDraftsTable.findFirst({
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+    })
+    if (!draft) throw new Error('Post draft not found')
+
     await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
 
     revalidatePath('/posts')
@@ -230,8 +246,10 @@ export async function generatePostMediaAction(
   }
 ) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
     const draft = await db.query.postDraftsTable.findFirst({
-      where: eq(postDraftsTable.id, draftId)
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
     })
     if (!draft) throw new Error('Post draft not found')
 
@@ -339,8 +357,10 @@ export async function regeneratePostMediaAction(
   }
 ) {
   try {
+    const activeAccountId = await requireActiveAccountId()
+
     const draft = await db.query.postDraftsTable.findFirst({
-      where: eq(postDraftsTable.id, draftId)
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
     })
     if (!draft) throw new Error('Post draft not found')
 

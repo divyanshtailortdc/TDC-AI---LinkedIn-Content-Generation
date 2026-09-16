@@ -9,39 +9,40 @@ import {
 } from '@/db/schema'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { PostsClient, type PostDetail } from './posts-client'
+import { getActiveAccount } from '@/lib/active-account'
+import { NoActiveAccount } from '@/components/no-active-account'
 
 export const dynamic = 'force-dynamic'
 
 export default async function PostsPage() {
-  const [draftsRaw, accounts] = await Promise.all([
-    db
-      .select({
-        id: postDraftsTable.id,
-        accountId: postDraftsTable.accountId,
-        hook: postDraftsTable.hook,
-        body: postDraftsTable.body,
-        cta: postDraftsTable.cta,
-        firstComment: postDraftsTable.firstComment,
-        hashtags: postDraftsTable.hashtags,
-        charCount: postDraftsTable.charCount,
-        status: postDraftsTable.status,
-        lintFindings: postDraftsTable.lintFindings,
-        createdAt: postDraftsTable.createdAt,
-        accountName: accountsTable.name,
-        accountHeadline: accountsTable.headline,
-        runId: ideasTable.runId
-      })
-      .from(postDraftsTable)
-      .leftJoin(accountsTable, eq(postDraftsTable.accountId, accountsTable.id))
-      .leftJoin(ideasTable, eq(postDraftsTable.ideaId, ideasTable.id))
-      .orderBy(desc(postDraftsTable.createdAt)),
-    db
-      .select({
-        id: accountsTable.id,
-        name: accountsTable.name
-      })
-      .from(accountsTable)
-  ])
+  const activeAccount = await getActiveAccount()
+
+  if (!activeAccount) {
+    return <NoActiveAccount title="Review & Ship Posts" />
+  }
+
+  const draftsRaw = await db
+    .select({
+      id: postDraftsTable.id,
+      accountId: postDraftsTable.accountId,
+      hook: postDraftsTable.hook,
+      body: postDraftsTable.body,
+      cta: postDraftsTable.cta,
+      firstComment: postDraftsTable.firstComment,
+      hashtags: postDraftsTable.hashtags,
+      charCount: postDraftsTable.charCount,
+      status: postDraftsTable.status,
+      lintFindings: postDraftsTable.lintFindings,
+      createdAt: postDraftsTable.createdAt,
+      accountName: accountsTable.name,
+      accountHeadline: accountsTable.headline,
+      runId: ideasTable.runId
+    })
+    .from(postDraftsTable)
+    .leftJoin(accountsTable, eq(postDraftsTable.accountId, accountsTable.id))
+    .leftJoin(ideasTable, eq(postDraftsTable.ideaId, ideasTable.id))
+    .where(eq(postDraftsTable.accountId, activeAccount.id))
+    .orderBy(desc(postDraftsTable.createdAt))
 
   const draftIds = draftsRaw.map((d) => d.id)
 
@@ -148,5 +149,10 @@ export default async function PostsPage() {
     }
   })
 
-  return <PostsClient initialPosts={fullPosts} accounts={accounts} />
+  // Keying on the active account forces a remount on switch, so this client
+  // component's local state (which only seeds from initialPosts once) resets
+  // and reflects the newly active account's data instead of stale state.
+  return (
+    <PostsClient key={activeAccount.id} initialPosts={fullPosts} activeAccount={activeAccount} />
+  )
 }

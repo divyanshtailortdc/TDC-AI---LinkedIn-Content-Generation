@@ -20,6 +20,8 @@ import {
   FileText
 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
+import { ConfirmPopover } from '@/components/confirm-popover'
+import { showToast } from '@/components/toast-notification'
 import { fetchRunStatus } from '../actions'
 import { approveIdea, rejectIdea, draftApprovedIdeas } from '../../ideas/actions'
 
@@ -74,17 +76,33 @@ export function RunDetailClient({
     return () => clearInterval(interval)
   }, [isRunning, run.id, router])
 
+  const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
+
   const handleApproveIdea = async (ideaId: string) => {
-    const res = await approveIdea(ideaId)
-    if (res.success) {
-      setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: 'approved' } : i)))
+    setIdeaActionBusyId(ideaId)
+    try {
+      const res = await approveIdea(ideaId)
+      if (res.success) {
+        setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: 'approved' } : i)))
+      } else {
+        showToast({ title: 'Approve failed', message: res.error, type: 'error' })
+      }
+    } finally {
+      setIdeaActionBusyId(null)
     }
   }
 
   const handleRejectIdea = async (ideaId: string) => {
-    const res = await rejectIdea(ideaId)
-    if (res.success) {
-      setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: 'rejected' } : i)))
+    setIdeaActionBusyId(ideaId)
+    try {
+      const res = await rejectIdea(ideaId)
+      if (res.success) {
+        setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: 'rejected' } : i)))
+      } else {
+        showToast({ title: 'Reject failed', message: res.error, type: 'error' })
+      }
+    } finally {
+      setIdeaActionBusyId(null)
     }
   }
 
@@ -103,6 +121,23 @@ export function RunDetailClient({
       }
     } finally {
       setIsDrafting(false)
+    }
+  }
+
+  // Same rule as the Idea Gate (kept in sync with gateActionsFor in
+  // idea-card.tsx): approve/reject only make sense while the idea is still
+  // proposed/approved/rejected — once it's moved past the gate (e.g. already
+  // drafted) neither action applies. A rejected idea can still be approved.
+  const gateActionsFor = (status: string) => {
+    switch (status) {
+      case 'proposed':
+        return { canReject: true, canApprove: true }
+      case 'approved':
+        return { canReject: true, canApprove: false }
+      case 'rejected':
+        return { canReject: false, canApprove: true }
+      default:
+        return { canReject: false, canApprove: false }
     }
   }
 
@@ -132,16 +167,24 @@ export function RunDetailClient({
         }
         actions={
           run.status === 'awaiting_idea_approval' && approvedCount > 0 ? (
-            <button
-              type="button"
-              onClick={handleDraftApproved}
+            <ConfirmPopover
+              title={`Draft ${approvedCount} approved idea${approvedCount === 1 ? '' : 's'}?`}
+              description="Generates grounded post copy for every approved idea and sends you to the review queue."
+              confirmLabel="Draft now"
+              tone="success"
+              onConfirm={handleDraftApproved}
               disabled={isDrafting}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>Draft Approved ({approvedCount})</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+              <button
+                type="button"
+                disabled={isDrafting}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer disabled:opacity-60"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Draft Approved ({approvedCount})</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </ConfirmPopover>
           ) : undefined
         }
       />
@@ -215,7 +258,9 @@ export function RunDetailClient({
           </div>
 
           <div className="grid gap-4">
-            {ideas.map((idea) => (
+            {ideas.map((idea) => {
+              const { canReject, canApprove } = gateActionsFor(idea.status)
+              return (
               <div
                 key={idea.id}
                 className="rounded-xl border border-border bg-surface p-5 space-y-3"
@@ -280,30 +325,59 @@ export function RunDetailClient({
                   {idea.coreArgument}
                 </p>
 
-                <div className="pt-2 border-t border-border flex items-center justify-end gap-2">
-                  {idea.status !== 'rejected' && (
-                    <button
-                      type="button"
-                      onClick={() => handleRejectIdea(idea.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:text-rose-600 text-xs font-medium transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Reject</span>
-                    </button>
-                  )}
-                  {idea.status !== 'approved' && (
-                    <button
-                      type="button"
-                      onClick={() => handleApproveIdea(idea.id)}
-                      className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Approve</span>
-                    </button>
-                  )}
-                </div>
+                {(canReject || canApprove) && (
+                  <div className="pt-2 border-t border-border flex items-center justify-end gap-2">
+                    {canReject && (
+                      <ConfirmPopover
+                        title="Reject this idea?"
+                        description="It will move to Rejected."
+                        confirmLabel="Reject"
+                        tone="danger"
+                        onConfirm={() => handleRejectIdea(idea.id)}
+                        disabled={ideaActionBusyId === idea.id}
+                      >
+                        <button
+                          type="button"
+                          disabled={ideaActionBusyId === idea.id}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:text-rose-600 text-xs font-medium transition-colors disabled:opacity-60"
+                        >
+                          {ideaActionBusyId === idea.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <X className="w-3.5 h-3.5" />
+                          )}
+                          <span>Reject</span>
+                        </button>
+                      </ConfirmPopover>
+                    )}
+                    {canApprove && (
+                      <ConfirmPopover
+                        title="Are you sure?"
+                        description="It moves to Approved and becomes eligible for drafting."
+                        confirmLabel="Yes"
+                        tone="success"
+                        onConfirm={() => handleApproveIdea(idea.id)}
+                        disabled={ideaActionBusyId === idea.id}
+                      >
+                        <button
+                          type="button"
+                          disabled={ideaActionBusyId === idea.id}
+                          className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors disabled:opacity-60"
+                        >
+                          {ideaActionBusyId === idea.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                          <span>Approve</span>
+                        </button>
+                      </ConfirmPopover>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
