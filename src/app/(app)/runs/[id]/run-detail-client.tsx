@@ -11,9 +11,6 @@ import {
   Clock,
   Sparkles,
   ExternalLink,
-  Flame,
-  Check,
-  X,
   ArrowRight,
   Search,
   BookOpen,
@@ -21,10 +18,12 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { RunCostPanel } from '@/components/run-cost-panel'
-import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
+import { cn } from '@/lib/cn'
 import { fetchRunStatus } from '../actions'
-import { approveIdea, rejectIdea, draftApprovedIdeas } from '../../ideas/actions'
+import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas } from '../../ideas/actions'
+import { AiDraftingStatus, DraftingStatus } from '~/components/ai-drafting-status'
+import { RunIdeaCard } from '~/components/run-idea-card'
 
 interface RunDetailProps {
   initialRun: any
@@ -47,7 +46,8 @@ export function RunDetailClient({
   const [findings, setFindings] = useState(initialFindings)
   const [ideas, setIdeas] = useState(initialIdeas)
   const [isDrafting, setIsDrafting] = useState(false)
-  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   const isRunning =
     run.status === 'queued' ||
@@ -107,38 +107,81 @@ export function RunDetailClient({
     }
   }
 
-  const handleDraftApproved = async () => {
-    setIsDrafting(true)
-    setActionMessage('Drafting approved ideas into grounded LinkedIn posts...')
+  const handleEditIdeaSave = async (
+    ideaId: string,
+    payload: { hookConcept: string; angle: string }
+  ) => {
+    setIdeaActionBusyId(ideaId)
     try {
-      const res = await draftApprovedIdeas({ runId: run.id })
+      const res = await editIdea(ideaId, {
+        angle: payload.angle,
+        hookConcept: payload.hookConcept
+      })
       if (res.success) {
-        setActionMessage(`Drafting complete! Redirecting to the review queue...`)
-        setTimeout(() => {
-          router.push(`/posts?runId=${run.id}`)
-        }, 1200)
+        setIdeas((prev) =>
+          prev.map((i) =>
+            i.id === ideaId
+              ? { ...i, angle: payload.angle, hookConcept: payload.hookConcept }
+              : i
+          )
+        )
+        showToast({ title: 'Saved', message: 'Idea edits saved successfully', type: 'success' })
       } else {
-        setActionMessage(res.error || 'Failed to draft')
+        showToast({ title: 'Save failed', message: res.error, type: 'error' })
       }
     } finally {
-      setIsDrafting(false)
+      setIdeaActionBusyId(null)
     }
   }
 
-  // Same rule as the Idea Gate (kept in sync with gateActionsFor in
-  // idea-card.tsx): approve/reject only make sense while the idea is still
-  // proposed/approved/rejected — once it's moved past the gate (e.g. already
-  // drafted) neither action applies. A rejected idea can still be approved.
-  const gateActionsFor = (status: string) => {
-    switch (status) {
-      case 'proposed':
-        return { canReject: true, canApprove: true }
-      case 'approved':
-        return { canReject: true, canApprove: false }
-      case 'rejected':
-        return { canReject: false, canApprove: true }
-      default:
-        return { canReject: false, canApprove: false }
+  const handleDraftApproved = async () => {
+    const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+
+    // Optimistically flip the drafted ideas to their terminal state right away so
+    // the list reflects the action immediately, instead of sitting unchanged for
+    // the full duration of the (multi-LLM-call) server action below.
+    setIsDrafting(true)
+    setDraftStatus('processing')
+    setDraftError(null)
+    setIdeas((prev) =>
+      prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'drafted' } : i))
+    )
+
+    try {
+      const res = await draftApprovedIdeas({ runId: run.id })
+      if (res.success) {
+        setDraftStatus('success')
+        showToast({
+          title: 'Posts generated',
+          message: `${res.draftedCount} post${res.draftedCount === 1 ? '' : 's'} drafted and ready for review.`,
+          type: 'success'
+        })
+        router.push(`/posts?runId=${run.id}`)
+      } else {
+        setIdeas((prev) =>
+          prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+        )
+        setDraftStatus('error')
+        setDraftError(res.error || 'Drafting failed. Please try again.')
+        showToast({
+          title: 'Drafting failed',
+          message: res.error || 'Drafting failed. Please try again.',
+          type: 'error'
+        })
+      }
+    } catch (err: any) {
+      setIdeas((prev) =>
+        prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+      )
+      setDraftStatus('error')
+      setDraftError(err?.message || 'Something went wrong while drafting posts.')
+      showToast({
+        title: 'Drafting failed',
+        message: err?.message || 'Something went wrong while drafting posts.',
+        type: 'error'
+      })
+    } finally {
+      setIsDrafting(false)
     }
   }
 
@@ -167,25 +210,18 @@ export function RunDetailClient({
           </Link>
         }
         actions={
-          run.status === 'awaiting_idea_approval' && approvedCount > 0 ? (
-            <ConfirmPopover
-              title={`Draft ${approvedCount} approved idea${approvedCount === 1 ? '' : 's'}?`}
-              description="Generates grounded post copy for every approved idea and sends you to the review queue."
-              confirmLabel="Draft now"
-              tone="success"
-              onConfirm={handleDraftApproved}
+          run.status === 'awaiting_idea_approval' && (approvedCount > 0 || isDrafting) ? (
+            <button
+              type="button"
+              onClick={handleDraftApproved}
               disabled={isDrafting}
+              aria-busy={isDrafting}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
             >
-              <button
-                type="button"
-                disabled={isDrafting}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer disabled:opacity-60"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Draft Approved ({approvedCount})</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </ConfirmPopover>
+              <Sparkles className={cn('w-4 h-4', isDrafting && 'animate-pulse')} />
+              <span>{isDrafting ? 'Generating posts…' : `Draft Approved (${approvedCount})`}</span>
+              {!isDrafting && <ArrowRight className="w-4 h-4" />}
+            </button>
           ) : undefined
         }
       />
@@ -193,12 +229,14 @@ export function RunDetailClient({
       <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
         <div className="max-w-7xl mx-auto space-y-8">
 
-      {actionMessage && (
-        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{actionMessage}</span>
-        </div>
-      )}
+      <AiDraftingStatus
+        status={draftStatus}
+        subject="this run's approved ideas"
+        successMessage="Posts generated! Opening the review queue…"
+        errorMessage={draftError}
+        onRetry={handleDraftApproved}
+        retryDisabled={isDrafting}
+      />
 
       {/* Stage Progress Stepper */}
       <div className="rounded-2xl border border-border bg-surface p-6 space-y-4 shadow-xs">
@@ -267,126 +305,16 @@ export function RunDetailClient({
           </div>
 
           <div className="grid gap-4">
-            {ideas.map((idea) => {
-              const { canReject, canApprove } = gateActionsFor(idea.status)
-              return (
-              <div
+            {ideas.map((idea) => (
+              <RunIdeaCard
                 key={idea.id}
-                className="rounded-xl border border-border bg-surface p-5 space-y-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {idea.perspectiveAngle && (
-                      <span className="rounded-md bg-accent/10 text-accent px-2 py-0.5 text-[11px] font-medium capitalize">
-                        {idea.perspectiveAngle.replace(/_/g, ' ')}
-                      </span>
-                    )}
-                    <span className="font-semibold text-xs text-muted">
-                      {idea.pillar || 'Thought Leadership'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {idea.groundingScore && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        🛡️ {idea.groundingScore}% Grounded
-                      </span>
-                    )}
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
-                      idea.status === 'approved'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'
-                        : idea.status === 'rejected'
-                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600'
-                          : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'
-                    }`}>
-                      {idea.status}
-                    </span>
-                  </div>
-                </div>
-
-                {idea.whyNow && (
-                  <div className="rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    <span><strong>Why Now:</strong> {idea.whyNow}</span>
-                  </div>
-                )}
-
-                <h3 className="font-semibold text-sm text-foreground">
-                  {idea.title || idea.angle}
-                </h3>
-
-                {idea.thesis && (
-                  <div className="rounded-lg border border-border bg-surface-hover p-2.5 text-xs">
-                    <span className="font-semibold text-accent uppercase tracking-wider text-[10px] block mb-0.5">
-                      Underlying Thesis
-                    </span>
-                    <p className="text-xs text-foreground font-medium">
-                      {idea.thesis}
-                    </p>
-                  </div>
-                )}
-
-                <p className="text-xs text-muted">
-                  <strong className="text-foreground">Hook Concept: </strong>
-                  &quot;{idea.hookConcept}&quot;
-                </p>
-                <p className="text-xs text-muted">
-                  <strong className="text-foreground">Core Argument: </strong>
-                  {idea.coreArgument}
-                </p>
-
-                {(canReject || canApprove) && (
-                  <div className="pt-2 border-t border-border flex items-center justify-end gap-2">
-                    {canReject && (
-                      <ConfirmPopover
-                        title="Reject this idea?"
-                        description="It will move to Rejected."
-                        confirmLabel="Reject"
-                        tone="danger"
-                        onConfirm={() => handleRejectIdea(idea.id)}
-                        disabled={ideaActionBusyId === idea.id}
-                      >
-                        <button
-                          type="button"
-                          disabled={ideaActionBusyId === idea.id}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:text-rose-600 text-xs font-medium transition-colors disabled:opacity-60"
-                        >
-                          {ideaActionBusyId === idea.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <X className="w-3.5 h-3.5" />
-                          )}
-                          <span>Reject</span>
-                        </button>
-                      </ConfirmPopover>
-                    )}
-                    {canApprove && (
-                      <ConfirmPopover
-                        title="Are you sure?"
-                        description="It moves to Approved and becomes eligible for drafting."
-                        confirmLabel="Yes"
-                        tone="success"
-                        onConfirm={() => handleApproveIdea(idea.id)}
-                        disabled={ideaActionBusyId === idea.id}
-                      >
-                        <button
-                          type="button"
-                          disabled={ideaActionBusyId === idea.id}
-                          className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors disabled:opacity-60"
-                        >
-                          {ideaActionBusyId === idea.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5" />
-                          )}
-                          <span>Approve</span>
-                        </button>
-                      </ConfirmPopover>
-                    )}
-                  </div>
-                )}
-              </div>
-              )
-            })}
+                idea={idea}
+                onApprove={handleApproveIdea}
+                onReject={handleRejectIdea}
+                onEditSave={handleEditIdeaSave}
+                isBusy={ideaActionBusyId === idea.id}
+              />
+            ))}
           </div>
         </div>
       )}

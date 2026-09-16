@@ -3,9 +3,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, CheckCircle2, CheckCheck } from 'lucide-react'
-import { IdeaCard, IdeaCardData } from '@/components/idea-card'
+import { Sparkles, ArrowRight, CheckCheck } from 'lucide-react'
+import { IdeaCardData } from '@/components/idea-card'
+import { RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
+import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
 import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas, approveAllIdeas } from './actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
@@ -27,7 +29,10 @@ export function IdeasClient({
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
   const [selectedStatus, setSelectedStatus] = useState<string>('proposed')
   const [isActionBusy, setIsActionBusy] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
+  const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
+  const [draftError, setDraftError] = useState<string | null>(null)
+  const isDrafting = draftStatus === 'processing'
 
   // All ideas here already belong to the active account (scoped server-side).
   const filteredIdeas = ideas.filter(
@@ -38,23 +43,23 @@ export function IdeasClient({
   const allProposedIds = ideas.filter((i) => i.status === 'proposed').map((i) => i.id)
 
   const handleApprove = async (id: string) => {
-    setIsActionBusy(true)
-    setMessage(null)
+    setIdeaActionBusyId(id)
     try {
       const res = await approveIdea(id)
       if (res.success) {
         setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'approved' } : i)))
         showToast({ title: 'Approved', message: 'Idea successfully approved', type: 'success' })
+      } else {
+        showToast({ title: 'Approve failed', message: res.error, type: 'error' })
       }
     } finally {
-      setIsActionBusy(false)
+      setIdeaActionBusyId(null)
     }
   }
 
   const handleApproveAll = async () => {
     if (allProposedIds.length === 0) return
     setIsActionBusy(true)
-    setMessage(null)
     try {
       const res = await approveAllIdeas(allProposedIds)
       if (res.success) {
@@ -73,21 +78,22 @@ export function IdeasClient({
   }
 
   const handleReject = async (id: string) => {
-    setIsActionBusy(true)
-    setMessage(null)
+    setIdeaActionBusyId(id)
     try {
       const res = await rejectIdea(id)
       if (res.success) {
         setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'rejected' } : i)))
         showToast({ title: 'Rejected', message: 'Idea rejected', type: 'info' })
+      } else {
+        showToast({ title: 'Reject failed', message: res.error, type: 'error' })
       }
     } finally {
-      setIsActionBusy(false)
+      setIdeaActionBusyId(null)
     }
   }
 
   const handleEditSave = async (id: string, payload: { hookConcept: string; angle: string }) => {
-    setIsActionBusy(true)
+    setIdeaActionBusyId(id)
     try {
       const res = await editIdea(id, {
         angle: payload.angle,
@@ -96,36 +102,66 @@ export function IdeasClient({
       if (res.success) {
         setIdeas((prev) =>
           prev.map((i) =>
-            i.id === id
-              ? {
-                  ...i,
-                  angle: payload.angle,
-                  hookConcept: payload.hookConcept
-                }
-              : i
+            i.id === id ? { ...i, angle: payload.angle, hookConcept: payload.hookConcept } : i
           )
         )
         showToast({ title: 'Saved', message: 'Idea edits saved successfully', type: 'success' })
+      } else {
+        showToast({ title: 'Save failed', message: res.error, type: 'error' })
       }
     } finally {
-      setIsActionBusy(false)
+      setIdeaActionBusyId(null)
     }
   }
 
   const handleDraftApproved = async () => {
+    const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+
+    // Optimistically flip the drafted ideas to their terminal state right away so
+    // the list reflects the action immediately, instead of sitting unchanged for
+    // the full duration of the (multi-LLM-call) server action below.
     setIsActionBusy(true)
-    setMessage('Drafting approved ideas with grounded citations and platform rules...')
+    setDraftStatus('processing')
+    setDraftError(null)
+    setIdeas((prev) =>
+      prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'drafted' } : i))
+    )
+
     try {
-      const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
       const res = await draftApprovedIdeas({ ideaIds: approvedIds })
       if (res.success) {
-        setMessage(`Successfully drafted ${res.draftedCount} post(s)! Redirecting to review queue...`)
-        setTimeout(() => {
-          router.push('/posts')
-        }, 1200)
+        setDraftStatus('success')
+        showToast({
+          title: 'Posts generated',
+          message: `${res.draftedCount} post${res.draftedCount === 1 ? '' : 's'} drafted and ready for review.`,
+          type: 'success'
+        })
+        router.push('/posts')
       } else {
-        setMessage(res.error || 'Drafting failed')
+        // Roll the optimistic update back — drafting failed, so these ideas
+        // are still just approved, not drafted.
+        setIdeas((prev) =>
+          prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+        )
+        setDraftStatus('error')
+        setDraftError(res.error || 'Drafting failed. Please try again.')
+        showToast({
+          title: 'Drafting failed',
+          message: res.error || 'Drafting failed. Please try again.',
+          type: 'error'
+        })
       }
+    } catch (err: any) {
+      setIdeas((prev) =>
+        prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+      )
+      setDraftStatus('error')
+      setDraftError(err?.message || 'Something went wrong while drafting posts.')
+      showToast({
+        title: 'Drafting failed',
+        message: err?.message || 'Something went wrong while drafting posts.',
+        type: 'error'
+      })
     } finally {
       setIsActionBusy(false)
     }
@@ -159,26 +195,18 @@ export function IdeasClient({
               </ConfirmPopover>
             )}
 
-            {approvedCount > 0 && (
-              <ConfirmPopover
-                title={`Draft ${approvedCount} approved idea${approvedCount === 1 ? '' : 's'}?`}
-                description="Generates grounded post copy for every approved idea and sends you to the review queue."
-                confirmLabel="Draft now"
-                tone="success"
-                align="end"
-                onConfirm={handleDraftApproved}
+            {(approvedCount > 0 || isDrafting) && (
+              <button
+                type="button"
+                onClick={handleDraftApproved}
                 disabled={isActionBusy}
+                aria-busy={isDrafting}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-75"
               >
-                <button
-                  type="button"
-                  disabled={isActionBusy}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  <span>Draft Approved ({approvedCount})</span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </ConfirmPopover>
+                <Sparkles className={cn('h-4 w-4', isDrafting && 'animate-pulse')} />
+                <span>{isDrafting ? 'Generating posts…' : `Draft Approved (${approvedCount})`}</span>
+                {!isDrafting && <ArrowRight className="h-4 w-4" />}
+              </button>
             )}
           </>
         }
@@ -214,12 +242,13 @@ export function IdeasClient({
       {/* Scrollable ideas list */}
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-3xl space-y-4">
-          {message && (
-            <div className="flex w-full items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>{message}</span>
-            </div>
-          )}
+          <AiDraftingStatus
+            status={draftStatus}
+            subject="your approved ideas"
+            errorMessage={draftError}
+            onRetry={handleDraftApproved}
+            retryDisabled={isActionBusy}
+          />
 
           {filteredIdeas.length === 0 ? (
             <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-12 text-center">
@@ -240,12 +269,13 @@ export function IdeasClient({
           ) : (
             <div className="space-y-4 pb-8">
               {filteredIdeas.map((idea) => (
-                <IdeaCard
+                <RunIdeaCard
                   key={idea.id}
                   idea={idea}
                   onApprove={handleApprove}
                   onReject={handleReject}
                   onEditSave={handleEditSave}
+                  isBusy={ideaActionBusyId === idea.id}
                 />
               ))}
             </div>
