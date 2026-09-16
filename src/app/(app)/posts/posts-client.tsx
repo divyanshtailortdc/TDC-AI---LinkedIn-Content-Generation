@@ -282,6 +282,10 @@ export function PostsClientInner({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
+  // The post just approved or rejected stays in the queue until you move on.
+  // Otherwise filtering to "Awaiting review" and approving a post removed it
+  // instantly and jumped to another one before it could be copied.
+  const [pinnedPostId, setPinnedPostId] = useState<string | null>(null)
 
   // Active post editing state
   // Posts matching everything except the status facet, so the status counts can
@@ -313,7 +317,12 @@ export function PostsClientInner({
   }
 
   const filteredPosts = scopedPosts
-    .filter(p => statusFilter === 'all' || p.status === statusFilter)
+    .filter(
+      p =>
+        statusFilter === 'all' ||
+        p.status === statusFilter ||
+        p.id === pinnedPostId
+    )
     .sort((a, b) => {
       const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
       return sortOrder === 'newest' ? diff : -diff
@@ -420,6 +429,7 @@ export function PostsClientInner({
 
   const handleSelectPost = (post: PostDetail) => {
     setSelectedPostId(post.id)
+    setPinnedPostId(null)
     setEditedHook(post.hook)
     setEditedBody(post.body)
     setEditedComment(post.firstComment || '')
@@ -967,10 +977,12 @@ export function PostsClientInner({
   }
 
   const handleApprove = async () => {
-    if (!activePost) return
+    if (!activePost || activePost.status === 'approved') return
     setIsSaving(true)
     try {
       await approveDraft(activePost.id)
+      // Stay on it: approving is followed by copying, not by the next post.
+      setPinnedPostId(activePost.id)
       setPosts(prev =>
         prev.map(p =>
           p.id === activePost.id ? { ...p, status: 'approved' } : p
@@ -983,20 +995,73 @@ export function PostsClientInner({
 
   const handleReject = async (reason?: string) => {
     if (!activePost) return
+    // Chosen before the status changes, while the queue order is still intact.
+    const nextPost =
+      filteredPosts[currentIndex + 1] || filteredPosts[currentIndex - 1] || null
+    const rejectedId = activePost.id
+
     setIsSaving(true)
     try {
-      await rejectDraft(activePost.id, reason || undefined)
+      await rejectDraft(rejectedId, reason?.trim() || undefined)
       setPosts(prev =>
-        prev.map(p =>
-          p.id === activePost.id ? { ...p, status: 'rejected' } : p
-        )
+        prev.map(p => (p.id === rejectedId ? { ...p, status: 'rejected' } : p))
       )
       setShowPostRejection(false)
       setPostRejectionReason('')
+
+      // A rejected post needs nothing further, so move straight on.
+      if (nextPost) {
+        handleSelectPost(nextPost)
+        showToast({
+          type: 'success',
+          title: 'Post rejected',
+          message: reason?.trim()
+            ? 'Your reason was saved to shape future drafts.'
+            : 'Moved to the next post.'
+        })
+      } else {
+        setPinnedPostId(rejectedId)
+      }
     } finally {
       setIsSaving(false)
     }
   }
+
+  // Decision shortcuts, alongside J/K navigation. Declared after the handlers
+  // they call.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+      if (!activePost || isSaving) return
+
+      if (event.key === 'a') {
+        event.preventDefault()
+        void handleApprove()
+      } else if (event.key === 'r') {
+        event.preventDefault()
+        setShowPostRejection(true)
+      } else if (event.key === 'c') {
+        event.preventDefault()
+        void handleCopyPost()
+      } else if (event.key === 'Escape' && showPostRejection) {
+        setShowPostRejection(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, editedHook, editedBody])
 
   const authorInitials = activePost?.accountName
     ? activePost.accountName
@@ -1292,72 +1357,200 @@ export function PostsClientInner({
             </div>
           ) : (
             <>
-              {/* TOP NAVIGATION BAR: Post X of Y, Identity, Status, Prev/Next */}
-              <div className="border-border bg-surface flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-5 py-3.5 shadow-xs">
-                <div className="flex items-center gap-3">
-                  <span className="text-foreground text-xs font-semibold">
-                    Post {currentIndex + 1} of {totalPosts}
-                  </span>
-                  <span className="text-muted text-xs">•</span>
-                  <span className="text-muted text-xs font-medium">
-                    {activePost.accountName}
-                  </span>
-                  <span className="text-muted text-xs">•</span>
-                  <span
-                    className="text-muted text-xs"
-                    title={formatAbsoluteDateTime(activePost.createdAt)}
-                  >
-                    Drafted{' '}
-                    {hasMounted
-                      ? formatRelativeDate(activePost.createdAt)
-                      : formatAbsoluteDate(activePost.createdAt)}
-                  </span>
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${
-                      activePost.status === 'approved'
-                        ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              {/* REVIEW HEADER — sticky, so the decision is always one glance away.
+                  It used to sit at the bottom of the right column, beneath the
+                  image tools, floating over the first comment it duplicated. */}
+              <div className="border-border bg-surface sticky top-0 z-20 rounded-2xl border shadow-sm">
+                {/* Row 1: where you are in the queue */}
+                <div className="border-border/60 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-foreground text-xs font-semibold tabular-nums">
+                      Post {currentIndex + 1} of {totalPosts}
+                    </span>
+                    <span className="text-muted text-xs">•</span>
+                    <span className="text-muted truncate text-xs font-medium">
+                      {activePost.accountName}
+                    </span>
+                    <span className="text-muted text-xs">•</span>
+                    <span
+                      className="text-muted text-xs"
+                      title={formatAbsoluteDateTime(activePost.createdAt)}
+                    >
+                      Drafted{' '}
+                      {hasMounted
+                        ? formatRelativeDate(activePost.createdAt)
+                        : formatAbsoluteDate(activePost.createdAt)}
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                        activePost.status === 'approved'
+                          ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : activePost.status === 'rejected'
+                            ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                            : 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
+                      {activePost.status === 'approved'
+                        ? '✓ Approved'
                         : activePost.status === 'rejected'
-                          ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                          : 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                    }`}
-                  >
-                    {activePost.status === 'approved'
-                      ? '✓ Approved'
-                      : activePost.status === 'rejected'
-                        ? 'Rejected'
-                        : 'Awaiting Review'}
-                  </span>
+                          ? 'Rejected'
+                          : 'Awaiting review'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={currentIndex <= 0}
+                      onClick={handlePrevPost}
+                      aria-label="Previous post"
+                      title="Previous post (K)"
+                      className="border-border text-foreground hover:bg-surface-hover flex cursor-pointer items-center rounded-lg border p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={currentIndex >= totalPosts - 1}
+                      onClick={handleNextPost}
+                      aria-label="Next post"
+                      title="Next post (J)"
+                      className="border-border text-foreground hover:bg-surface-hover flex cursor-pointer items-center rounded-lg border p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={currentIndex <= 0}
-                    onClick={handlePrevPost}
-                    className="border-border bg-surface text-foreground hover:bg-surface-hover flex cursor-pointer items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                    <span>Previous</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={currentIndex >= totalPosts - 1}
-                    onClick={handleNextPost}
-                    className="border-border bg-surface text-foreground hover:bg-surface-hover flex cursor-pointer items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <span>Next</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                  <span className="text-muted ml-1 hidden text-[10px] xl:inline">
-                    or press{' '}
-                    <kbd className="border-border bg-surface-hover rounded border px-1 py-0.5 font-mono">
-                      J
-                    </kbd>{' '}
-                    /{' '}
-                    <kbd className="border-border bg-surface-hover rounded border px-1 py-0.5 font-mono">
-                      K
-                    </kbd>
-                  </span>
+                {/* Row 2: the one thing to do next, which depends on the post's state */}
+                <div className="px-5 py-3">
+                  {showPostRejection ? (
+                    <form
+                      onSubmit={e => {
+                        e.preventDefault()
+                        void handleReject(postRejectionReason)
+                      }}
+                      className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        value={postRejectionReason}
+                        onChange={e => setPostRejectionReason(e.target.value)}
+                        placeholder="What's wrong with it? Optional — saved to improve future drafts"
+                        className="border-border bg-surface text-foreground placeholder:text-muted min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs outline-none focus:border-rose-500"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPostRejection(false)
+                            setPostRejectionReason('')
+                          }}
+                          className="text-muted hover:text-foreground cursor-pointer px-3 py-2 text-xs"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSaving}
+                          className="cursor-pointer rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
+                        >
+                          {isSaving ? 'Rejecting…' : 'Reject & next'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : activePost.status === 'approved' ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                        <span className="font-semibold">Approved.</span>{' '}
+                        <span className="text-muted">
+                          Publish it on LinkedIn in this order:
+                        </span>
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCopyPost}
+                          className="bg-accent text-background flex cursor-pointer items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-xs transition-opacity hover:opacity-90"
+                        >
+                          {copiedPost ? (
+                            <Check className="h-3.5 w-3.5" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                          {copiedPost ? 'Post copied' : '1. Copy post'}
+                          <kbd className="ml-1.5 rounded border border-white/30 px-1 py-px font-mono text-[10px] font-normal opacity-80">
+                            C
+                          </kbd>
+                        </button>
+                        {editedComment ? (
+                          <button
+                            type="button"
+                            onClick={handleCopyComment}
+                            className="border-border text-foreground hover:bg-surface-hover flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors"
+                          >
+                            {copiedComment ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <MessageSquare className="h-3.5 w-3.5" />
+                            )}
+                            {copiedComment
+                              ? 'Comment copied'
+                              : '2. Copy first comment'}
+                          </button>
+                        ) : (
+                          <span className="text-muted text-[11px]">
+                            No first comment
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowPostRejection(true)}
+                          className="text-muted cursor-pointer px-2 py-2 text-[11px] hover:text-rose-600"
+                        >
+                          Reject instead
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-muted text-xs">
+                        {activePost.status === 'rejected'
+                          ? 'Rejected. Changed your mind?'
+                          : 'Read it as it will appear in the feed, then decide.'}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {activePost.status !== 'rejected' && (
+                          <button
+                            type="button"
+                            onClick={() => setShowPostRejection(true)}
+                            disabled={isSaving}
+                            className="border-border text-muted flex cursor-pointer items-center rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
+                          >
+                            Reject
+                            <kbd className="border-border bg-surface-hover text-muted ml-1.5 rounded border px-1 py-px font-mono text-[10px] font-normal">R</kbd>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleApprove}
+                          disabled={isSaving}
+                          className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {isSaving
+                            ? 'Saving…'
+                            : activePost.status === 'rejected'
+                              ? 'Approve instead'
+                              : 'Approve'}
+                          <kbd className="ml-1.5 rounded border border-white/30 px-1 py-px font-mono text-[10px] font-normal opacity-80">
+                            A
+                          </kbd>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1371,16 +1564,30 @@ export function PostsClientInner({
                     <span className="text-muted text-xs font-semibold tracking-wider uppercase">
                       LinkedIn Feed Appearance
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(!isEditing)}
-                      className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium hover:underline"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      <span>
-                        {isEditing ? 'View Feed Preview' : 'Edit Post Text'}
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-4">
+                      <button
+                        type="button"
+                        onClick={handleCopyPost}
+                        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium"
+                      >
+                        {copiedPost ? (
+                          <Check className="h-3.5 w-3.5" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                        <span>{copiedPost ? 'Copied' : 'Copy text'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(!isEditing)}
+                        className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium hover:underline"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        <span>
+                          {isEditing ? 'View Feed Preview' : 'Edit Post Text'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
@@ -2324,105 +2531,6 @@ export function PostsClientInner({
                     )}
                   </div>
 
-                  {/* 3. STICKY REVIEW ACTIONS (Approve primary, Reject secondary, Copy buttons) */}
-                  <div className="border-border bg-surface sticky bottom-4 space-y-3 rounded-2xl border p-4 shadow-sm">
-                    {showPostRejection ? (
-                      <div className="space-y-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3">
-                        <label className="block text-[11px] font-semibold text-rose-700 dark:text-rose-400">
-                          Rejection Reason (Shapes future generations)
-                        </label>
-                        <input
-                          type="text"
-                          value={postRejectionReason}
-                          onChange={e => setPostRejectionReason(e.target.value)}
-                          placeholder="e.g. Too generic, tone is off..."
-                          className="border-border bg-surface text-foreground w-full rounded-lg border px-3 py-2 text-xs outline-none focus:border-rose-500"
-                        />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowPostRejection(false)}
-                            className="text-muted hover:text-foreground cursor-pointer px-3 py-1.5 text-xs"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleReject(postRejectionReason)}
-                            disabled={isSaving}
-                            className="cursor-pointer rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
-                          >
-                            Confirm Reject
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setShowPostRejection(true)}
-                          disabled={isSaving}
-                          className="border-border text-foreground flex-1 cursor-pointer rounded-xl border px-4 py-2.5 text-xs font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
-                        >
-                          Reject Post
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleApprove}
-                          disabled={
-                            isSaving || activePost.status === 'approved'
-                          }
-                          className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
-                            activePost.status === 'approved'
-                              ? 'border border-emerald-500/30 bg-emerald-600/20 text-emerald-600 dark:text-emerald-400'
-                              : 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
-                          }`}
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span>
-                            {activePost.status === 'approved'
-                              ? 'Post Approved'
-                              : 'Approve Post'}
-                          </span>
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Copy Buttons */}
-                    <div className="grid grid-cols-2 gap-2 border-t border-border pt-1">
-                      <button
-                        type="button"
-                        onClick={handleCopyPost}
-                        className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-accent/10 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
-                      >
-                        {copiedPost ? (
-                          <Check className="h-3.5 w-3.5" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                        <span>
-                          {copiedPost ? 'Copied Post!' : 'Copy Post'}
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleCopyComment}
-                        disabled={!editedComment}
-                        className="border-border hover:bg-surface-hover text-foreground flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-40"
-                      >
-                        {copiedComment ? (
-                          <Check className="h-3.5 w-3.5" />
-                        ) : (
-                          <MessageSquare className="h-3.5 w-3.5" />
-                        )}
-                        <span>
-                          {copiedComment ? 'Copied Comment!' : 'Copy Comment'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
             </>
