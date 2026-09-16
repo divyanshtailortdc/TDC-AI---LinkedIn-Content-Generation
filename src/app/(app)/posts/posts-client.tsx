@@ -1,11 +1,20 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useRef, useState, Suspense } from 'react'
-import { PageHeader } from '@/components/page-header'
-import { LinkedInPreview } from '@/components/linkedin-preview'
 import { ImageLightbox } from '@/components/image-lightbox'
-import Image from 'next/image'
+import { LinkedInPreview } from '@/components/linkedin-preview'
+import { PageHeader } from '@/components/page-header'
+import { showToast } from '@/components/toast-notification'
+import type { LintFinding } from '@/lib/lint/run-linter'
+import {
+  IMAGE_PROMPT_MAX_WORDS,
+  countWords,
+  validateImagePrompt,
+  validateImageUrl,
+  validateReferenceDimensions,
+  validateReferenceFile,
+  validateStockQuery
+} from '@/lib/media/image-input'
+import { getUserFacingRelevance } from '@/lib/media/media-brief'
 import {
   AlertTriangle,
   Check,
@@ -33,17 +42,9 @@ import {
   X,
   ZoomIn
 } from 'lucide-react'
-import type { LintFinding } from '@/lib/lint/run-linter'
-import { getUserFacingRelevance } from '@/lib/media/media-brief'
-import {
-  IMAGE_PROMPT_MAX_WORDS,
-  countWords,
-  validateImagePrompt,
-  validateImageUrl,
-  validateReferenceDimensions,
-  validateReferenceFile,
-  validateStockQuery
-} from '@/lib/media/image-input'
+import Image from 'next/image'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import {
   approveDraft,
   regeneratePostMediaAction,
@@ -133,7 +134,7 @@ function getHumanRuleLabel(rule: string): string {
   return rule
     .toLowerCase()
     .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b\w/g, c => c.toUpperCase())
 }
 
 export function PostsClientInner({
@@ -149,20 +150,25 @@ export function PostsClientInner({
 
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
   const [selectedPostId, setSelectedPostId] = useState<string>(
-    initialPosts.find((p) => !filterRunId || p.runId === filterRunId)?.id || initialPosts[0]?.id || ''
+    initialPosts.find(p => !filterRunId || p.runId === filterRunId)?.id ||
+      initialPosts[0]?.id ||
+      ''
   )
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all')
 
   // Active post editing state
-  const activePost = posts.find((p) => p.id === selectedPostId) || posts[0]
+  const activePost = posts.find(p => p.id === selectedPostId) || posts[0]
   const [isEditing, setIsEditing] = useState(false)
   const [editedHook, setEditedHook] = useState(activePost?.hook || '')
   const [editedBody, setEditedBody] = useState(activePost?.body || '')
-  const [editedComment, setEditedComment] = useState(activePost?.firstComment || '')
+  const [editedComment, setEditedComment] = useState(
+    activePost?.firstComment || ''
+  )
 
   // Copy feedback
   const [copiedPost, setCopiedPost] = useState(false)
   const [copiedComment, setCopiedComment] = useState(false)
+  const [copiedImage, setCopiedImage] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   // Media management state
@@ -181,7 +187,9 @@ export function PostsClientInner({
   // Prompt-driven image generation
   const [imagePrompt, setImagePrompt] = useState('')
   const [referenceImage, setReferenceImage] = useState<string | null>(null)
-  const [referenceImageName, setReferenceImageName] = useState<string | null>(null)
+  const [referenceImageName, setReferenceImageName] = useState<string | null>(
+    null
+  )
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
@@ -198,13 +206,13 @@ export function PostsClientInner({
   const [showFirstCommentDetail, setShowFirstCommentDetail] = useState(false)
 
   // Filter posts
-  const filteredPosts = posts.filter((p) => {
+  const filteredPosts = posts.filter(p => {
     if (filterRunId && p.runId !== filterRunId) return false
     if (selectedAccountId === 'all') return true
     return p.accountId === selectedAccountId
   })
 
-  const currentIndex = filteredPosts.findIndex((p) => p.id === activePost?.id)
+  const currentIndex = filteredPosts.findIndex(p => p.id === activePost?.id)
   const totalPosts = filteredPosts.length
 
   const handleSelectPost = (post: PostDetail) => {
@@ -295,8 +303,10 @@ export function PostsClientInner({
     setMediaError(null)
   }
 
-  const handleReferencePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const image = Array.from(e.clipboardData.files).find((f) =>
+  const handleReferencePaste = (
+    e: React.ClipboardEvent<HTMLTextAreaElement>
+  ) => {
+    const image = Array.from(e.clipboardData.files).find(f =>
       f.type.startsWith('image/')
     )
     if (image) {
@@ -342,8 +352,8 @@ export function PostsClientInner({
       const res = await response.json().catch(() => null)
 
       if (response.ok && res?.success && res.media) {
-        setPosts((prev) =>
-          prev.map((p) => (p.id === postId ? { ...p, media: res.media } : p))
+        setPosts(prev =>
+          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
         )
       } else {
         setMediaError(
@@ -361,7 +371,8 @@ export function PostsClientInner({
         )
       }
     } finally {
-      if (generationAbortRef.current === controller) generationAbortRef.current = null
+      if (generationAbortRef.current === controller)
+        generationAbortRef.current = null
       setIsGenerating(false)
       setIsMediaLoading(false)
       setMediaLoadingText('')
@@ -379,7 +390,8 @@ export function PostsClientInner({
 
     const extension =
       imageUrl.startsWith('data:') && imageUrl.includes('/')
-        ? imageUrl.slice(imageUrl.indexOf('/') + 1, imageUrl.indexOf(';')) || 'png'
+        ? imageUrl.slice(imageUrl.indexOf('/') + 1, imageUrl.indexOf(';')) ||
+          'png'
         : 'png'
     const fileName = `linkedin-visual-v${activePost?.media?.version || 1}.${extension}`
 
@@ -424,8 +436,8 @@ export function PostsClientInner({
         customPrompt: stockSearchQuery.trim() || undefined
       })
       if (res.success && res.media) {
-        setPosts((prev) =>
-          prev.map((p) =>
+        setPosts(prev =>
+          prev.map(p =>
             p.id === activePost.id ? { ...p, media: res.media } : p
           )
         )
@@ -463,8 +475,8 @@ export function PostsClientInner({
       })
 
       if (res.success && res.media) {
-        setPosts((prev) =>
-          prev.map((p) =>
+        setPosts(prev =>
+          prev.map(p =>
             p.id === activePost.id ? { ...p, media: res.media } : p
           )
         )
@@ -491,8 +503,8 @@ export function PostsClientInner({
     try {
       const res = await removePostMediaAction(activePost.id)
       if (res.success) {
-        setPosts((prev) =>
-          prev.map((p) => (p.id === activePost.id ? { ...p, media: null } : p))
+        setPosts(prev =>
+          prev.map(p => (p.id === activePost.id ? { ...p, media: null } : p))
         )
       } else {
         setMediaError(res.error || 'Failed to remove media')
@@ -511,8 +523,8 @@ export function PostsClientInner({
     setIsSaving(true)
     try {
       await updateDraft(activePost.id, { hook: newHook })
-      setPosts((prev) =>
-        prev.map((p) => (p.id === activePost.id ? { ...p, hook: newHook } : p))
+      setPosts(prev =>
+        prev.map(p => (p.id === activePost.id ? { ...p, hook: newHook } : p))
       )
     } finally {
       setIsSaving(false)
@@ -528,8 +540,8 @@ export function PostsClientInner({
         body: editedBody,
         firstComment: editedComment
       })
-      setPosts((prev) =>
-        prev.map((p) =>
+      setPosts(prev =>
+        prev.map(p =>
           p.id === activePost.id
             ? {
                 ...p,
@@ -547,25 +559,184 @@ export function PostsClientInner({
     }
   }
 
-  const handleCopyPost = () => {
+  const copyTextToClipboard = async (text: string): Promise<boolean> => {
+    // 1. Try modern clipboard API (HTTPS or localhost)
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === 'function'
+    ) {
+      try {
+        await navigator.clipboard.writeText(text)
+        return true
+      } catch (e) {
+        console.warn('navigator.clipboard.writeText failed, using fallback:', e)
+      }
+    }
+
+    // 2. Fallback using temporary textarea (HTTP / LAN IP / permissions restricted)
+    if (typeof document !== 'undefined') {
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        textarea.style.top = '-9999px'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        const successful = document.execCommand('copy')
+        document.body.removeChild(textarea)
+        if (successful) return true
+      } catch (err) {
+        console.error('execCommand copy fallback failed:', err)
+      }
+    }
+
+    return false
+  }
+
+  const handleCopyPost = async () => {
     if (!activePost) return
     const tagsString = (activePost.hashtags || [])
-      .map((t) => (t.startsWith('#') ? t : `#${t}`))
+      .map(t => (t.startsWith('#') ? t : `#${t}`))
       .join(' ')
     const fullContent = `${editedHook}\n\n${editedBody}${
       activePost.cta ? `\n\n${activePost.cta}` : ''
     }${tagsString ? `\n\n${tagsString}` : ''}`
 
-    navigator.clipboard.writeText(fullContent)
-    setCopiedPost(true)
-    setTimeout(() => setCopiedPost(false), 2500)
+    const success = await copyTextToClipboard(fullContent)
+    if (success) {
+      setCopiedPost(true)
+      showToast({
+        type: 'success',
+        title: 'Post Copied!',
+        message: 'Post text copied with clean line breaks, CTA, and hashtags.'
+      })
+      setTimeout(() => setCopiedPost(false), 2500)
+    } else {
+      showToast({
+        type: 'error',
+        title: 'Copy Failed',
+        message: 'Could not write to clipboard. Please select text manually.'
+      })
+    }
   }
 
-  const handleCopyComment = () => {
+  const handleCopyComment = async () => {
     if (!editedComment) return
-    navigator.clipboard.writeText(editedComment)
-    setCopiedComment(true)
-    setTimeout(() => setCopiedComment(false), 2500)
+    const success = await copyTextToClipboard(editedComment)
+    if (success) {
+      setCopiedComment(true)
+      showToast({
+        type: 'success',
+        title: 'Comment Copied!',
+        message: 'First comment text copied to clipboard.'
+      })
+      setTimeout(() => setCopiedComment(false), 2500)
+    } else {
+      showToast({
+        type: 'error',
+        title: 'Copy Failed',
+        message: 'Could not write comment to clipboard.'
+      })
+    }
+  }
+
+  const handleCopyImage = async () => {
+    const imageUrl = activePost?.media?.imageUrl
+    if (!imageUrl) return
+
+    try {
+      let blob: Blob
+      if (imageUrl.startsWith('data:')) {
+        try {
+          const res = await fetch(imageUrl)
+          blob = await res.blob()
+        } catch {
+          const parts = imageUrl.split(',')
+          const header = parts[0] || ''
+          const base64Data = parts[1] || ''
+          const mime = header.match(/:(.*?);/)?.[1] || 'image/png'
+          const bstr = atob(base64Data)
+          let n = bstr.length
+          const u8arr = new Uint8Array(n)
+          while (n--) {
+            u8arr[n] = bstr.charCodeAt(n)
+          }
+          blob = new Blob([u8arr], { type: mime })
+        }
+      } else {
+        const res = await fetch(imageUrl)
+        blob = await res.blob()
+      }
+
+      // ClipboardItem requires PNG format
+      let pngBlob = blob
+      if (blob.type !== 'image/png') {
+        const img = new window.Image()
+        img.crossOrigin = 'anonymous'
+        await new Promise((resolve, reject) => {
+          img.onload = resolve
+          img.onerror = reject
+          img.src = imageUrl
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth || img.width
+        canvas.height = img.naturalHeight || img.height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0)
+        pngBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            b => (b ? resolve(b) : reject(new Error('Canvas toBlob failed'))),
+            'image/png'
+          )
+        })
+      }
+
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        typeof ClipboardItem !== 'undefined' &&
+        typeof navigator.clipboard.write === 'function'
+      ) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': pngBlob })
+        ])
+        setCopiedImage(true)
+        showToast({
+          type: 'success',
+          title: 'Image Copied!',
+          message:
+            'Image copied to clipboard! You can paste (Ctrl+V) directly into LinkedIn.'
+        })
+        setTimeout(() => setCopiedImage(false), 2500)
+        return
+      }
+
+      // Browser doesn't support direct image clipboard write: download image instead
+      await handleDownloadMedia()
+      showToast({
+        type: 'info',
+        title: 'Image Downloaded',
+        message:
+          'Clipboard image copy is unsupported in this browser. Image downloaded instead.'
+      })
+    } catch (err) {
+      console.warn(
+        'Failed to copy image to clipboard, downloading instead:',
+        err
+      )
+      await handleDownloadMedia()
+      showToast({
+        type: 'info',
+        title: 'Image Downloaded',
+        message:
+          'Direct clipboard image copy unavailable. Image downloaded so you can attach it.'
+      })
+    }
   }
 
   const handleApprove = async () => {
@@ -573,8 +744,10 @@ export function PostsClientInner({
     setIsSaving(true)
     try {
       await approveDraft(activePost.id)
-      setPosts((prev) =>
-        prev.map((p) => (p.id === activePost.id ? { ...p, status: 'approved' } : p))
+      setPosts(prev =>
+        prev.map(p =>
+          p.id === activePost.id ? { ...p, status: 'approved' } : p
+        )
       )
     } finally {
       setIsSaving(false)
@@ -586,8 +759,10 @@ export function PostsClientInner({
     setIsSaving(true)
     try {
       await rejectDraft(activePost.id, reason || undefined)
-      setPosts((prev) =>
-        prev.map((p) => (p.id === activePost.id ? { ...p, status: 'rejected' } : p))
+      setPosts(prev =>
+        prev.map(p =>
+          p.id === activePost.id ? { ...p, status: 'rejected' } : p
+        )
       )
       setShowPostRejection(false)
       setPostRejectionReason('')
@@ -599,16 +774,17 @@ export function PostsClientInner({
   const authorInitials = activePost?.accountName
     ? activePost.accountName
         .split(' ')
-        .map((w) => w[0])
+        .map(w => w[0])
         .join('')
         .slice(0, 2)
         .toUpperCase()
     : 'IN'
 
-  const alternateHooks = activePost?.variants?.filter((v) => v.variantType === 'hook') || []
+  const alternateHooks =
+    activePost?.variants?.filter(v => v.variantType === 'hook') || []
   const citations = activePost?.citations || []
   const lintFindings = activePost?.lintFindings || []
-  const passedLintCount = lintFindings.filter((f) => f.passed).length
+  const passedLintCount = lintFindings.filter(f => f.passed).length
   const totalLintCount = lintFindings.length
   const hasLintIssues = totalLintCount > 0 && passedLintCount < totalLintCount
 
@@ -641,21 +817,21 @@ export function PostsClientInner({
     'Editorial visual asset'
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Review & Ship Posts"
         badge="Daily Surface"
         description="Final polish before publishing. Review formatting, media, and platform-specific nuances."
         bottomContent={
           <div className="flex items-center gap-2">
-            <Filter className="w-3.5 h-3.5 text-muted" />
+            <Filter className="text-muted h-3.5 w-3.5" />
             <select
               value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+              onChange={e => setSelectedAccountId(e.target.value)}
+              className="border-border bg-surface text-foreground focus:border-accent rounded-lg border px-3 py-1.5 text-xs outline-none"
             >
               <option value="all">All Identities</option>
-              {accounts.map((acc) => (
+              {accounts.map(acc => (
                 <option key={acc.id} value={acc.id}>
                   {acc.name}
                 </option>
@@ -665,22 +841,22 @@ export function PostsClientInner({
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-surface-hover/30">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-7xl space-y-6">
           {filteredPosts.length === 0 || !activePost ? (
-            <div className="p-16 text-center rounded-2xl border-2 border-dashed border-border bg-surface">
-              <FileCheck className="w-10 h-10 text-muted mx-auto mb-3" />
-              <h3 className="text-sm font-semibold text-foreground">
+            <div className="border-border bg-surface rounded-2xl border-2 border-dashed p-16 text-center">
+              <FileCheck className="text-muted mx-auto mb-3 h-10 w-10" />
+              <h3 className="text-foreground text-sm font-semibold">
                 No drafted posts waiting for review
               </h3>
-              <p className="text-xs text-muted mt-1 max-w-sm mx-auto">
+              <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
                 Approve concepts from the Idea Gate to draft grounded posts.
               </p>
               {filterRunId && (
                 <button
                   type="button"
                   onClick={() => router.push('/posts')}
-                  className="mt-4 px-4 py-2 rounded-lg bg-surface-hover border border-border text-xs font-semibold text-foreground hover:bg-surface-hover/80 transition-colors"
+                  className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors"
                 >
                   Clear Run Filter
                 </button>
@@ -689,29 +865,29 @@ export function PostsClientInner({
           ) : (
             <>
               {/* TOP NAVIGATION BAR: Post X of Y, Identity, Status, Prev/Next */}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-5 py-3.5 shadow-xs">
+              <div className="border-border bg-surface flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-5 py-3.5 shadow-xs">
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-foreground">
+                  <span className="text-foreground text-xs font-semibold">
                     Post {currentIndex + 1} of {totalPosts}
                   </span>
                   <span className="text-muted text-xs">•</span>
-                  <span className="text-xs text-muted font-medium">
+                  <span className="text-muted text-xs font-medium">
                     {activePost.accountName}
                   </span>
                   <span
-                    className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full capitalize ${
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${
                       activePost.status === 'approved'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                        ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                         : activePost.status === 'rejected'
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                          ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                          : 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
                     }`}
                   >
                     {activePost.status === 'approved'
                       ? '✓ Approved'
                       : activePost.status === 'rejected'
-                      ? 'Rejected'
-                      : 'Awaiting Review'}
+                        ? 'Rejected'
+                        : 'Awaiting Review'}
                   </span>
                 </div>
 
@@ -720,19 +896,19 @@ export function PostsClientInner({
                     type="button"
                     disabled={currentIndex <= 0}
                     onClick={handlePrevPost}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-border bg-surface text-xs font-medium text-foreground hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="border-border bg-surface text-foreground hover:bg-surface-hover flex cursor-pointer items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <ChevronLeft className="h-3.5 w-3.5" />
                     <span>Previous</span>
                   </button>
                   <button
                     type="button"
                     disabled={currentIndex >= totalPosts - 1}
                     onClick={handleNextPost}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-border bg-surface text-xs font-medium text-foreground hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="border-border bg-surface text-foreground hover:bg-surface-hover flex cursor-pointer items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <span>Next</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
@@ -745,7 +921,7 @@ export function PostsClientInner({
                       key={p.id}
                       type="button"
                       onClick={() => handleSelectPost(p)}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium shrink-0 transition-colors cursor-pointer border ${
+                      className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
                         p.id === activePost?.id
                           ? 'bg-accent text-background border-accent shadow-xs'
                           : 'bg-surface border-border text-muted hover:text-foreground'
@@ -761,74 +937,76 @@ export function PostsClientInner({
               )}
 
               {/* TWO-COLUMN REVIEW WORKSPACE (Left: LinkedIn Preview; Right: Compact Review Panel) */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
                 {/* ============================================================ */}
                 {/* LEFT COLUMN: PRIMARY VISUAL AREA (LinkedIn Feed Preview)     */}
                 {/* ============================================================ */}
-                <div className="lg:col-span-7 space-y-4">
+                <div className="space-y-4 lg:col-span-7">
                   <div className="flex items-center justify-between px-1">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                    <span className="text-muted text-xs font-semibold tracking-wider uppercase">
                       LinkedIn Feed Appearance
                     </span>
                     <button
                       type="button"
                       onClick={() => setIsEditing(!isEditing)}
-                      className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium cursor-pointer"
+                      className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium hover:underline"
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>{isEditing ? 'View Feed Preview' : 'Edit Post Text'}</span>
+                      <Edit2 className="h-3.5 w-3.5" />
+                      <span>
+                        {isEditing ? 'View Feed Preview' : 'Edit Post Text'}
+                      </span>
                     </button>
                   </div>
 
                   {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
                   {isEditing ? (
-                    <div className="rounded-2xl border border-border bg-surface p-6 space-y-4 shadow-xs">
+                    <div className="border-border bg-surface space-y-4 rounded-2xl border p-6 shadow-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground">
+                        <span className="text-foreground text-xs font-semibold">
                           Edit Draft Copy
                         </span>
-                        <span className="text-xs font-mono text-muted">
+                        <span className="text-muted font-mono text-xs">
                           Hook: {editedHook.length} chars (fold ~200)
                         </span>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted mb-1">
+                        <label className="text-muted mb-1 block text-xs font-medium">
                           Opening Hook
                         </label>
                         <textarea
                           value={editedHook}
-                          onChange={(e) => setEditedHook(e.target.value)}
+                          onChange={e => setEditedHook(e.target.value)}
                           rows={3}
-                          className="w-full rounded-xl border border-border bg-surface-hover p-3 text-xs text-foreground focus:border-accent outline-none"
+                          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted mb-1">
+                        <label className="text-muted mb-1 block text-xs font-medium">
                           Body
                         </label>
                         <textarea
                           value={editedBody}
-                          onChange={(e) => setEditedBody(e.target.value)}
+                          onChange={e => setEditedBody(e.target.value)}
                           rows={8}
-                          className="w-full rounded-xl border border-border bg-surface-hover p-3 text-xs text-foreground focus:border-accent outline-none font-mono"
+                          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 font-mono text-xs outline-none"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted mb-1">
+                        <label className="text-muted mb-1 block text-xs font-medium">
                           First Comment
                         </label>
                         <textarea
                           value={editedComment}
-                          onChange={(e) => setEditedComment(e.target.value)}
+                          onChange={e => setEditedComment(e.target.value)}
                           rows={2}
-                          className="w-full rounded-xl border border-border bg-surface-hover p-3 text-xs text-foreground focus:border-accent outline-none"
+                          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
                         />
                       </div>
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => setIsEditing(false)}
-                          className="px-3 py-1.5 text-xs text-muted hover:text-foreground cursor-pointer"
+                          className="text-muted hover:text-foreground cursor-pointer px-3 py-1.5 text-xs"
                         >
                           Cancel
                         </button>
@@ -836,14 +1014,14 @@ export function PostsClientInner({
                           type="button"
                           onClick={handleSaveEdits}
                           disabled={isSaving}
-                          className="px-4 py-2 rounded-lg bg-accent text-background text-xs font-semibold cursor-pointer disabled:opacity-50"
+                          className="bg-accent text-background cursor-pointer rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-50"
                         >
                           Save Changes
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex justify-center w-full">
+                    <div className="flex w-full justify-center">
                       <LinkedInPreview
                         authorName={activePost.accountName}
                         authorHeadline={activePost.accountHeadline}
@@ -856,7 +1034,9 @@ export function PostsClientInner({
                         mediaAltText={activePost.media?.altText}
                         foldCharLimit={200}
                         onMediaClick={
-                          activePost.media?.imageUrl ? () => setIsImageZoomOpen(true) : undefined
+                          activePost.media?.imageUrl
+                            ? () => setIsImageZoomOpen(true)
+                            : undefined
                         }
                       />
                     </div>
@@ -866,7 +1046,7 @@ export function PostsClientInner({
                 {/* ============================================================ */}
                 {/* RIGHT COLUMN: COMPACT REVIEW & CONTROL PANEL                 */}
                 {/* ============================================================ */}
-                <div className="lg:col-span-5 space-y-4">
+                <div className="space-y-4 lg:col-span-5">
                   {/* Zoom viewer — portals to <body>, so its position here is irrelevant */}
                   {isImageZoomOpen && activePost.media?.imageUrl && (
                     <ImageLightbox
@@ -885,7 +1065,7 @@ export function PostsClientInner({
                       <button
                         type="button"
                         onClick={() => setMediaError(null)}
-                        className="p-1 hover:text-rose-700 cursor-pointer"
+                        className="cursor-pointer p-1 hover:text-rose-700"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -894,7 +1074,7 @@ export function PostsClientInner({
 
                   {/* NEUTRAL NOTICE (e.g. generation stopped) */}
                   {mediaNotice && (
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface-hover p-3 text-xs text-muted">
+                    <div className="border-border bg-surface-hover text-muted flex items-center justify-between gap-2 rounded-xl border p-3 text-xs">
                       <span className="flex items-center gap-1.5">
                         <Info className="h-3.5 w-3.5 shrink-0" />
                         {mediaNotice}
@@ -902,7 +1082,7 @@ export function PostsClientInner({
                       <button
                         type="button"
                         onClick={() => setMediaNotice(null)}
-                        className="p-1 hover:text-foreground cursor-pointer"
+                        className="hover:text-foreground cursor-pointer p-1"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -913,122 +1093,130 @@ export function PostsClientInner({
                   {activePost.media?.imageUrl &&
                     !isUserPromptedMedia &&
                     !relevanceInfo.isPass && (
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs space-y-2.5">
-                      <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400 font-medium">
-                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-                        <div>
-                          <p className="font-semibold">Media may not match this post</p>
-                          <p className="text-[11px] text-amber-800 dark:text-amber-300/80 mt-0.5 leading-relaxed">
-                            {relevanceInfo.warningMessage ||
-                              'Generated media appears to introduce a different topic.'}
-                          </p>
+                      <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
+                        <div className="flex items-start gap-2 font-medium text-amber-700 dark:text-amber-400">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          <div>
+                            <p className="font-semibold">
+                              Media may not match this post
+                            </p>
+                            <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
+                              {relevanceInfo.warningMessage ||
+                                'Generated media appears to introduce a different topic.'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={() => {
+                              setShowStockInput(true)
+                              setShowCustomUrlInput(false)
+                            }}
+                            className="border-border bg-surface hover:bg-surface-hover cursor-pointer rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                          >
+                            Change media
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={handleRemoveMedia}
+                            className="cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
+                          >
+                            Use text only
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="button"
-                          disabled={isMediaLoading}
-                          onClick={() => {
-                            setShowStockInput(true)
-                            setShowCustomUrlInput(false)
-                          }}
-                          className="px-2.5 py-1 rounded-lg border border-border bg-surface text-[11px] font-medium hover:bg-surface-hover transition-colors cursor-pointer"
-                        >
-                          Change media
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isMediaLoading}
-                          onClick={handleRemoveMedia}
-                          className="px-2.5 py-1 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 text-[11px] font-medium transition-colors cursor-pointer"
-                        >
-                          Use text only
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                    )}
 
                   {/* 1. COMPACT MEDIA REVIEW CARD (No duplicate large image) */}
-                  <div className="rounded-2xl border border-border bg-surface p-4 space-y-3 shadow-xs">
+                  <div className="border-border bg-surface space-y-3 rounded-2xl border p-4 shadow-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <ImageIcon className="w-3.5 h-3.5 text-accent" />
+                      <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+                        <ImageIcon className="text-accent h-3.5 w-3.5" />
                         Media Attachment
                       </span>
                       {activePost.media?.imageUrl && isUserPromptedMedia ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
                           <Sparkles className="h-3 w-3" />
                           Your prompt
                         </span>
                       ) : activePost.media?.imageUrl ? (
                         <div className="flex items-center gap-1.5">
                           <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                               relevanceInfo.level === 'Highly relevant'
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                                 : relevanceInfo.level === 'Relevant'
-                                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
-                                : relevanceInfo.level === 'Weak match'
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                                  ? 'border border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                                  : relevanceInfo.level === 'Weak match'
+                                    ? 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                    : 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
                             }`}
                           >
                             {relevanceInfo.isPass ? (
-                              <CheckCircle2 className="w-3 h-3" />
+                              <CheckCircle2 className="h-3 w-3" />
                             ) : (
-                              <AlertTriangle className="w-3 h-3" />
+                              <AlertTriangle className="h-3 w-3" />
                             )}
                             {relevanceInfo.label}
                           </span>
-                          <span className="text-[10px] text-muted bg-surface-hover px-1.5 py-0.5 rounded capitalize">
+                          <span className="text-muted bg-surface-hover rounded px-1.5 py-0.5 text-[10px] capitalize">
                             {activePost.media.visualType
                               ? activePost.media.visualType.replace('_', ' ')
                               : 'Editorial visual'}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-muted bg-surface-hover px-2 py-0.5 rounded-full font-medium">
+                        <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
                           Text Only
                         </span>
                       )}
                     </div>
 
                     {isMediaLoading ? (
-                      <div className="flex flex-col items-center justify-center space-y-2 rounded-xl border border-border bg-surface-hover/50 py-6 text-xs text-muted animate-pulse">
-                        <Loader2 className="h-5 w-5 animate-spin text-accent" />
-                        <p className="font-medium text-foreground">
+                      <div className="border-border bg-surface-hover/50 text-muted flex animate-pulse flex-col items-center justify-center space-y-2 rounded-xl border py-6 text-xs">
+                        <Loader2 className="text-accent h-5 w-5 animate-spin" />
+                        <p className="text-foreground font-medium">
                           {mediaLoadingText || 'Processing media asset...'}
                         </p>
                       </div>
                     ) : activePost.media?.imageUrl ? (
                       <div className="space-y-2">
-                        <div className="flex items-start gap-3 p-2.5 rounded-xl bg-surface-hover/40 border border-border/60">
+                        <div className="bg-surface-hover/40 border-border/60 flex items-start gap-3 rounded-xl border p-2.5">
                           {/* Compact 64x64 thumbnail */}
                           <button
                             type="button"
                             onClick={() => setIsImageZoomOpen(true)}
                             title="Zoom image"
-                            className="relative w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-border bg-neutral-900 cursor-zoom-in"
+                            className="border-border relative h-16 w-16 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border bg-neutral-900"
                           >
                             <Image
                               src={activePost.media.imageUrl}
-                              alt={activePost.media.altText || 'Media thumbnail'}
+                              alt={
+                                activePost.media.altText || 'Media thumbnail'
+                              }
                               width={64}
                               height={64}
-                              className="w-full h-full object-cover"
+                              className="h-full w-full object-cover"
                               unoptimized
                             />
                           </button>
                           <div className="min-w-0 flex-1 space-y-1">
-                            <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">
+                            <p className="text-foreground line-clamp-2 text-xs leading-snug font-medium">
                               &quot;{mediaHeadline}&quot;
                             </p>
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
-                              <span>Media v{activePost.media.version || 1}</span>
+                            <div className="text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+                              <span>
+                                Media v{activePost.media.version || 1}
+                              </span>
                               <span>•</span>
-                              {activePost.media.width && activePost.media.height ? (
-                                <span className="font-medium text-foreground">
-                                  {activePost.media.width} × {activePost.media.height} HD
+                              {activePost.media.width &&
+                              activePost.media.height ? (
+                                <span className="text-foreground font-medium">
+                                  {activePost.media.width} ×{' '}
+                                  {activePost.media.height} HD
                                 </span>
                               ) : (
                                 <span className="capitalize">
@@ -1046,18 +1234,18 @@ export function PostsClientInner({
                               <button
                                 type="button"
                                 onClick={handleDownloadMedia}
-                                className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline cursor-pointer"
+                                className="text-accent inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:underline"
                               >
-                                <Download className="w-3 h-3" />
+                                <Download className="h-3 w-3" />
                                 Download image
                               </button>
                               <button
                                 type="button"
                                 disabled={isMediaLoading}
                                 onClick={handleRemoveMedia}
-                                className="inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+                                className="text-muted inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:text-rose-600 dark:hover:text-rose-400"
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="h-3 w-3" />
                                 Remove
                               </button>
                             </div>
@@ -1065,89 +1253,103 @@ export function PostsClientInner({
                         </div>
 
                         <button
-                            type="button"
-                            onClick={() => setIsImageZoomOpen(true)}
-                            aria-label="Zoom image"
-                            className="group relative block w-full rounded-xl overflow-hidden border border-border bg-neutral-900 cursor-zoom-in"
-                          >
-                            <Image
-                              src={activePost.media.imageUrl}
-                              alt={activePost.media.altText || 'Generated visual'}
-                              width={2048}
-                              height={1072}
-                              className="w-full h-auto object-contain"
-                              unoptimized
-                            />
-                            <span className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                              <ZoomIn className="h-3 w-3" />
-                              Zoom
-                            </span>
-                          </button>
+                          type="button"
+                          onClick={() => setIsImageZoomOpen(true)}
+                          aria-label="Zoom image"
+                          className="group border-border relative block w-full cursor-zoom-in overflow-hidden rounded-xl border bg-neutral-900"
+                        >
+                          <Image
+                            src={activePost.media.imageUrl}
+                            alt={activePost.media.altText || 'Generated visual'}
+                            width={2048}
+                            height={1072}
+                            className="h-auto w-full object-contain"
+                            unoptimized
+                          />
+                          <span className="pointer-events-none absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                            <ZoomIn className="h-3 w-3" />
+                            Zoom
+                          </span>
+                        </button>
                       </div>
                     ) : (
-                      <div className="p-3.5 text-center rounded-xl border border-dashed border-border bg-surface-hover/20 text-xs text-muted">
-                        No visual media attached. Post will publish as text-only.
+                      <div className="border-border bg-surface-hover/20 text-muted rounded-xl border border-dashed p-3.5 text-center text-xs">
+                        No visual media attached. Post will publish as
+                        text-only.
                       </div>
                     )}
 
                     {/* Stock search input */}
                     {showStockInput && !isMediaLoading && (
-                      <div className="space-y-2 rounded-xl border border-border bg-surface-hover p-3">
-                        <label className="block text-[11px] font-semibold text-foreground">
+                      <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
+                        <label className="text-foreground block text-[11px] font-semibold">
                           Search Stock Imagery
                         </label>
                         <div className="flex gap-2">
                           <input
                             type="text"
                             value={stockSearchQuery}
-                            onChange={(e) => setStockSearchQuery(e.target.value)}
+                            onChange={e => setStockSearchQuery(e.target.value)}
                             placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
-                            className="flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-accent"
-                            aria-invalid={stockSearchQuery.trim().length > 0 && stockQueryError !== null}
-                            onKeyDown={(e) =>
-                              e.key === 'Enter' && !stockQueryError && handleSearchStockMedia()
+                            className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                            aria-invalid={
+                              stockSearchQuery.trim().length > 0 &&
+                              stockQueryError !== null
+                            }
+                            onKeyDown={e =>
+                              e.key === 'Enter' &&
+                              !stockQueryError &&
+                              handleSearchStockMedia()
                             }
                           />
                           <button
                             type="button"
-                            disabled={isMediaLoading || stockQueryError !== null}
+                            disabled={
+                              isMediaLoading || stockQueryError !== null
+                            }
                             onClick={handleSearchStockMedia}
-                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                            className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Search
                           </button>
                         </div>
-                        {stockSearchQuery.trim().length > 0 && stockQueryError && (
-                          <p className="text-[11px] text-rose-600 dark:text-rose-400">
-                            {stockQueryError}
-                          </p>
-                        )}
+                        {stockSearchQuery.trim().length > 0 &&
+                          stockQueryError && (
+                            <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                              {stockQueryError}
+                            </p>
+                          )}
                       </div>
                     )}
 
                     {/* Custom URL input */}
                     {showCustomUrlInput && !isMediaLoading && (
-                      <div className="space-y-2 rounded-xl border border-border bg-surface-hover p-3">
-                        <label className="block text-[11px] font-semibold text-foreground">
+                      <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
+                        <label className="text-foreground block text-[11px] font-semibold">
                           Direct Image URL
                         </label>
                         <div className="flex gap-2">
                           <input
                             type="url"
                             value={customImageUrl}
-                            onChange={(e) => setCustomImageUrl(e.target.value)}
+                            onChange={e => setCustomImageUrl(e.target.value)}
                             placeholder="https://images.unsplash.com/..."
-                            className="flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-accent"
-                            aria-invalid={customImageUrl.trim().length > 0 && customUrlError !== null}
-                            onKeyDown={(e) =>
-                              e.key === 'Enter' && !customUrlError && handleApplyCustomUrl()
+                            className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                            aria-invalid={
+                              customImageUrl.trim().length > 0 &&
+                              customUrlError !== null
+                            }
+                            onKeyDown={e =>
+                              e.key === 'Enter' &&
+                              !customUrlError &&
+                              handleApplyCustomUrl()
                             }
                           />
                           <button
                             type="button"
                             disabled={isMediaLoading || customUrlError !== null}
                             onClick={handleApplyCustomUrl}
-                            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                            className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Apply
                           </button>
@@ -1162,11 +1364,11 @@ export function PostsClientInner({
 
                     {/* Prompt-driven generation */}
                     {!isMediaLoading && (
-                      <div className="space-y-2 rounded-xl border border-border bg-surface-hover/50 p-3">
+                      <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
                         <div className="flex items-center justify-between">
                           <label
                             htmlFor="image-prompt"
-                            className="block text-[11px] font-semibold text-foreground"
+                            className="text-foreground block text-[11px] font-semibold"
                           >
                             {referenceImage
                               ? 'Describe the change you want'
@@ -1176,7 +1378,7 @@ export function PostsClientInner({
                             <button
                               type="button"
                               onClick={clearPromptAndReference}
-                              className="text-[11px] font-medium text-muted hover:text-foreground cursor-pointer"
+                              className="text-muted hover:text-foreground cursor-pointer text-[11px] font-medium"
                             >
                               Clear
                             </button>
@@ -1185,7 +1387,7 @@ export function PostsClientInner({
                         <textarea
                           id="image-prompt"
                           value={imagePrompt}
-                          onChange={(e) => setImagePrompt(e.target.value)}
+                          onChange={e => setImagePrompt(e.target.value)}
                           onPaste={handleReferencePaste}
                           rows={3}
                           placeholder={
@@ -1195,7 +1397,7 @@ export function PostsClientInner({
                           }
                           aria-invalid={showPromptError}
                           aria-describedby="image-prompt-hint"
-                          className="w-full resize-y rounded-lg border border-border bg-surface px-2.5 py-2 text-xs text-foreground outline-none focus:border-accent aria-invalid:border-rose-500"
+                          className="border-border bg-surface text-foreground focus:border-accent w-full resize-y rounded-lg border px-2.5 py-2 text-xs outline-none aria-invalid:border-rose-500"
                         />
                         <div
                           id="image-prompt-hint"
@@ -1211,25 +1413,26 @@ export function PostsClientInner({
                                 : 'text-muted'
                             }`}
                           >
-                            {countWords(imagePrompt)}/{IMAGE_PROMPT_MAX_WORDS} words
+                            {countWords(imagePrompt)}/{IMAGE_PROMPT_MAX_WORDS}{' '}
+                            words
                           </span>
                         </div>
 
                         {referenceImage ? (
-                          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-surface p-2">
+                          <div className="border-border bg-surface flex items-center gap-2.5 rounded-lg border p-2">
                             <Image
                               src={referenceImage}
                               alt="Reference"
                               width={40}
                               height={40}
-                              className="h-10 w-10 shrink-0 rounded object-cover border border-border"
+                              className="border-border h-10 w-10 shrink-0 rounded border object-cover"
                               unoptimized
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-[11px] font-medium text-foreground">
+                              <p className="text-foreground truncate text-[11px] font-medium">
                                 {referenceImageName}
                               </p>
-                              <p className="text-[10px] text-muted">
+                              <p className="text-muted text-[10px]">
                                 Will be edited — unchanged parts are preserved
                               </p>
                             </div>
@@ -1237,7 +1440,7 @@ export function PostsClientInner({
                               type="button"
                               onClick={clearReferenceImage}
                               title="Remove reference image"
-                              className="p-1 text-muted hover:text-foreground cursor-pointer"
+                              className="text-muted hover:text-foreground cursor-pointer p-1"
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -1247,7 +1450,7 @@ export function PostsClientInner({
                             <button
                               type="button"
                               onClick={() => referenceInputRef.current?.click()}
-                              className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted hover:text-foreground cursor-pointer"
+                              className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium"
                             >
                               <Paperclip className="h-3 w-3" />
                               Attach a reference image (or paste one above)
@@ -1256,7 +1459,7 @@ export function PostsClientInner({
                               <button
                                 type="button"
                                 onClick={useCurrentImageAsReference}
-                                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-accent hover:underline cursor-pointer"
+                                className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium hover:underline"
                               >
                                 <ImageIcon className="h-3 w-3" />
                                 Use current image
@@ -1270,7 +1473,7 @@ export function PostsClientInner({
                           type="file"
                           accept="image/png,image/jpeg,image/webp"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={e => {
                             const file = e.target.files?.[0]
                             if (file) loadReferenceImage(file)
                             // Reset so choosing the same file again still fires onChange.
@@ -1286,9 +1489,9 @@ export function PostsClientInner({
                         <button
                           type="button"
                           onClick={handleStopGeneration}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold transition-colors cursor-pointer"
+                          className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
                         >
-                          <CircleStop className="w-3.5 h-3.5" />
+                          <CircleStop className="h-3.5 w-3.5" />
                           <span>Stop generating</span>
                         </button>
                       ) : (
@@ -1296,15 +1499,17 @@ export function PostsClientInner({
                           type="button"
                           disabled={isMediaLoading || promptError !== null}
                           onClick={handleGenerateFromPrompt}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                          className="bg-accent hover:bg-accent-hover text-background flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {isMediaLoading ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <Sparkles className="w-3.5 h-3.5" />
+                            <Sparkles className="h-3.5 w-3.5" />
                           )}
                           <span>
-                            {activePost.media?.imageUrl ? 'Regenerate image' : 'Generate image'}
+                            {activePost.media?.imageUrl
+                              ? 'Regenerate image'
+                              : 'Generate image'}
                           </span>
                         </button>
                       )}
@@ -1314,14 +1519,14 @@ export function PostsClientInner({
                           type="button"
                           disabled={isMediaLoading}
                           onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border hover:bg-surface-hover text-foreground text-xs font-medium transition-colors cursor-pointer"
+                          className="border-border hover:bg-surface-hover text-foreground flex cursor-pointer items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors"
                         >
                           <span>Change media</span>
-                          <ChevronDown className="w-3.5 h-3.5 text-muted" />
+                          <ChevronDown className="text-muted h-3.5 w-3.5" />
                         </button>
 
                         {mediaMenuOpen && (
-                          <div className="absolute right-0 mt-1 w-52 rounded-xl border border-border bg-surface shadow-xl z-20 py-1.5 text-xs animate-in fade-in zoom-in-95 duration-100">
+                          <div className="border-border bg-surface animate-in fade-in zoom-in-95 absolute right-0 z-20 mt-1 w-52 rounded-xl border py-1.5 text-xs shadow-xl duration-100">
                             <button
                               type="button"
                               onClick={() => {
@@ -1329,9 +1534,9 @@ export function PostsClientInner({
                                 setShowStockInput(true)
                                 setShowCustomUrlInput(false)
                               }}
-                              className="w-full text-left px-3.5 py-2 hover:bg-surface-hover text-foreground flex items-center gap-2 cursor-pointer"
+                              className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
                             >
-                              <Search className="w-3.5 h-3.5 text-blue-500" />
+                              <Search className="h-3.5 w-3.5 text-blue-500" />
                               <span>Find stock image</span>
                             </button>
                             <button
@@ -1341,9 +1546,9 @@ export function PostsClientInner({
                                 setShowCustomUrlInput(true)
                                 setShowStockInput(false)
                               }}
-                              className="w-full text-left px-3.5 py-2 hover:bg-surface-hover text-foreground flex items-center gap-2 cursor-pointer"
+                              className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
                             >
-                              <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
+                              <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
                               <span>Use custom image URL</span>
                             </button>
                             {activePost.media?.imageUrl && (
@@ -1353,9 +1558,9 @@ export function PostsClientInner({
                                   setMediaMenuOpen(false)
                                   handleRemoveMedia()
                                 }}
-                                className="w-full text-left px-3.5 py-2 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center gap-2 border-t border-border mt-1 cursor-pointer"
+                                className="border-border mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="h-3.5 w-3.5" />
                                 <span>Text only (remove media)</span>
                               </button>
                             )}
@@ -1363,15 +1568,14 @@ export function PostsClientInner({
                         )}
                       </div>
                     </div>
-
                   </div>
 
                   {/* 2. FIRST COMMENT CARD (Compact with preview & edit) */}
                   {editedComment && (
-                    <div className="rounded-2xl border border-border bg-surface p-4 space-y-2.5 shadow-xs">
+                    <div className="border-border bg-surface space-y-2.5 rounded-2xl border p-4 shadow-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <MessageSquare className="w-3.5 h-3.5 text-[#0a66c2]" />
+                        <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+                          <MessageSquare className="h-3.5 w-3.5 text-[#0a66c2]" />
                           First Comment
                         </span>
                         <div className="flex items-center gap-2">
@@ -1380,23 +1584,23 @@ export function PostsClientInner({
                             onClick={() =>
                               setShowFirstCommentDetail(!showFirstCommentDetail)
                             }
-                            className="text-[11px] text-muted hover:text-foreground cursor-pointer"
+                            className="text-muted hover:text-foreground cursor-pointer text-[11px]"
                           >
                             {showFirstCommentDetail ? 'Collapse' : 'View full'}
                           </button>
                           <button
                             type="button"
                             onClick={handleCopyComment}
-                            className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline font-medium cursor-pointer"
+                            className="text-accent inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:underline"
                           >
                             {copiedComment ? (
                               <>
-                                <Check className="w-3 h-3" />
+                                <Check className="h-3 w-3" />
                                 <span>Copied!</span>
                               </>
                             ) : (
                               <>
-                                <Copy className="w-3 h-3" />
+                                <Copy className="h-3 w-3" />
                                 <span>Copy</span>
                               </>
                             )}
@@ -1404,7 +1608,7 @@ export function PostsClientInner({
                         </div>
                       </div>
                       <p
-                        className={`text-xs text-muted bg-surface-hover/60 p-3 rounded-xl wrap-break-word font-mono ${
+                        className={`text-muted bg-surface-hover/60 rounded-xl p-3 font-mono text-xs wrap-break-word ${
                           showFirstCommentDetail ? '' : 'line-clamp-2'
                         }`}
                       >
@@ -1419,42 +1623,44 @@ export function PostsClientInner({
 
                   {/* A. ALTERNATE HOOKS (Collapsed by default) */}
                   {alternateHooks.length > 0 && (
-                    <div className="rounded-2xl border border-border bg-surface overflow-hidden shadow-xs">
+                    <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
                       <button
                         type="button"
-                        onClick={() => setShowAlternateHooks(!showAlternateHooks)}
-                        className="w-full flex items-center justify-between p-4 text-xs font-semibold text-foreground hover:bg-surface-hover/50 transition-colors cursor-pointer"
+                        onClick={() =>
+                          setShowAlternateHooks(!showAlternateHooks)
+                        }
+                        className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
                       >
                         <span className="flex items-center gap-2">
-                          <Sparkles className="w-3.5 h-3.5 text-accent" />
+                          <Sparkles className="text-accent h-3.5 w-3.5" />
                           Alternate Hooks ({alternateHooks.length})
                         </span>
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-normal text-muted">
+                          <span className="text-muted text-[11px] font-normal">
                             Click to swap
                           </span>
                           {showAlternateHooks ? (
-                            <ChevronUp className="w-4 h-4 text-muted" />
+                            <ChevronUp className="text-muted h-4 w-4" />
                           ) : (
-                            <ChevronDown className="w-4 h-4 text-muted" />
+                            <ChevronDown className="text-muted h-4 w-4" />
                           )}
                         </div>
                       </button>
 
                       {showAlternateHooks && (
-                        <div className="p-4 pt-0 space-y-2 border-t border-border/40">
-                          {alternateHooks.map((alt) => (
+                        <div className="border-border/40 space-y-2 border-t p-4 pt-0">
+                          {alternateHooks.map(alt => (
                             <button
                               key={alt.id}
                               type="button"
                               onClick={() => handleSwapHook(alt.content)}
-                              className={`w-full text-left p-2.5 rounded-xl border text-xs transition-all cursor-pointer ${
+                              className={`w-full cursor-pointer rounded-xl border p-2.5 text-left text-xs transition-all ${
                                 editedHook === alt.content
-                                  ? 'border-accent bg-accent/10 font-medium text-foreground'
+                                  ? 'border-accent bg-accent/10 text-foreground font-medium'
                                   : 'border-border hover:bg-surface-hover text-muted'
                               }`}
                             >
-                              <span className="font-mono text-[10px] text-accent mr-1.5 uppercase font-semibold">
+                              <span className="text-accent mr-1.5 font-mono text-[10px] font-semibold uppercase">
                                 Swap:
                               </span>
                               &quot;{alt.content}&quot;
@@ -1466,19 +1672,19 @@ export function PostsClientInner({
                   )}
 
                   {/* B. QUALITY CHECKS (Summary by default: "✓ 6 checks passed") */}
-                  <div className="rounded-2xl border border-border bg-surface overflow-hidden shadow-xs">
+                  <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
                     <button
                       type="button"
                       onClick={() => setShowQualityChecks(!showQualityChecks)}
-                      className="w-full flex items-center justify-between p-4 text-xs font-semibold text-foreground hover:bg-surface-hover/50 transition-colors cursor-pointer"
+                      className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
                     >
                       <span className="flex items-center gap-2">
-                        <FileCheck className="w-3.5 h-3.5 text-accent" />
+                        <FileCheck className="text-accent h-3.5 w-3.5" />
                         Quality Checks
                       </span>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                             hasLintIssues
                               ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                               : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
@@ -1486,47 +1692,50 @@ export function PostsClientInner({
                         >
                           {hasLintIssues ? (
                             <>
-                              <AlertTriangle className="w-3 h-3" />
+                              <AlertTriangle className="h-3 w-3" />
                               <span>
                                 {totalLintCount - passedLintCount} to review
                               </span>
                             </>
                           ) : (
                             <>
-                              <CheckCircle2 className="w-3 h-3" />
+                              <CheckCircle2 className="h-3 w-3" />
                               <span>{passedLintCount} checks passed</span>
                             </>
                           )}
                         </span>
                         {showQualityChecks ? (
-                          <ChevronUp className="w-4 h-4 text-muted" />
+                          <ChevronUp className="text-muted h-4 w-4" />
                         ) : (
-                          <ChevronDown className="w-4 h-4 text-muted" />
+                          <ChevronDown className="text-muted h-4 w-4" />
                         )}
                       </div>
                     </button>
 
                     {showQualityChecks && (
-                      <div className="p-4 pt-0 divide-y divide-border/60 border-t border-border/40 text-xs">
+                      <div className="divide-border/60 border-border/40 divide-y border-t p-4 pt-0 text-xs">
                         {lintFindings.length === 0 ? (
-                          <p className="py-2 text-xs text-muted">
+                          <p className="text-muted py-2 text-xs">
                             All standard LinkedIn checks verified.
                           </p>
                         ) : (
                           lintFindings.map((finding, idx) => (
-                            <div key={idx} className="py-2.5 flex items-start gap-2.5">
+                            <div
+                              key={idx}
+                              className="flex items-start gap-2.5 py-2.5"
+                            >
                               {finding.passed ? (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                               ) : finding.severity === 'error' ? (
-                                <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
                               ) : (
-                                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                               )}
                               <div className="min-w-0 flex-1">
-                                <span className="font-medium text-foreground text-xs block">
+                                <span className="text-foreground block text-xs font-medium">
                                   {getHumanRuleLabel(finding.rule)}
                                 </span>
-                                <p className="text-[11px] text-muted mt-0.5">
+                                <p className="text-muted mt-0.5 text-[11px]">
                                   {finding.message}
                                 </p>
                               </div>
@@ -1538,45 +1747,48 @@ export function PostsClientInner({
                   </div>
 
                   {/* C. EVIDENCE & CITATIONS (Collapsed by default) */}
-                  <div className="rounded-2xl border border-border bg-surface overflow-hidden shadow-xs">
+                  <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
                     <button
                       type="button"
                       onClick={() => setShowCitations(!showCitations)}
-                      className="w-full flex items-center justify-between p-4 text-xs font-semibold text-foreground hover:bg-surface-hover/50 transition-colors cursor-pointer"
+                      className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
                     >
                       <span className="flex items-center gap-2">
-                        <Quote className="w-3.5 h-3.5 text-emerald-500" />
+                        <Quote className="h-3.5 w-3.5 text-emerald-500" />
                         Sources & Evidence ({citations.length})
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-muted">
+                        <span className="text-muted text-[11px]">
                           {citations.length > 0
                             ? `${citations.length} verified`
                             : 'No citations'}
                         </span>
                         {showCitations ? (
-                          <ChevronUp className="w-4 h-4 text-muted" />
+                          <ChevronUp className="text-muted h-4 w-4" />
                         ) : (
-                          <ChevronDown className="w-4 h-4 text-muted" />
+                          <ChevronDown className="text-muted h-4 w-4" />
                         )}
                       </div>
                     </button>
 
                     {showCitations && (
-                      <div className="p-4 pt-0 space-y-2 border-t border-border/40">
+                      <div className="border-border/40 space-y-2 border-t p-4 pt-0">
                         {citations.length === 0 ? (
-                          <p className="text-xs text-muted py-2">
-                            ⚠ No specific factual citations linked to this draft.
+                          <p className="text-muted py-2 text-xs">
+                            ⚠ No specific factual citations linked to this
+                            draft.
                           </p>
                         ) : (
-                          citations.map((c) => (
+                          citations.map(c => (
                             <div
                               key={c.id}
-                              className="p-3 rounded-xl border border-border bg-surface-hover/40 text-xs space-y-1"
+                              className="border-border bg-surface-hover/40 space-y-1 rounded-xl border p-3 text-xs"
                             >
-                              <p className="font-medium text-foreground">{c.claim}</p>
+                              <p className="text-foreground font-medium">
+                                {c.claim}
+                              </p>
                               {c.quote && (
-                                <p className="text-[11px] text-muted italic">
+                                <p className="text-muted text-[11px] italic">
                                   &quot;{c.quote}&quot;
                                 </p>
                               )}
@@ -1585,10 +1797,10 @@ export function PostsClientInner({
                                   href={c.sourceUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline pt-1"
+                                  className="text-accent inline-flex items-center gap-1 pt-1 text-[11px] hover:underline"
                                 >
                                   <span>{c.sourceTitle || 'View Source'}</span>
-                                  <ExternalLink className="w-3 h-3" />
+                                  <ExternalLink className="h-3 w-3" />
                                 </a>
                               )}
                             </div>
@@ -1599,54 +1811,65 @@ export function PostsClientInner({
                   </div>
 
                   {/* D. ADVANCED GENERATION DETAILS (Debug info, collapsed by default) */}
-                  <div className="rounded-2xl border border-border bg-surface overflow-hidden shadow-xs">
+                  <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
                     <button
                       type="button"
                       onClick={() => setShowAdvancedMedia(!showAdvancedMedia)}
-                      className="w-full flex items-center justify-between p-4 text-xs font-semibold text-foreground hover:bg-surface-hover/50 transition-colors cursor-pointer"
+                      className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
                     >
                       <span className="flex items-center gap-2">
-                        <Info className="w-3.5 h-3.5 text-muted" />
+                        <Info className="text-muted h-3.5 w-3.5" />
                         Advanced Generation Details
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-muted">Debug telemetry</span>
+                        <span className="text-muted text-[11px]">
+                          Debug telemetry
+                        </span>
                         {showAdvancedMedia ? (
-                          <ChevronUp className="w-4 h-4 text-muted" />
+                          <ChevronUp className="text-muted h-4 w-4" />
                         ) : (
-                          <ChevronDown className="w-4 h-4 text-muted" />
+                          <ChevronDown className="text-muted h-4 w-4" />
                         )}
                       </div>
                     </button>
 
                     {showAdvancedMedia && (
-                      <div className="p-4 pt-0 space-y-3 border-t border-border/40 text-xs">
+                      <div className="border-border/40 space-y-3 border-t p-4 pt-0 text-xs">
                         <div className="grid grid-cols-2 gap-2 text-[11px]">
-                          <div className="p-2 rounded-lg bg-surface-hover">
-                            <span className="text-muted block">Relevance Score</span>
-                            <span className="font-semibold text-foreground">
+                          <div className="bg-surface-hover rounded-lg p-2">
+                            <span className="text-muted block">
+                              Relevance Score
+                            </span>
+                            <span className="text-foreground font-semibold">
                               {isUserPromptedMedia
                                 ? 'Not scored (your prompt)'
                                 : `${activePost.media?.relevanceScore ?? 'N/A'}/100 (${relevanceInfo.level})`}
                             </span>
                           </div>
-                          <div className="p-2 rounded-lg bg-surface-hover">
-                            <span className="text-muted block">Media Version</span>
-                            <span className="font-semibold text-foreground">
+                          <div className="bg-surface-hover rounded-lg p-2">
+                            <span className="text-muted block">
+                              Media Version
+                            </span>
+                            <span className="text-foreground font-semibold">
                               v{activePost.media?.version || 1} (Attempt{' '}
                               {activePost.media?.regenerationAttempt || 0})
                             </span>
                           </div>
-                          <div className="p-2 rounded-lg bg-surface-hover">
-                            <span className="text-muted block">Visual Type</span>
-                            <span className="font-semibold text-foreground capitalize">
+                          <div className="bg-surface-hover rounded-lg p-2">
+                            <span className="text-muted block">
+                              Visual Type
+                            </span>
+                            <span className="text-foreground font-semibold capitalize">
                               {activePost.media?.visualType || 'N/A'}
                             </span>
                           </div>
-                          <div className="p-2 rounded-lg bg-surface-hover">
-                            <span className="text-muted block">Mobile Readable</span>
-                            <span className="font-semibold text-foreground">
-                              {activePost.media?.readability?.mobileReadable !== false
+                          <div className="bg-surface-hover rounded-lg p-2">
+                            <span className="text-muted block">
+                              Mobile Readable
+                            </span>
+                            <span className="text-foreground font-semibold">
+                              {activePost.media?.readability?.mobileReadable !==
+                              false
                                 ? '✓ Yes'
                                 : '⚠ Unreadable on feed'}
                             </span>
@@ -1655,18 +1878,22 @@ export function PostsClientInner({
 
                         {activePost.media?.promptOrQuery && (
                           <div>
-                            <span className="text-[11px] font-medium text-muted block mb-1">
+                            <span className="text-muted mb-1 block text-[11px] font-medium">
                               Raw Image Prompt
                             </span>
-                            <p className="rounded-lg bg-surface-hover p-2.5 font-mono text-[10px] leading-relaxed text-muted wrap-break-word">
+                            <p className="bg-surface-hover text-muted rounded-lg p-2.5 font-mono text-[10px] leading-relaxed wrap-break-word">
                               {activePost.media.promptOrQuery}
                             </p>
                           </div>
                         )}
 
                         {activePost.media?.providerRequestId && (
-                          <div className="flex items-center justify-between text-[10px] text-muted font-mono pt-1">
-                            <span>Req: {activePost.media.providerRequestId.slice(0, 8)}...</span>
+                          <div className="text-muted flex items-center justify-between pt-1 font-mono text-[10px]">
+                            <span>
+                              Req:{' '}
+                              {activePost.media.providerRequestId.slice(0, 8)}
+                              ...
+                            </span>
                             <span>Seed: {activePost.media.seed ?? 'auto'}</span>
                           </div>
                         )}
@@ -1675,24 +1902,24 @@ export function PostsClientInner({
                   </div>
 
                   {/* 3. STICKY REVIEW ACTIONS (Approve primary, Reject secondary, Copy buttons) */}
-                  <div className="rounded-2xl border border-border bg-surface p-4 space-y-3 shadow-sm sticky bottom-4">
+                  <div className="border-border bg-surface sticky bottom-4 space-y-3 rounded-2xl border p-4 shadow-sm">
                     {showPostRejection ? (
-                      <div className="space-y-3 p-3 rounded-xl border border-rose-500/30 bg-rose-500/10">
+                      <div className="space-y-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3">
                         <label className="block text-[11px] font-semibold text-rose-700 dark:text-rose-400">
                           Rejection Reason (Shapes future generations)
                         </label>
                         <input
                           type="text"
                           value={postRejectionReason}
-                          onChange={(e) => setPostRejectionReason(e.target.value)}
+                          onChange={e => setPostRejectionReason(e.target.value)}
                           placeholder="e.g. Too generic, tone is off..."
-                          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-foreground outline-none focus:border-rose-500"
+                          className="border-border bg-surface text-foreground w-full rounded-lg border px-3 py-2 text-xs outline-none focus:border-rose-500"
                         />
-                        <div className="flex items-center gap-2 justify-end">
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => setShowPostRejection(false)}
-                            className="px-3 py-1.5 text-xs text-muted hover:text-foreground cursor-pointer"
+                            className="text-muted hover:text-foreground cursor-pointer px-3 py-1.5 text-xs"
                           >
                             Cancel
                           </button>
@@ -1700,7 +1927,7 @@ export function PostsClientInner({
                             type="button"
                             onClick={() => handleReject(postRejectionReason)}
                             disabled={isSaving}
-                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                            className="cursor-pointer rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
                           >
                             Confirm Reject
                           </button>
@@ -1712,7 +1939,7 @@ export function PostsClientInner({
                           type="button"
                           onClick={() => setShowPostRejection(true)}
                           disabled={isSaving}
-                          className="flex-1 px-4 py-2.5 rounded-xl border border-border text-foreground hover:text-rose-600 hover:border-rose-500/40 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                          className="border-border text-foreground flex-1 cursor-pointer rounded-xl border px-4 py-2.5 text-xs font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
                         >
                           Reject Post
                         </button>
@@ -1720,14 +1947,16 @@ export function PostsClientInner({
                         <button
                           type="button"
                           onClick={handleApprove}
-                          disabled={isSaving || activePost.status === 'approved'}
-                          className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-60 ${
+                          disabled={
+                            isSaving || activePost.status === 'approved'
+                          }
+                          className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
                             activePost.status === 'approved'
-                              ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                              ? 'border border-emerald-500/30 bg-emerald-600/20 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
                           }`}
                         >
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="h-4 w-4" />
                           <span>
                             {activePost.status === 'approved'
                               ? 'Post Approved'
@@ -1738,35 +1967,38 @@ export function PostsClientInner({
                     )}
 
                     {/* Copy Buttons */}
-                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border">
+                    <div className="grid grid-cols-2 gap-2 border-t border-border pt-1">
                       <button
                         type="button"
                         onClick={handleCopyPost}
-                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent text-xs font-semibold transition-colors cursor-pointer"
+                        className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-accent/10 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
                       >
                         {copiedPost ? (
-                          <Check className="w-3.5 h-3.5" />
+                          <Check className="h-3.5 w-3.5" />
                         ) : (
-                          <Copy className="w-3.5 h-3.5" />
+                          <Copy className="h-3.5 w-3.5" />
                         )}
-                        <span>{copiedPost ? 'Copied Post!' : 'Copy Post'}</span>
+                        <span>
+                          {copiedPost ? 'Copied Post!' : 'Copy Post'}
+                        </span>
                       </button>
 
                       <button
                         type="button"
                         onClick={handleCopyComment}
                         disabled={!editedComment}
-                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-border hover:bg-surface-hover text-foreground text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40"
+                        className="border-border hover:bg-surface-hover text-foreground flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-40"
                       >
                         {copiedComment ? (
-                          <Check className="w-3.5 h-3.5" />
+                          <Check className="h-3.5 w-3.5" />
                         ) : (
-                          <MessageSquare className="w-3.5 h-3.5" />
+                          <MessageSquare className="h-3.5 w-3.5" />
                         )}
-                        <span>{copiedComment ? 'Copied Comment!' : 'Copy Comment'}</span>
+                        <span>
+                          {copiedComment ? 'Copied Comment!' : 'Copy Comment'}
+                        </span>
                       </button>
                     </div>
-
                   </div>
                 </div>
               </div>
@@ -1786,14 +2018,16 @@ export function PostsClient({
   accounts: Array<{ id: string; name: string }>
 }) {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-screen bg-background">
-        <div className="flex flex-col items-center space-y-4">
-          <Loader2 className="w-8 h-8 animate-spin text-accent" />
-          <p className="text-sm font-medium text-muted">Loading posts...</p>
+    <Suspense
+      fallback={
+        <div className="bg-background flex h-screen items-center justify-center">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="text-accent h-8 w-8 animate-spin" />
+            <p className="text-muted text-sm font-medium">Loading posts...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <PostsClientInner initialPosts={initialPosts} accounts={accounts} />
     </Suspense>
   )
