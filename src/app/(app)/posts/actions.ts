@@ -486,3 +486,28 @@ export async function regeneratePostMediaAction(
     }
   }
 }
+
+/**
+ * Loads one media image on demand.
+ *
+ * The review queue lists every draft, but only the open post shows its image.
+ * Shipping each base64 data URL with the page put megabytes into the initial
+ * payload, so the bytes are fetched when a post is actually opened.
+ */
+export async function fetchPostMediaImage(mediaId: string) {
+  try {
+    const media = await db.query.postMediaTable.findFirst({
+      where: eq(postMediaTable.id, mediaId),
+      columns: { id: true, imageUrl: true }
+    })
+
+    if (!media?.imageUrl) {
+      return { success: false as const, error: 'Image not found' }
+    }
+
+    return { success: true as const, imageUrl: media.imageUrl }
+  } catch (err: any) {
+    console.error('Error loading post media image:', err)
+    return { success: false as const, error: err?.message || 'Failed to load image' }
+  }
+}

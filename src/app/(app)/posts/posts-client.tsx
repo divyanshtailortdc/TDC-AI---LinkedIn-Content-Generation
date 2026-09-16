@@ -47,6 +47,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import {
   approveDraft,
+  fetchPostMediaImage,
   regeneratePostMediaAction,
   rejectDraft,
   removePostMediaAction,
@@ -188,6 +189,34 @@ export function PostsClientInner({
 
   // Leaving the page must not leave a generation running that would still save.
   useEffect(() => () => generationAbortRef.current?.abort(), [])
+
+  // The page ships media metadata without the image bytes; load them for the
+  // post being viewed, once per media record.
+  const loadedImageIds = useRef<Set<string>>(new Set())
+  const activeMediaId = activePost?.media?.id
+  const activeMediaHasImage = Boolean(activePost?.media?.imageUrl)
+
+  useEffect(() => {
+    if (!activeMediaId || activeMediaHasImage) return
+    if (loadedImageIds.current.has(activeMediaId)) return
+    loadedImageIds.current.add(activeMediaId)
+
+    let cancelled = false
+    void fetchPostMediaImage(activeMediaId).then(res => {
+      if (cancelled || !res.success) return
+      setPosts(prev =>
+        prev.map(p =>
+          p.media && p.media.id === activeMediaId
+            ? { ...p, media: { ...p.media, imageUrl: res.imageUrl } }
+            : p
+        )
+      )
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeMediaId, activeMediaHasImage])
 
   // Collapsible drawers (all collapsed by default as requested)
   const [showAlternateHooks, setShowAlternateHooks] = useState(false)

@@ -7,7 +7,7 @@ import {
   postMediaTable,
   ideasTable
 } from '@/db/schema'
-import { desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { PostsClient, type PostDetail } from './posts-client'
 
 export const dynamic = 'force-dynamic'
@@ -58,11 +58,30 @@ export default async function PostsPage() {
           .from(postCitationsTable)
           .where(inArray(postCitationsTable.draftId, draftIds))
       : Promise.resolve([]),
+    // `image_url` holds a base64 data URL of roughly half a megabyte per image.
+    // Selecting it for every draft pushed ~12 MB into this page's payload even
+    // though only the selected post ever renders one, so it is fetched on demand.
     draftIds.length > 0
       ? db
-          .select()
+          .select({
+            id: postMediaTable.id,
+            draftId: postMediaTable.draftId,
+            version: postMediaTable.version,
+            status: postMediaTable.status,
+            mode: postMediaTable.mode,
+            altText: postMediaTable.altText,
+            promptOrQuery: postMediaTable.promptOrQuery,
+            metadata: postMediaTable.metadata,
+            regenerationAttempt: postMediaTable.regenerationAttempt,
+            createdAt: postMediaTable.createdAt
+          })
           .from(postMediaTable)
-          .where(inArray(postMediaTable.draftId, draftIds))
+          .where(
+            and(
+              inArray(postMediaTable.draftId, draftIds),
+              eq(postMediaTable.status, 'active')
+            )
+          )
           .orderBy(desc(postMediaTable.version), desc(postMediaTable.createdAt))
       : Promise.resolve([])
   ])
@@ -82,11 +101,7 @@ export default async function PostsPage() {
         sourceTitle: c.sourceTitle
       }))
 
-    const postMediaList = allMedia.filter((m) => m.draftId === draft.id)
-    const media =
-      postMediaList.find((m) => m.status === 'active') ||
-      postMediaList[0] ||
-      null
+    const media = allMedia.find((m) => m.draftId === draft.id) || null
 
     return {
       id: draft.id,
@@ -110,7 +125,8 @@ export default async function PostsPage() {
             version: media.version || 1,
             status: media.status || 'active',
             mode: media.mode,
-            imageUrl: media.imageUrl,
+            // Populated client-side when this post is opened.
+            imageUrl: undefined,
             altText: media.altText,
             promptOrQuery: media.promptOrQuery,
             source: (media.metadata as any)?.source,
@@ -121,11 +137,8 @@ export default async function PostsPage() {
             visualType: (media.metadata as any)?.visualType,
             relevanceScore: (media.metadata as any)?.relevanceScore,
             relevanceExplanation: (media.metadata as any)?.relevanceExplanation,
-            topicMatch: (media.metadata as any)?.topicMatch,
-            thesisMatch: (media.metadata as any)?.thesisMatch,
-            introducesUnrelatedTopic: (media.metadata as any)?.introducesUnrelatedTopic,
+            issues: (media.metadata as any)?.issues,
             mediaBrief: (media.metadata as any)?.mediaBrief,
-            readability: (media.metadata as any)?.readability,
             providerRequestId: (media.metadata as any)?.providerRequestId,
             seed: (media.metadata as any)?.seed,
             regenerationAttempt: media.regenerationAttempt || 0
