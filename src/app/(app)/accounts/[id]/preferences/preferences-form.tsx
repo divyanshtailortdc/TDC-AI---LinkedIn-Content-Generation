@@ -357,7 +357,7 @@ export function PreferencesForm({
     <div className="space-y-8">
       {/* Header */}
 
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-surface to-surface-hover border border-border p-8 shadow-xs">
+      <div className="relative overflow-hidden rounded-2xl bg-linear-to from-surface to-surface-hover border border-border p-8 shadow-xs">
         <div className="relative z-10">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Generation Preferences</h1>
           <p className="text-sm text-muted mt-2 max-w-2xl">
@@ -933,7 +933,7 @@ export function PreferencesForm({
           </div>
 
           <div>
-            <label className="text-accent mb-1 block text-xs font-bold font-medium">
+            <label className="text-accent mb-1 block text-xs  font-medium">
               Hook Max Chars (The Fold)
             </label>
             <input

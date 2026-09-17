@@ -1,7 +1,6 @@
 'use client'
 
 import {
-  ArrowLeft,
   BookOpen,
   Calendar,
   Mic,
@@ -93,15 +92,6 @@ export function AccountHeader({ account }: AccountHeaderProps) {
   return (
     <div className="flex flex-col bg-background w-full">
       <PageHeader
-        preTitle={
-          <Link
-            href="/accounts"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Accounts
-          </Link>
-        }
         title={titleNode}
         badge={account.accountType}
         description={account.headline || undefined}

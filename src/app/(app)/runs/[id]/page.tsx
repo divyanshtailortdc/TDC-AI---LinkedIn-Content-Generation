@@ -1,8 +1,9 @@
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { getRunDetails } from '~/jobs/queue'
+import { getActiveAccountId } from '@/lib/active-account'
 import { RunDetailClient } from './run-detail-client'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +26,15 @@ export default async function SingleRunPage({ params }: RunPageProps) {
 
   if (!account) {
     notFound()
+  }
+
+  // A run belongs to whichever account created it. If the sidebar's active
+  // account was switched while this page was open, this run no longer
+  // belongs to "the workspace you're now in" — send back to the Runs list,
+  // which re-renders scoped to the newly active account.
+  const activeAccountId = await getActiveAccountId()
+  if (activeAccountId && activeAccountId !== run.accountId) {
+    redirect('/runs')
   }
 
   return (
