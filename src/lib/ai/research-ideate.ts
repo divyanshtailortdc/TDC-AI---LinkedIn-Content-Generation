@@ -28,6 +28,7 @@ import {
   type GeneratedIdeaItem
 } from './schemas'
 import { validateIdea, type GroundingCorpus } from './idea-validator'
+import { retrieveKnowledgePassages, type KnowledgePassage } from './embeddings'
 import { filterDiverseIdeas } from './idea-diversity'
 import { checkNovelty } from '~/lib/novelty'
 
@@ -164,47 +165,58 @@ async function runWebSearch(
   })
 }
 
-/**
- * Builds the corpus every claim is checked against: key claims with verbatim
- * quotes from the knowledge base, web findings, and the account's own proof
- * points. Nothing invented — an earlier version seeded a fake "62% latency
- * reduction" benchmark when no real evidence existed.
- */
+/** Knowledge documents this run may draw on, per the research policy. */
+function selectKnowledgeDocs(ctx: GenerationContext) {
+  const policy = ctx.prefs.research
+  if (!policy.use_knowledge_base) return []
+  const allowed = policy.source_ids || []
+  return allowed.length > 0
+    ? ctx.knowledgeDocs.filter(d => allowed.includes(d.id))
+    : ctx.knowledgeDocs
+}
+
 function buildGroundingCorpus(
   ctx: GenerationContext,
-  findings: Finding[]
+  findings: Finding[],
+  passages: KnowledgePassage[] = []
 ): GroundingCorpus {
   const verifiedClaims: GroundingCorpus['verifiedClaims'] = []
-  const policy = ctx.prefs.research
+  const docs = selectKnowledgeDocs(ctx)
 
-  if (policy.use_knowledge_base) {
-    const allowed = policy.source_ids || []
-    const docs =
-      allowed.length > 0
-        ? ctx.knowledgeDocs.filter(d => allowed.includes(d.id))
-        : ctx.knowledgeDocs
-
-    for (const doc of docs) {
-      for (const claim of doc.keyClaims || []) {
-        if (!claim.claim) continue
-        verifiedClaims.push({
-          claim: claim.claim,
-          quote: claim.quote,
-          sourceUrl: doc.sourceUrl || undefined,
-          sourceTitle: doc.title,
-          sourceId: doc.id
-        })
-      }
-      // The summary grounds the document's overall thesis.
-      if (doc.summary) {
-        verifiedClaims.push({
-          claim: doc.summary,
-          sourceUrl: doc.sourceUrl || undefined,
-          sourceTitle: doc.title,
-          sourceId: doc.id
-        })
-      }
+  for (const doc of docs) {
+    for (const claim of doc.keyClaims || []) {
+      if (!claim.claim) continue
+      verifiedClaims.push({
+        claim: claim.claim,
+        quote: claim.quote,
+        sourceUrl: doc.sourceUrl || undefined,
+        sourceTitle: doc.title,
+        sourceId: doc.id
+      })
     }
+    // The summary grounds the document's overall thesis.
+    if (doc.summary) {
+      verifiedClaims.push({
+        claim: doc.summary,
+        sourceUrl: doc.sourceUrl || undefined,
+        sourceTitle: doc.title,
+        sourceId: doc.id
+      })
+    }
+  }
+
+  // Verbatim passages, so the quote is the passage itself.
+  const docsById = new Map(docs.map(d => [d.id, d]))
+  for (const passage of passages) {
+    const doc = docsById.get(passage.documentId)
+    if (!doc) continue
+    verifiedClaims.push({
+      claim: passage.content,
+      quote: passage.content,
+      sourceUrl: doc.sourceUrl || undefined,
+      sourceTitle: doc.title,
+      sourceId: doc.id
+    })
   }
 
   for (const f of findings) {
@@ -365,7 +377,11 @@ export async function executeResearchAndIdeate(
     })
   }
 
-  const corpus = buildGroundingCorpus(ctx, findings)
+  const passages = await retrieveKnowledgePassages(
+    ctx,
+    selectKnowledgeDocs(ctx)
+  )
+  const corpus = buildGroundingCorpus(ctx, findings, passages)
 
   if (researchStep) {
     await db
@@ -377,7 +393,9 @@ export async function executeResearchAndIdeate(
         responseJson: {
           queries: searchedQueries,
           webFindings: findings.length,
-          knowledgeClaims: corpus.verifiedClaims.length - findings.length,
+          knowledgeClaims:
+            corpus.verifiedClaims.length - findings.length - passages.length,
+          knowledgePassages: passages.length,
           totalEvidence: corpus.verifiedClaims.length
         }
       })

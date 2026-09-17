@@ -1,13 +1,16 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
-  varchar
+  varchar,
+  vector
 } from 'drizzle-orm/pg-core'
 
 // ---------------------------------------------------------------------------
@@ -212,6 +215,44 @@ export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
     .default([]),
   ...commonFieldDefs.dates
 })
+
+// ---------------------------------------------------------------------------
+// 6b. Document Chunks (1:N with Knowledge Documents) — embeddings for retrieval
+// ---------------------------------------------------------------------------
+
+/** Must match the output size of `EMBEDDING_MODEL_ID` in `~/lib/ai`. */
+export const EMBEDDING_DIMENSIONS = 1536
+
+export const documentChunksTable = pgTable(
+  'document_chunks',
+  {
+    id: commonFieldDefs.id(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => knowledgeDocumentsTable.id, { onDelete: 'cascade' }),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    chunkIndex: integer('chunk_index').notNull(),
+    content: text('content').notNull(),
+    embedding: vector('embedding', {
+      dimensions: EMBEDDING_DIMENSIONS
+    }).notNull(),
+    embeddingModel: varchar('embedding_model', { length: 100 }).notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    index('document_chunks_embedding_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
+    index('document_chunks_account_idx').on(table.accountId),
+    uniqueIndex('document_chunks_document_chunk_uq').on(
+      table.documentId,
+      table.chunkIndex
+    )
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 7. Goals (1:N with Account) — campaign objectives
@@ -680,6 +721,9 @@ export type NewAudience = typeof audiencesTable.$inferInsert
 
 export type KnowledgeDocument = typeof knowledgeDocumentsTable.$inferSelect
 export type NewKnowledgeDocument = typeof knowledgeDocumentsTable.$inferInsert
+
+export type DocumentChunk = typeof documentChunksTable.$inferSelect
+export type NewDocumentChunk = typeof documentChunksTable.$inferInsert
 
 export type Goal = typeof goalsTable.$inferSelect
 export type NewGoal = typeof goalsTable.$inferInsert

@@ -22,6 +22,13 @@
       "when": 1789534648110,
       "tag": "0002_knowledge_key_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789621961849,
+      "tag": "0003_document_chunks_embeddings",
+      "breakpoints": true
     }
   ]
 }

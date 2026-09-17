@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { knowledgeDocumentsTable } from '@/db/schema'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { extractKnowledgeClaims } from '@/lib/ai/knowledge-extractor'
+import { indexKnowledgeDocument } from '@/lib/ai/embeddings'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -62,6 +63,14 @@ export async function saveKnowledgeDocument(payload: {
       wordCount: content.split(/\s+/).filter(Boolean).length,
     })
     .returning()
+
+  if (inserted) {
+    try {
+      await indexKnowledgeDocument(inserted)
+    } catch (err) {
+      console.warn(`Could not embed knowledge document ${inserted.id}:`, err)
+    }
+  }
 
   revalidatePath(`/accounts/${payload.accountId}/knowledge`)
   revalidatePath(`/accounts/${payload.accountId}`)

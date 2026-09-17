@@ -160,9 +160,10 @@ Text chunks with vector embeddings for semantic retrieval (RAG).
 | `id` | `uuid` | PK, default gen_random_uuid() | Unique chunk ID |
 | `document_id` | `uuid` | NOT NULL, FK → `knowledge_documents(id)` ON DELETE CASCADE | Parent document |
 | `account_id` | `uuid` | NOT NULL, FK → `accounts(id)` ON DELETE CASCADE | Account for fast filtering |
-| `chunk_index` | `integer` | NOT NULL | Sequence index (0, 1, 2...) |
-| `content` | `text` | NOT NULL | ~400-word passage |
-| `embedding` | `vector(1536)` | Indexed via HNSW | Vector embedding for cosine similarity |
+| `chunk_index` | `integer` | NOT NULL, UNIQUE with `document_id` | Sequence index (0, 1, 2...) |
+| `content` | `text` | NOT NULL | Up to ~300-word verbatim passage |
+| `embedding` | `vector(1536)` | NOT NULL, indexed via HNSW | Vector embedding for cosine similarity |
+| `embedding_model` | `varchar(100)` | NOT NULL | Model that produced the vector; retrieval only compares matching models |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
 
 ---

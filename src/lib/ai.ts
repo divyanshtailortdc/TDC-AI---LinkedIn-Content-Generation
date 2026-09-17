@@ -1,5 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createGateway, type LanguageModel } from 'ai'
+import { createGateway, type EmbeddingModel, type LanguageModel } from 'ai'
 import { env } from '~/env'
 
 export const hasAIGateway = Boolean(
@@ -116,6 +116,27 @@ export function getLanguageModel(
   }
 
   return null
+}
+
+/**
+ * Knowledge-base embeddings. Anthropic has no embedding endpoint, so this is
+ * only reachable through the gateway. Changing the model means changing
+ * `EMBEDDING_DIMENSIONS` in the schema and re-embedding every document.
+ */
+export const EMBEDDING_MODEL_ID = 'openai/text-embedding-3-small'
+
+export interface EmbeddingModelHandle {
+  model: EmbeddingModel
+  modelId: string
+}
+
+/** Returns the embedding model, or null when no gateway key is set. */
+export function getEmbeddingModel(): EmbeddingModelHandle | null {
+  if (!gatewayClient) return null
+  return {
+    model: gatewayClient.embeddingModel(EMBEDDING_MODEL_ID),
+    modelId: EMBEDDING_MODEL_ID
+  }
 }
 
 /**
