@@ -52,7 +52,7 @@ export function PageHeader({
         </div>
       </div>
       {bottomContent && (
-        <div className="mt-2 pt-2 border-t border-border/50">
+        <div className="mt-2 pt-2  border-border/50">
           {bottomContent}
         </div>
       )}

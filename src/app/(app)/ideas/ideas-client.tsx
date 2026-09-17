@@ -210,11 +210,7 @@ export function IdeasClient({
             )}
           </>
         }
-      />
-
-      {/* Status tabs live outside the scroll area so they stay put while the list scrolls */}
-      <div className="flex-none border-b border-border bg-background px-4 py-3 sm:px-6">
-        <div className="mx-auto max-w-3xl">
+        bottomContent={
           <div className="flex w-full items-center gap-1.5 overflow-x-auto rounded-xl border border-border bg-surface p-1 text-xs sm:w-auto">
             {STATUS_TABS.map((st) => {
               const count = st === 'all' ? ideas.length : ideas.filter((i) => i.status === st).length
@@ -236,12 +232,12 @@ export function IdeasClient({
               )
             })}
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Scrollable ideas list */}
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-3xl space-y-4">
+        <div className="mx-auto max-w-6xl space-y-4">
           <AiDraftingStatus
             status={draftStatus}
             subject="your approved ideas"
@@ -267,7 +263,7 @@ export function IdeasClient({
               </Link>
             </div>
           ) : (
-            <div className="space-y-4 pb-8">
+            <div className="grid grid-cols-1 gap-4 pb-8 lg:grid-cols-2">
               {filteredIdeas.map((idea) => (
                 <RunIdeaCard
                   key={idea.id}
