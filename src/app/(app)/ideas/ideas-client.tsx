@@ -114,8 +114,8 @@ export function IdeasClient({
     }
   }
 
-  const handleDraftApproved = async () => {
-    const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+  const draftIdeas = async (targetIds: string[]) => {
+    if (targetIds.length === 0) return
 
     // Optimistically flip the drafted ideas to their terminal state right away so
     // the list reflects the action immediately, instead of sitting unchanged for
@@ -123,12 +123,10 @@ export function IdeasClient({
     setIsActionBusy(true)
     setDraftStatus('processing')
     setDraftError(null)
-    setIdeas((prev) =>
-      prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'drafted' } : i))
-    )
+    setIdeas((prev) => prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'drafted' } : i)))
 
     try {
-      const res = await draftApprovedIdeas({ ideaIds: approvedIds })
+      const res = await draftApprovedIdeas({ ideaIds: targetIds })
       if (res.success) {
         setDraftStatus('success')
         showToast({
@@ -141,7 +139,7 @@ export function IdeasClient({
         // Roll the optimistic update back — drafting failed, so these ideas
         // are still just approved, not drafted.
         setIdeas((prev) =>
-          prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+          prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'approved' } : i))
         )
         setDraftStatus('error')
         setDraftError(res.error || 'Drafting failed. Please try again.')
@@ -153,7 +151,7 @@ export function IdeasClient({
       }
     } catch (err: any) {
       setIdeas((prev) =>
-        prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+        prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'approved' } : i))
       )
       setDraftStatus('error')
       setDraftError(err?.message || 'Something went wrong while drafting posts.')
@@ -164,6 +162,20 @@ export function IdeasClient({
       })
     } finally {
       setIsActionBusy(false)
+    }
+  }
+
+  const handleDraftApproved = async () => {
+    const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+    await draftIdeas(approvedIds)
+  }
+
+  const handleDraftSingle = async (id: string) => {
+    setIdeaActionBusyId(id)
+    try {
+      await draftIdeas([id])
+    } finally {
+      setIdeaActionBusyId(null)
     }
   }
 
@@ -237,7 +249,7 @@ export function IdeasClient({
 
       {/* Scrollable ideas list */}
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-6xl space-y-4">
+        <div className="mx-auto max-w-7xl space-y-4">
           <AiDraftingStatus
             status={draftStatus}
             subject="your approved ideas"
@@ -271,6 +283,7 @@ export function IdeasClient({
                   onApprove={handleApprove}
                   onReject={handleReject}
                   onEditSave={handleEditSave}
+                  onDraft={handleDraftSingle}
                   isBusy={ideaActionBusyId === idea.id}
                 />
               ))}

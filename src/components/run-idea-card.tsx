@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Flame, Check, X, Edit3 } from 'lucide-react'
+import { Loader2, Flame, Check, X, Edit3, Sparkles } from 'lucide-react'
 import { ConfirmPopover } from '@/components/confirm-popover'
 
 export interface RunIdeaCardData {
@@ -23,6 +23,7 @@ interface RunIdeaCardProps {
   onApprove: (id: string) => Promise<void>
   onReject: (id: string) => Promise<void>
   onEditSave: (id: string, payload: { hookConcept: string; angle: string }) => Promise<void>
+  onDraft?: (id: string) => Promise<void>
   isBusy: boolean
 }
 
@@ -33,13 +34,13 @@ interface RunIdeaCardProps {
 function gateActionsFor(status: string) {
   switch (status) {
     case 'proposed':
-      return { canReject: true, canEdit: true, canApprove: true }
+      return { canReject: true, canEdit: true, canApprove: true, canDraft: false }
     case 'approved':
-      return { canReject: true, canEdit: true, canApprove: false }
+      return { canReject: true, canEdit: true, canApprove: false, canDraft: true }
     case 'rejected':
-      return { canReject: false, canEdit: true, canApprove: true }
+      return { canReject: false, canEdit: true, canApprove: true, canDraft: false }
     default:
-      return { canReject: false, canEdit: false, canApprove: false }
+      return { canReject: false, canEdit: false, canApprove: false, canDraft: false }
   }
 }
 
@@ -48,11 +49,24 @@ function gateActionsFor(status: string) {
  * Detail page's own markup, now shared so the Ideas page shows the exact
  * same card for the exact same idea.
  */
-export function RunIdeaCard({ idea, onApprove, onReject, onEditSave, isBusy }: RunIdeaCardProps) {
+export function RunIdeaCard({
+  idea,
+  onApprove,
+  onReject,
+  onEditSave,
+  onDraft,
+  isBusy
+}: RunIdeaCardProps) {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [editHook, setEditHook] = useState(idea.hookConcept || '')
   const [editAngle, setEditAngle] = useState(idea.angle || '')
-  const { canReject, canEdit, canApprove } = gateActionsFor(idea.status)
+  const { canReject, canEdit, canApprove, canDraft } = gateActionsFor(idea.status)
+  const showDraft = canDraft && !!onDraft
+
+  const handleDraft = async () => {
+    if (!onDraft) return
+    await onDraft(idea.id)
+  }
 
   const handleSaveEdit = async () => {
     await onEditSave(idea.id, { hookConcept: editHook, angle: editAngle })
@@ -172,7 +186,7 @@ export function RunIdeaCard({ idea, onApprove, onReject, onEditSave, isBusy }: R
             {idea.coreArgument}
           </p>
 
-          {(canReject || canEdit || canApprove) && (
+          {(canReject || canEdit || canApprove || showDraft) && (
             <div className="pt-2 border-t border-border flex items-center justify-end gap-2">
               {canReject && (
                 <ConfirmPopover
@@ -230,6 +244,21 @@ export function RunIdeaCard({ idea, onApprove, onReject, onEditSave, isBusy }: R
                     <span>Approve</span>
                   </button>
                 </ConfirmPopover>
+              )}
+              {showDraft && (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={handleDraft}
+                  className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-xs font-semibold transition-colors disabled:opacity-60"
+                >
+                  {isBusy ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  <span>Draft Approve</span>
+                </button>
               )}
             </div>
           )}

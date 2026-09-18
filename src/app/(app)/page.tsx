@@ -83,7 +83,7 @@ export default async function DashboardPage() {
       />
 
       <div className="flex-1 overflow-y-auto bg-background p-6 sm:p-8">
-        <div className="mx-auto max-w-5xl space-y-8">
+        <div className="mx-auto max-w-7xl space-y-8">
           <UsageSummaryCards {...usage} />
 
           {account && (
