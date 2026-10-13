@@ -231,8 +231,10 @@ export function renderIdentityBlock(ctx: GenerationContext): string {
     `Headline: ${a.headline}`
   ]
   if (a.company) lines.push(`Company: ${a.company}`)
+  if (a.industry) lines.push(`Industry: ${a.industry}`)
   if (a.bio) lines.push(`Bio: ${a.bio}`)
   if (a.websiteUrl) lines.push(`Website: ${a.websiteUrl}`)
+  if (a.linkedinUrl) lines.push(`LinkedIn: ${a.linkedinUrl}`)
 
   if (ctx.offerings.length > 0) {
     lines.push('', 'What they offer:')

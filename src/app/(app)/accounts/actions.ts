@@ -55,17 +55,15 @@ function extractAndSanitizeHandle(
   return slug || 'identity'
 }
 
-const accountFormSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  accountType: z.enum(['personal', 'company']),
-  handle: z.string().min(1, 'Handle is required'),
-  headline: z.string().min(1, 'Headline is required'),
-  bio: z.string().optional(),
-  avatarUrl: z.string().trim().optional().or(z.literal('')),
-  company: z.string().optional(),
-  websiteUrl: z.string().trim().optional().or(z.literal('')),
-  offerings: z.array(offeringSchema).default([]),
-  audiences: z.array(audienceSchema).default([])
+const createAccountSchema = z.object({
+  name: z.string().trim().min(1, 'Display name is required'),
+  company: z.string().trim().optional(),
+  description: z.string().trim().min(1, 'Description is required'),
+  targetAudience: z.string().trim().min(1, 'Target audience is required'),
+  offerings: z.string().trim().min(1, 'Offerings are required'),
+  industry: z.string().trim().min(1, 'Industry is required'),
+  linkedinUrl: z.string().trim().optional(),
+  websiteUrl: z.string().trim().optional()
 })
 
 const updateAccountSchema = z.object({
@@ -85,34 +83,26 @@ const updateAccountSchema = z.object({
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>
 
 export async function createAccount(formData: FormData) {
-  let offerings: any[] = []
-  let audiences: any[] = []
+  const field = (key: string) => (formData.get(key) as string) || ''
 
-  try {
-    const rawOfferings = formData.get('offeringsData') as string
-    if (rawOfferings) {
-      offerings = JSON.parse(rawOfferings)
-    }
-  } catch (err) {
-    console.error('Error parsing offerings:', err)
+  const parsed = createAccountSchema.safeParse({
+    name: field('name'),
+    company: field('company') || undefined,
+    description: field('description'),
+    targetAudience: field('targetAudience'),
+    offerings: field('offerings'),
+    industry: field('industry'),
+    linkedinUrl: field('linkedinUrl') || undefined,
+    websiteUrl: field('websiteUrl') || undefined
+  })
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
+  const data = parsed.data
 
-  try {
-    const rawAudiences = formData.get('audiencesData') as string
-    if (rawAudiences) {
-      audiences = JSON.parse(rawAudiences)
-    }
-  } catch (err) {
-    console.error('Error parsing audiences:', err)
-  }
-
-  const rawName = (formData.get('name') as string) || ''
-  const baseHandle = extractAndSanitizeHandle(
-    formData.get('handle') as string,
-    rawName
-  )
-
-  // Deduplicate handle against existing accounts to prevent unique constraint crash
+  // The handle is derived from the LinkedIn URL (falling back to the name) and
+  // deduplicated against existing accounts to prevent a unique constraint crash.
+  const baseHandle = extractAndSanitizeHandle(data.linkedinUrl, data.name)
   let candidateHandle = baseHandle
   let counter = 1
   while (true) {
@@ -126,39 +116,25 @@ export async function createAccount(formData: FormData) {
     candidateHandle = `${baseHandle}-${counter}`
   }
 
-  const raw = {
-    name: rawName,
-    accountType: formData.get('accountType') as string,
-    handle: candidateHandle,
-    headline: (formData.get('headline') as string) || '',
-    bio: (formData.get('bio') as string) || undefined,
-    avatarUrl: (formData.get('avatarUrl') as string) || undefined,
-    company: (formData.get('company') as string) || undefined,
-    websiteUrl: (formData.get('websiteUrl') as string) || undefined,
-    offerings,
-    audiences
-  }
-
-  const parsed = accountFormSchema.safeParse(raw)
-  if (!parsed.success) {
-    throw new Error(parsed.error.issues.map(i => i.message).join(', '))
-  }
+  const accountValues = (handle: string) => ({
+    name: data.name,
+    accountType: data.company ? ('company' as const) : ('personal' as const),
+    handle,
+    // headline is required by the schema; build it from the fields we collect
+    headline: [data.company, data.industry].filter(Boolean).join(' · '),
+    bio: data.description,
+    company: data.company || null,
+    industry: data.industry,
+    linkedinUrl: data.linkedinUrl || null,
+    websiteUrl: data.websiteUrl || null
+  })
 
   // Insert account with fallback handling for race conditions
   let account: typeof accountsTable.$inferSelect | undefined
   try {
     const [inserted] = await db
       .insert(accountsTable)
-      .values({
-        name: parsed.data.name,
-        accountType: parsed.data.accountType,
-        handle: candidateHandle,
-        headline: parsed.data.headline,
-        bio: parsed.data.bio ?? null,
-        avatarUrl: parsed.data.avatarUrl || null,
-        company: parsed.data.company ?? null,
-        websiteUrl: parsed.data.websiteUrl || null
-      })
+      .values(accountValues(candidateHandle))
       .returning()
     account = inserted
   } catch (err: any) {
@@ -167,16 +143,7 @@ export async function createAccount(formData: FormData) {
       const fallbackHandle = `${candidateHandle}-${Date.now().toString(36)}`
       const [inserted] = await db
         .insert(accountsTable)
-        .values({
-          name: parsed.data.name,
-          accountType: parsed.data.accountType,
-          handle: fallbackHandle,
-          headline: parsed.data.headline,
-          bio: parsed.data.bio ?? null,
-          avatarUrl: parsed.data.avatarUrl || null,
-          company: parsed.data.company ?? null,
-          websiteUrl: parsed.data.websiteUrl || null
-        })
+        .values(accountValues(fallbackHandle))
         .returning()
       account = inserted
     } else {
@@ -186,32 +153,19 @@ export async function createAccount(formData: FormData) {
 
   if (!account) throw new Error('Failed to create account')
 
-  // Insert offerings if provided
-  if (parsed.data.offerings.length > 0) {
-    await db.insert(offeringsTable).values(
-      parsed.data.offerings.map(o => ({
-        accountId: account.id,
-        name: o.name,
-        type: o.type,
-        tagline: o.tagline || null,
-        description: o.description || null,
-        url: o.url || null,
-        isActive: true
-      }))
-    )
-  }
+  // The form collects offerings and audience as free text, stored as one row each.
+  const firstLine = data.offerings.split('\n')[0]?.trim() ?? ''
+  await db.insert(offeringsTable).values({
+    accountId: account.id,
+    name: firstLine.slice(0, 80) || 'Offerings',
+    description: data.offerings,
+    isActive: true
+  })
 
-  // Insert audiences if provided
-  if (parsed.data.audiences.length > 0) {
-    await db.insert(audiencesTable).values(
-      parsed.data.audiences.map(a => ({
-        accountId: account.id,
-        name: a.name,
-        painPoints: a.painPoints,
-        goals: a.goals
-      }))
-    )
-  }
+  await db.insert(audiencesTable).values({
+    accountId: account.id,
+    name: data.targetAudience
+  })
 
   revalidatePath('/')
   revalidatePath('/accounts')

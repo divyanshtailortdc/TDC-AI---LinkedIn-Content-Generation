@@ -43,6 +43,13 @@
       "when": 1791891318372,
       "tag": "0005_merge_preference_banned_words_into_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791893520418,
+      "tag": "0006_account_industry_linkedin",
+      "breakpoints": true
     }
   ]
 }

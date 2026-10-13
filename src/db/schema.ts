@@ -56,6 +56,8 @@ export const accountsTable = pgTable('accounts', {
     .notNull(),
   company: text('company'),
   websiteUrl: text('website_url'),
+  linkedinUrl: text('linkedin_url'),
+  industry: text('industry'),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
 })
