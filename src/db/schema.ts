@@ -66,6 +66,13 @@ export const accountsTable = pgTable('accounts', {
 // 2. Voice Configs (1:1 with Account) — tone, style, banned words
 // ---------------------------------------------------------------------------
 
+// The voice is now the rubric plus the settings below. These older columns are
+// no longer read or written but still exist in the database: warmth, humor,
+// energy, story_vs_data, sentence_length, paragraph_style,
+// reading_level_target, signature_phrases, opening_styles, closing_styles and
+// rules. The migration that drops them must first append
+// signature_phrases, opening_styles, closing_styles and rules (the writing
+// patterns) to derived_style_rubric, or saved profiles lose that detail.
 export const voiceConfigsTable = pgTable('voice_configs', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
@@ -75,25 +82,13 @@ export const voiceConfigsTable = pgTable('voice_configs', {
   tone: varchar('tone', { length: 50 }).default('candid').notNull(),
   perspective: varchar('perspective', { length: 30 }).default('I').notNull(),
   formality: integer('formality').default(3).notNull(),
-  warmth: integer('warmth').default(3).notNull(),
   directness: integer('directness').default(4).notNull(),
-  humor: varchar('humor', { length: 30 }).default('dry').notNull(),
-  energy: varchar('energy', { length: 30 }).default('measured').notNull(),
-  storyVsData: integer('story_vs_data').default(3).notNull(),
+  // Emoji and hashtags live here, not in preferences; resolvePreferences reads them.
   emojiPolicy: varchar('emoji_policy', { length: 30 })
     .default('none')
     .notNull(),
   hashtagPolicy: varchar('hashtag_policy', { length: 100 })
     .default('0-3, end of post')
-    .notNull(),
-  sentenceLength: varchar('sentence_length', { length: 30 })
-    .default('short')
-    .notNull(),
-  paragraphStyle: varchar('paragraph_style', { length: 50 })
-    .default('short paras')
-    .notNull(),
-  readingLevelTarget: varchar('reading_level_target', { length: 50 })
-    .default('grade 7-9')
     .notNull(),
   bannedWords: jsonb('banned_words')
     .$type<string[]>()
@@ -105,16 +100,8 @@ export const voiceConfigsTable = pgTable('voice_configs', {
       'fast-paced world',
       'thrilled to announce'
     ]),
-  signaturePhrases: jsonb('signature_phrases').$type<string[]>().default([]),
-  openingStyles: jsonb('opening_styles')
-    .$type<string[]>()
-    .default(['concrete scene', 'bold claim', 'question']),
-  closingStyles: jsonb('closing_styles')
-    .$type<string[]>()
-    .default(['question CTA', 'soft takeaway']),
   derivedStyleRubric: text('derived_style_rubric'),
   rawSamplesText: text('raw_samples_text'),
-  rules: text('rules'),
   ...commonFieldDefs.dates
 })
 

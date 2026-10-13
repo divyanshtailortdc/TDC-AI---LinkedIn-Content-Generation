@@ -3,6 +3,7 @@ import { getLanguageModel } from '@/lib/ai'
 import {
   VoiceAnalysisResult,
   VoiceAnalysisSchema,
+  WRITING_STYLES,
   sanitizeVoiceAnalysis
 } from './schemas'
 
@@ -10,7 +11,6 @@ import {
  * Heuristic linguistic analyzer used as an offline baseline when no AI key is configured.
  */
 function analyzeHeuristically(text: string): VoiceAnalysisResult {
-  const lower = text.toLowerCase()
   const words = text.trim().split(/\s+/).filter(Boolean)
   const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0)
   const lines = text.split(/\n+/).filter((l) => l.trim().length > 0)
@@ -28,20 +28,6 @@ function analyzeHeuristically(text: string): VoiceAnalysisResult {
   if (emojiCount > 8) emojiPolicy = 'liberal'
   else if (emojiCount > 0) emojiPolicy = 'bullets only'
 
-  // Formality & Directness
-  const avgSentenceLength = words.length / Math.max(1, sentences.length)
-  const formality = avgSentenceLength > 18 ? 4 : avgSentenceLength < 10 ? 2 : 3
-  const directness = lines.length > 5 ? 4 : 3
-  const warmth =
-    (lower.match(/\b(love|thank|grateful|feel|friend|people|happy|proud)\b/g) ||
-      []).length > 2
-      ? 4
-      : 3
-
-  // Story vs Data
-  const numberCount = (text.match(/\b\d+(\.\d+)?%?\b/g) || []).length
-  const storyVsData = numberCount > 5 ? 4 : numberCount > 1 ? 3 : 2
-
   // Hashtags
   const hashtagCount = (text.match(/#[a-z0-9_]+/gi) || []).length
   const hashtagPolicy =
@@ -51,13 +37,12 @@ function analyzeHeuristically(text: string): VoiceAnalysisResult {
         ? '0-3, end of post'
         : '3-5, end of post'
 
-  // Paragraph style
-  const paragraphStyle =
-    lines.length / Math.max(1, sentences.length) > 0.7
-      ? 'short paras'
-      : 'single-line breaks'
+  // Formality & Directness
+  const avgSentenceLength = words.length / Math.max(1, sentences.length)
+  const formality = avgSentenceLength > 18 ? 4 : avgSentenceLength < 10 ? 2 : 3
+  const directness = lines.length > 5 ? 4 : 3
 
-  // Detect writing patterns heuristically
+  // Writing patterns and signature phrases actually found, for the rubric
   const writingPatterns: string[] = []
   if (/you do not need|you don't need/i.test(text)) {
     writingPatterns.push("You don't need X. You need Y.")
@@ -68,36 +53,31 @@ function analyzeHeuristically(text: string): VoiceAnalysisResult {
   if (/blame creates|creates/i.test(text)) {
     writingPatterns.push('A creates B. C creates D.')
   }
-  if (writingPatterns.length === 0) {
-    writingPatterns.push('Direct contrast: Problem assertion -> Concrete operational reality.')
-  }
 
-  // Detect signature phrases (exclude generic fragments)
   const signaturePhrases: string[] = []
   if (/net revenue retention/i.test(text)) signaturePhrases.push('Net revenue retention')
   if (/before making/i.test(text)) signaturePhrases.push('before making a single dollar')
   if (/uncomfortable truth/i.test(text)) signaturePhrases.push('Here is an uncomfortable truth:')
-  if (signaturePhrases.length === 0) {
-    signaturePhrases.push('The real takeaway:', 'Bottom line:')
-  }
+
+  const quote = (items: string[]) => items.map((i) => `"${i}"`).join(', ')
+  const derivedStyleRubric = [
+    'Opens with a concrete scene or number, never an unearned claim. Short paragraphs with one idea each, using staccato rhythm and high whitespace. Closes on a philosophical question or practical takeaway, never hard engagement bait. Avoids corporate buzzwords like "delve", "leverage", and "game-changer".',
+    writingPatterns.length > 0 &&
+      `Uses contrast patterns such as ${quote(writingPatterns)}.`,
+    signaturePhrases.length > 0 &&
+      `Signature phrases to reuse sparingly: ${quote(signaturePhrases)}.`
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   const rawResult: VoiceAnalysisResult = {
-    derivedStyleRubric:
-      'Opens with a concrete scene or number, never an unearned claim. Short paragraphs with one idea each, using staccato rhythm and high whitespace. Closes on a philosophical question or practical takeaway, never hard engagement bait. Avoids corporate buzzwords like "delve", "leverage", and "game-changer".',
-    writingPatterns,
+    derivedStyleRubric,
     tone: 'candid',
     formality,
-    warmth,
     directness,
-    humor: 'dry',
-    energy: 'measured',
     perspective,
-    storyVsData,
     emojiPolicy,
     hashtagPolicy,
-    sentenceLength: avgSentenceLength < 12 ? 'short' : 'mixed',
-    paragraphStyle,
-    readingLevelTarget: 'grade 7-9',
     bannedWords: [
       'delve',
       'leverage',
@@ -107,17 +87,7 @@ function analyzeHeuristically(text: string): VoiceAnalysisResult {
       'synergy',
       "in today's fast-paced world",
       "I'm thrilled to announce"
-    ],
-    signaturePhrases,
-    openingStyles: [
-      'Concrete timeline or financial metric scene',
-      'Direct counter-intuitive observation'
-    ],
-    closingStyles: [
-      'Reflective inquiry without engagement bait',
-      'Concise imperative rule'
-    ],
-    rules: `Writing Patterns:\n${writingPatterns.map((p) => `- ${p}`).join('\n')}`
+    ]
   }
 
   return sanitizeVoiceAnalysis(rawResult)
@@ -191,34 +161,28 @@ export async function analyzeVoiceSamples(samplesText: string): Promise<{
 Your job is to analyze real past LinkedIn posts from an author and extract an actionable, highly accurate Voice Profile.
 
 CRITICAL EDITORIAL RULES:
-1. SIGNATURE PHRASES:
-   - Extract only genuinely DISTINCTIVE phrases, trademark transitions, punchy mantras, or recurring conceptual formulations unique to this author (e.g. "The real takeaway:", "Don't abandon your core audience", "Here is what happened:").
-   - STRICTLY AVOID generic grammatical fragments or common filler like "So I", "It doesn't", "That's why", "In other words", "I think", "Here are".
+1. DERIVED STYLE RUBRIC:
+   - Write a sharp, 4-6 sentence guide that another LLM can read as a system prompt to write indistinguishably like this author. Everything about their voice lives here, so it must specify:
+     * Hook mechanic: how the first 1-2 lines draw the reader before the fold, described from the ACTUAL openings in these samples (e.g. "Concrete dollar metric + timeframe scene", "Three consecutive short negations"), not textbook labels like "question" or "bold claim".
+     * Body cadence and white-space structure.
+     * 2-3 reusable syntactic contrast patterns, quoted as templates (e.g. "X isn't the problem. Y is.", "You don't need X. You need Y.", "A creates B. C creates D.", "Most people do X. We did Y.").
+     * 2-3 genuinely DISTINCTIVE signature phrases to reuse sparingly (trademark transitions, mantras, recurring formulations). Never generic fragments like "So I", "It doesn't", "That's why", "In other words", "I think", "Here are".
+     * Emotional tone and the closing convention, again from the actual endings (e.g. "Imperative command without question").
 
-2. REUSABLE WRITING PATTERNS:
-   - Identify recurring syntactic contrast structures and rhetorical templates used by the author, such as:
-     * "X isn't the problem. Y is."
-     * "You don't need X. You need Y."
-     * "A creates B. C creates D."
-     * "Most people do X. We did Y."
-   - Explicitly extract these into writingPatterns and weave them into the derivedStyleRubric and rules so subsequent post generation replicates the author's argument cadence.
-
-3. BANNED WORDS (ANTI-PATTERNS):
+2. BANNED WORDS (ANTI-PATTERNS):
    - Do NOT mark a word as banned simply because it was not present in the sample posts.
    - Only identify corporate buzzwords, hollow marketing hype, or cliches that are STRONGLY INCONSISTENT with this author's specific tone (e.g. if the author writes crisp, pragmatic engineering posts, flag words like "delve", "leverage", "synergy", "game-changer", "revolutionary", "in today's fast-paced world", "I'm thrilled to announce" that clash with their voice). Limit to 4-8 high-confidence anti-patterns.
 
-4. HIGH-PERFORMING POSTS:
+3. HIGH-PERFORMING POSTS:
    - Pay special attention to any posts marked [PERFORMED EXCEPTIONALLY WELL]. These indicate hook mechanics, pacing, and line-break structures that resonated most strongly with the audience. Weigh their formatting and argument progression more heavily, but do not overfit to their specific topical subject matter.
 
-5. OPENING & CLOSING STYLES:
-   - Describe the ACTUAL patterns found in these specific samples (e.g. "Concrete dollar metric + timeframe scene", "Three consecutive short negations", "Imperative command without question") rather than generic textbook labels like "question" or "bold claim".
-
-6. DERIVED STYLE RUBRIC:
-   - Write a sharp, 3-4 sentence comprehensive guide that another LLM can read as a system prompt to write indistinguishably like this author. It must specify:
-     * Hook mechanic (how the first 1-2 lines draw the reader before the fold)
-     * Body cadence and white-space structure
-     * Syntactic contrast patterns
-     * Emotional tone and closing convention`,
+4. WRITING STYLE, SPEAKER AND TONE SCALES:
+   - These pre-fill the author's settings, so judge each one from the samples themselves; never fall back to a default.
+   - tone: the ONE writing style that best describes how most posts are built: ${WRITING_STYLES.map(s => `${s.value} (${s.description})`).join('; ')}.
+   - perspective: "I" when the author speaks personally, "we" when they speak for their team or company, "third person" when posts refer to the company or brand by name instead of "I" or "we".
+   - formality: 1-2 conversational and casual, 3 balanced, 4-5 polished, corporate or academic.
+   - directness: 1-2 diplomatic and hedged ("may", "perhaps", caveats), 3 balanced, 4-5 blunt and imperative with no hedging.
+   - emojiPolicy and hashtagPolicy: what the samples actually do. No emoji in the posts means "none"; no hashtags means "none".`,
       prompt: `Here are real sample posts from the author:
 
 ${formattedPrompt}

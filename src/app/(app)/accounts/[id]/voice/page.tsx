@@ -29,7 +29,12 @@ export default async function VoicePage({ params }: VoicePageProps) {
       <AccountHeader account={account} />
       <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
         <div className="max-w-7xl mx-auto">
-          <VoiceForm accountId={account.id} initialConfig={voiceConfig} />
+          {/* Remount after each save so the form shows what was stored. */}
+          <VoiceForm
+            key={voiceConfig?.updatedAt.getTime() ?? 'new'}
+            accountId={account.id}
+            initialConfig={voiceConfig}
+          />
         </div>
       </div>
     </div>

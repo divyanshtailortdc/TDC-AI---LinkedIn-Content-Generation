@@ -301,7 +301,7 @@ export function renderGoalBlock(goal: Goal | null): string {
   return lines.join('\n')
 }
 
-/** Renders every voice axis, not just the derived rubric. */
+/** Renders the voice settings and the rubric derived from real posts. */
 export function renderVoiceBlock(ctx: GenerationContext): string {
   const v = ctx.voice
   if (!v) return 'Voice: not yet analyzed. Write clearly, concretely and without hype.'
@@ -313,28 +313,13 @@ export function renderVoiceBlock(ctx: GenerationContext): string {
     `Tone: ${v.tone}`,
     `Perspective: write as "${v.perspective}"`,
     `Formality: ${scale(v.formality, 'very casual', 'strictly formal')}`,
-    `Warmth: ${scale(v.warmth, 'clinical', 'empathetic')}`,
-    `Directness: ${scale(v.directness, 'diplomatic', 'bluntly punchy')}`,
-    `Story vs data: ${scale(v.storyVsData, 'personal narrative', 'data-driven')}`,
-    `Humor: ${v.humor}`,
-    `Energy: ${v.energy}`,
-    `Sentence length: ${v.sentenceLength}`,
-    `Paragraph style: ${v.paragraphStyle}`,
     // Emoji and hashtags are rendered once, in the constraints block.
-    `Reading level target: ${v.readingLevelTarget}`
+    `Directness: ${scale(v.directness, 'diplomatic', 'bluntly punchy')}`
   ]
-
-  const openings = list(v.openingStyles)
-  if (openings) lines.push(`Opening styles that work for this author: ${openings}`)
-  const closings = list(v.closingStyles)
-  if (closings) lines.push(`Closing styles that work for this author: ${closings}`)
-  const signatures = list(v.signaturePhrases)
-  if (signatures) lines.push(`Signature phrases (use sparingly, never all at once): ${signatures}`)
 
   if (v.derivedStyleRubric) {
     lines.push('', `Style rubric derived from their real posts:\n${v.derivedStyleRubric}`)
   }
-  if (v.rules) lines.push('', `Editorial rules:\n${v.rules}`)
 
   return lines.join('\n')
 }
