@@ -1,12 +1,37 @@
 'use client'
 
+import { AnalyzeWithAiDialog } from '@/components/ai-setup/analyze-dialog'
+import {
+  clearDraft,
+  NEW_IDENTITY_KEY,
+  saveDraft
+} from '@/components/ai-setup/draft-store'
+import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
+import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
+import {
+  IdentityFields,
+  type IdentityValues
+} from '@/components/identity-fields'
 import { PageHeader } from '@/components/page-header'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { profileSuggestionValues } from '@/lib/ai/identity-setup/merge'
+import { EMPTY_PROFILE } from '@/lib/identity-profile'
+import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'
 import Link from 'next/link'
+import { useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { createAccount } from '../actions'
 
 export default function NewAccountPage() {
+  const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
+  const [analyzeOpen, setAnalyzeOpen] = useState(false)
+
+  const prefill = useSectionPrefill({
+    draftKey: NEW_IDENTITY_KEY,
+    getCurrent: () => values,
+    setValues: next => setValues(prev => ({ ...prev, ...next })),
+    suggestionValues: s => profileSuggestionValues(s.profile)
+  })
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
@@ -24,81 +49,50 @@ export default function NewAccountPage() {
       />
 
       <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-6 sm:p-8">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-3xl space-y-6">
+          <div className="border-accent/20 bg-accent/5 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-muted text-xs">
+              Prefer to just describe yourself? AI fills in this form and
+              prepares Voice, Knowledge, Goals and Preferences suggestions for
+              you to review after you save.
+            </p>
+            <button
+              type="button"
+              onClick={() => setAnalyzeOpen(true)}
+              className="bg-accent hover:bg-accent-hover text-background inline-flex shrink-0 items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition-colors"
+            >
+              <Sparkles className="h-4 w-4" />
+              Analyze with AI
+            </button>
+          </div>
+
+          <PrefillBanner
+            section="profile"
+            prefill={prefill}
+            note={
+              prefill.draft
+                ? 'Suggestions for the other sections are waiting and can be reviewed once the identity is saved.'
+                : undefined
+            }
+          />
+
           <form
             action={createAccount}
             className="border-border bg-surface space-y-6 rounded-xl border p-6 sm:p-8"
           >
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-              <Field
-                label="Display Name"
-                name="name"
-                placeholder="e.g. Aditya Sharma"
-                required
-              />
-              <Field
-                label="Company Name"
-                name="company"
-                placeholder="e.g. Acme AI"
-                hint="Optional for personal brands."
-              />
-            </div>
+            {prefill.draft && <input type="hidden" name="claimAiDraft" value="1" />}
 
-            <Field
-              label="Description"
-              name="description"
-              type="textarea"
-              placeholder="Who you are and what you do, in a few sentences."
-              required
+            <IdentityFields
+              values={values}
+              onChange={(field, value) =>
+                setValues(prev => ({ ...prev, [field]: value }))
+              }
             />
-
-            <Field
-              label="Target Audience"
-              name="targetAudience"
-              type="textarea"
-              placeholder="e.g. Senior Product Managers and VPs of Product at B2B SaaS companies"
-              required
-            />
-
-            <Field
-              label="Offerings"
-              name="offerings"
-              type="textarea"
-              placeholder="e.g. AI engineering consulting, a RAG evaluation toolkit, a weekly newsletter"
-              required
-            />
-
-            <Field
-              label="Industry"
-              name="industry"
-              placeholder="e.g. B2B SaaS, Healthcare, Fintech"
-              required
-            />
-
-            <div className="border-border space-y-5 border-t pt-6">
-              <h2 className="text-foreground text-sm font-semibold">
-                Online Presence{' '}
-                <span className="text-muted font-normal">(Optional)</span>
-              </h2>
-
-              <Field
-                label="LinkedIn Profile / Page URL"
-                name="linkedinUrl"
-                type="url"
-                placeholder="https://www.linkedin.com/in/your-name"
-              />
-
-              <Field
-                label="Website URL"
-                name="websiteUrl"
-                type="url"
-                placeholder="https://example.com"
-              />
-            </div>
 
             <div className="border-border flex items-center justify-end gap-4 border-t pt-6">
               <Link
                 href="/"
+                onClick={() => clearDraft(NEW_IDENTITY_KEY)}
                 className="text-muted hover:text-foreground text-sm transition-colors"
               >
                 Cancel
@@ -108,57 +102,18 @@ export default function NewAccountPage() {
           </form>
         </div>
       </div>
-    </div>
-  )
-}
 
-function Field({
-  label,
-  name,
-  type = 'text',
-  placeholder,
-  hint,
-  required
-}: {
-  label: string
-  name: string
-  type?: 'text' | 'url' | 'textarea'
-  placeholder?: string
-  hint?: string
-  required?: boolean
-}) {
-  const baseClass =
-    'w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors'
-
-  return (
-    <div>
-      <label
-        htmlFor={name}
-        className="text-foreground mb-1.5 block text-sm font-medium"
-      >
-        {label}
-        {required && <span className="ml-1 text-rose-500">*</span>}
-      </label>
-      {type === 'textarea' ? (
-        <textarea
-          id={name}
-          name={name}
-          placeholder={placeholder}
-          rows={3}
-          required={required}
-          className={`${baseClass} resize-none`}
-        />
-      ) : (
-        <input
-          id={name}
-          type={type}
-          name={name}
-          placeholder={placeholder}
-          required={required}
-          className={baseClass}
+      {analyzeOpen && (
+        <AnalyzeWithAiDialog
+          defaultLinkedinUrl={values.linkedinUrl}
+          defaultWebsiteUrl={values.websiteUrl}
+          onClose={() => setAnalyzeOpen(false)}
+          onAnalyzed={analysis => {
+            saveDraft(NEW_IDENTITY_KEY, analysis)
+            setAnalyzeOpen(false)
+          }}
         />
       )}
-      {hint && <p className="text-muted mt-1.5 text-xs">{hint}</p>}
     </div>
   )
 }

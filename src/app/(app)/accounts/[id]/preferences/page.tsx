@@ -36,6 +36,7 @@ export default async function PreferencesPage({ params }: PageProps) {
         <div className="max-w-7xl mx-auto">
           <PreferencesForm
             accountId={account.id}
+            hasSaved={Boolean(existingPreferences)}
             initial={{
               pillars: prefs.pillars,
               ideasPerRun: prefs.ideasPerRun,

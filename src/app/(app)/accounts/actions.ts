@@ -2,26 +2,16 @@
 
 import { db } from '@/db'
 import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
-import { and, eq, ne } from 'drizzle-orm'
+import {
+  deriveHeadline,
+  IdentityProfileSchema,
+  offeringNameFromText,
+  type IdentityProfile
+} from '@/lib/identity-profile'
+import { and, asc, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
-
-const offeringSchema = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1, 'Offering name is required'),
-  type: z.string().default('service'),
-  tagline: z.string().optional(),
-  description: z.string().optional(),
-  url: z.string().url().optional().or(z.literal(''))
-})
-
-const audienceSchema = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1, 'Audience name is required'),
-  painPoints: z.array(z.string()).default([]),
-  goals: z.array(z.string()).default([])
-})
 
 function extractAndSanitizeHandle(
   rawInput: string | null | undefined,
@@ -55,37 +45,84 @@ function extractAndSanitizeHandle(
   return slug || 'identity'
 }
 
-const createAccountSchema = z.object({
-  name: z.string().trim().min(1, 'Display name is required'),
-  company: z.string().trim().optional(),
-  description: z.string().trim().min(1, 'Description is required'),
-  targetAudience: z.string().trim().min(1, 'Target audience is required'),
-  offerings: z.string().trim().min(1, 'Offerings are required'),
-  industry: z.string().trim().min(1, 'Industry is required'),
-  linkedinUrl: z.string().trim().optional(),
-  websiteUrl: z.string().trim().optional()
-})
+/** Appends -2, -3, ... until the handle is free (ignoring `exceptId`). */
+async function findAvailableHandle(baseHandle: string, exceptId?: string) {
+  let candidate = baseHandle
+  let counter = 1
+  while (true) {
+    const existing = await db.query.accountsTable.findFirst({
+      where: exceptId
+        ? and(eq(accountsTable.handle, candidate), ne(accountsTable.id, exceptId))
+        : eq(accountsTable.handle, candidate)
+    })
+    if (!existing) return candidate
+    counter++
+    candidate = `${baseHandle}-${counter}`
+  }
+}
 
-const updateAccountSchema = z.object({
-  id: z.string().uuid('Invalid account identifier'),
-  name: z.string().trim().min(1, 'Display name is required'),
-  accountType: z.enum(['personal', 'company']),
-  handle: z.string().trim().min(1, 'LinkedIn handle is required'),
-  headline: z.string().trim().min(1, 'Headline is required'),
-  bio: z.string().optional(),
-  avatarUrl: z.string().trim().optional().or(z.literal('')),
-  company: z.string().optional(),
-  websiteUrl: z.string().trim().optional().or(z.literal('')),
-  offerings: z.array(offeringSchema).optional(),
-  audiences: z.array(audienceSchema).optional()
-})
+/**
+ * Writes the profile's free-text offerings and audience into the account's
+ * primary (oldest) rows, inserting them when missing. Later rows are kept.
+ */
+async function upsertPrimaryOfferingAndAudience(
+  accountId: string,
+  profile: Pick<IdentityProfile, 'offerings' | 'targetAudience'>
+) {
+  // Separate tables, so the two writes run side by side.
+  await Promise.all([
+    upsertPrimaryOffering(accountId, profile.offerings),
+    upsertPrimaryAudience(accountId, profile.targetAudience)
+  ])
+}
 
-export type UpdateAccountInput = z.infer<typeof updateAccountSchema>
+async function upsertPrimaryOffering(accountId: string, offerings: string) {
+  const [primaryOffering] = await db
+    .select({ id: offeringsTable.id })
+    .from(offeringsTable)
+    .where(eq(offeringsTable.accountId, accountId))
+    .orderBy(asc(offeringsTable.createdAt))
+    .limit(1)
 
-export async function createAccount(formData: FormData) {
+  const offeringValues = {
+    name: offeringNameFromText(offerings),
+    description: offerings
+  }
+  if (primaryOffering) {
+    await db
+      .update(offeringsTable)
+      .set({ ...offeringValues, updatedAt: new Date() })
+      .where(eq(offeringsTable.id, primaryOffering.id))
+  } else {
+    await db
+      .insert(offeringsTable)
+      .values({ accountId, ...offeringValues, isActive: true })
+  }
+}
+
+async function upsertPrimaryAudience(accountId: string, targetAudience: string) {
+  const [primaryAudience] = await db
+    .select({ id: audiencesTable.id })
+    .from(audiencesTable)
+    .where(eq(audiencesTable.accountId, accountId))
+    .orderBy(asc(audiencesTable.createdAt))
+    .limit(1)
+
+  if (primaryAudience) {
+    await db
+      .update(audiencesTable)
+      .set({ name: targetAudience, updatedAt: new Date() })
+      .where(eq(audiencesTable.id, primaryAudience.id))
+  } else {
+    await db
+      .insert(audiencesTable)
+      .values({ accountId, name: targetAudience })
+  }
+}
+
+function profileFromFormData(formData: FormData) {
   const field = (key: string) => (formData.get(key) as string) || ''
-
-  const parsed = createAccountSchema.safeParse({
+  return {
     name: field('name'),
     company: field('company') || undefined,
     description: field('description'),
@@ -94,7 +131,11 @@ export async function createAccount(formData: FormData) {
     industry: field('industry'),
     linkedinUrl: field('linkedinUrl') || undefined,
     websiteUrl: field('websiteUrl') || undefined
-  })
+  }
+}
+
+export async function createAccount(formData: FormData) {
+  const parsed = IdentityProfileSchema.safeParse(profileFromFormData(formData))
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
@@ -102,26 +143,15 @@ export async function createAccount(formData: FormData) {
 
   // The handle is derived from the LinkedIn URL (falling back to the name) and
   // deduplicated against existing accounts to prevent a unique constraint crash.
-  const baseHandle = extractAndSanitizeHandle(data.linkedinUrl, data.name)
-  let candidateHandle = baseHandle
-  let counter = 1
-  while (true) {
-    const existing = await db.query.accountsTable.findFirst({
-      where: eq(accountsTable.handle, candidateHandle)
-    })
-    if (!existing) {
-      break
-    }
-    counter++
-    candidateHandle = `${baseHandle}-${counter}`
-  }
+  const candidateHandle = await findAvailableHandle(
+    extractAndSanitizeHandle(data.linkedinUrl, data.name)
+  )
 
   const accountValues = (handle: string) => ({
     name: data.name,
     accountType: data.company ? ('company' as const) : ('personal' as const),
     handle,
-    // headline is required by the schema; build it from the fields we collect
-    headline: [data.company, data.industry].filter(Boolean).join(' · '),
+    headline: deriveHeadline(data),
     bio: data.description,
     company: data.company || null,
     industry: data.industry,
@@ -153,43 +183,36 @@ export async function createAccount(formData: FormData) {
 
   if (!account) throw new Error('Failed to create account')
 
-  // The form collects offerings and audience as free text, stored as one row each.
-  const firstLine = data.offerings.split('\n')[0]?.trim() ?? ''
-  await db.insert(offeringsTable).values({
-    accountId: account.id,
-    name: firstLine.slice(0, 80) || 'Offerings',
-    description: data.offerings,
-    isActive: true
-  })
-
-  await db.insert(audiencesTable).values({
-    accountId: account.id,
-    name: data.targetAudience
-  })
+  await upsertPrimaryOfferingAndAudience(account.id, data)
 
   revalidatePath('/')
   revalidatePath('/accounts')
-  redirect(`/accounts/${account.id}`)
+  // The create page sets this when AI setup suggestions are waiting to be
+  // reviewed, so the account page can pick them up.
+  redirect(
+    formData.get('claimAiDraft') === '1'
+      ? `/accounts/${account.id}?aiSetup=claim`
+      : `/accounts/${account.id}`
+  )
 }
+
+const updateAccountSchema = IdentityProfileSchema.extend({
+  id: z.string().uuid('Invalid account identifier')
+})
+
+export type UpdateAccountInput = z.input<typeof updateAccountSchema>
 
 export async function updateAccountAction(input: UpdateAccountInput) {
   try {
-    const rawHandle = extractAndSanitizeHandle(input.handle, input.name)
-    const parsed = updateAccountSchema.safeParse({
-      ...input,
-      handle: rawHandle
-    })
-
+    const parsed = updateAccountSchema.safeParse(input)
     if (!parsed.success) {
       return {
         success: false,
         error: parsed.error.issues.map(i => i.message).join('. ')
       }
     }
-
     const validated = parsed.data
 
-    // 1. Verify account exists
     const existing = await db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, validated.id)
     })
@@ -197,84 +220,36 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       return { success: false, error: 'Account identity not found' }
     }
 
-    // 2. Check if handle is already taken by another account
-    const handleConflict = await db.query.accountsTable.findFirst({
-      where: and(
-        eq(accountsTable.handle, validated.handle),
-        ne(accountsTable.id, validated.id)
+    // The handle only follows the LinkedIn URL; renaming keeps the old handle.
+    let handle = existing.handle
+    if (
+      validated.linkedinUrl &&
+      validated.linkedinUrl !== (existing.linkedinUrl || '')
+    ) {
+      handle = await findAvailableHandle(
+        extractAndSanitizeHandle(validated.linkedinUrl, validated.name),
+        validated.id
       )
-    })
-    if (handleConflict) {
-      return {
-        success: false,
-        error: `LinkedIn handle "${validated.handle}" is already in use by another identity.`
-      }
     }
 
-    // 3. Update core identity
     await db
       .update(accountsTable)
       .set({
         name: validated.name,
-        accountType: validated.accountType,
-        handle: validated.handle,
-        headline: validated.headline,
-        bio: validated.bio?.trim() || null,
-        avatarUrl: validated.avatarUrl?.trim() || null,
-        company: validated.company?.trim() || null,
-        websiteUrl: validated.websiteUrl?.trim() || null,
+        handle,
+        // Keep a headline someone wrote; only fill it when there is none.
+        headline: existing.headline?.trim() || deriveHeadline(validated),
+        bio: validated.description,
+        company: validated.company || null,
+        industry: validated.industry,
+        linkedinUrl: validated.linkedinUrl || null,
+        websiteUrl: validated.websiteUrl || null,
         updatedAt: new Date()
       })
       .where(eq(accountsTable.id, validated.id))
 
-    // 4. Synchronize Offerings (only if explicitly provided)
-    if (validated.offerings !== undefined) {
-      await db
-        .delete(offeringsTable)
-        .where(eq(offeringsTable.accountId, validated.id))
+    await upsertPrimaryOfferingAndAudience(validated.id, validated)
 
-      if (validated.offerings.length > 0) {
-        const cleanOfferings = validated.offerings
-          .filter(o => o.name.trim().length > 0)
-          .map(o => ({
-            accountId: validated.id,
-            name: o.name.trim(),
-            type: o.type || 'service',
-            tagline: o.tagline?.trim() || null,
-            description: o.description?.trim() || null,
-            url: o.url?.trim() || null,
-            isActive: true
-          }))
-
-        if (cleanOfferings.length > 0) {
-          await db.insert(offeringsTable).values(cleanOfferings)
-        }
-      }
-    }
-
-    // 5. Synchronize Target Audiences (only if explicitly provided)
-    if (validated.audiences !== undefined) {
-      await db
-        .delete(audiencesTable)
-        .where(eq(audiencesTable.accountId, validated.id))
-
-      if (validated.audiences.length > 0) {
-        const cleanAudiences = validated.audiences
-          .filter(a => a.name.trim().length > 0)
-          .map(a => ({
-            accountId: validated.id,
-            name: a.name.trim(),
-            painPoints: a.painPoints.map(p => p.trim()).filter(Boolean),
-            goals: a.goals.map(g => g.trim()).filter(Boolean)
-          }))
-
-        if (cleanAudiences.length > 0) {
-          await db.insert(audiencesTable).values(cleanAudiences)
-        }
-      }
-    }
-
-    // 6. Revalidate cache
     revalidatePath('/')
     revalidatePath('/accounts')
     revalidatePath(`/accounts/${validated.id}`)

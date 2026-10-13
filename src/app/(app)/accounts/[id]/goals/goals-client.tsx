@@ -1,6 +1,12 @@
 'use client'
 
+import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
+import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
+import {
+  goalSuggestionValues,
+  type GoalValues
+} from '@/lib/ai/identity-setup/merge'
 import {
   Compass,
   Edit2,
@@ -66,6 +72,31 @@ export function GoalsClient({
   const [actionId, setActionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
+
+  // An AI setup goal opens the New Goal form prefilled; saving creates a new
+  // goal, so existing goals are never touched.
+  const prefill = useSectionPrefill<GoalValues>({
+    draftKey: accountId,
+    getCurrent: () => ({
+      title,
+      objectiveType,
+      keyMessage,
+      desiredAction,
+      targetUrl
+    }),
+    setValues: next => {
+      setEditingGoalId(null)
+      setShowNewGoal(true)
+      if (next.title !== undefined) setTitle(next.title)
+      if (next.objectiveType !== undefined) setObjectiveType(next.objectiveType)
+      if (next.keyMessage !== undefined) setKeyMessage(next.keyMessage)
+      if (next.desiredAction !== undefined) setDesiredAction(next.desiredAction)
+      if (next.targetUrl !== undefined) setTargetUrl(next.targetUrl)
+    },
+    suggestionValues: s => goalSuggestionValues(s.goals),
+    // An untouched form's preset objective is just a default.
+    isBlank: key => key === 'objectiveType' && !title.trim()
+  })
 
   const resetForm = () => {
     setTitle('')
@@ -237,6 +268,12 @@ export function GoalsClient({
           {error}
         </div>
       )}
+
+      <PrefillBanner
+        section="goals"
+        prefill={prefill}
+        note="Saving creates a new goal. Your existing goals are not changed."
+      />
 
       {/* New Goal Form */}
       {showNewGoal && (

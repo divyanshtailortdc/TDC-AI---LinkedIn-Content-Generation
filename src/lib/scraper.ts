@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { resolvePublicHttpUrl, safeFetch } from './safe-url'
 
 export type ScrapedContent = {
   title: string
@@ -41,11 +42,30 @@ export function looksLikePlaceholderPage(
   )
 }
 
+/**
+ * Pages fetched in the last few minutes. AI setup reads a page during analysis
+ * and the user may add it to the knowledge base right after; this saves the
+ * second download, which can take several seconds.
+ */
+const CACHE_TTL_MS = 10 * 60 * 1000
+const recentPages = new Map<string, { at: number; page: ScrapedContent }>()
+
 export async function scrapeUrl(url: string): Promise<ScrapedContent> {
-  let validUrl = url.trim()
-  if (!validUrl.startsWith('http://') && !validUrl.startsWith('https://')) {
-    validUrl = `https://${validUrl}`
+  // Rejects private-network and non-http targets before either strategy runs.
+  const validUrl = (await resolvePublicHttpUrl(url)).toString()
+
+  const cached = recentPages.get(validUrl)
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.page
+  const page = await scrapeUncached(validUrl)
+  recentPages.set(validUrl, { at: Date.now(), page })
+  if (recentPages.size > 50) {
+    const oldest = recentPages.keys().next().value
+    if (oldest) recentPages.delete(oldest)
   }
+  return page
+}
+
+async function scrapeUncached(validUrl: string): Promise<ScrapedContent> {
 
   // Strategy 1: Jina Reader (handles Client-Side SPAs, React hydration, and Cloudflare)
   try {
@@ -89,7 +109,7 @@ export async function scrapeUrl(url: string): Promise<ScrapedContent> {
 
   // Strategy 2: Direct Fetch with Cheerio
   try {
-    const response = await fetch(validUrl, {
+    const response = await safeFetch(validUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',

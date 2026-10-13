@@ -9,7 +9,7 @@ import {
   preferencesTable,
   voiceConfigsTable
 } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { Play, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -43,10 +43,12 @@ export default async function AccountPage({
         where: eq(preferencesTable.accountId, id)
       }),
       db.query.offeringsTable.findMany({
-        where: eq(offeringsTable.accountId, id)
+        where: eq(offeringsTable.accountId, id),
+        orderBy: [asc(offeringsTable.createdAt)]
       }),
       db.query.audiencesTable.findMany({
-        where: eq(audiencesTable.accountId, id)
+        where: eq(audiencesTable.accountId, id),
+        orderBy: [asc(audiencesTable.createdAt)]
       })
     ])
 

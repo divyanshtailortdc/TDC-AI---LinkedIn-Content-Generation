@@ -1,6 +1,15 @@
 'use client'
 
+import {
+  updateDraftSuggestions,
+  useIdentitySetupDraft
+} from '@/components/ai-setup/draft-store'
+import { ProvenanceBadge } from '@/components/ai-setup/prefill-banner'
 import { showToast } from '@/components/toast-notification'
+import {
+  EMPTY_SUGGESTIONS,
+  normalizeUrlForCompare
+} from '@/lib/ai/identity-setup/schema'
 import {
   BookOpen,
   CheckCircle2,
@@ -12,7 +21,9 @@ import {
   Layers,
   Loader2,
   Quote,
-  Trash2
+  Sparkles,
+  Trash2,
+  X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -64,6 +75,23 @@ export function KnowledgeClient({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null)
+
+  // AI setup suggestions. Picking one only fills the inputs below; the normal
+  // fetch, extract and save steps still run, and still need a click.
+  const draft = useIdentitySetupDraft(accountId)
+  const aiKnowledge = draft?.suggestions.knowledge
+  const hasAiKnowledge = Boolean(
+    aiKnowledge &&
+      (aiKnowledge.sources.length > 0 ||
+        aiKnowledge.facts.length > 0 ||
+        aiKnowledge.suggestedAdditions.length > 0)
+  )
+  const savedUrls = new Set(
+    initialDocs
+      .map(d => d.sourceUrl)
+      .filter((u): u is string => Boolean(u))
+      .map(normalizeUrlForCompare)
+  )
 
   const handleFetchUrl = async () => {
     if (!inputUrl.trim()) {
@@ -229,6 +257,117 @@ export function KnowledgeClient({
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
           {error}
         </div>
+      )}
+
+      {hasAiKnowledge && aiKnowledge && (
+        <section className="border-accent/30 bg-accent/5 space-y-4 rounded-xl border p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Sparkles className="text-accent mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <h2 className="text-foreground text-sm font-semibold">
+                  Suggested from your AI setup
+                </h2>
+                <p className="text-muted mt-0.5 text-xs">
+                  Only sources you mentioned are listed, and facts were checked
+                  against their source text. Nothing is added until you save it.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                updateDraftSuggestions(accountId, s => ({
+                  ...s,
+                  knowledge: EMPTY_SUGGESTIONS.knowledge
+                }))
+              }
+              className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
+            >
+              <X className="h-3.5 w-3.5" />
+              Dismiss
+            </button>
+          </div>
+
+          {aiKnowledge.sources.length > 0 && (
+            <ul className="space-y-2">
+              {aiKnowledge.sources.map(source => {
+                const already =
+                  source.url && savedUrls.has(normalizeUrlForCompare(source.url))
+                return (
+                  <li
+                    key={`${source.title}-${source.url}`}
+                    className="border-border bg-surface flex flex-col gap-2 rounded-lg border p-3 text-xs sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="text-foreground font-medium">{source.title}</p>
+                      <p className="text-muted">
+                        {source.url} · {source.reason}
+                      </p>
+                    </div>
+                    {source.url && (
+                      <button
+                        type="button"
+                        disabled={Boolean(already)}
+                        onClick={() => {
+                          setTab('url')
+                          setInputUrl(source.url!)
+                          setUrlPreview(null)
+                        }}
+                        className="border-border text-foreground hover:bg-surface-hover shrink-0 rounded-lg border px-3 py-1.5 font-medium disabled:opacity-50"
+                      >
+                        {already ? 'Already added' : 'Use this URL'}
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+
+          {aiKnowledge.facts.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-foreground text-xs font-semibold">Facts found</p>
+              {aiKnowledge.facts.map(fact => (
+                <div key={fact.quote} className="bg-surface rounded-lg p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-foreground font-medium">{fact.statement}</span>
+                    <ProvenanceBadge kind="fact" source={fact.source} />
+                  </div>
+                  <p className="text-muted mt-1 italic">&ldquo;{fact.quote}&rdquo;</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {aiKnowledge.suggestedAdditions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-foreground text-xs font-semibold">
+                Worth adding (no source yet)
+              </p>
+              <ul className="space-y-1.5">
+                {aiKnowledge.suggestedAdditions.map(addition => (
+                  <li
+                    key={addition}
+                    className="flex items-center justify-between gap-3 text-xs"
+                  >
+                    <span className="text-muted">{addition}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab('artifact')
+                        setArtifactTitle(addition.split(':')[0]!.slice(0, 120))
+                      }}
+                      className="text-accent shrink-0 font-medium hover:underline"
+                    >
+                      Add as artifact
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
       )}
 
       {/* Ingestion Panel */}

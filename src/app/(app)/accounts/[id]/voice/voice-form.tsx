@@ -1,5 +1,7 @@
 'use client'
 
+import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
+import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
 import {
   AlertCircle,
@@ -19,6 +21,10 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition, type ReactNode } from 'react'
 import type { VoiceConfig } from '~/db/schema'
 import { parseHashtagPolicy } from '~/lib/ai/hashtags'
+import {
+  voiceSuggestionValues,
+  type VoiceValues
+} from '~/lib/ai/identity-setup/merge'
 import { WRITING_STYLES } from '~/lib/ai/schemas'
 import { saveVoiceConfigAction } from './actions'
 
@@ -226,6 +232,38 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   )
   const [newBannedWord, setNewBannedWord] = useState('')
 
+  // AI setup suggestions fill blank settings only; saving is still manual.
+  const prefill = useSectionPrefill<VoiceValues>({
+    draftKey: accountId,
+    getCurrent: () => ({
+      tone,
+      derivedStyleRubric: derivedRubric,
+      formality: scales.formality,
+      directness: scales.directness,
+      perspective,
+      emojiPolicy,
+      hashtagPolicy,
+      bannedWords
+    }),
+    setValues: next => {
+      if (next.tone !== undefined) setTone(next.tone)
+      if (next.derivedStyleRubric !== undefined)
+        setDerivedRubric(next.derivedStyleRubric)
+      if (next.formality !== undefined || next.directness !== undefined) {
+        setScales(prev => ({
+          formality: next.formality !== undefined ? next.formality : prev.formality,
+          directness:
+            next.directness !== undefined ? next.directness : prev.directness
+        }))
+      }
+      if (next.perspective !== undefined) setPerspective(next.perspective)
+      if (next.emojiPolicy !== undefined) setEmojiPolicy(next.emojiPolicy)
+      if (next.hashtagPolicy !== undefined) setHashtagPolicy(next.hashtagPolicy)
+      if (next.bannedWords !== undefined) setBannedWords(next.bannedWords)
+    },
+    suggestionValues: s => voiceSuggestionValues(s.voice)
+  })
+
   const addBannedWords = () => {
     const words = mergeWords(newBannedWord.split(','))
     if (words.length === 0) {
@@ -292,6 +330,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
           </button>
         </div>
       )}
+
+      <PrefillBanner
+        section="voice"
+        prefill={prefill}
+        note="These are recommended settings for your stated brand, not learned from your posts."
+      />
 
       {/* 1. Voice summary */}
       <section className={sectionClass}>
