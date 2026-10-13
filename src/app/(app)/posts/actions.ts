@@ -6,13 +6,11 @@ import {
   feedbackTable,
   ideasTable,
   postDraftsTable,
-  postMediaTable,
-  preferencesTable
+  postMediaTable
 } from '@/db/schema'
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
-import { DEFAULT_MEDIA_POLICY } from '~/lib/ai/context'
 import { validateImageUrl } from '~/lib/media/image-input'
 import { requireActiveAccountId } from '@/lib/active-account'
 
@@ -210,32 +208,12 @@ export async function removePostMediaAction(draftId: string) {
 }
 
 
-/**
- * The account's media policy governs manual generation too, so an image made
- * from the review screen matches the ones the pipeline produces.
- */
+/** The account name lets the image brief keep visuals on-brand. */
 async function loadMediaSettings(accountId: string) {
-  const [account, preference] = await Promise.all([
-    db.query.accountsTable.findFirst({ where: eq(accountsTable.id, accountId) }),
-    db.query.preferencesTable.findFirst({
-      where: eq(preferencesTable.accountId, accountId)
-    })
-  ])
-
-  const legacy =
-    preference?.pillars && !Array.isArray(preference.pillars)
-      ? (preference.pillars as Record<string, any>)
-      : null
-  const policy = {
-    ...DEFAULT_MEDIA_POLICY,
-    ...((preference?.mediaPolicy || legacy?.media_policy || {}) as object)
-  }
-
-  return {
-    accountName: account?.name,
-    aspectRatio: policy.aspect_ratio,
-    styleGuidance: policy.image_style_prompt || undefined
-  }
+  const account = await db.query.accountsTable.findFirst({
+    where: eq(accountsTable.id, accountId)
+  })
+  return { accountName: account?.name }
 }
 
 export async function generatePostMediaAction(

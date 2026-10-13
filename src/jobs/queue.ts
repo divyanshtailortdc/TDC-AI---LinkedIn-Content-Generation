@@ -9,6 +9,7 @@ import {
   accountsTable
 } from '@/db/schema'
 import { and, asc, desc, eq } from 'drizzle-orm'
+import { RESEARCH_SETTINGS } from '@/lib/ai/context'
 
 export interface EnqueueRunOptions {
   accountId: string
@@ -22,23 +23,23 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
     db.query.preferencesTable.findFirst({ where: eq(preferencesTable.accountId, opts.accountId) }),
     opts.goalId
       ? db.query.goalsTable.findFirst({ where: eq(goalsTable.id, opts.goalId) })
-      : db.query.goalsTable.findFirst({ where: eq(goalsTable.accountId, opts.accountId) })
+      : // Newest active goal, so a paused goal never steers a run.
+        db.query.goalsTable.findFirst({
+          where: and(
+            eq(goalsTable.accountId, opts.accountId),
+            eq(goalsTable.isActive, true)
+          ),
+          orderBy: desc(goalsTable.createdAt)
+        })
   ])
 
   if (!account) {
     throw new Error(`Account ${opts.accountId} not found`)
   }
 
-  // Freeze the policies that produced this run so "why did it write that?"
-  // stays answerable after preferences change.
-  const legacy =
-    preference?.pillars && !Array.isArray(preference.pillars)
-      ? (preference.pillars as Record<string, unknown>)
-      : null
-  const researchConfig =
-    preference?.researchPolicy || (legacy?.research_policy as object) || {}
-  const mediaConfig =
-    preference?.mediaPolicy || (legacy?.media_policy as object) || {}
+  // Freeze the research settings that produced this run so "why did it write
+  // that?" stays answerable if they change later.
+  const researchConfig = { ...RESEARCH_SETTINGS }
 
   const [newRun] = await db
     .insert(runsTable)
@@ -52,7 +53,6 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
       currentStep: 0,
       totalSteps: 3,
       researchConfig,
-      mediaConfig,
       timings: {},
       tokenCounts: {},
       costUsd: '0',

@@ -78,3 +78,37 @@ select,
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
+
+/* A scrollbar that stays visible whenever content overflows, instead of an
+   overlay bar that appears only on scroll or focus. The thumb uses the muted
+   text colour; the border colour above vanishes against dark fields.
+   Chromium ignores ::-webkit-scrollbar while the standard properties are set,
+   so they are reset here and only reapplied for Firefox. */
+.scrollbar-visible {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+  /* Reserve the gutter so text does not reflow when the bar appears. */
+  scrollbar-gutter: stable;
+}
+
+.scrollbar-visible::-webkit-scrollbar {
+  width: 10px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb {
+  background-color: var(--muted);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-visible {
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+}

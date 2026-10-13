@@ -16,7 +16,8 @@ export interface LintOptions {
   bannedTopics?: string[] | null
   maxChars?: number
   hookMaxChars?: number
-  hashtagCount?: number
+  /** From the voice's hashtag policy; null or absent skips the check. */
+  hashtagRange?: { min: number; max: number } | null
   emojiLevel?: 'none' | 'bullets_only' | 'liberal' | null
   ctaRequired?: boolean
   citationsCount?: number
@@ -213,20 +214,22 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   }
 
   // 7. Hashtag count
-  if (typeof opts.hashtagCount === 'number') {
+  if (opts.hashtagRange) {
+    const { min, max } = opts.hashtagRange
     const actual = (opts.hashtags || []).filter(Boolean).length
+    const wanted = min === max ? `${min}` : `${min}–${max}`
     findings.push(
-      actual !== opts.hashtagCount
+      actual < min || actual > max
         ? {
             rule: 'hashtag_count',
             severity: 'warning',
-            message: `${actual} hashtag${actual === 1 ? '' : 's'} present, but preferences ask for ${opts.hashtagCount}.`,
+            message: `${actual} hashtag${actual === 1 ? '' : 's'} present, but the voice asks for ${wanted}.`,
             passed: false
           }
         : {
             rule: 'hashtag_count',
             severity: 'info',
-            message: `Hashtag count matches preferences (${actual}).`,
+            message: `Hashtag count matches the voice (${actual}).`,
             passed: true
           }
     )

@@ -207,10 +207,6 @@ export const schedulesRelations = relations(schedulesTable, ({ one }) => ({
   account: one(accountsTable, {
     fields: [schedulesTable.accountId],
     references: [accountsTable.id]
-  }),
-  preference: one(preferencesTable, {
-    fields: [schedulesTable.preferenceId],
-    references: [preferencesTable.id]
   })
 }))
 

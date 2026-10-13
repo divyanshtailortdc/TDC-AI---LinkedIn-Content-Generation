@@ -14,6 +14,7 @@ import {
   sharesDominantTopic
 } from '../src/lib/ai/idea-diversity'
 import type { GeneratedIdeaItem } from '../src/lib/ai/schemas'
+import { parseHashtagPolicy } from '../src/lib/ai/hashtags'
 import { pickWeightedPillars } from '../src/lib/ai/pillars'
 import { runLinter } from '../src/lib/lint/run-linter'
 import { checkNovelty } from '../src/lib/novelty'
@@ -310,6 +311,21 @@ describe('pickWeightedPillars', () => {
   })
 })
 
+describe('parseHashtagPolicy', () => {
+  it('reads the counts voice configs actually contain', () => {
+    assert.deepStrictEqual(parseHashtagPolicy('0-3, end of post'), { min: 0, max: 3 })
+    assert.deepStrictEqual(parseHashtagPolicy('5-7 relevant tags, end of post'), { min: 5, max: 7 })
+    assert.deepStrictEqual(parseHashtagPolicy('none'), { min: 0, max: 0 })
+    assert.deepStrictEqual(parseHashtagPolicy('0, none'), { min: 0, max: 0 })
+    assert.deepStrictEqual(parseHashtagPolicy('3'), { min: 3, max: 3 })
+  })
+
+  it('returns null rather than inventing a count', () => {
+    assert.strictEqual(parseHashtagPolicy('a few relevant ones'), null)
+    assert.strictEqual(parseHashtagPolicy(''), null)
+  })
+})
+
 describe('runLinter', () => {
   const body = 'A clear paragraph about retrieval quality and why it matters.'
 
@@ -353,12 +369,12 @@ describe('runLinter', () => {
     assert.strictEqual(findings.find(f => f.rule === 'banned_topics')?.passed, false)
   })
 
-  it('flags a hashtag count that does not match the preference', () => {
+  it('flags a hashtag count outside the voice policy', () => {
     const findings = runLinter({
       hook: 'Hook',
       body: 'Body text here.',
       hashtags: ['One', 'Two', 'Three', 'Four'],
-      hashtagCount: 2
+      hashtagRange: { min: 0, max: 3 }
     })
     assert.strictEqual(findings.find(f => f.rule === 'hashtag_count')?.passed, false)
   })

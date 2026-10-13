@@ -37,9 +37,7 @@ export function startScheduler() {
 
       for (const sched of activeSchedules) {
         const allowedDays = (sched.daysOfWeek as number[]) || [1, 3, 5]
-        if (sched.frequency !== 'daily' && !allowedDays.includes(currentDay)) {
-          continue
-        }
+        if (!allowedDays.includes(currentDay)) continue
 
         const [hourPart, minutePart] = (sched.timeOfDay || '09:00').split(':')
         const scheduledMinutes =

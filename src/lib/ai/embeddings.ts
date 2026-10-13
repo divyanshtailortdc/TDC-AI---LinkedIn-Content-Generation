@@ -103,9 +103,10 @@ export function buildRetrievalQuery(ctx: GenerationContext): string {
   const parts = [
     goal?.title,
     goal?.keyMessage,
-    goal?.description,
     ...ctx.prefs.pillars.map(p =>
-      p.description ? `${p.name}: ${p.description}` : p.name
+      p.example_topics?.length
+        ? `${p.name}: ${p.example_topics.join(', ')}`
+        : p.name
     )
   ]
   const query = parts.filter(Boolean).join('\n').trim()

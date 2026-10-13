@@ -21,6 +21,7 @@ import {
 import { refreshRunTotals } from './run-accounting'
 import {
   collectBannedWords,
+  describeHashtags,
   loadGenerationContext,
   renderAudienceBlock,
   renderConstraintsBlock,
@@ -75,11 +76,7 @@ export async function executeDraftingForIdea(
 
   const constraints = ctx.prefs.constraints
   const goal = ctx.primaryGoal
-  // A goal states its own link strategy; it is more specific than the account default.
-  const linkPlacement = (goal?.linkStrategy === 'body' ||
-  goal?.linkStrategy === 'first_comment'
-    ? goal.linkStrategy
-    : constraints.link_placement) as 'body' | 'first_comment'
+  const linkPlacement = constraints.link_placement
 
   const draftStart = Date.now()
   const [draftStep] = runId
@@ -127,7 +124,7 @@ AUTHOR
 ${renderIdentityBlock(ctx)}
 
 READER
-${renderAudienceBlock(ctx, goal)}
+${renderAudienceBlock(ctx)}
 
 GOAL THIS POST SERVES
 ${renderGoalBlock(goal)}
@@ -176,7 +173,7 @@ Produce:
       ? `place any link here${goal?.targetUrl ? ` (use ${goal.targetUrl})` : ''}`
       : 'optional supporting note'
   }
-5. hashtags — exactly ${constraints.hashtag_count}, without the # symbol
+5. hashtags — ${describeHashtags(constraints)}, without the # symbol
 6. alternateHooks — ${Math.max(2, Math.min(constraints.variants_per_post, 3))} genuinely different openings
 7. selfScores — honest 1-10 ratings`
 
@@ -282,7 +279,7 @@ Produce:
     bannedTopics: ctx.prefs.guardrails.banned_topics,
     maxChars: constraints.max_chars,
     hookMaxChars: constraints.hook_max_chars,
-    hashtagCount: constraints.hashtag_count,
+    hashtagRange: constraints.hashtags,
     emojiLevel: constraints.emoji_level,
     ctaRequired: constraints.cta_required,
     citationsCount: evidence.length,
@@ -359,8 +356,8 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`,
     brief?: string
   }
   // The idea carries the human's per-idea override from the approval gate;
-  // otherwise the account's media policy decides.
-  const mediaMode = suggested.mode || ctx.prefs.media.default_mode
+  // otherwise no image, and one can be added from the review screen.
+  const mediaMode = suggested.mode || 'none'
   const fullPostText = [draft.hook, draft.body, draft.cta]
     .filter(Boolean)
     .join('\n\n')
@@ -375,8 +372,6 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`,
     thesis: idea.thesis || idea.coreArgument || idea.title,
     coreArgument: idea.coreArgument || undefined,
     evidence,
-    aspectRatio: ctx.prefs.media.aspect_ratio,
-    styleGuidance: ctx.prefs.media.image_style_prompt || undefined,
     accountName: ctx.account.name
   })
 

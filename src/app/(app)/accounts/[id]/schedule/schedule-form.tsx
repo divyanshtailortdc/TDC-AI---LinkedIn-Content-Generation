@@ -24,23 +24,15 @@ export function ScheduleForm({
   const [enabled, setEnabled] = useState<boolean>(
     initialSchedule?.enabled ?? false
   )
-  const [frequency, setFrequency] = useState<string>(
-    initialSchedule?.frequency || 'weekly'
-  )
   const [selectedDays, setSelectedDays] = useState<number[]>(
     (initialSchedule?.daysOfWeek as number[]) || [1, 3, 5]
   )
   const [timeOfDay, setTimeOfDay] = useState<string>(
     initialSchedule?.timeOfDay || '09:00'
   )
-  const [postsPerRun, setPostsPerRun] = useState<number>(
-    initialSchedule?.postsPerRun || 1
-  )
-  const [ideasPerRun, setIdeasPerRun] = useState<number>(
-    initialSchedule?.ideasPerRun || 3
-  )
   const [isSaving, setIsSaving] = useState(false)
   const [savedSuccess, setSavedSuccess] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const toggleDay = (dayId: number) => {
     if (selectedDays.includes(dayId)) {
@@ -56,18 +48,18 @@ export function ScheduleForm({
     e.preventDefault()
     setIsSaving(true)
     setSavedSuccess(false)
+    setError(null)
     try {
       const res = await saveSchedule(accountId, {
-        frequency,
         daysOfWeek: selectedDays,
         timeOfDay,
-        postsPerRun,
-        ideasPerRun,
         enabled
       })
       if (res.success) {
         setSavedSuccess(true)
         setTimeout(() => setSavedSuccess(false), 3000)
+      } else {
+        setError(res.error || 'Failed to save schedule')
       }
     } finally {
       setIsSaving(false)
@@ -86,17 +78,23 @@ export function ScheduleForm({
         </div>
       )}
 
+      {error && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-xs text-rose-600 dark:text-rose-400">
+          {error}
+        </div>
+      )}
+
       {/* Main Schedule Card */}
       <div className="border-border bg-surface space-y-6 rounded-2xl border p-6 shadow-xs">
         {/* Enable Schedule Toggle */}
         <div className="border-border flex items-center justify-between border-b pb-6">
           <div>
             <span className="text-foreground block text-sm font-semibold">
-              Automated Background Cadence
+              Generate Ideas Automatically
             </span>
             <span className="text-muted mt-0.5 block text-xs">
-              Runs research and ideation overnight so fresh ideas are waiting in
-              your queue each morning.
+              Fresh ideas wait in your queue on the days you pick. The number of
+              ideas per run is set in Preferences.
             </span>
           </div>
 
@@ -114,7 +112,7 @@ export function ScheduleForm({
         {/* Days of week selector */}
         <div>
           <label className="text-foreground mb-2 block text-xs font-semibold">
-            Target Publishing Days
+            Days
           </label>
           <div className="flex flex-wrap items-center gap-2">
             {DAYS.map(day => {
@@ -137,51 +135,21 @@ export function ScheduleForm({
           </div>
         </div>
 
-        {/* Time of day & volumes */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <label className="text-foreground mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
-              <Clock className="text-muted h-3.5 w-3.5" />
-              Target Time (Local)
-            </label>
-            <input
-              type="time"
-              value={timeOfDay}
-              onChange={e => setTimeOfDay(e.target.value)}
-              className="border-border bg-surface-hover text-foreground w-full rounded-xl border p-2.5 text-xs outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="text-foreground mb-1.5 block text-xs font-semibold">
-              Posts Per Run
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={5}
-              value={postsPerRun}
-              onChange={e => setPostsPerRun(Number(e.target.value) || 1)}
-              className="border-border bg-surface-hover text-foreground w-full rounded-xl border p-2.5 text-xs outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="text-foreground mb-1.5 flex items-center gap-1 text-xs font-semibold">
-              <span>Ideas Per Run</span>
-              <span className="text-muted text-[10px] font-normal">
-                (Choice)
-              </span>
-            </label>
-            <input
-              type="number"
-              min={2}
-              max={10}
-              value={ideasPerRun}
-              onChange={e => setIdeasPerRun(Number(e.target.value) || 3)}
-              className="border-border bg-surface-hover text-foreground w-full rounded-xl border p-2.5 text-xs outline-none"
-            />
-          </div>
+        {/* Time of day */}
+        <div className="max-w-xs">
+          <label className="text-foreground mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
+            <Clock className="text-muted h-3.5 w-3.5" />
+            Time
+          </label>
+          <input
+            type="time"
+            value={timeOfDay}
+            onChange={e => setTimeOfDay(e.target.value)}
+            className="border-border bg-surface-hover text-foreground w-full rounded-xl border p-2.5 text-xs outline-none"
+          />
+          <p className="text-muted mt-1 text-[11px]">
+            Uses the server&apos;s time zone.
+          </p>
         </div>
       </div>
 
@@ -196,7 +164,7 @@ export function ScheduleForm({
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          <span>Save Schedule Settings</span>
+          <span>Save Schedule</span>
         </button>
       </div>
     </form>

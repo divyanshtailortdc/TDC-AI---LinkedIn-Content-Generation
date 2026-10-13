@@ -10,22 +10,20 @@ import {
   voiceConfigsTable,
   type Account,
   type Audience,
-  type CadencePolicy,
   type ContentPillar,
   type Goal,
   type Guardrails,
   type KnowledgeDocument,
-  type MediaPolicy,
   type Offering,
   type PostConstraints,
-  type ResearchPolicy,
   type SamplePost,
   type VoiceConfig
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
+import { parseHashtagPolicy, type HashtagRange } from './hashtags'
 import { pickWeightedPillars } from './pillars'
 
-export { pickWeightedPillars }
+export { parseHashtagPolicy, pickWeightedPillars }
 
 /**
  * Every generation stage reads its settings through this module.
@@ -35,59 +33,59 @@ export { pickWeightedPillars }
  * configured in the UI but never reached the model.
  */
 
-export const DEFAULT_CADENCE: CadencePolicy = {
-  frequency: 3,
-  days_of_week: ['Monday', 'Wednesday', 'Friday'],
-  time_of_day: '08:30',
-  posts_per_run: 1,
-  ideas_per_run: 5
-}
+export const DEFAULT_IDEAS_PER_RUN = 5
 
-export const DEFAULT_RESEARCH_POLICY: ResearchPolicy = {
-  use_knowledge_base: true,
-  source_ids: [],
+/**
+ * Research is not a per-account choice: every run reads the knowledge base,
+ * and searches the web whenever a search key is configured.
+ */
+export const RESEARCH_SETTINGS = {
   use_web_search: true,
-  provider: 'serper',
-  domain_mode: 'none',
-  allowed_domains: [],
-  blocked_domains: [],
   freshness_days: 30,
   max_searches_per_run: 3,
-  require_citations: true,
   min_citations_per_post: 1
 }
 
-export const DEFAULT_MEDIA_POLICY: MediaPolicy = {
-  default_mode: 'none',
-  image_style_prompt: '',
-  aspect_ratio: '16:9',
-  always_include_alt_text: true
+export const DEFAULT_POST_CONSTRAINTS: PostConstraints = {
+  link_placement: 'first_comment',
+  cta_required: true
 }
 
-export const DEFAULT_POST_CONSTRAINTS: PostConstraints = {
-  max_chars: 3000,
+/** Limits LinkedIn imposes, plus the length and alternate hooks every draft gets. */
+export const FIXED_POST_LIMITS = {
   target_chars: 1300,
+  /** LinkedIn's hard cap on a post. */
+  max_chars: 3000,
+  /** Roughly where LinkedIn folds a post behind "...see more". */
   hook_max_chars: 200,
-  hashtag_count: 3,
-  emoji_level: 'bullets_only',
-  link_placement: 'first_comment',
-  cta_required: true,
   variants_per_post: 2
 }
 
 export const DEFAULT_GUARDRAILS: Guardrails = {
   banned_topics: [],
-  banned_words: [],
   compliance_notes: ''
 }
 
+export type EmojiLevel = 'none' | 'bullets_only' | 'liberal'
+
+/** What a voice config starts with, for accounts whose voice is not set up yet. */
+const DEFAULT_EMOJI_LEVEL: EmojiLevel = 'bullets_only'
+const DEFAULT_HASHTAG_POLICY = '0-3, end of post'
+
+export type ResolvedPostConstraints = PostConstraints &
+  typeof FIXED_POST_LIMITS & {
+    /** From the voice config, so tone and formatting have one source. */
+    emoji_level: EmojiLevel
+    hashtag_policy: string
+    /** Parsed from `hashtag_policy`; null when the policy names no count. */
+    hashtags: HashtagRange | null
+  }
+
 export interface ResolvedPreferences {
   pillars: ContentPillar[]
-  formats: Array<{ format: string; weight: number }>
-  cadence: CadencePolicy
-  research: ResearchPolicy
-  media: MediaPolicy
-  constraints: PostConstraints
+  ideasPerRun: number
+  research: typeof RESEARCH_SETTINGS
+  constraints: ResolvedPostConstraints
   guardrails: Guardrails
 }
 
@@ -105,76 +103,54 @@ export interface GenerationContext {
   prefs: ResolvedPreferences
 }
 
-/** Merges a stored jsonb policy over its defaults, tolerating null/legacy shapes. */
+/**
+ * Merges a stored jsonb policy over its defaults, tolerating null shapes.
+ * Only keys the defaults declare are read, so settings that were removed from
+ * the form cannot resurface from older rows.
+ */
 function merge<T extends object>(defaults: T, stored: unknown): T {
+  const merged = { ...defaults } as Record<string, unknown>
   if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
-    return { ...defaults }
+    return merged as T
   }
-  return { ...defaults, ...(stored as Partial<T>) }
+  const values = stored as Record<string, unknown>
+  for (const key of Object.keys(defaults)) {
+    if (values[key] !== undefined) merged[key] = values[key]
+  }
+  return merged as T
+}
+
+function toEmojiLevel(policy: string | null | undefined): EmojiLevel {
+  if (policy === 'none') return 'none'
+  if (policy === 'liberal') return 'liberal'
+  if (policy === 'bullets only' || policy === 'bullets_only') return 'bullets_only'
+  return DEFAULT_EMOJI_LEVEL
 }
 
 /**
- * The preferences form once packed every policy into the `pillars` column.
- * Rows are backfilled, but reading both keeps older rows working.
+ * Also used by the Preferences page, so the form starts from exactly what the
+ * pipeline sees. Emoji and hashtags come from `voice`; without it they fall
+ * back to the defaults a new voice config starts with.
  */
-function resolvePreferences(
-  row:
-    | (typeof preferencesTable.$inferSelect)
-    | undefined
-    | null
+export function resolvePreferences(
+  row: (typeof preferencesTable.$inferSelect) | undefined | null,
+  voice?: VoiceConfig | null
 ): ResolvedPreferences {
-  const rawPillars = row?.pillars as unknown
-  const legacy =
-    rawPillars && typeof rawPillars === 'object' && !Array.isArray(rawPillars)
-      ? (rawPillars as Record<string, unknown>)
-      : null
-
-  const pillars: ContentPillar[] = Array.isArray(rawPillars)
-    ? (rawPillars as ContentPillar[])
-    : Array.isArray(legacy?.pillars)
-      ? (legacy!.pillars as ContentPillar[])
-      : []
-
-  const media = merge(
-    DEFAULT_MEDIA_POLICY,
-    row?.mediaPolicy ?? legacy?.media_policy
-  )
+  const hashtagPolicy = voice?.hashtagPolicy?.trim() || DEFAULT_HASHTAG_POLICY
 
   return {
-    pillars,
-    formats:
-      (row?.formats as Array<{ format: string; weight: number }> | null) ||
-      (legacy?.formats as Array<{ format: string; weight: number }>) ||
-      [],
-    cadence: merge(DEFAULT_CADENCE, row?.cadence ?? legacy?.cadence),
-    research: merge(
-      DEFAULT_RESEARCH_POLICY,
-      row?.researchPolicy ?? legacy?.research_policy
-    ),
-    media: {
-      ...media,
-      // The form once emitted `stock_search`, which matched nothing downstream.
-      default_mode:
-        (media.default_mode as string) === 'stock_search'
-          ? 'stock'
-          : media.default_mode
+    pillars: Array.isArray(row?.pillars) ? row.pillars : [],
+    ideasPerRun: row?.ideasPerRun ?? DEFAULT_IDEAS_PER_RUN,
+    research: RESEARCH_SETTINGS,
+    constraints: {
+      ...merge(DEFAULT_POST_CONSTRAINTS, row?.postConstraints),
+      ...FIXED_POST_LIMITS,
+      emoji_level: toEmojiLevel(voice?.emojiPolicy),
+      hashtag_policy: hashtagPolicy,
+      hashtags: parseHashtagPolicy(hashtagPolicy)
     },
-    constraints: merge(
-      DEFAULT_POST_CONSTRAINTS,
-      row?.postConstraints ?? legacy?.post_constraints
-    ),
-    guardrails: merge(
-      DEFAULT_GUARDRAILS,
-      row?.guardrails ?? legacy?.guardrails
-    )
+    guardrails: merge(DEFAULT_GUARDRAILS, row?.guardrails)
   }
-}
-
-/** True when the goal's date window (if any) includes today. */
-function isGoalInWindow(goal: Goal, now = new Date()): boolean {
-  if (goal.startDate && new Date(goal.startDate) > now) return false
-  if (goal.endDate && new Date(goal.endDate) < now) return false
-  return true
 }
 
 export async function loadGenerationContext(
@@ -220,10 +196,10 @@ export async function loadGenerationContext(
   const activeGoals = (
     options?.goalId
       ? goals.filter(g => g.id === options.goalId)
-      : goals.filter(g => g.isActive && isGoalInWindow(g))
+      : goals.filter(g => g.isActive)
   )
-    // Heaviest goal first so the run leads with what matters most.
-    .sort((a, b) => (b.weight ?? 5) - (a.weight ?? 5))
+    // Newest goal first, matching the goal a queued run picks by default.
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
 
   return {
     account,
@@ -236,7 +212,7 @@ export async function loadGenerationContext(
     activeGoals,
     primaryGoal: activeGoals[0] ?? null,
     preferencesId: preferences?.id ?? null,
-    prefs: resolvePreferences(preferences)
+    prefs: resolvePreferences(preferences, voice)
   }
 }
 
@@ -281,15 +257,10 @@ export function renderIdentityBlock(ctx: GenerationContext): string {
   return lines.join('\n')
 }
 
-export function renderAudienceBlock(ctx: GenerationContext, goal?: Goal | null): string {
-  const targeted = goal?.audienceId
-    ? ctx.audiences.filter(a => a.id === goal.audienceId)
-    : ctx.audiences
+export function renderAudienceBlock(ctx: GenerationContext): string {
+  if (ctx.audiences.length === 0) return 'Audience: not yet defined.'
 
-  const audiences = targeted.length > 0 ? targeted : ctx.audiences
-  if (audiences.length === 0) return 'Audience: not yet defined.'
-
-  return audiences
+  return ctx.audiences
     .map(a => {
       const lines = [`- ${a.name} (sophistication: ${a.sophisticationLevel})`]
       const titles = list(a.jobTitles)
@@ -324,13 +295,7 @@ export function renderGoalBlock(goal: Goal | null): string {
       ? `The one message to land: ${goal.keyMessage}`
       : 'Key message: not specified.'
   ]
-  if (goal.description) lines.push(`Context: ${goal.description}`)
   if (goal.desiredAction) lines.push(`Desired reader action: ${goal.desiredAction}`)
-  if (goal.successMetric) lines.push(`Success metric: ${goal.successMetric}`)
-  const dos = list(goal.dos)
-  if (dos) lines.push(`Do: ${dos}`)
-  const donts = list(goal.donts)
-  if (donts) lines.push(`Do NOT: ${donts}`)
   return lines.join('\n')
 }
 
@@ -353,9 +318,8 @@ export function renderVoiceBlock(ctx: GenerationContext): string {
     `Energy: ${v.energy}`,
     `Sentence length: ${v.sentenceLength}`,
     `Paragraph style: ${v.paragraphStyle}`,
-    `Reading level target: ${v.readingLevelTarget}`,
-    `Emoji policy: ${v.emojiPolicy}`,
-    `Hashtag policy: ${v.hashtagPolicy}`
+    // Emoji and hashtags are rendered once, in the constraints block.
+    `Reading level target: ${v.readingLevelTarget}`
   ]
 
   const openings = list(v.openingStyles)
@@ -373,18 +337,24 @@ export function renderVoiceBlock(ctx: GenerationContext): string {
   return lines.join('\n')
 }
 
-/** Voice banned words plus preference guardrails, deduplicated. */
+/** The voice's banned words, deduplicated. Voice is their only home. */
 export function collectBannedWords(ctx: GenerationContext): string[] {
   return Array.from(
     new Set(
-      [
-        ...((ctx.voice?.bannedWords as string[] | null) || []),
-        ...(ctx.prefs.guardrails.banned_words || [])
-      ]
+      ((ctx.voice?.bannedWords as string[] | null) || [])
         .map(w => w.trim())
         .filter(Boolean)
     )
   )
+}
+
+/** The hashtag instruction, shared by the constraints block and the draft brief. */
+export function describeHashtags(c: ResolvedPostConstraints): string {
+  const range = c.hashtags
+  if (!range) return `follow the author's policy: "${c.hashtag_policy}"`
+  if (range.max === 0) return 'none at all'
+  if (range.min === range.max) return `exactly ${range.min}, at the end`
+  return `between ${range.min} and ${range.max}, at the end`
 }
 
 export function renderGuardrailsBlock(ctx: GenerationContext): string {
@@ -415,7 +385,7 @@ export function renderConstraintsBlock(ctx: GenerationContext): string {
   return [
     `Hook: at most ${c.hook_max_chars} characters — this is the "...see more" fold. Never break mid-word or mid-sentence.`,
     `Total length: aim for about ${c.target_chars} characters, hard maximum ${c.max_chars}.`,
-    `Hashtags: exactly ${c.hashtag_count}${c.hashtag_count === 0 ? ' (none at all)' : ', at the end'}.`,
+    `Hashtags: ${describeHashtags(c)}.`,
     emoji,
     c.link_placement === 'first_comment'
       ? 'Any external link goes in firstComment, never in the body — LinkedIn suppresses reach on body links.'

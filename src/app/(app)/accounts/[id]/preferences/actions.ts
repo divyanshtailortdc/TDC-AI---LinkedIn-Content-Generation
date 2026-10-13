@@ -3,108 +3,85 @@
 import { db } from '@/db'
 import {
   preferencesTable,
-  type CadencePolicy,
   type ContentPillar,
   type Guardrails,
-  type MediaPolicy,
-  type PostConstraints,
-  type ResearchPolicy
+  type PostConstraints
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 export type PillarConfig = ContentPillar
 
-export type PreferencesFullPayload = {
+/** Emoji, hashtags and banned words live in Voice; nothing here repeats them. */
+export type PreferencesPayload = {
   pillars: PillarConfig[]
-  formats: Array<{ format: string; weight: number }>
-  cadence: CadencePolicy
-  research_policy: ResearchPolicy
-  media_policy: MediaPolicy
+  ideasPerRun: number
   post_constraints: PostConstraints
   guardrails: Guardrails
 }
 
-const LINKEDIN_MAX_CHARS = 3000
+const MIN_IDEAS_PER_RUN = 3
+const MAX_IDEAS_PER_RUN = 12
 
 /**
- * The form historically used `stock_search` while the media pipeline matches
- * `stock`, which silently turned every stock request into an AI generation.
+ * Rescales pillar weights to sum to exactly 100 (largest remainder), so users
+ * set relative importance instead of doing arithmetic. All-zero weights split
+ * evenly.
  */
-function normalizeMediaMode(mode: string): MediaPolicy['default_mode'] {
-  if (mode === 'stock' || mode === 'stock_search') return 'stock'
-  if (mode === 'none') return 'none'
-  return 'ai_generated'
+function normalizePillarWeights(pillars: PillarConfig[]): PillarConfig[] {
+  const named = pillars
+    .map(p => ({
+      name: p.name.trim(),
+      weight_pct: Math.max(0, Number(p.weight_pct) || 0),
+      example_topics: (p.example_topics || [])
+        .map(t => t.trim())
+        .filter(Boolean)
+    }))
+    .filter(p => p.name.length > 0)
+  if (named.length === 0) return []
+
+  const total = named.reduce((sum, p) => sum + p.weight_pct, 0)
+  const exact = named.map(p =>
+    total > 0 ? (p.weight_pct / total) * 100 : 100 / named.length
+  )
+  const rounded = exact.map(Math.floor)
+  let remaining = 100 - rounded.reduce((a, b) => a + b, 0)
+  const order = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder)
+  for (let i = 0; remaining > 0; i++, remaining--) {
+    rounded[order[i % order.length]!.index]! += 1
+  }
+
+  return named.map((p, i) => ({ ...p, weight_pct: rounded[i]! }))
 }
 
-function validate(payload: PreferencesFullPayload) {
-  const totalWeight = payload.pillars.reduce(
-    (acc, p) => acc + (Number(p.weight_pct) || 0),
-    0
-  )
-  if (payload.pillars.length > 0 && totalWeight !== 100) {
+function validate(payload: PreferencesPayload) {
+  const ideas = Number(payload.ideasPerRun)
+  if (!Number.isInteger(ideas) || ideas < MIN_IDEAS_PER_RUN || ideas > MAX_IDEAS_PER_RUN) {
     throw new Error(
-      `Content pillar weights must sum to exactly 100%. Current sum: ${totalWeight}%`
+      `Ideas per run must be between ${MIN_IDEAS_PER_RUN} and ${MAX_IDEAS_PER_RUN}.`
     )
-  }
-
-  const research = payload.research_policy
-  if (research.domain_mode === 'allowed' && research.blocked_domains?.length) {
-    throw new Error(
-      'Cannot specify both allowed and blocked domains. Choose one domain policy.'
-    )
-  }
-  if (research.domain_mode === 'blocked' && research.allowed_domains?.length) {
-    throw new Error(
-      'Cannot specify both allowed and blocked domains. Choose one domain policy.'
-    )
-  }
-
-  const c = payload.post_constraints
-  if (c.max_chars > LINKEDIN_MAX_CHARS) {
-    throw new Error(
-      `LinkedIn caps a post at ${LINKEDIN_MAX_CHARS} characters. Lower the maximum length.`
-    )
-  }
-  if (c.target_chars > c.max_chars) {
-    throw new Error(
-      'Target length cannot exceed the maximum length for a post.'
-    )
-  }
-  if (c.hook_max_chars > c.target_chars) {
-    throw new Error('The hook cannot be longer than the whole post.')
   }
 }
 
 export async function savePreferences(
   accountId: string,
-  payload: PreferencesFullPayload
+  payload: PreferencesPayload
 ) {
   validate(payload)
 
   const columns = {
-    postsPerWeek: payload.cadence.frequency || 3,
-    pillars: payload.pillars,
-    formats: payload.formats,
-    cadence: payload.cadence,
-    researchPolicy: {
-      ...payload.research_policy,
-      // Only one list is ever meaningful; persisting both re-creates the conflict.
-      allowed_domains:
-        payload.research_policy.domain_mode === 'allowed'
-          ? payload.research_policy.allowed_domains || []
-          : [],
-      blocked_domains:
-        payload.research_policy.domain_mode === 'blocked'
-          ? payload.research_policy.blocked_domains || []
-          : []
+    pillars: normalizePillarWeights(payload.pillars),
+    ideasPerRun: Number(payload.ideasPerRun),
+    postConstraints: {
+      link_placement: payload.post_constraints.link_placement,
+      cta_required: Boolean(payload.post_constraints.cta_required)
     },
-    mediaPolicy: {
-      ...payload.media_policy,
-      default_mode: normalizeMediaMode(payload.media_policy.default_mode)
+    guardrails: {
+      banned_topics: payload.guardrails.banned_topics,
+      compliance_notes: payload.guardrails.compliance_notes.trim()
     },
-    postConstraints: payload.post_constraints,
-    guardrails: payload.guardrails,
     updatedAt: new Date()
   }
 

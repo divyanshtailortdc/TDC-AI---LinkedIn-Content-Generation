@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/db'
-import { accountsTable, goalsTable, audiencesTable, knowledgeDocumentsTable } from '@/db/schema'
+import { accountsTable, goalsTable } from '@/db/schema'
 import { eq, desc } from 'drizzle-orm'
 import { GoalsClient } from './goals-client'
 import { AccountHeader } from '@/components/account-header'
@@ -20,25 +20,11 @@ export default async function GoalsPage({ params }: PageProps) {
     notFound()
   }
 
-  const [goals, audiences, knowledgeDocs] = await Promise.all([
-    db
-      .select()
-      .from(goalsTable)
-      .where(eq(goalsTable.accountId, id))
-      .orderBy(desc(goalsTable.createdAt)),
-    db
-      .select()
-      .from(audiencesTable)
-      .where(eq(audiencesTable.accountId, id)),
-    db
-      .select({
-        id: knowledgeDocumentsTable.id,
-        title: knowledgeDocumentsTable.title,
-        sourceType: knowledgeDocumentsTable.sourceType,
-      })
-      .from(knowledgeDocumentsTable)
-      .where(eq(knowledgeDocumentsTable.accountId, id)),
-  ])
+  const goals = await db
+    .select()
+    .from(goalsTable)
+    .where(eq(goalsTable.accountId, id))
+    .orderBy(desc(goalsTable.createdAt))
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -47,10 +33,7 @@ export default async function GoalsPage({ params }: PageProps) {
         <div className="max-w-7xl mx-auto">
           <GoalsClient
             accountId={account.id}
-            accountName={account.name}
             initialGoals={goals}
-            audiences={audiences.map((a) => ({ id: a.id, name: a.name }))}
-            proofAssets={knowledgeDocs}
           />
         </div>
       </div>

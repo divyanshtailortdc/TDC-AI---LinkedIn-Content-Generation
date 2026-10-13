@@ -4,6 +4,7 @@ import { accountsTable, preferencesTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { PreferencesForm } from './preferences-form'
 import { AccountHeader } from '@/components/account-header'
+import { resolvePreferences } from '@/lib/ai/context'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -25,6 +26,9 @@ export default async function PreferencesPage({ params }: PageProps) {
     .from(preferencesTable)
     .where(eq(preferencesTable.accountId, id))
 
+  // The same resolution the pipeline uses, so the form shows what runs will see.
+  const prefs = resolvePreferences(existingPreferences)
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <AccountHeader account={account} />
@@ -32,8 +36,15 @@ export default async function PreferencesPage({ params }: PageProps) {
         <div className="max-w-7xl mx-auto">
           <PreferencesForm
             accountId={account.id}
-            accountName={account.name}
-            existingPreferences={existingPreferences || null}
+            initial={{
+              pillars: prefs.pillars,
+              ideasPerRun: prefs.ideasPerRun,
+              post_constraints: {
+                link_placement: prefs.constraints.link_placement,
+                cta_required: prefs.constraints.cta_required
+              },
+              guardrails: prefs.guardrails
+            }}
           />
         </div>
       </div>

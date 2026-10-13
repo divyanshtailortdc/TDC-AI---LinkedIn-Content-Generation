@@ -29,6 +29,20 @@
       "when": 1789621961849,
       "tag": "0003_document_chunks_embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791890358961,
+      "tag": "0004_preferences_ideas_per_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791891318372,
+      "tag": "0005_merge_preference_banned_words_into_voice",
+      "breakpoints": true
     }
   ]
 }

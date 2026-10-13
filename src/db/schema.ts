@@ -264,88 +264,39 @@ export const goalsTable = pgTable('goals', {
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  description: text('description'),
   objective: varchar('objective', { length: 30 })
     .default('thought_leadership')
     .notNull(),
-  audienceId: uuid('audience_id').references(() => audiencesTable.id, {
-    onDelete: 'set null'
-  }),
   // The single thing every post under this goal has to land.
   keyMessage: text('key_message'),
-  proofAssetIds: jsonb('proof_asset_ids').$type<string[]>().default([]),
   desiredAction: text('desired_action'),
   targetUrl: text('target_url'),
-  linkStrategy: varchar('link_strategy', { length: 20 })
-    .default('first_comment')
-    .notNull(),
-  successMetric: text('success_metric'),
-  // Multiple active goals otherwise compete invisibly; weights turn them into a calendar.
-  weight: integer('weight').default(5).notNull(),
-  startDate: commonFieldDefs.date('start_date'),
-  endDate: commonFieldDefs.date('end_date'),
-  dos: jsonb('dos').$type<string[]>().default([]),
-  donts: jsonb('donts').$type<string[]>().default([]),
-  targetCount: integer('target_count').default(5).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
 })
 
 // ---------------------------------------------------------------------------
-// 8. Preferences (1:1 with Account) — cadence and content pillars
+// 8. Preferences (1:1 with Account) — what to write about and how
 // ---------------------------------------------------------------------------
 
 export type ContentPillar = {
   name: string
-  description?: string
   weight_pct: number
   example_topics?: string[]
-  preferred_formats?: string[]
 }
 
-export type CadencePolicy = {
-  frequency: number
-  days_of_week: string[]
-  time_of_day: string
-  posts_per_run: number
-  ideas_per_run: number
-}
-
-export type ResearchPolicy = {
-  use_knowledge_base: boolean
-  source_ids?: string[]
-  use_web_search: boolean
-  provider: string
-  domain_mode: 'none' | 'allowed' | 'blocked'
-  allowed_domains?: string[]
-  blocked_domains?: string[]
-  freshness_days: number
-  max_searches_per_run: number
-  require_citations: boolean
-  min_citations_per_post: number
-}
-
-export type MediaPolicy = {
-  default_mode: 'ai_generated' | 'stock' | 'none'
-  image_style_prompt: string
-  aspect_ratio: '1:1' | '16:9' | '4:5'
-  always_include_alt_text: boolean
-}
-
+/**
+ * Only choices that Voice does not already cover. Emoji, hashtags and banned
+ * words come from the voice config; post length, research and image defaults
+ * are fixed in `src/lib/ai/context.ts`.
+ */
 export type PostConstraints = {
-  max_chars: number
-  target_chars: number
-  hook_max_chars: number
-  hashtag_count: number
-  emoji_level: 'none' | 'bullets_only' | 'liberal'
   link_placement: 'body' | 'first_comment'
   cta_required: boolean
-  variants_per_post: number
 }
 
 export type Guardrails = {
   banned_topics: string[]
-  banned_words: string[]
   compliance_notes: string
 }
 
@@ -355,14 +306,8 @@ export const preferencesTable = pgTable('preferences', {
     .notNull()
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  postsPerWeek: integer('posts_per_week').default(3).notNull(),
   pillars: jsonb('pillars').$type<ContentPillar[]>().default([]),
-  formats: jsonb('formats')
-    .$type<Array<{ format: string; weight: number }>>()
-    .default([]),
-  cadence: jsonb('cadence').$type<CadencePolicy | null>(),
-  researchPolicy: jsonb('research_policy').$type<ResearchPolicy | null>(),
-  mediaPolicy: jsonb('media_policy').$type<MediaPolicy | null>(),
+  ideasPerRun: integer('ideas_per_run').default(5).notNull(),
   postConstraints: jsonb('post_constraints').$type<PostConstraints | null>(),
   guardrails: jsonb('guardrails').$type<Guardrails | null>(),
   ...commonFieldDefs.dates
@@ -630,7 +575,7 @@ export const postMediaTable = pgTable('post_media', {
 })
 
 // ---------------------------------------------------------------------------
-// 15. Schedules (1:1 with Account) — automated overnight cadence
+// 15. Schedules (1:1 with Account) — when automatic runs fire
 // ---------------------------------------------------------------------------
 
 export const schedulesTable = pgTable('schedules', {
@@ -638,17 +583,10 @@ export const schedulesTable = pgTable('schedules', {
   accountId: uuid('account_id')
     .notNull()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  preferenceId: uuid('preference_id').references(() => preferencesTable.id, {
-    onDelete: 'set null'
-  }),
-  frequency: varchar('frequency', { length: 20 }).default('weekly').notNull(),
   daysOfWeek: jsonb('days_of_week').$type<number[]>().default([1, 3, 5]),
   timeOfDay: varchar('time_of_day', { length: 10 }).default('09:00').notNull(),
-  postsPerRun: integer('posts_per_run').default(1).notNull(),
-  ideasPerRun: integer('ideas_per_run').default(3).notNull(),
   enabled: boolean('enabled').default(false).notNull(),
   lastRunAt: commonFieldDefs.date('last_run_at'),
-  nextRunAt: commonFieldDefs.date('next_run_at'),
   ...commonFieldDefs.dates
 })
 

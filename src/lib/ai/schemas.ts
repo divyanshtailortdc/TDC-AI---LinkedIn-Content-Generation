@@ -475,7 +475,7 @@ export const DraftGenerationSchema = z.object({
   hashtags: z
     .array(z.string())
     .default([])
-    .describe('0-4 clean hashtags without the # symbol or formatted like #Topic'),
+    .describe('Clean hashtags without the # symbol, as many as the constraints specify'),
   alternateHooks: z
     .array(z.string())
     .min(2)

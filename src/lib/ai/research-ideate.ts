@@ -57,22 +57,6 @@ function freshnessToTbs(days: number): string | undefined {
   return undefined
 }
 
-/** Applies the account's domain policy as search operators. */
-function applyDomainPolicy(
-  query: string,
-  policy: GenerationContext['prefs']['research']
-): string {
-  if (policy.domain_mode === 'allowed' && policy.allowed_domains?.length) {
-    const sites = policy.allowed_domains.map(d => `site:${d}`).join(' OR ')
-    return `${query} (${sites})`
-  }
-  if (policy.domain_mode === 'blocked' && policy.blocked_domains?.length) {
-    const excluded = policy.blocked_domains.map(d => `-site:${d}`).join(' ')
-    return `${query} ${excluded}`
-  }
-  return query
-}
-
 /**
  * Search queries come from what the account is actually trying to say, not a
  * fixed template. Previously every run searched
@@ -116,7 +100,6 @@ async function runWebSearch(
 ): Promise<Finding[]> {
   const policy = ctx.prefs.research
   if (!policy.use_web_search) return []
-  if (policy.provider !== 'serper') return []
   if (!env.SERPER_API_KEY) return []
 
   const maxSearches = Math.max(1, Math.min(policy.max_searches_per_run || 3, 8))
@@ -124,8 +107,7 @@ async function runWebSearch(
   const tbs = freshnessToTbs(policy.freshness_days)
   const findings: Finding[] = []
 
-  for (const query of queries) {
-    const finalQuery = applyDomainPolicy(query, policy)
+  for (const finalQuery of queries) {
     onQuery(finalQuery)
     try {
       const res = await fetch('https://google.serper.dev/search', {
@@ -165,14 +147,9 @@ async function runWebSearch(
   })
 }
 
-/** Knowledge documents this run may draw on, per the research policy. */
+/** Knowledge documents this run may draw on: all of the account's. */
 function selectKnowledgeDocs(ctx: GenerationContext) {
-  const policy = ctx.prefs.research
-  if (!policy.use_knowledge_base) return []
-  const allowed = policy.source_ids || []
-  return allowed.length > 0
-    ? ctx.knowledgeDocs.filter(d => allowed.includes(d.id))
-    : ctx.knowledgeDocs
+  return ctx.knowledgeDocs
 }
 
 function buildGroundingCorpus(
@@ -294,13 +271,6 @@ export async function executeResearchAndIdeate(
 
   // The run froze its research config at enqueue time so the run stays
   // explainable weeks later, even after preferences change.
-  const snapshot = run.researchConfig as Partial<
-    GenerationContext['prefs']['research']
-  > | null
-  if (snapshot && Object.keys(snapshot).length > 0) {
-    ctx.prefs.research = { ...ctx.prefs.research, ...snapshot }
-  }
-
   let ideationUsage: CallUsage = EMPTY_USAGE
 
   // ---------------------------------------------------------------- context
@@ -319,7 +289,7 @@ export async function executeResearchAndIdeate(
 
   const targetIdeas = Math.max(
     3,
-    Math.min(ctx.prefs.cadence.ideas_per_run || 5, 12)
+    Math.min(ctx.prefs.ideasPerRun || 5, 12)
   )
 
   if (contextStep) {
@@ -461,7 +431,7 @@ export async function executeResearchAndIdeate(
       ? ctx.prefs.pillars
           .map(
             p =>
-              `- ${p.name} (${p.weight_pct}% of output)${p.description ? `: ${p.description}` : ''}${
+              `- ${p.name} (${p.weight_pct}% of output)${
                 (p.example_topics || []).length > 0
                   ? `\n    Example topics: ${(p.example_topics || []).join(', ')}`
                   : ''
@@ -469,11 +439,6 @@ export async function executeResearchAndIdeate(
           )
           .join('\n')
       : 'No pillars configured — infer sensible themes from the identity and goal.'
-
-  const formatBrief =
-    ctx.prefs.formats.length > 0
-      ? ctx.prefs.formats.map(f => `${f.format} (${f.weight}%)`).join(', ')
-      : 'no format preference set'
 
   const guardrails = renderGuardrailsBlock(ctx)
   const recentHooks = recentDrafts
@@ -489,7 +454,7 @@ WHO YOU ARE WRITING FOR
 ${renderIdentityBlock(ctx)}
 
 WHO IS READING
-${renderAudienceBlock(ctx, ctx.primaryGoal)}
+${renderAudienceBlock(ctx)}
 
 THE GOAL THIS RUN SERVES
 ${renderGoalBlock(ctx.primaryGoal)}
@@ -499,8 +464,6 @@ ${renderVoiceBlock(ctx)}
 
 CONTENT PILLARS
 ${pillarBrief}
-
-PREFERRED FORMATS: ${formatBrief}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 RULES THAT OVERRIDE EVERYTHING ELSE
@@ -622,10 +585,10 @@ For each idea provide:
       coreArgument: idea.coreArgument,
       audienceTakeaway: idea.audienceTakeaway,
       supportingEvidence: idea.supportingEvidence,
-      // The media mode comes from the account's policy; the human can override
-      // it per idea at the approval gate.
+      // No image by default; one can be added per post on the review screen.
+      // The brief is kept so that image starts from the idea's direction.
       suggestedMedia: {
-        mode: ctx.prefs.media.default_mode,
+        mode: 'none',
         brief: idea.suggestedMedia?.brief
       },
       noveltyNote: idea.noveltyNote,

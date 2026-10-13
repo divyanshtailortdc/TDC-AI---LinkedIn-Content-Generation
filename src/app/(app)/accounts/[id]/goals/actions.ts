@@ -5,9 +5,9 @@ import { goalsTable } from '@/db/schema'
 import { and, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
+/** Only what a user needs to steer a run: what to achieve and what to land. */
 export type GoalPayload = {
   title: string
-  description?: string
   objectiveType:
     | 'awareness'
     | 'engagement'
@@ -15,48 +15,19 @@ export type GoalPayload = {
     | 'lead_gen'
     | 'recruiting'
     | 'community'
-  audienceId?: string
   keyMessage: string // The one key message to land
-  proofAssetIds: string[]
-  desiredAction: string
+  desiredAction?: string
   targetUrl?: string
-  linkStrategy: 'body' | 'first_comment'
-  successMetric?: string
-  weight: number
-  startDate?: string
-  endDate?: string
-  active: boolean
-  dos: string[]
-  donts: string[]
-  targetCount: number
 }
 
-function toDate(value?: string) {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-/** Maps the form payload onto the goals table's real columns. */
+/** Maps the form payload onto the goals table's columns. */
 function toGoalColumns(payload: GoalPayload) {
   return {
     title: payload.title.trim(),
-    description: payload.description?.trim() || null,
     objective: payload.objectiveType,
-    audienceId: payload.audienceId || null,
     keyMessage: payload.keyMessage.trim(),
-    proofAssetIds: payload.proofAssetIds || [],
     desiredAction: payload.desiredAction?.trim() || null,
-    targetUrl: payload.targetUrl?.trim() || null,
-    linkStrategy: payload.linkStrategy,
-    successMetric: payload.successMetric?.trim() || null,
-    weight: Number(payload.weight) || 5,
-    startDate: toDate(payload.startDate),
-    endDate: toDate(payload.endDate),
-    dos: payload.dos || [],
-    donts: payload.donts || [],
-    targetCount: payload.targetCount || 5,
-    isActive: payload.active !== false
+    targetUrl: payload.targetUrl?.trim() || null
   }
 }
 
@@ -68,13 +39,6 @@ function validate(payload: GoalPayload) {
     throw new Error(
       'The key message to land is required. The agent must know what to prove.'
     )
-  }
-  if (payload.startDate && payload.endDate) {
-    const start = toDate(payload.startDate)
-    const end = toDate(payload.endDate)
-    if (start && end && end < start) {
-      throw new Error('The end date cannot be before the start date.')
-    }
   }
 }
 
@@ -90,7 +54,8 @@ export async function createGoal(accountId: string, payload: GoalPayload) {
 
   await db.insert(goalsTable).values({
     accountId,
-    ...toGoalColumns(payload)
+    ...toGoalColumns(payload),
+    isActive: true
   })
 
   revalidateGoals(accountId)
