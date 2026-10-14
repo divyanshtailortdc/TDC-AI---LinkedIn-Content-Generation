@@ -28,6 +28,7 @@ type RawGoal = {
   keyMessage: string | null
   desiredAction: string | null
   targetUrl: string | null
+  linkStrategy: string
   isActive: boolean
   createdAt: Date | string
 }
@@ -61,11 +62,16 @@ export function GoalsClient({
   const [keyMessage, setKeyMessage] = useState('')
   const [desiredAction, setDesiredAction] = useState('')
   const [targetUrl, setTargetUrl] = useState('')
+  const [linkStrategy, setLinkStrategy] =
+    useState<GoalPayload['linkStrategy']>('first_comment')
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
+  // The goal being edited is already on screen in the form; listing it again
+  // below would show it twice. Update and Cancel clear this, restoring the list.
+  const isEditing = editingGoalId !== null
 
   const resetForm = () => {
     setTitle('')
@@ -73,6 +79,7 @@ export function GoalsClient({
     setKeyMessage('')
     setDesiredAction('')
     setTargetUrl('')
+    setLinkStrategy('first_comment')
     setEditingGoalId(null)
   }
 
@@ -97,7 +104,8 @@ export function GoalsClient({
       objectiveType,
       keyMessage,
       desiredAction,
-      targetUrl
+      targetUrl,
+      linkStrategy
     }
 
     try {
@@ -188,6 +196,9 @@ export function GoalsClient({
     keyMessage: g.keyMessage || '',
     desiredAction: g.desiredAction || '',
     targetUrl: g.targetUrl || '',
+    linkStrategy: (g.linkStrategy === 'body'
+      ? 'body'
+      : 'first_comment') as GoalPayload['linkStrategy'],
     isActive: g.isActive
   }))
 
@@ -201,6 +212,7 @@ export function GoalsClient({
     setKeyMessage(goal.keyMessage)
     setDesiredAction(goal.desiredAction)
     setTargetUrl(goal.targetUrl)
+    setLinkStrategy(goal.linkStrategy)
     setEditingGoalId(goal.id)
     setShowNewGoal(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -347,9 +359,28 @@ export function GoalsClient({
                 placeholder="https://example.com/page"
                 className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
               />
-              <p className="text-muted mt-1 text-[11px]">
-                Placed in the post or first comment according to Preferences.
-              </p>
+              {/* The placement only matters once there is a link to place. */}
+              {targetUrl.trim() && (
+                <div className="mt-3">
+                  <label className="text-foreground mb-1 block text-xs font-medium">
+                    Links Go In
+                  </label>
+                  <select
+                    value={linkStrategy}
+                    onChange={e =>
+                      setLinkStrategy(
+                        e.target.value as GoalPayload['linkStrategy']
+                      )
+                    }
+                    className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
+                  >
+                    <option value="first_comment">
+                      First comment (better reach)
+                    </option>
+                    <option value="body">Post body</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -374,117 +405,125 @@ export function GoalsClient({
         </form>
       )}
 
-      {/* Goals List */}
-      <div className="space-y-4">
-        <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-          <Target className="text-accent h-4 w-4" />
-          Your Goals ({parsedGoals.length})
-        </h2>
+      {/* Goals List — hidden while editing */}
+      {!isEditing && (
+        <div className="space-y-4">
+          <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+            <Target className="text-accent h-4 w-4" />
+            Your Goals ({parsedGoals.length})
+          </h2>
 
-        {parsedGoals.length === 0 ? (
-          <div className="border-border bg-surface rounded-xl border border-dashed py-12 text-center">
-            <p className="text-foreground text-sm font-medium">
-              No goals defined yet
-            </p>
-            <p className="text-muted mt-1 text-xs">
-              Create your first goal above to direct what the AI writes to
-              achieve.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {parsedGoals.map(g => {
-              return (
-                <div
-                  key={g.id}
-                  className={`space-y-4 rounded-xl border p-5 transition-colors ${
-                    g.isActive
-                      ? 'border-border bg-surface'
-                      : 'border-border bg-surface/50 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className="bg-accent/10 text-accent rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase">
-                          {g.objectiveType.replace(/_/g, ' ')}
-                        </span>
-                        <h3 className="text-foreground text-base font-semibold">
-                          {g.displayTitle}
-                        </h3>
+          {parsedGoals.length === 0 ? (
+            <div className="border-border bg-surface rounded-xl border border-dashed py-12 text-center">
+              <p className="text-foreground text-sm font-medium">
+                No goals defined yet
+              </p>
+              <p className="text-muted mt-1 text-xs">
+                Create your first goal above to direct what the AI writes to
+                achieve.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {parsedGoals.map(g => {
+                return (
+                  <div
+                    key={g.id}
+                    className={`space-y-4 rounded-xl border p-5 transition-colors ${
+                      g.isActive
+                        ? 'border-border bg-surface'
+                        : 'border-border bg-surface/50 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <span className="bg-accent/10 text-accent rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase">
+                            {g.objectiveType.replace(/_/g, ' ')}
+                          </span>
+                          <h3 className="text-foreground text-base font-semibold">
+                            {g.displayTitle}
+                          </h3>
+                        </div>
+
+                        {/* Key Message Box */}
+                        {g.keyMessage && (
+                          <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
+                            <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
+                              Key Message To Land:
+                            </span>
+                            <p className="text-foreground leading-relaxed font-medium">
+                              &quot;{g.keyMessage}&quot;
+                            </p>
+                          </div>
+                        )}
+
+                        {(g.desiredAction || g.targetUrl) && (
+                          <div className="text-muted mt-3 flex flex-wrap items-center gap-4 text-xs">
+                            {g.desiredAction && (
+                              <span className="flex items-center gap-1">
+                                <MessageSquare className="text-accent h-3.5 w-3.5" />
+                                CTA: {g.desiredAction}
+                              </span>
+                            )}
+                            {g.targetUrl && (
+                              <span className="flex min-w-0 items-center gap-1">
+                                <LinkIcon className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{g.targetUrl}</span>
+                                <span className="shrink-0">
+                                  ·{' '}
+                                  {g.linkStrategy === 'body'
+                                    ? 'in post body'
+                                    : 'in first comment'}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
-                      {/* Key Message Box */}
-                      {g.keyMessage && (
-                        <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
-                          <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
-                            Key Message To Land:
-                          </span>
-                          <p className="text-foreground leading-relaxed font-medium">
-                            &quot;{g.keyMessage}&quot;
-                          </p>
-                        </div>
-                      )}
+                      <div className="flex shrink-0 items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleToggle(g.id, g.isActive)}
+                          disabled={actionId === g.id}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            g.isActive
+                              ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                              : 'bg-surface-hover text-muted'
+                          }`}
+                        >
+                          {g.isActive ? 'Active' : 'Paused'}
+                        </button>
 
-                      {(g.desiredAction || g.targetUrl) && (
-                        <div className="text-muted mt-3 flex flex-wrap items-center gap-4 text-xs">
-                          {g.desiredAction && (
-                            <span className="flex items-center gap-1">
-                              <MessageSquare className="text-accent h-3.5 w-3.5" />
-                              CTA: {g.desiredAction}
-                            </span>
-                          )}
-                          {g.targetUrl && (
-                            <span className="flex min-w-0 items-center gap-1">
-                              <LinkIcon className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">{g.targetUrl}</span>
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(g)}
+                          disabled={actionId === g.id}
+                          className="text-muted hover:text-accent p-1 transition-colors"
+                          title="Edit goal"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
 
-                    <div className="flex shrink-0 items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => handleToggle(g.id, g.isActive)}
-                        disabled={actionId === g.id}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                          g.isActive
-                            ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
-                            : 'bg-surface-hover text-muted'
-                        }`}
-                      >
-                        {g.isActive ? 'Active' : 'Paused'}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(g)}
-                        disabled={actionId === g.id}
-                        className="text-muted hover:text-accent p-1 transition-colors"
-                        title="Edit goal"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(g.id)}
-                        disabled={actionId === g.id}
-                        className="text-muted p-1 transition-colors hover:text-rose-500"
-                        title="Delete goal"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(g.id)}
+                          disabled={actionId === g.id}
+                          className="text-muted p-1 transition-colors hover:text-rose-500"
+                          title="Delete goal"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

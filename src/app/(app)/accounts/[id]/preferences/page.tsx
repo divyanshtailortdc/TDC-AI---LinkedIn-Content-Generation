@@ -40,7 +40,6 @@ export default async function PreferencesPage({ params }: PageProps) {
               pillars: prefs.pillars,
               ideasPerRun: prefs.ideasPerRun,
               post_constraints: {
-                link_placement: prefs.constraints.link_placement,
                 cta_required: prefs.constraints.cta_required
               },
               guardrails: prefs.guardrails

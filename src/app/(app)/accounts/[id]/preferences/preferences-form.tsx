@@ -93,7 +93,9 @@ export function PreferencesForm({
   )
   const shareOf = (pillar: PillarConfig) =>
     totalWeight > 0
-      ? Math.round((Math.max(0, Number(pillar.weight_pct) || 0) / totalWeight) * 100)
+      ? Math.round(
+          (Math.max(0, Number(pillar.weight_pct) || 0) / totalWeight) * 100
+        )
       : Math.round(100 / pillars.length)
 
   const addPillar = () => {
@@ -148,19 +150,26 @@ export function PreferencesForm({
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="from-surface to-surface-hover border-border relative overflow-hidden rounded-2xl border bg-linear-to p-8 shadow-xs">
+      <div className="from-surface to-surface-hover border-border bg-linear-to relative overflow-hidden rounded-2xl border p-8 shadow-xs">
         <div className="relative z-10">
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
             Preferences
           </h1>
           <p className="text-muted mt-2 max-w-2xl text-sm">
-            What to post about and how many ideas you get. Tone, emoji,
-            hashtags and words to avoid are set in{' '}
+            What to post about and how many ideas you get. Tone, emoji, hashtags
+            and words to avoid are set in{' '}
             <Link
               href={`/accounts/${accountId}/voice`}
               className="text-accent hover:underline"
             >
               Voice
+            </Link>
+            ; links, and where they go, on each{' '}
+            <Link
+              href={`/accounts/${accountId}/goals`}
+              className="text-accent hover:underline"
+            >
+              Goal
             </Link>
             .
           </p>
@@ -220,7 +229,9 @@ export function PreferencesForm({
                       max={100}
                       value={pillar.weight_pct}
                       onChange={e =>
-                        updatePillar(idx, { weight_pct: Number(e.target.value) })
+                        updatePillar(idx, {
+                          weight_pct: Number(e.target.value)
+                        })
                       }
                       className="border-border bg-surface text-foreground w-16 rounded-md border px-2 py-1.5 text-center font-mono text-sm"
                     />
@@ -242,7 +253,9 @@ export function PreferencesForm({
                   value={topicsInputs[idx] || ''}
                   onChange={e =>
                     setTopicsInputs(
-                      topicsInputs.map((t, i) => (i === idx ? e.target.value : t))
+                      topicsInputs.map((t, i) =>
+                        i === idx ? e.target.value : t
+                      )
                     )
                   }
                   placeholder="Example topics, comma-separated (optional)"
@@ -258,9 +271,9 @@ export function PreferencesForm({
       <Section
         icon={FileText}
         title="Posts"
-        description="How many ideas each run suggests, and how posts handle links and endings."
+        description="How many ideas each run suggests, and how posts end."
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="text-foreground mb-1 block text-xs font-medium">
               Ideas per Run
@@ -280,32 +293,15 @@ export function PreferencesForm({
             </select>
           </div>
 
-          <div>
-            <label className="text-foreground mb-1 block text-xs font-medium">
-              Links Go In
-            </label>
-            <select
-              value={constraints.link_placement}
-              onChange={e =>
-                setConstraints({
-                  ...constraints,
-                  link_placement: e.target
-                    .value as PreferencesPayload['post_constraints']['link_placement']
-                })
-              }
-              className={inputClass}
-            >
-              <option value="first_comment">First comment (better reach)</option>
-              <option value="body">Post body</option>
-            </select>
-          </div>
-
           <label className="border-border bg-surface-hover mt-5 flex cursor-pointer items-center gap-3 rounded-lg border p-3">
             <input
               type="checkbox"
               checked={constraints.cta_required}
               onChange={e =>
-                setConstraints({ ...constraints, cta_required: e.target.checked })
+                setConstraints({
+                  ...constraints,
+                  cta_required: e.target.checked
+                })
               }
               className="accent-accent"
             />

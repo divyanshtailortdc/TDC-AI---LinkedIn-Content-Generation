@@ -18,6 +18,8 @@ export type GoalPayload = {
   keyMessage: string // The one key message to land
   desiredAction?: string
   targetUrl?: string
+  /** Where targetUrl goes; only meaningful when there is a link. */
+  linkStrategy: 'body' | 'first_comment'
 }
 
 /** Maps the form payload onto the goals table's columns. */
@@ -27,7 +29,10 @@ function toGoalColumns(payload: GoalPayload) {
     objective: payload.objectiveType,
     keyMessage: payload.keyMessage.trim(),
     desiredAction: payload.desiredAction?.trim() || null,
-    targetUrl: payload.targetUrl?.trim() || null
+    targetUrl: payload.targetUrl?.trim() || null,
+    linkStrategy: (payload.linkStrategy === 'body'
+      ? 'body'
+      : 'first_comment') as GoalPayload['linkStrategy']
   }
 }
 

@@ -271,6 +271,11 @@ export const goalsTable = pgTable('goals', {
   keyMessage: text('key_message'),
   desiredAction: text('desired_action'),
   targetUrl: text('target_url'),
+  // Where targetUrl (and any other link) goes: the first comment protects reach.
+  linkStrategy: varchar('link_strategy', { length: 20 })
+    .$type<'body' | 'first_comment'>()
+    .default('first_comment')
+    .notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
 })
@@ -286,12 +291,12 @@ export type ContentPillar = {
 }
 
 /**
- * Only choices that Voice does not already cover. Emoji, hashtags and banned
- * words come from the voice config; post length, research and image defaults
- * are fixed in `src/lib/ai/context.ts`.
+ * Only choices that Voice and Goals do not already cover. Emoji, hashtags and
+ * banned words come from the voice config, link placement from the goal next
+ * to its link; post length, research and image defaults are fixed in
+ * `src/lib/ai/context.ts`.
  */
 export type PostConstraints = {
-  link_placement: 'body' | 'first_comment'
   cta_required: boolean
 }
 

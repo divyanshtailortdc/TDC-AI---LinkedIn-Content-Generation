@@ -12,7 +12,10 @@ import { revalidatePath } from 'next/cache'
 
 export type PillarConfig = ContentPillar
 
-/** Emoji, hashtags and banned words live in Voice; nothing here repeats them. */
+/**
+ * Emoji, hashtags and banned words live in Voice, and link placement on each
+ * goal beside its link; nothing here repeats them.
+ */
 export type PreferencesPayload = {
   pillars: PillarConfig[]
   ideasPerRun: number
@@ -75,7 +78,6 @@ export async function savePreferences(
     pillars: normalizePillarWeights(payload.pillars),
     ideasPerRun: Number(payload.ideasPerRun),
     postConstraints: {
-      link_placement: payload.post_constraints.link_placement,
       cta_required: Boolean(payload.post_constraints.cta_required)
     },
     guardrails: {

@@ -25,6 +25,7 @@ import {
   loadGenerationContext,
   renderAudienceBlock,
   renderConstraintsBlock,
+  resolveLinkPlacement,
   renderGoalBlock,
   renderGuardrailsBlock,
   renderIdentityBlock,
@@ -76,7 +77,8 @@ export async function executeDraftingForIdea(
 
   const constraints = ctx.prefs.constraints
   const goal = ctx.primaryGoal
-  const linkPlacement = constraints.link_placement
+  const linkPlacement = resolveLinkPlacement(goal)
+  const goalLink = goal?.targetUrl || null
 
   const draftStart = Date.now()
   const [draftStep] = runId
@@ -166,11 +168,15 @@ ${
 
 Produce:
 1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold
-2. body — plain text, about ${constraints.target_chars} characters total including the hook
+2. body — plain text, about ${constraints.target_chars} characters total including the hook${
+    goalLink && linkPlacement === 'body'
+      ? `; include this link once, near the call to action: ${goalLink}`
+      : ''
+  }
 3. cta — ${constraints.cta_required ? 'required' : 'optional'}${goal?.desiredAction ? `; steer toward: ${goal.desiredAction}` : ''}
 4. firstComment — ${
     linkPlacement === 'first_comment'
-      ? `place any link here${goal?.targetUrl ? ` (use ${goal.targetUrl})` : ''}`
+      ? `place any link here${goalLink ? ` (use ${goalLink})` : ''}`
       : 'optional supporting note'
   }
 5. hashtags — ${describeHashtags(constraints)}, without the # symbol

@@ -47,8 +47,17 @@ export const RESEARCH_SETTINGS = {
 }
 
 export const DEFAULT_POST_CONSTRAINTS: PostConstraints = {
-  link_placement: 'first_comment',
   cta_required: true
+}
+
+export type LinkPlacement = 'body' | 'first_comment'
+
+/**
+ * Link placement is set on the goal, beside the link it applies to. Without a
+ * goal, links go in the first comment, which protects reach.
+ */
+export function resolveLinkPlacement(goal: Goal | null | undefined): LinkPlacement {
+  return goal?.linkStrategy === 'body' ? 'body' : 'first_comment'
 }
 
 /** Limits LinkedIn imposes, plus the length and alternate hooks every draft gets. */
@@ -387,7 +396,7 @@ export function renderConstraintsBlock(ctx: GenerationContext): string {
     `Total length: aim for about ${c.target_chars} characters, hard maximum ${c.max_chars}.`,
     `Hashtags: ${describeHashtags(c)}.`,
     emoji,
-    c.link_placement === 'first_comment'
+    resolveLinkPlacement(ctx.primaryGoal) === 'first_comment'
       ? 'Any external link goes in firstComment, never in the body — LinkedIn suppresses reach on body links.'
       : 'External links may appear in the body.',
     c.cta_required
