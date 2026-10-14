@@ -27,11 +27,13 @@ import { SETUP_STEPS } from './steps'
 type StepSave = () => Promise<boolean> | boolean
 
 const StepSaveContext = createContext<{
-  setSave: (save: StepSave | null) => void
+  register: (save: StepSave) => () => void
 } | null>(null)
 
 /**
- * Lets a step's form take part in the header's Save & Next. The latest
+ * Lets a form take part in the header's Save & Next. A step can hold several
+ * forms (Preferences also holds the schedule); they are saved in the order
+ * they appear, and the step only advances if every one succeeds. The latest
  * `save` is always the one called, so it can read current form state.
  */
 export function useStepSave(save: StepSave) {
@@ -42,8 +44,7 @@ export function useStepSave(save: StepSave) {
   })
   useEffect(() => {
     if (!ctx) return
-    ctx.setSave(() => latest.current())
-    return () => ctx.setSave(null)
+    return ctx.register(() => latest.current())
   }, [ctx])
 }
 
@@ -180,17 +181,27 @@ export function SetupFrame({
   const step = SETUP_STEPS[stepIndex]!
   const isLast = stepIndex === SETUP_STEPS.length - 1
 
-  const saveRef = useRef<StepSave | null>(null)
-  const setSave = useCallback((save: StepSave | null) => {
-    saveRef.current = save
+  const saves = useRef(new Set<StepSave>())
+  const register = useCallback((save: StepSave) => {
+    saves.current.add(save)
+    return () => {
+      saves.current.delete(save)
+    }
   }, [])
-  const ctx = useMemo(() => ({ setSave }), [setSave])
+  const ctx = useMemo(() => ({ register }), [register])
   const [saving, setSaving] = useState(false)
 
   const saveAndNext = async () => {
     setSaving(true)
     try {
-      const ok = saveRef.current ? await saveRef.current() : true
+      let ok = true
+      // Sets keep insertion order, so forms save top to bottom.
+      for (const save of saves.current) {
+        if (!(await save())) {
+          ok = false
+          break
+        }
+      }
       if (ok && nextHref) router.push(nextHref)
     } finally {
       setSaving(false)

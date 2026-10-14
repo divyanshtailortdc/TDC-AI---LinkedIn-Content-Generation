@@ -209,7 +209,7 @@ export function PreferencesForm({
       <PrefillBanner
         section="preferences"
         prefill={prefill}
-        note="Ideas per run, the CTA setting and the Schedule tab are not changed."
+        note="Ideas per run, the CTA setting and your schedule are not changed."
       />
 
       {/* 1. Content pillars */}

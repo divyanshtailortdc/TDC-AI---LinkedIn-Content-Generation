@@ -1,9 +1,10 @@
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
-import { accountsTable, preferencesTable } from '@/db/schema'
+import { accountsTable, preferencesTable, schedulesTable } from '@/db/schema'
 import { resolvePreferences } from '@/lib/ai/context'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import { ScheduleForm } from '../schedule/schedule-form'
 import { PreferencesForm } from './preferences-form'
 
 type PageProps = {
@@ -21,10 +22,15 @@ export default async function PreferencesPage({ params }: PageProps) {
     notFound()
   }
 
-  const [existingPreferences] = await db
-    .select()
-    .from(preferencesTable)
-    .where(eq(preferencesTable.accountId, id))
+  const [[existingPreferences], schedule] = await Promise.all([
+    db
+      .select()
+      .from(preferencesTable)
+      .where(eq(preferencesTable.accountId, id)),
+    db.query.schedulesTable.findFirst({
+      where: eq(schedulesTable.accountId, id)
+    })
+  ])
 
   // The same resolution the pipeline uses, so the form shows what runs will see.
   const prefs = resolvePreferences(existingPreferences)
@@ -43,6 +49,10 @@ export default async function PreferencesPage({ params }: PageProps) {
           guardrails: prefs.guardrails
         }}
       />
+      {/* Optional, so it lives here rather than as a step of its own. */}
+      <div className="mt-8">
+        <ScheduleForm accountId={account.id} initialSchedule={schedule} />
+      </div>
     </SetupShell>
   )
 }

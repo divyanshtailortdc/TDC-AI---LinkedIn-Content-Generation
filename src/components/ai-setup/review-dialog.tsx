@@ -671,7 +671,7 @@ export function ReviewSuggestionsDialog({
       'Recommended for your stated brand, not learned from your posts. To match how you really write, paste 5–15 posts on the Voice tab and use Analyze my voice.',
     goals: `Applying creates a new goal${baseline?.goalTitles.length ? `; your ${baseline.goalTitles.length} existing goal${baseline.goalTitles.length === 1 ? ' is' : 's are'} not changed` : ''}.`,
     preferences:
-      'Emoji, hashtags and words to avoid are set in Voice. Ideas per run and the Schedule tab are not changed.',
+      'Emoji, hashtags and words to avoid are set in Voice. Ideas per run and your schedule are not changed.',
     knowledge:
       'Checked sources are added through the normal Knowledge pipeline. Facts below were checked against their source text.'
   }

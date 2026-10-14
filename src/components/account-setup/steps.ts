@@ -1,6 +1,5 @@
 import {
   BookOpen,
-  Calendar,
   Mic,
   Play,
   SlidersHorizontal,
@@ -61,17 +60,8 @@ export const SETUP_STEPS: SetupStep[] = [
     path: '/preferences',
     icon: SlidersHorizontal,
     title: 'Preferences',
-    description: 'What to post about and how many ideas you get.'
-  },
-  {
-    key: 'schedule',
-    label: 'Schedule',
-    path: '/schedule',
-    icon: Calendar,
-    title: 'Schedule',
     description:
-      'Optionally run on a schedule instead of starting runs by hand.',
-    optional: true
+      'What to post about, how many ideas you get, and an optional schedule.'
   },
   {
     key: 'runs',

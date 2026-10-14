@@ -1,7 +1,7 @@
 'use client'
 
 import { useStepSave } from '@/components/account-setup/setup-frame'
-import { CheckCircle2, Clock } from 'lucide-react'
+import { Calendar, CheckCircle2, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { saveSchedule } from './actions'
 
@@ -44,8 +44,24 @@ export function ScheduleForm({
     }
   }
 
-  // Runs from the header's Save & Next; false keeps the user on this step.
+  // Untouched settings are not saved, so visiting Preferences never creates a
+  // schedule the user did not ask for.
+  const initialKey = JSON.stringify({
+    enabled: initialSchedule?.enabled ?? false,
+    days: [...((initialSchedule?.daysOfWeek as number[]) || [1, 3, 5])].sort(),
+    time: initialSchedule?.timeOfDay || '09:00'
+  })
+  const isDirty =
+    JSON.stringify({
+      enabled,
+      days: [...selectedDays].sort(),
+      time: timeOfDay
+    }) !== initialKey
+
+  // Runs from the header's Save & Next (after Preferences); false keeps the
+  // user on this step.
   const save = async (): Promise<boolean> => {
+    if (!isDirty) return true
     setSavedSuccess(false)
     setError(null)
     const res = await saveSchedule(accountId, {
@@ -87,7 +103,25 @@ export function ScheduleForm({
       )}
 
       {/* Main Schedule Card */}
-      <div className="border-border bg-surface space-y-6 rounded-2xl border p-6 shadow-xs">
+      <div
+        id="schedule"
+        className="border-border bg-surface scroll-mt-4 space-y-6 rounded-2xl border p-6 shadow-xs sm:p-8"
+      >
+        <div>
+          <h2 className="text-foreground flex items-center gap-2.5 text-base font-semibold">
+            <span className="bg-accent/10 rounded-lg p-1.5">
+              <Calendar className="text-accent h-4 w-4" />
+            </span>
+            Schedule
+            <span className="rounded bg-amber-100 px-1.5 text-[10px] leading-4 font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+              Optional
+            </span>
+          </h2>
+          <p className="text-muted mt-0.5 text-xs">
+            Leave it off to start runs yourself from the Runs step.
+          </p>
+        </div>
+
         {/* Enable Schedule Toggle */}
         <div className="border-border flex items-center justify-between border-b pb-6">
           <div>
@@ -96,7 +130,7 @@ export function ScheduleForm({
             </span>
             <span className="text-muted mt-0.5 block text-xs">
               Fresh ideas wait in your queue on the days you pick. The number of
-              ideas per run is set in Preferences.
+              ideas per run is set above.
             </span>
           </div>
 

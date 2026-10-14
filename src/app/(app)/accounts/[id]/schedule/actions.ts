@@ -38,7 +38,7 @@ export async function saveSchedule(
       await db.insert(schedulesTable).values({ accountId, ...columns })
     }
 
-    revalidatePath(`/accounts/${accountId}/schedule`)
+    revalidatePath(`/accounts/${accountId}/preferences`)
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to save schedule' }
