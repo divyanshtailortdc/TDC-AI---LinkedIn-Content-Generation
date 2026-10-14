@@ -3,10 +3,11 @@ import 'server-only'
 import { parseJsonLoosely } from '../../parse-json'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
-import { sanitizeIdentitySetup } from './guard'
+import { applyGuidance, sanitizeIdentitySetup } from './guard'
 import { buildPrompt, INSTRUCTIONS, type SetupSource } from './prompt'
 import {
   IdentitySetupModelSchema,
+  type AnalysisGuidance,
   type IdentitySetupSuggestions
 } from './schema'
 
@@ -25,6 +26,8 @@ export async function suggestSetup(input: {
   sources: SetupSource[]
   /** URLs the user typed; the only links a suggestion may contain. */
   providedUrls: string[]
+  /** Advanced analysis choices; they override the model's. */
+  guidance?: AnalysisGuidance
 }): Promise<{
   suggestions: IdentitySetupSuggestions
   warnings: string[]
@@ -38,7 +41,7 @@ export async function suggestSetup(input: {
     const result = await runSkill({
       stage: 'identity_setup',
       instructions: INSTRUCTIONS,
-      prompt: buildPrompt(input.description, input.sources),
+      prompt: buildPrompt(input.description, input.sources, input.guidance),
       schema: IdentitySetupModelSchema,
       timeoutMs: MODEL_TIMEOUT_MS,
       // One retry for a transient failure; more would multiply the wait.
@@ -58,12 +61,19 @@ export async function suggestSetup(input: {
     modelUsed = (error as SkillError).modelUsed ?? ''
   }
 
-  const { suggestions, warnings } = sanitizeIdentitySetup(raw, {
+  const sanitized = sanitizeIdentitySetup(raw, {
     description: input.description,
     providedUrls: input.providedUrls,
     fetchedSources: input.sources
       .filter(s => s.status.status === 'fetched' && s.content)
       .map(s => ({ url: s.status.url, content: s.content! }))
   })
+  // The CTA link and every other Advanced choice are applied after the URL
+  // checks, so they hold whatever the model returned.
+  const suggestions = applyGuidance(sanitized.suggestions, input.guidance)
+  // The user's own CTA link replaced the model's, so its warning would mislead.
+  const warnings = input.guidance?.ctaUrl
+    ? sanitized.warnings.filter(w => !w.startsWith('Goals → CTA link'))
+    : sanitized.warnings
   return { suggestions, warnings, usage, modelUsed }
 }

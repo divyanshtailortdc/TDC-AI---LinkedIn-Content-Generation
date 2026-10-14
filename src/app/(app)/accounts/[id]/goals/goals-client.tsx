@@ -1,13 +1,11 @@
 'use client'
 
+import { useStepSave } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
-import {
-  goalSuggestionValues,
-  type GoalValues
-} from '@/lib/settings-merge'
+import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
 import {
   Compass,
   Edit2,
@@ -108,7 +106,7 @@ export function GoalsClient({
       if (next.linkStrategy !== undefined) setLinkStrategy(next.linkStrategy)
     },
     suggestionValues: s => goalSuggestionValues(s.goals),
-    // An untouched form's preset objective and placement are just defaults.
+    // An untouched form's preset choices are just defaults.
     isBlank: key =>
       (key === 'objectiveType' || key === 'linkStrategy') && !title.trim()
   })
@@ -156,17 +154,16 @@ export function GoalsClient({
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const submitGoal = async (): Promise<boolean> => {
     if (!title.trim()) {
       setError('Please provide a goal title.')
-      return
+      return false
     }
     if (!keyMessage.trim()) {
       setError(
         'The Key Message to Land is required — the agent needs to know the exact belief to move.'
       )
-      return
+      return false
     }
 
     setError(null)
@@ -201,6 +198,7 @@ export function GoalsClient({
       resetForm()
       setShowNewGoal(false)
       router.refresh()
+      return true
     } catch (err: any) {
       setError(err.message || 'Failed to save goal')
       showToast({
@@ -208,10 +206,21 @@ export function GoalsClient({
         title: 'Goal Save Failed',
         message: err.message || 'Failed to save goal'
       })
+      return false
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    void submitGoal()
+  }
+
+  // Save & Next saves a goal the user has started; otherwise it just moves on.
+  useStepSave(() =>
+    showNewGoal && (title.trim() || keyMessage.trim()) ? submitGoal() : true
+  )
 
   const handleToggle = async (goalId: string, current: boolean) => {
     setActionId(goalId)
@@ -293,45 +302,35 @@ export function GoalsClient({
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-foreground text-2xl font-bold">Goals</h1>
-          <p className="text-muted mt-1 text-sm">
-            What your posts should achieve and the one message they need to
-            land.
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          {!isEditing && (
-            <button
-              type="button"
-              onClick={handleSuggest}
-              disabled={isSuggesting}
-              className="border-border bg-surface text-foreground hover:bg-surface-hover flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              {isSuggesting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="text-accent h-4 w-4" />
-              )}
-              {isSuggesting ? 'Suggesting…' : 'Suggest Goals'}
-            </button>
-          )}
-          {!showNewGoal && (
-            <button
-              type="button"
-              onClick={() => {
-                resetForm()
-                setShowNewGoal(true)
-              }}
-              className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              New Goal
-            </button>
-          )}
-        </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        {!isEditing && (
+          <button
+            type="button"
+            onClick={handleSuggest}
+            disabled={isSuggesting}
+            className="border-border bg-surface text-foreground hover:bg-surface-hover flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {isSuggesting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="text-accent h-4 w-4" />
+            )}
+            {isSuggesting ? 'Suggesting…' : 'Suggest Goals'}
+          </button>
+        )}
+        {!showNewGoal && (
+          <button
+            type="button"
+            onClick={() => {
+              resetForm()
+              setShowNewGoal(true)
+            }}
+            className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            New Goal
+          </button>
+        )}
       </div>
 
       {error && (

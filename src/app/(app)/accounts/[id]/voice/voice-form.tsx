@@ -1,5 +1,6 @@
 'use client'
 
+import { useStepSave } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
@@ -8,16 +9,14 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-  Loader2,
   PenLine,
-  Save,
   SlidersHorizontal,
   Sparkles,
   X
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, useTransition, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { VoiceConfig } from '~/db/schema'
 import { parseHashtagPolicy } from '~/lib/ai/hashtags'
 import {
@@ -138,9 +137,7 @@ function SectionHeading({
           </span>
           {title}
         </h2>
-        <p className="text-muted mt-1 text-xs leading-relaxed">
-          {description}
-        </p>
+        <p className="text-muted mt-1 text-xs leading-relaxed">{description}</p>
       </div>
       {action}
     </div>
@@ -192,7 +189,6 @@ function SegmentedControl({
 
 export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   const router = useRouter()
-  const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
   const [derivedRubric, setDerivedRubric] = useState(
@@ -235,7 +231,8 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         setDerivedRubric(next.derivedStyleRubric)
       if (next.formality !== undefined || next.directness !== undefined) {
         setScales(prev => ({
-          formality: next.formality !== undefined ? next.formality : prev.formality,
+          formality:
+            next.formality !== undefined ? next.formality : prev.formality,
           directness:
             next.directness !== undefined ? next.directness : prev.directness
         }))
@@ -253,38 +250,38 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     }
   })
 
-  const handleSave = () => {
+  // Runs from the header's Save & Next; false keeps the user on this step.
+  const save = async (): Promise<boolean> => {
     setError(null)
-    startTransition(async () => {
-      // Only what this page edits is sent; every other voice detail keeps its
-      // saved value. Anything left unselected falls back to the default.
-      const res = await saveVoiceConfigAction({
-        accountId,
-        derivedStyleRubric: derivedRubric,
-        tone: tone || undefined,
-        perspective: perspective || undefined,
-        emojiPolicy: emojiPolicy || undefined,
-        hashtagPolicy: hashtagPolicy || undefined,
-        formality: scales.formality ?? undefined,
-        directness: scales.directness ?? undefined
-      })
-
-      if (res.success) {
-        setIsEditingSummary(false)
-        showToast({
-          type: 'success',
-          title: 'Voice Saved',
-          message: 'New posts will be written in this voice.'
-        })
-        router.refresh()
-      } else {
-        const errMsg = cleanErrorMessage(res.error) || 'Failed to save voice'
-        setError(errMsg)
-        showToast({ type: 'error', title: 'Save Failed', message: errMsg })
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-      }
+    // Only what this page edits is sent; every other voice detail keeps its
+    // saved value. Anything left unselected falls back to the default.
+    const res = await saveVoiceConfigAction({
+      accountId,
+      derivedStyleRubric: derivedRubric,
+      tone: tone || undefined,
+      perspective: perspective || undefined,
+      emojiPolicy: emojiPolicy || undefined,
+      hashtagPolicy: hashtagPolicy || undefined,
+      formality: scales.formality ?? undefined,
+      directness: scales.directness ?? undefined
     })
+
+    if (res.success) {
+      setIsEditingSummary(false)
+      showToast({
+        type: 'success',
+        title: 'Voice Saved',
+        message: 'New posts will be written in this voice.'
+      })
+      router.refresh()
+      return true
+    }
+    const errMsg = cleanErrorMessage(res.error) || 'Failed to save voice'
+    setError(errMsg)
+    showToast({ type: 'error', title: 'Save Failed', message: errMsg })
+    return false
   }
+  useStepSave(save)
 
   const sectionClass =
     'border-border bg-surface space-y-5 rounded-2xl border p-6 shadow-xs sm:p-8'
@@ -489,33 +486,11 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         </p>
       </section>
 
-      {/* Save */}
-      <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <span className="text-muted text-xs">
-          {initialConfig
-            ? 'Changes apply to new drafts after you save.'
-            : 'Anything left unselected uses a default.'}
-        </span>
-
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={handleSave}
-          className="bg-accent text-background hover:bg-accent-hover flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold shadow-sm transition-all disabled:opacity-50"
-        >
-          {isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Save voice
-            </>
-          )}
-        </button>
-      </div>
+      <p className="text-muted text-xs">
+        {initialConfig
+          ? 'Changes apply to new drafts after you save.'
+          : 'Anything left unselected uses a default.'}
+      </p>
     </div>
   )
 }

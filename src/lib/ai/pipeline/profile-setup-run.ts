@@ -123,7 +123,7 @@ export async function analyzeIdentitySetup(
       false
     )
   }
-  const { description, linkedinUrl, websiteUrl } = parsed.data
+  const { description, linkedinUrl, websiteUrl, guidance } = parsed.data
 
   // Checked before fetching so a missing key does not cost the page fetches.
   if (!isAICapable) {
@@ -145,7 +145,8 @@ export async function analyzeIdentitySetup(
     result = await suggestSetup({
       description,
       sources,
-      providedUrls: requested.map(([url]) => url)
+      providedUrls: requested.map(([url]) => url),
+      guidance
     })
   } catch (error) {
     console.error('Identity setup analysis failed:', error)

@@ -1,5 +1,6 @@
 'use client'
 
+import { useStepSave } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
@@ -9,7 +10,6 @@ import {
 } from '@/lib/settings-merge'
 import {
   FileText,
-  Loader2,
   Plus,
   ShieldAlert,
   SlidersHorizontal,
@@ -92,7 +92,6 @@ export function PreferencesForm({
     initial.guardrails.compliance_notes
   )
 
-  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // AI setup suggestions fill blank settings only; saving is still manual.
@@ -146,10 +145,9 @@ export function PreferencesForm({
     setTopicsInputs(topicsInputs.filter((_, i) => i !== index))
   }
 
-  const handleSave = async () => {
+  // Runs from the header's Save & Next; false keeps the user on this step.
+  const save = async (): Promise<boolean> => {
     setError(null)
-    setIsSaving(true)
-
     try {
       await savePreferences(accountId, {
         pillars: pillars.map((p, i) => ({
@@ -168,8 +166,8 @@ export function PreferencesForm({
         title: 'Preferences Saved',
         message: 'Content preferences saved successfully.'
       })
-      router.push(`/accounts/${accountId}`)
       router.refresh()
+      return true
     } catch (err: any) {
       setError(err.message || 'Failed to save preferences')
       showToast({
@@ -177,41 +175,30 @@ export function PreferencesForm({
         title: 'Save Failed',
         message: err.message || 'Failed to save preferences'
       })
-      setIsSaving(false)
+      return false
     }
   }
+  useStepSave(save)
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div className="from-surface to-surface-hover border-border bg-linear-to relative overflow-hidden rounded-2xl border p-8 shadow-xs">
-        <div className="relative z-10">
-          <h1 className="text-foreground text-2xl font-bold tracking-tight">
-            Preferences
-          </h1>
-          <p className="text-muted mt-2 max-w-2xl text-sm">
-            What to post about and how many ideas you get. Tone, emoji, hashtags
-            and words to avoid are set in{' '}
-            <Link
-              href={`/accounts/${accountId}/voice`}
-              className="text-accent hover:underline"
-            >
-              Voice
-            </Link>
-            ; links, and where they go, on each{' '}
-            <Link
-              href={`/accounts/${accountId}/goals`}
-              className="text-accent hover:underline"
-            >
-              Goal
-            </Link>
-            .
-          </p>
-        </div>
-        <div className="pointer-events-none absolute top-0 right-0 p-8 opacity-10">
-          <SlidersHorizontal className="h-32 w-32" />
-        </div>
-      </div>
+      <p className="text-muted text-sm">
+        Tone, emoji, hashtags and words to avoid are set in{' '}
+        <Link
+          href={`/accounts/${accountId}/voice`}
+          className="text-accent hover:underline"
+        >
+          Voice
+        </Link>
+        ; links, and where they go, on each{' '}
+        <Link
+          href={`/accounts/${accountId}/goals`}
+          className="text-accent hover:underline"
+        >
+          Goal
+        </Link>
+        .
+      </p>
 
       {error && (
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
@@ -385,25 +372,6 @@ export function PreferencesForm({
           />
         </div>
       </Section>
-
-      {/* Save Button */}
-      <div className="border-border flex justify-end border-t pt-4">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isSaving}
-          className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Saving preferences…
-            </>
-          ) : (
-            'Save Preferences →'
-          )}
-        </button>
-      </div>
     </div>
   )
 }

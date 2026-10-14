@@ -243,16 +243,6 @@ export function KnowledgeClient({
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-foreground text-2xl font-bold">Knowledge Base</h1>
-        <p className="text-muted mt-1 text-sm">
-          Add URLs and artifacts to build a grounded fact base. AI extracts
-          verified key claims and quotes so generated posts are factually
-          anchored.
-        </p>
-      </div>
-
       {error && (
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
           {error}

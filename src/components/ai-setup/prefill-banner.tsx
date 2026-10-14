@@ -1,12 +1,12 @@
 'use client'
 
-import { Sparkles, Undo2 } from 'lucide-react'
 import type {
   CONFIDENCE,
   PROVENANCE,
   SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { fieldLabel } from '@/lib/ai/skills/profile-setup/schema'
+import { Sparkles, Undo2 } from 'lucide-react'
 import type { SectionPrefill } from './use-section-prefill'
 
 /** Shows whether a value came from the user's own material or is a suggestion. */
@@ -20,7 +20,11 @@ export function ProvenanceBadge({
   confidence?: (typeof CONFIDENCE)[number]
 }) {
   const edited = source === 'edited'
-  const label = edited ? 'Edited' : kind === 'fact' ? 'From your info' : 'AI suggestion'
+  const label = edited
+    ? 'Edited'
+    : kind === 'fact'
+      ? 'From your info'
+      : 'AI suggestion'
   const sourceLabel =
     !source || edited
       ? null
@@ -42,7 +46,10 @@ export function ProvenanceBadge({
         {label}
       </span>
       {sourceLabel && (
-        <span className="text-muted max-w-56 truncate text-[10px]" title={sourceLabel}>
+        <span
+          className="text-muted max-w-56 truncate text-[10px]"
+          title={sourceLabel}
+        >
           {sourceLabel}
         </span>
       )}
@@ -67,33 +74,34 @@ export function PrefillBanner({
   const filled = prefill.filled.map(f => fieldLabel(section, f))
   const kept = prefill.kept.map(f => fieldLabel(section, f))
 
+  const summary =
+    filled.length > 0
+      ? `AI filled ${filled.length} field${filled.length === 1 ? '' : 's'}: ${filled.join(', ')}.`
+      : 'AI suggestions did not change any fields.'
+  const details = [
+    kept.length > 0 && prefill.mode === 'fill-empty'
+      ? `Your saved ${kept.join(', ')} ${kept.length === 1 ? 'was' : 'were'} kept.`
+      : '',
+    note ?? 'Nothing is saved until you save.'
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className="border-accent/30 bg-accent/5 flex flex-col gap-3 rounded-xl border p-4 text-xs sm:flex-row sm:items-start sm:justify-between">
-      <div className="flex items-start gap-3">
-        <Sparkles className="text-accent mt-0.5 h-4 w-4 shrink-0" />
-        <div className="space-y-1">
-          <p className="text-foreground font-semibold">
-            {filled.length > 0
-              ? `AI suggestions filled ${filled.length} field${filled.length === 1 ? '' : 's'}: ${filled.join(', ')}.`
-              : 'AI suggestions did not change any fields.'}
-          </p>
-          {kept.length > 0 && prefill.mode === 'fill-empty' && (
-            <p className="text-muted">
-              Your saved {kept.join(', ')} {kept.length === 1 ? 'was' : 'were'} kept.
-            </p>
-          )}
-          {note && <p className="text-muted">{note}</p>}
-          <p className="text-muted">
-            Review and edit below. Nothing is saved until you click Save.
-          </p>
-        </div>
+    <div className="border-accent/30 bg-accent/5 flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-2">
+        <Sparkles className="text-accent mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <p className="min-w-0">
+          <span className="text-foreground font-semibold">{summary}</span>{' '}
+          <span className="text-muted">{details}</span>
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1">
         {kept.length > 0 && prefill.mode === 'fill-empty' && (
           <button
             type="button"
             onClick={prefill.replaceAll}
-            className="border-border hover:bg-surface-hover text-foreground rounded-lg border px-3 py-1.5 font-medium transition-colors"
+            className="border-border hover:bg-surface-hover text-foreground rounded-md border px-2.5 py-1 font-medium transition-colors"
           >
             Use AI values for all
           </button>
@@ -101,7 +109,7 @@ export function PrefillBanner({
         <button
           type="button"
           onClick={prefill.undo}
-          className="text-muted hover:text-foreground inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-colors"
+          className="text-muted hover:text-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors"
         >
           <Undo2 className="h-3.5 w-3.5" />
           Undo

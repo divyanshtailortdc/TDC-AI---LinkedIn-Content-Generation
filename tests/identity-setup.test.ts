@@ -1,6 +1,26 @@
 import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import {
+  applyGuidance,
+  normalizeWeights,
+  sanitizeIdentitySetup,
+  type SanitizeContext
+} from '../src/lib/ai/skills/profile-setup/guard'
+import {
+  AnalysisGuidanceSchema,
+  AnalyzeIdentityInputSchema,
+  getSectionStatus,
+  hasAnySuggestion,
+  IdentitySetupSuggestionsSchema
+} from '../src/lib/ai/skills/profile-setup/schema'
+import { IdentityProfileSchema } from '../src/lib/identity-profile'
+import {
+  isPrivateAddress,
+  parsePublicHttpUrl,
+  resolvePublicHttpUrl,
+  UnsafeUrlError
+} from '../src/lib/safe-url'
+import {
   buildGoalPayload,
   buildPreferencesPayload,
   buildVoiceSaveInput,
@@ -11,19 +31,6 @@ import {
   voiceSuggestionValues,
   voiceValuesFromConfig
 } from '../src/lib/settings-merge'
-import {
-  getSectionStatus,
-  hasAnySuggestion,
-  IdentitySetupSuggestionsSchema
-} from '../src/lib/ai/skills/profile-setup/schema'
-import { normalizeWeights, sanitizeIdentitySetup, type SanitizeContext } from '../src/lib/ai/skills/profile-setup/guard'
-import { IdentityProfileSchema } from '../src/lib/identity-profile'
-import {
-  isPrivateAddress,
-  parsePublicHttpUrl,
-  resolvePublicHttpUrl,
-  UnsafeUrlError
-} from '../src/lib/safe-url'
 
 const DESCRIPTION =
   'I am Priya Rao, founder of Ledgerly, a bookkeeping service for Indian D2C brands. We help founders close their books in 5 days instead of 20. See ledgerly.in/case-studies for examples.'
@@ -54,18 +61,34 @@ function fullModelOutput() {
       fields: [
         entry('name', 'Priya Rao', 'fact', 'description'),
         entry('company', 'Ledgerly', 'fact', 'description'),
-        entry('description', 'Founder of Ledgerly, a bookkeeping service for Indian D2C brands.', 'fact', 'description'),
-        entry('targetAudience', 'Founders and finance leads at Indian D2C brands'),
+        entry(
+          'description',
+          'Founder of Ledgerly, a bookkeeping service for Indian D2C brands.',
+          'fact',
+          'description'
+        ),
+        entry(
+          'targetAudience',
+          'Founders and finance leads at Indian D2C brands'
+        ),
         entry('offerings', 'Month-end close\nBookkeeping'),
         entry('industry', 'Financial services', 'fact', 'description'),
-        entry('websiteUrl', 'https://ledgerly.in', 'fact', 'https://ledgerly.in')
+        entry(
+          'websiteUrl',
+          'https://ledgerly.in',
+          'fact',
+          'https://ledgerly.in'
+        )
       ],
       missing: []
     },
     voice: {
       fields: [
         entry('tone', 'Analytical'),
-        entry('derivedStyleRubric', 'Open with a concrete number from finance operations, keep paragraphs short, and close with one practical step.'),
+        entry(
+          'derivedStyleRubric',
+          'Open with a concrete number from finance operations, keep paragraphs short, and close with one practical step.'
+        ),
         entry('formality', '3'),
         entry('directness', '4'),
         entry('perspective', 'i'),
@@ -98,14 +121,38 @@ function fullModelOutput() {
     },
     knowledge: {
       sources: [
-        { url: 'https://ledgerly.in', title: 'Ledgerly website', reason: 'Company overview' },
-        { url: 'ledgerly.in/case-studies', title: 'Case studies', reason: 'Proof points' },
-        { url: 'https://invented.example.com/report', title: 'Industry report', reason: 'Stats' }
+        {
+          url: 'https://ledgerly.in',
+          title: 'Ledgerly website',
+          reason: 'Company overview'
+        },
+        {
+          url: 'ledgerly.in/case-studies',
+          title: 'Case studies',
+          reason: 'Proof points'
+        },
+        {
+          url: 'https://invented.example.com/report',
+          title: 'Industry report',
+          reason: 'Stats'
+        }
       ],
       facts: [
-        { statement: 'Ledgerly serves 40 D2C brands.', quote: 'runs month-end close for 40 D2C brands', source: 'https://ledgerly.in' },
-        { statement: 'Close takes 5 days.', quote: 'close their books in 5 days instead of 20', source: 'description' },
-        { statement: 'Ledgerly has 500 clients.', quote: 'Ledgerly serves 500 clients nationwide', source: 'https://ledgerly.in' }
+        {
+          statement: 'Ledgerly serves 40 D2C brands.',
+          quote: 'runs month-end close for 40 D2C brands',
+          source: 'https://ledgerly.in'
+        },
+        {
+          statement: 'Close takes 5 days.',
+          quote: 'close their books in 5 days instead of 20',
+          source: 'description'
+        },
+        {
+          statement: 'Ledgerly has 500 clients.',
+          quote: 'Ledgerly serves 500 clients nationwide',
+          source: 'https://ledgerly.in'
+        }
       ],
       suggestedAdditions: ['A client testimonial with permission to quote'],
       missing: []
@@ -146,18 +193,26 @@ describe('sanitizeIdentitySetup: valid output', () => {
 
   it('keeps only source URLs from the user input', () => {
     const urls = suggestions.knowledge.sources.map(s => s.url)
-    assert.deepStrictEqual(urls, ['https://ledgerly.in', 'ledgerly.in/case-studies'])
+    assert.deepStrictEqual(urls, [
+      'https://ledgerly.in',
+      'ledgerly.in/case-studies'
+    ])
     assert.strictEqual(suggestions.knowledge.sources[0]?.accessible, true)
     assert.strictEqual(suggestions.knowledge.sources[1]?.accessible, false)
     // The invented report survives only as an idea, without its link.
     assert.ok(
-      suggestions.knowledge.suggestedAdditions.some(a => a.startsWith('Industry report'))
+      suggestions.knowledge.suggestedAdditions.some(a =>
+        a.startsWith('Industry report')
+      )
     )
   })
 
   it('normalizes pillar weights to 100', () => {
     const pillars = suggestions.preferences.pillars?.value ?? []
-    assert.strictEqual(pillars.reduce((sum, p) => sum + p.weight_pct, 0), 100)
+    assert.strictEqual(
+      pillars.reduce((sum, p) => sum + p.weight_pct, 0),
+      100
+    )
     assert.deepStrictEqual(pillars[0]?.example_topics, ['Month-end'])
   })
 
@@ -170,12 +225,20 @@ describe('sanitizeIdentitySetup: valid output', () => {
 describe('sanitizeIdentitySetup: partial and incorrect output', () => {
   it('accepts a response with only some sections', () => {
     const { suggestions, warnings } = sanitizeIdentitySetup(
-      { profile: { fields: [entry('name', 'Priya Rao')], missing: ['Industry'] } },
+      {
+        profile: { fields: [entry('name', 'Priya Rao')], missing: ['Industry'] }
+      },
       { ...context, providedUrls: [], fetchedSources: [] }
     )
     assert.strictEqual(suggestions.profile.name?.value, 'Priya Rao')
-    assert.deepStrictEqual(getSectionStatus(suggestions, 'profile').missingInfo, ['Industry'])
-    assert.strictEqual(getSectionStatus(suggestions, 'profile').state, 'partial')
+    assert.deepStrictEqual(
+      getSectionStatus(suggestions, 'profile').missingInfo,
+      ['Industry']
+    )
+    assert.strictEqual(
+      getSectionStatus(suggestions, 'profile').state,
+      'partial'
+    )
     assert.strictEqual(getSectionStatus(suggestions, 'voice').state, 'empty')
     assert.deepStrictEqual(warnings, [])
   })
@@ -210,7 +273,11 @@ describe('sanitizeIdentitySetup: partial and incorrect output', () => {
 
   it('treats placeholder values as missing rather than as answers', () => {
     const { suggestions } = sanitizeIdentitySetup(
-      { profile: { fields: [entry('company', 'N/A'), entry('industry', 'unknown')] } },
+      {
+        profile: {
+          fields: [entry('company', 'N/A'), entry('industry', 'unknown')]
+        }
+      },
       context
     )
     assert.strictEqual(suggestions.profile.company, undefined)
@@ -257,7 +324,11 @@ describe('sanitizeIdentitySetup: partial and incorrect output', () => {
 
   it('downgrades a fact that cites a source that was never fetched', () => {
     const { suggestions } = sanitizeIdentitySetup(
-      { profile: { fields: [entry('industry', 'Fintech', 'fact', 'https://other.com')] } },
+      {
+        profile: {
+          fields: [entry('industry', 'Fintech', 'fact', 'https://other.com')]
+        }
+      },
       context
     )
     assert.strictEqual(suggestions.profile.industry?.kind, 'recommendation')
@@ -275,14 +346,101 @@ describe('sanitizeIdentitySetup: partial and incorrect output', () => {
     const { suggestions } = sanitizeIdentitySetup(fullModelOutput(), context)
     const tampered = structuredClone(suggestions) as any
     tampered.voice.formality.value = 11
-    assert.strictEqual(IdentitySetupSuggestionsSchema.safeParse(tampered).success, false)
+    assert.strictEqual(
+      IdentitySetupSuggestionsSchema.safeParse(tampered).success,
+      false
+    )
+  })
+})
+
+describe('Advanced analysis guidance', () => {
+  const { suggestions } = sanitizeIdentitySetup(fullModelOutput(), context)
+
+  it("overrides the model with the user's own choices, marked as provided", () => {
+    const guided = applyGuidance(suggestions, {
+      tone: 'storytelling',
+      perspective: 'we',
+      formality: 2,
+      emojiPolicy: 'liberal',
+      objectiveType: 'authority',
+      callToAction: 'Join the waitlist',
+      ctaUrl: 'https://ledgerly.in/waitlist'
+    })
+    assert.strictEqual(guided.voice.tone?.value, 'storytelling')
+    assert.strictEqual(guided.voice.tone?.kind, 'fact')
+    assert.strictEqual(guided.voice.tone?.source, 'provided')
+    assert.strictEqual(guided.voice.perspective?.value, 'we')
+    assert.strictEqual(guided.voice.formality?.value, 2)
+    assert.strictEqual(guided.voice.emojiPolicy?.value, 'liberal')
+    assert.strictEqual(guided.goals.objectiveType?.value, 'authority')
+    assert.strictEqual(guided.goals.desiredAction?.value, 'Join the waitlist')
+    // A CTA link the user typed survives, unlike one the model invents.
+    assert.strictEqual(
+      guided.goals.targetUrl?.value,
+      'https://ledgerly.in/waitlist'
+    )
+    // Untouched fields keep the model's suggestion.
+    assert.strictEqual(
+      guided.goals.title?.value,
+      suggestions.goals.title?.value
+    )
+    assert.ok(IdentitySetupSuggestionsSchema.safeParse(guided).success)
+  })
+
+  it("uses the stated audience and adds avoided topics to the model's", () => {
+    const guided = applyGuidance(suggestions, {
+      targetAudience: 'CFOs at D2C brands, Founders\nFinance leads',
+      avoidTopics: 'politics, Tax evasion'
+    })
+    assert.strictEqual(
+      guided.profile.targetAudience?.value,
+      'CFOs at D2C brands\nFounders\nFinance leads'
+    )
+    assert.deepStrictEqual(guided.preferences.bannedTopics?.value, [
+      'politics',
+      'Tax evasion',
+      'tax evasion'
+    ])
+  })
+
+  it('changes nothing when there is no guidance', () => {
+    assert.strictEqual(applyGuidance(suggestions, undefined), suggestions)
+    assert.deepStrictEqual(applyGuidance(suggestions, {}), suggestions)
+  })
+
+  it('rejects invalid choices before they reach the model', () => {
+    for (const bad of [
+      { tone: 'sarcastic' },
+      { formality: 9 },
+      { objectiveType: 'world_domination' },
+      { accountType: 'robot' }
+    ]) {
+      assert.strictEqual(AnalysisGuidanceSchema.safeParse(bad).success, false)
+    }
+    const parsed = AnalyzeIdentityInputSchema.safeParse({
+      description: 'Ledgerly',
+      guidance: { tone: 'candid', goal: '   ', ctaUrl: '' }
+    })
+    assert.ok(parsed.success)
+    // Blank text and links become "not set", not empty values.
+    assert.strictEqual(parsed.data.guidance?.goal, undefined)
+    assert.strictEqual(parsed.data.guidance?.ctaUrl, undefined)
   })
 })
 
 describe('normalizeWeights', () => {
   it('always sums to 100', () => {
-    for (const weights of [[50, 30, 30], [1, 1, 1], [0, 0], [33.3, 33.3, 33.3], [NaN, 10]]) {
-      assert.strictEqual(normalizeWeights(weights).reduce((a, b) => a + b, 0), 100)
+    for (const weights of [
+      [50, 30, 30],
+      [1, 1, 1],
+      [0, 0],
+      [33.3, 33.3, 33.3],
+      [NaN, 10]
+    ]) {
+      assert.strictEqual(
+        normalizeWeights(weights).reduce((a, b) => a + b, 0),
+        100
+      )
     }
   })
 })
@@ -301,7 +459,11 @@ describe('mergeValues: existing data is preserved', () => {
       linkedinUrl: '',
       websiteUrl: ''
     }
-    const merged = mergeValues(current, profileSuggestionValues(suggestions.profile), 'fill-empty')
+    const merged = mergeValues(
+      current,
+      profileSuggestionValues(suggestions.profile),
+      'fill-empty'
+    )
     assert.strictEqual(merged.values.name, 'Priya R.')
     assert.strictEqual(merged.values.description, 'My own words')
     assert.strictEqual(merged.values.company, 'Ledgerly')
@@ -322,7 +484,8 @@ describe('mergeValues: existing data is preserved', () => {
   it('keeps a saved voice and never touches its sample posts', () => {
     const saved = {
       tone: 'storytelling',
-      derivedStyleRubric: 'My rubric written from twelve real posts, kept as is.',
+      derivedStyleRubric:
+        'My rubric written from twelve real posts, kept as is.',
       formality: 2,
       directness: 3,
       perspective: 'we',
@@ -335,13 +498,19 @@ describe('mergeValues: existing data is preserved', () => {
       voiceSuggestionValues(suggestions.voice),
       'fill-empty'
     )
-    assert.strictEqual(merged.values.derivedStyleRubric, saved.derivedStyleRubric)
+    assert.strictEqual(
+      merged.values.derivedStyleRubric,
+      saved.derivedStyleRubric
+    )
     assert.strictEqual(merged.values.tone, 'storytelling')
     assert.strictEqual(merged.values.formality, 2)
     // Only the empty hashtag policy was filled.
     assert.deepStrictEqual(merged.filled, ['hashtagPolicy'])
 
-    const input = buildVoiceSaveInput('00000000-0000-4000-8000-000000000000', merged.values)
+    const input = buildVoiceSaveInput(
+      '00000000-0000-4000-8000-000000000000',
+      merged.values
+    )
     assert.strictEqual(input.rawSamplesText, undefined)
     assert.deepStrictEqual(input.bannedWords, ['delve'])
   })
@@ -382,7 +551,10 @@ describe('applying suggestions', () => {
       voiceSuggestionValues(suggestions.voice),
       'fill-empty'
     )
-    const input = buildVoiceSaveInput('00000000-0000-4000-8000-000000000000', merged.values)
+    const input = buildVoiceSaveInput(
+      '00000000-0000-4000-8000-000000000000',
+      merged.values
+    )
     assert.strictEqual(input.tone, 'analytical')
     assert.strictEqual(input.perspective, 'I')
     assert.deepStrictEqual(input.bannedWords, ['synergy', 'leverage'])
@@ -413,7 +585,10 @@ describe('applying suggestions', () => {
       },
       merged.values
     )
-    assert.strictEqual(payload.pillars.reduce((sum, p) => sum + p.weight_pct, 0), 100)
+    assert.strictEqual(
+      payload.pillars.reduce((sum, p) => sum + p.weight_pct, 0),
+      100
+    )
     assert.strictEqual(payload.ideasPerRun, 5)
     assert.strictEqual(payload.post_constraints.cta_required, true)
   })
@@ -426,14 +601,26 @@ describe('applying suggestions', () => {
     // The suggested placement went with the link the user never provided.
     assert.strictEqual(built.payload.linkStrategy, 'first_comment')
 
-    const incomplete = buildGoalPayload({ title: suggestions.goals.title, missing: [] })
+    const incomplete = buildGoalPayload({
+      title: suggestions.goals.title,
+      missing: []
+    })
     assert.ok('missing' in incomplete)
     assert.deepStrictEqual(incomplete.missing, ['keyMessage'])
   })
 
   it('produces a profile the create and edit forms accept', () => {
     const merged = mergeValues(
-      { name: '', company: '', description: '', targetAudience: '', offerings: '', industry: '', linkedinUrl: '', websiteUrl: '' },
+      {
+        name: '',
+        company: '',
+        description: '',
+        targetAudience: '',
+        offerings: '',
+        industry: '',
+        linkedinUrl: '',
+        websiteUrl: ''
+      },
       profileSuggestionValues(suggestions.profile),
       'fill-empty'
     )
@@ -443,7 +630,17 @@ describe('applying suggestions', () => {
 
 describe('safe-url', () => {
   it('flags private, loopback, link-local and mapped addresses', () => {
-    for (const address of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.2.62', '169.254.169.254', '::1', 'fd00::1', '::ffff:127.0.0.1', '0.0.0.0']) {
+    for (const address of [
+      '127.0.0.1',
+      '10.1.2.3',
+      '172.20.0.1',
+      '192.168.2.62',
+      '169.254.169.254',
+      '::1',
+      'fd00::1',
+      '::ffff:127.0.0.1',
+      '0.0.0.0'
+    ]) {
       assert.strictEqual(isPrivateAddress(address), true, address)
     }
     for (const address of ['8.8.8.8', '1.1.1.1', '2606:4700::1111']) {
@@ -469,11 +666,20 @@ describe('safe-url', () => {
   })
 
   it('accepts public URLs and adds a missing scheme', () => {
-    assert.strictEqual(parsePublicHttpUrl('example.com/about').toString(), 'https://example.com/about')
-    assert.strictEqual(parsePublicHttpUrl('http://example.com').protocol, 'http:')
+    assert.strictEqual(
+      parsePublicHttpUrl('example.com/about').toString(),
+      'https://example.com/about'
+    )
+    assert.strictEqual(
+      parsePublicHttpUrl('http://example.com').protocol,
+      'http:'
+    )
   })
 
   it('rejects a hostname that resolves to a private address', async () => {
-    await assert.rejects(resolvePublicHttpUrl('http://localtest.me'), UnsafeUrlError)
+    await assert.rejects(
+      resolvePublicHttpUrl('http://localtest.me'),
+      UnsafeUrlError
+    )
   })
 })

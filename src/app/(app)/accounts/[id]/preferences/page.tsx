@@ -1,10 +1,10 @@
-import { notFound } from 'next/navigation'
+import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
 import { accountsTable, preferencesTable } from '@/db/schema'
-import { eq } from 'drizzle-orm'
-import { PreferencesForm } from './preferences-form'
-import { AccountHeader } from '@/components/account-header'
 import { resolvePreferences } from '@/lib/ai/context'
+import { eq } from 'drizzle-orm'
+import { notFound } from 'next/navigation'
+import { PreferencesForm } from './preferences-form'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -30,24 +30,19 @@ export default async function PreferencesPage({ params }: PageProps) {
   const prefs = resolvePreferences(existingPreferences)
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      <AccountHeader account={account} />
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
-        <div className="max-w-7xl mx-auto">
-          <PreferencesForm
-            accountId={account.id}
-            hasSaved={Boolean(existingPreferences)}
-            initial={{
-              pillars: prefs.pillars,
-              ideasPerRun: prefs.ideasPerRun,
-              post_constraints: {
-                cta_required: prefs.constraints.cta_required
-              },
-              guardrails: prefs.guardrails
-            }}
-          />
-        </div>
-      </div>
-    </div>
+    <SetupShell account={account}>
+      <PreferencesForm
+        accountId={account.id}
+        hasSaved={Boolean(existingPreferences)}
+        initial={{
+          pillars: prefs.pillars,
+          ideasPerRun: prefs.ideasPerRun,
+          post_constraints: {
+            cta_required: prefs.constraints.cta_required
+          },
+          guardrails: prefs.guardrails
+        }}
+      />
+    </SetupShell>
   )
 }

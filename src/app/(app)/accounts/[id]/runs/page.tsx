@@ -1,9 +1,9 @@
+import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
 import { accountsTable, runsTable } from '@/db/schema'
+import { getRunSpendSummary } from '@/lib/run-spend'
 import { desc, eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
-import { AccountHeader } from '@/components/account-header'
-import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from '../../../runs/runs-client'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +12,9 @@ interface AccountRunsPageProps {
   params: Promise<{ id: string }>
 }
 
-export default async function AccountRunsPage({ params }: AccountRunsPageProps) {
+export default async function AccountRunsPage({
+  params
+}: AccountRunsPageProps) {
   const { id } = await params
 
   const account = await db.query.accountsTable.findFirst({
@@ -46,24 +48,19 @@ export default async function AccountRunsPage({ params }: AccountRunsPageProps) 
 
   const spend = await getRunSpendSummary(id)
 
-  const formattedRuns = accountRuns.map((r) => ({
+  const formattedRuns = accountRuns.map(r => ({
     ...r,
     accountName: account.name
   }))
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      <AccountHeader account={account} />
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <RunsClient
-            initialRuns={formattedRuns}
-            activeAccount={{ id: account.id, name: account.name }}
-            hideHeader={true}
-            spend={spend}
-          />
-        </div>
-      </div>
-    </div>
+    <SetupShell account={account}>
+      <RunsClient
+        initialRuns={formattedRuns}
+        activeAccount={{ id: account.id, name: account.name }}
+        hideHeader={true}
+        spend={spend}
+      />
+    </SetupShell>
   )
 }

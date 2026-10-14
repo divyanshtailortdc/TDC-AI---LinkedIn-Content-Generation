@@ -12,6 +12,7 @@ import {
   PROVIDED_SOURCE,
   SECTION_LABELS,
   VoiceSuggestionsSchema,
+  type AnalysisGuidance,
   type EntrySection,
   type FieldSpec,
   type IdentitySetupSuggestions,
@@ -414,4 +415,82 @@ export function sanitizeIdentitySetup(
     }
   }
   return { suggestions: final.data, warnings: Array.from(new Set(warnings)) }
+}
+
+// ---------------------------------------------------------------------------
+// Advanced analysis: the user's own choices win
+// ---------------------------------------------------------------------------
+
+/** Splits "a, b\nc" into ["a", "b", "c"]. */
+function splitEntries(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .split(/[\n,]+/)
+        .map(entry => entry.trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 15)
+}
+
+/**
+ * Writes the user's Advanced analysis choices into the suggestions as facts
+ * they provided, replacing whatever the model chose for those fields. Runs
+ * after sanitizeIdentitySetup, so a CTA link the user typed survives the URL
+ * checks. Topics to avoid are added to the model's list rather than replacing it.
+ */
+export function applyGuidance(
+  suggestions: IdentitySetupSuggestions,
+  guidance: AnalysisGuidance | undefined
+): IdentitySetupSuggestions {
+  if (!guidance) return suggestions
+  const provided = <T>(value: T) => ({
+    value,
+    kind: 'fact' as const,
+    source: PROVIDED_SOURCE,
+    confidence: 'high' as const
+  })
+
+  const voice = { ...suggestions.voice }
+  if (guidance.tone) voice.tone = provided(guidance.tone)
+  if (guidance.perspective) voice.perspective = provided(guidance.perspective)
+  if (guidance.formality) voice.formality = provided(guidance.formality)
+  if (guidance.emojiPolicy) voice.emojiPolicy = provided(guidance.emojiPolicy)
+
+  const goals = { ...suggestions.goals }
+  if (guidance.objectiveType) {
+    goals.objectiveType = provided(guidance.objectiveType)
+  }
+  if (guidance.callToAction) {
+    goals.desiredAction = provided(guidance.callToAction.slice(0, 500))
+  }
+  if (guidance.ctaUrl) goals.targetUrl = provided(guidance.ctaUrl)
+
+  const profile = { ...suggestions.profile }
+  if (guidance.targetAudience) {
+    profile.targetAudience = provided(
+      splitEntries(guidance.targetAudience).join('\n').slice(0, 2000)
+    )
+  }
+
+  const preferences = { ...suggestions.preferences }
+  if (guidance.avoidTopics) {
+    const merged = Array.from(
+      new Set([
+        ...splitEntries(guidance.avoidTopics),
+        ...(preferences.bannedTopics?.value ?? [])
+      ])
+    ).slice(0, 15)
+    preferences.bannedTopics = provided(merged)
+  }
+
+  // Same strict validation as everything else that leaves this module.
+  const checked = IdentitySetupSuggestionsSchema.safeParse({
+    ...suggestions,
+    profile,
+    voice,
+    goals,
+    preferences
+  })
+  return checked.success ? checked.data : suggestions
 }

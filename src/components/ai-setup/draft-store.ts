@@ -1,11 +1,14 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
 import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
+  getSectionStatus,
   IdentitySetupSuggestionsSchema,
-  type IdentitySetupSuggestions
+  SETUP_SECTIONS,
+  type IdentitySetupSuggestions,
+  type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
+import { useSyncExternalStore } from 'react'
 
 /**
  * Unsaved AI setup suggestions, kept in the browser until the user applies or
@@ -127,4 +130,17 @@ export function useIdentitySetupDraft(key: string): IdentitySetupDraft | null {
     () => readDraft(key),
     () => null
   )
+}
+
+/** The setup steps that currently have AI suggestions waiting for review. */
+export function useSuggestedSections(key: string): Set<SetupSection> {
+  const draft = useIdentitySetupDraft(key)
+  const sections = new Set<SetupSection>()
+  if (!draft) return sections
+  for (const section of SETUP_SECTIONS) {
+    if (getSectionStatus(draft.suggestions, section).state !== 'empty') {
+      sections.add(section)
+    }
+  }
+  return sections
 }

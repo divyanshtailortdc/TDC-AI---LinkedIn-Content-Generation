@@ -1,25 +1,27 @@
 'use client'
 
-import { AnalyzeWithAiDialog } from '@/components/ai-setup/analyze-dialog'
 import {
-  clearDraft,
-  NEW_IDENTITY_KEY,
-  resetDraft,
-  saveDraft
-} from '@/components/ai-setup/draft-store'
+  SetupFrame,
+  SetupStepper,
+  useStepSave
+} from '@/components/account-setup/setup-frame'
+import { AiSetupCard } from '@/components/ai-setup/ai-setup-card'
+import { NEW_IDENTITY_KEY, resetDraft } from '@/components/ai-setup/draft-store'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import {
   IdentityFields,
+  validateIdentityValues,
+  type AccountType,
+  type IdentityFieldErrors,
   type IdentityValues
 } from '@/components/identity-fields'
-import { PageHeader } from '@/components/page-header'
-import { profileSuggestionValues } from '@/lib/settings-merge'
+import { showToast } from '@/components/toast-notification'
 import { EMPTY_PROFILE } from '@/lib/identity-profile'
-import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'
+import { profileSuggestionValues } from '@/lib/settings-merge'
+import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
-import { useFormStatus } from 'react-dom'
+import { useRef, useState } from 'react'
 import { createAccount } from '../actions'
 
 export default function NewAccountPage() {
@@ -29,8 +31,67 @@ export default function NewAccountPage() {
   // A lazy initializer runs once per mount, during the first render, so the
   // stale draft never reaches the form even for a frame.
   useState(() => resetDraft(NEW_IDENTITY_KEY))
+  const formRef = useRef<HTMLFormElement>(null)
   const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
-  const [analyzeOpen, setAnalyzeOpen] = useState(false)
+  const [accountType, setAccountType] = useState<AccountType>('personal')
+
+  return (
+    <SetupFrame
+      stepIndex={0}
+      title="Create Your Identity"
+      description="Tell us about yourself or your business to generate relevant LinkedIn content."
+      identity={
+        <Link
+          href="/"
+          className="text-muted hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to dashboard
+        </Link>
+      }
+      nav={<SetupStepper activeIndex={0} draftKey={NEW_IDENTITY_KEY} />}
+      aside={
+        <AiSetupCard
+          urls={{
+            linkedinUrl: values.linkedinUrl,
+            websiteUrl: values.websiteUrl
+          }}
+          accountType={accountType}
+          onAccountTypeChange={setAccountType}
+          // Apply saves the identity; the other sections are reviewed after.
+          onApply={() => formRef.current?.requestSubmit()}
+          onEdit={() =>
+            formRef.current?.querySelector<HTMLElement>('#name')?.focus()
+          }
+        />
+      }
+    >
+      <CreateIdentityForm
+        formRef={formRef}
+        values={values}
+        setValues={setValues}
+        accountType={accountType}
+        setAccountType={setAccountType}
+      />
+    </SetupFrame>
+  )
+}
+
+/** Inside the frame so it can take over the header's Save & Next. */
+function CreateIdentityForm({
+  formRef,
+  values,
+  setValues,
+  accountType,
+  setAccountType
+}: {
+  formRef: React.RefObject<HTMLFormElement | null>
+  values: IdentityValues
+  setValues: React.Dispatch<React.SetStateAction<IdentityValues>>
+  accountType: AccountType
+  setAccountType: (value: AccountType) => void
+}) {
+  const [errors, setErrors] = useState<IdentityFieldErrors>({})
 
   const prefill = useSectionPrefill({
     draftKey: NEW_IDENTITY_KEY,
@@ -39,108 +100,64 @@ export default function NewAccountPage() {
     suggestionValues: s => profileSuggestionValues(s.profile)
   })
 
+  // Creates the identity; the action then redirects to the Voice step, so
+  // this never asks the frame to navigate.
+  const save = async (): Promise<boolean> => {
+    // Chips and bullet lists have no native required check.
+    const found = validateIdentityValues(values)
+    setErrors(found)
+    if (Object.keys(found).length > 0 || !formRef.current) return false
+
+    try {
+      await createAccount(new FormData(formRef.current))
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Could not create identity',
+        message: err?.message || 'Please try again.'
+      })
+    }
+    return false
+  }
+  useStepSave(save)
+
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      <PageHeader
-        title="Create Your Identity"
-        description="Tell us about yourself or your business to generate relevant LinkedIn content."
-        preTitle={
-          <Link
-            href="/"
-            className="text-muted hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Back to dashboard</span>
-          </Link>
+    <form
+      ref={formRef}
+      noValidate
+      onSubmit={e => {
+        e.preventDefault()
+        void save()
+      }}
+      className="space-y-5"
+    >
+      {prefill.draft && <input type="hidden" name="claimAiDraft" value="1" />}
+
+      <PrefillBanner
+        section="profile"
+        prefill={prefill}
+        note={
+          prefill.draft
+            ? 'Other sections are reviewed after you save.'
+            : undefined
         }
       />
 
-      <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-6 sm:p-8">
-        <div className="mx-auto max-w-3xl space-y-6">
-          <div className="border-accent/20 bg-accent/5 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-muted text-xs">
-              Prefer to just describe yourself? AI fills in this form and
-              prepares Voice, Knowledge, Goals and Preferences suggestions for
-              you to review after you save.
-            </p>
-            <button
-              type="button"
-              onClick={() => setAnalyzeOpen(true)}
-              className="bg-accent hover:bg-accent-hover text-background inline-flex shrink-0 items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition-colors"
-            >
-              <Sparkles className="h-4 w-4" />
-              Analyze with AI
-            </button>
-          </div>
-
-          <PrefillBanner
-            section="profile"
-            prefill={prefill}
-            note={
-              prefill.draft
-                ? 'Suggestions for the other sections are waiting and can be reviewed once the identity is saved.'
-                : undefined
-            }
-          />
-
-          <form
-            action={createAccount}
-            className="border-border bg-surface space-y-6 rounded-xl border p-6 sm:p-8"
-          >
-            {prefill.draft && <input type="hidden" name="claimAiDraft" value="1" />}
-
-            <IdentityFields
-              values={values}
-              onChange={(field, value) =>
-                setValues(prev => ({ ...prev, [field]: value }))
-              }
-            />
-
-            <div className="border-border flex items-center justify-end gap-4 border-t pt-6">
-              <Link
-                href="/"
-                onClick={() => clearDraft(NEW_IDENTITY_KEY)}
-                className="text-muted hover:text-foreground text-sm transition-colors"
-              >
-                Cancel
-              </Link>
-              <SubmitButton />
-            </div>
-          </form>
-        </div>
-      </div>
-
-      {analyzeOpen && (
-        <AnalyzeWithAiDialog
-          defaultLinkedinUrl={values.linkedinUrl}
-          defaultWebsiteUrl={values.websiteUrl}
-          onClose={() => setAnalyzeOpen(false)}
-          onAnalyzed={analysis => {
-            saveDraft(NEW_IDENTITY_KEY, analysis)
-            setAnalyzeOpen(false)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-function SubmitButton() {
-  const { pending } = useFormStatus()
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {pending ? (
-        <>
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Saving identity…
-        </>
-      ) : (
-        'Save identity →'
-      )}
-    </button>
+      <IdentityFields
+        values={values}
+        errors={errors}
+        accountType={accountType}
+        onAccountTypeChange={setAccountType}
+        aiSuggested={{
+          targetAudience:
+            prefill.draft?.suggestions.profile.targetAudience?.value
+        }}
+        onChange={(field, value) => {
+          setValues(prev => ({ ...prev, [field]: value }))
+          if (errors[field])
+            setErrors(prev => ({ ...prev, [field]: undefined }))
+        }}
+      />
+    </form>
   )
 }

@@ -1,12 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import {
-  isEmptyValue,
-  mergeValues,
-  type MergeMode
-} from '@/lib/settings-merge'
 import type { IdentitySetupSuggestions } from '@/lib/ai/skills/profile-setup/schema'
+import { isEmptyValue, mergeValues, type MergeMode } from '@/lib/settings-merge'
+import { useEffect, useRef, useState } from 'react'
 import { useIdentitySetupDraft, type IdentitySetupDraft } from './draft-store'
 
 type Values = Record<string, unknown>
@@ -59,7 +55,11 @@ export function useSectionPrefill<T extends Values>({
     callbacks.current = { getCurrent, setValues, suggestionValues, isBlank }
   })
 
-  const apply = (mode: MergeMode, base: T, suggestions: IdentitySetupSuggestions) => {
+  const apply = (
+    mode: MergeMode,
+    base: T,
+    suggestions: IdentitySetupSuggestions
+  ) => {
     const { setValues, suggestionValues, isBlank } = callbacks.current
     const comparable = { ...base }
     if (isBlank) {

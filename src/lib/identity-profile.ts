@@ -55,7 +55,7 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
     label: 'Company Name',
     type: 'text',
     placeholder: 'e.g. Acme AI',
-    hint: 'Optional for personal brands.'
+    hint: '(optional)'
   },
   {
     name: 'description',
@@ -90,12 +90,14 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
   {
     name: 'linkedinUrl',
     label: 'LinkedIn Profile / Page URL',
+    hint: '(optional)',
     type: 'url',
     placeholder: 'https://www.linkedin.com/in/your-name'
   },
   {
     name: 'websiteUrl',
     label: 'Website URL',
+    hint: '(optional)',
     type: 'url',
     placeholder: 'https://example.com'
   }

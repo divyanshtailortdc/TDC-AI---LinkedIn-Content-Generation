@@ -372,6 +372,38 @@ const optionalUrlInput = z
   .optional()
   .transform(value => value || undefined)
 
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform(value => value || undefined)
+
+/**
+ * Choices from Advanced analysis. Each one the user sets is treated as their
+ * own information: the model is told to use it, and applyGuidance (./guard)
+ * writes it into the result whatever the model returned.
+ */
+export const AnalysisGuidanceSchema = z.object({
+  accountType: z.enum(['personal', 'company']).optional(),
+  tone: z.enum(VOICE_PRESETS).optional(),
+  perspective: VoiceAnalysisSchema.shape.perspective.optional(),
+  formality: z.number().int().min(1).max(5).optional(),
+  emojiPolicy: VoiceAnalysisSchema.shape.emojiPolicy.optional(),
+  objectiveType: z.enum(GOAL_OBJECTIVES).optional(),
+  /** What the user wants LinkedIn to achieve, in their words. */
+  goal: optionalText(1000),
+  callToAction: optionalText(300),
+  ctaUrl: optionalUrlInput,
+  targetAudience: optionalText(1000),
+  focusTopics: optionalText(1000),
+  avoidTopics: optionalText(1000)
+})
+
+/** Every choice is optional; anything left out is up to the model. */
+export type AnalysisGuidance = Partial<z.infer<typeof AnalysisGuidanceSchema>>
+
 export const AnalyzeIdentityInputSchema = z.object({
   accountId: z.string().uuid().optional(),
   description: z
@@ -380,7 +412,8 @@ export const AnalyzeIdentityInputSchema = z.object({
     .min(1, 'Describe yourself or your business before analyzing.')
     .max(8000, 'Keep the description under 8,000 characters.'),
   linkedinUrl: optionalUrlInput,
-  websiteUrl: optionalUrlInput
+  websiteUrl: optionalUrlInput,
+  guidance: AnalysisGuidanceSchema.optional()
 })
 
 export type AnalyzeIdentityInput = z.input<typeof AnalyzeIdentityInputSchema>

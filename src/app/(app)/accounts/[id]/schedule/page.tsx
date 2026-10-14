@@ -1,8 +1,8 @@
+import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
 import { accountsTable, schedulesTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
-import { AccountHeader } from '@/components/account-header'
 import { ScheduleForm } from './schedule-form'
 
 export const dynamic = 'force-dynamic'
@@ -27,13 +27,8 @@ export default async function SchedulePage({ params }: SchedulePageProps) {
   })
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      <AccountHeader account={account} />
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <ScheduleForm accountId={account.id} initialSchedule={schedule} />
-        </div>
-      </div>
-    </div>
+    <SetupShell account={account}>
+      <ScheduleForm accountId={account.id} initialSchedule={schedule} />
+    </SetupShell>
   )
 }

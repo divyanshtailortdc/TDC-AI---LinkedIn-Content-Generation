@@ -53,7 +53,10 @@ async function findAvailableHandle(baseHandle: string, exceptId?: string) {
   while (true) {
     const existing = await db.query.accountsTable.findFirst({
       where: exceptId
-        ? and(eq(accountsTable.handle, candidate), ne(accountsTable.id, exceptId))
+        ? and(
+            eq(accountsTable.handle, candidate),
+            ne(accountsTable.id, exceptId)
+          )
         : eq(accountsTable.handle, candidate)
     })
     if (!existing) return candidate
@@ -101,7 +104,10 @@ async function upsertPrimaryOffering(accountId: string, offerings: string) {
   }
 }
 
-async function upsertPrimaryAudience(accountId: string, targetAudience: string) {
+async function upsertPrimaryAudience(
+  accountId: string,
+  targetAudience: string
+) {
   const [primaryAudience] = await db
     .select({ id: audiencesTable.id })
     .from(audiencesTable)
@@ -115,9 +121,7 @@ async function upsertPrimaryAudience(accountId: string, targetAudience: string) 
       .set({ name: targetAudience, updatedAt: new Date() })
       .where(eq(audiencesTable.id, primaryAudience.id))
   } else {
-    await db
-      .insert(audiencesTable)
-      .values({ accountId, name: targetAudience })
+    await db.insert(audiencesTable).values({ accountId, name: targetAudience })
   }
 }
 
@@ -141,6 +145,10 @@ export async function createAccount(formData: FormData) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
   const data = parsed.data
+  const accountType =
+    formData.get('accountType') === 'company'
+      ? ('company' as const)
+      : ('personal' as const)
 
   // The handle is derived from the LinkedIn URL (falling back to the name) and
   // deduplicated against existing accounts to prevent a unique constraint crash.
@@ -150,7 +158,7 @@ export async function createAccount(formData: FormData) {
 
   const accountValues = (handle: string) => ({
     name: data.name,
-    accountType: data.company ? ('company' as const) : ('personal' as const),
+    accountType,
     handle,
     headline: deriveHeadline(data),
     bio: data.description,
@@ -191,12 +199,14 @@ export async function createAccount(formData: FormData) {
   // switcher list and active identity) along with every account-scoped page.
   await writeActiveAccountCookie(account.id)
   revalidatePath('/', 'layout')
+  revalidatePath('/')
+  revalidatePath('/accounts')
   // The create page sets this when AI setup suggestions are waiting to be
   // reviewed, so the account page can pick them up.
   redirect(
     formData.get('claimAiDraft') === '1'
-      ? `/accounts/${account.id}?aiSetup=claim`
-      : `/accounts/${account.id}`
+      ? `/accounts/${account.id}/voice?aiSetup=claim`
+      : `/accounts/${account.id}/voice`
   )
 }
 

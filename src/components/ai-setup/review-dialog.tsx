@@ -1,26 +1,13 @@
 'use client'
 
 import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  CircleDashed,
-  CircleDot,
-  ExternalLink,
-  Loader2,
-  X,
-  XCircle
-} from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
-import { showToast } from '@/components/toast-notification'
-import {
   applyIdentitySetupAction,
   getIdentitySetupBaselineAction,
   type IdentitySetupBaseline,
   type SectionApplyResult
 } from '@/app/(app)/accounts/ai-setup-actions'
 import { isEmptyValue, type MergeMode } from '@/lib/settings-merge'
+import { showToast } from '@/components/toast-notification'
 import {
   EMPTY_SUGGESTIONS,
   FIELD_SPECS,
@@ -36,6 +23,19 @@ import {
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { normalizeUrlForCompare } from '@/lib/urls'
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  CircleDashed,
+  CircleDot,
+  ExternalLink,
+  Loader2,
+  X,
+  XCircle
+} from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   clearDraft,
   updateDraftSuggestions,
@@ -110,9 +110,18 @@ export function StatusChip({ status }: { status: SectionStatus }) {
 // uses, and only valid values are written back to the draft.
 // ---------------------------------------------------------------------------
 
-function parseEditorText(section: EntrySection, field: string, text: string): unknown {
+function parseEditorText(
+  section: EntrySection,
+  field: string,
+  text: string
+): unknown {
   if (field === 'pillars') return undefined
-  const spec = (FIELD_SPECS[section] as Record<string, { type: string; options?: readonly string[] }>)[field]
+  const spec = (
+    FIELD_SPECS[section] as Record<
+      string,
+      { type: string; options?: readonly string[] }
+    >
+  )[field]
   if (!spec) return text
   if (spec.type === 'scale') return text ? Number(text) : undefined
   if (spec.type === 'list') {
@@ -138,10 +147,20 @@ function commitField(
     })
     return null
   }
-  const candidate = { value, kind: 'fact' as const, source: 'edited', confidence: 'high' as const }
+  const candidate = {
+    value,
+    kind: 'fact' as const,
+    source: 'edited',
+    confidence: 'high' as const
+  }
   const schema = SECTION_SCHEMAS[section].shape as Record<
     string,
-    { safeParse: (v: unknown) => { success: boolean; error?: { issues: Array<{ message: string }> } } }
+    {
+      safeParse: (v: unknown) => {
+        success: boolean
+        error?: { issues: Array<{ message: string }> }
+      }
+    }
   >
   const result = schema[field]?.safeParse(candidate)
   if (!result?.success) {
@@ -167,15 +186,29 @@ function FieldEditor({
   value: unknown
   onValidityChange: (invalid: boolean) => void
 }) {
-  const spec = (FIELD_SPECS[section] as Record<string, { type: string; options?: readonly string[] }>)[field]
+  const spec = (
+    FIELD_SPECS[section] as Record<
+      string,
+      { type: string; options?: readonly string[] }
+    >
+  )[field]
   const [text, setText] = useState(() =>
-    Array.isArray(value) ? value.join('\n') : value === undefined ? '' : String(value)
+    Array.isArray(value)
+      ? value.join('\n')
+      : value === undefined
+        ? ''
+        : String(value)
   )
   const [error, setError] = useState<string | null>(null)
 
   const change = (next: string) => {
     setText(next)
-    const problem = commitField(draftKey, section, field, parseEditorText(section, field, next))
+    const problem = commitField(
+      draftKey,
+      section,
+      field,
+      parseEditorText(section, field, next)
+    )
     setError(problem)
     onValidityChange(problem !== null)
   }
@@ -183,7 +216,11 @@ function FieldEditor({
   let control: React.ReactNode
   if (spec?.type === 'scale') {
     control = (
-      <select value={text} onChange={e => change(e.target.value)} className={inputClass}>
+      <select
+        value={text}
+        onChange={e => change(e.target.value)}
+        className={inputClass}
+      >
         {[1, 2, 3, 4, 5].map(n => (
           <option key={n} value={n}>
             {n}
@@ -193,7 +230,11 @@ function FieldEditor({
     )
   } else if (spec?.type === 'enum') {
     control = (
-      <select value={text} onChange={e => change(e.target.value)} className={inputClass}>
+      <select
+        value={text}
+        onChange={e => change(e.target.value)}
+        className={inputClass}
+      >
         {spec.options!.map(option => (
           <option key={option} value={option}>
             {option.replace(/_/g, ' ')}
@@ -206,7 +247,10 @@ function FieldEditor({
     control = (
       <div className="flex flex-wrap gap-2">
         {spec.options.map(option => (
-          <label key={option} className="border-border inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs">
+          <label
+            key={option}
+            className="border-border inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs"
+          >
             <input
               type="checkbox"
               checked={selected.has(option)}
@@ -225,7 +269,11 @@ function FieldEditor({
   } else if (spec?.type === 'list' || LONG_TEXT_FIELDS.has(field)) {
     control = (
       <textarea
-        rows={spec?.type === 'list' ? Math.min(6, Math.max(2, text.split('\n').length)) : 3}
+        rows={
+          spec?.type === 'list'
+            ? Math.min(6, Math.max(2, text.split('\n').length))
+            : 3
+        }
         value={text}
         onChange={e => change(e.target.value)}
         className={`${inputClass} resize-y`}
@@ -233,7 +281,11 @@ function FieldEditor({
     )
   } else {
     control = (
-      <input value={text} onChange={e => change(e.target.value)} className={inputClass} />
+      <input
+        value={text}
+        onChange={e => change(e.target.value)}
+        className={inputClass}
+      />
     )
   }
 
@@ -248,7 +300,9 @@ function FieldEditor({
   )
 }
 
-type Pillar = NonNullable<IdentitySetupSuggestions['preferences']['pillars']>['value'][number]
+type Pillar = NonNullable<
+  IdentitySetupSuggestions['preferences']['pillars']
+>['value'][number]
 
 function PillarsEditor({
   draftKey,
@@ -273,11 +327,18 @@ function PillarsEditor({
   return (
     <div className="space-y-2">
       {rows.map((pillar, index) => (
-        <div key={index} className="border-border grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_5rem]">
+        <div
+          key={index}
+          className="border-border grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_5rem]"
+        >
           <input
             value={pillar.name}
             onChange={e =>
-              change(rows.map((p, i) => (i === index ? { ...p, name: e.target.value } : p)))
+              change(
+                rows.map((p, i) =>
+                  i === index ? { ...p, name: e.target.value } : p
+                )
+              )
             }
             className={inputClass}
             aria-label="Pillar name"
@@ -291,7 +352,12 @@ function PillarsEditor({
               onChange={e =>
                 change(
                   rows.map((p, i) =>
-                    i === index ? { ...p, weight_pct: Math.round(Number(e.target.value) || 0) } : p
+                    i === index
+                      ? {
+                          ...p,
+                          weight_pct: Math.round(Number(e.target.value) || 0)
+                        }
+                      : p
                   )
                 )
               }
@@ -307,7 +373,13 @@ function PillarsEditor({
               change(
                 rows.map((p, i) =>
                   i === index
-                    ? { ...p, example_topics: e.target.value.split('\n').map(t => t.trim()).filter(Boolean) }
+                    ? {
+                        ...p,
+                        example_topics: e.target.value
+                          .split('\n')
+                          .map(t => t.trim())
+                          .filter(Boolean)
+                      }
                     : p
                 )
               )
@@ -320,7 +392,9 @@ function PillarsEditor({
       <p className={`text-xs ${total === 100 ? 'text-muted' : 'text-red-500'}`}>
         Weights total {total}% (must be 100%).
       </p>
-      {error && total === 100 && <p className="text-xs text-red-500">{error}</p>}
+      {error && total === 100 && (
+        <p className="text-xs text-red-500">{error}</p>
+      )}
     </div>
   )
 }
@@ -335,12 +409,15 @@ function savedValueFor(
   field: string
 ): unknown {
   if (!baseline) return undefined
-  if (section === 'profile') return baseline.profile[field as keyof IdentitySetupBaseline['profile']]
+  if (section === 'profile')
+    return baseline.profile[field as keyof IdentitySetupBaseline['profile']]
   if (section === 'voice' && baseline.hasVoice) {
     return baseline.voice[field as keyof IdentitySetupBaseline['voice']]
   }
   if (section === 'preferences' && baseline.hasPreferences) {
-    return baseline.preferences[field as keyof IdentitySetupBaseline['preferences']]
+    return baseline.preferences[
+      field as keyof IdentitySetupBaseline['preferences']
+    ]
   }
   return undefined
 }
@@ -361,15 +438,17 @@ export function ReviewSuggestionsDialog({
   const [baseline, setBaseline] = useState<IdentitySetupBaseline | null>(null)
   const [baselineError, setBaselineError] = useState<string | null>(null)
 
-  const [include, setInclude] = useState<Record<SetupSection, boolean>>(() =>
-    Object.fromEntries(
-      SETUP_SECTIONS.map(section => [
-        section,
-        section === 'goals'
-          ? getSectionStatus(suggestions, section).state === 'ready'
-          : section !== 'knowledge' && getSectionStatus(suggestions, section).state !== 'empty'
-      ])
-    ) as Record<SetupSection, boolean>
+  const [include, setInclude] = useState<Record<SetupSection, boolean>>(
+    () =>
+      Object.fromEntries(
+        SETUP_SECTIONS.map(section => [
+          section,
+          section === 'goals'
+            ? getSectionStatus(suggestions, section).state === 'ready'
+            : section !== 'knowledge' &&
+              getSectionStatus(suggestions, section).state !== 'empty'
+        ])
+      ) as Record<SetupSection, boolean>
   )
   const [modes, setModes] = useState<Record<string, MergeMode>>({
     profile: 'fill-empty',
@@ -380,7 +459,9 @@ export function ReviewSuggestionsDialog({
   const [invalid, setInvalid] = useState<Set<string>>(new Set())
   const [applying, setApplying] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
-  const [results, setResults] = useState<Partial<Record<SetupSection, SectionApplyResult>> | null>(null)
+  const [results, setResults] = useState<Partial<
+    Record<SetupSection, SectionApplyResult>
+  > | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -389,11 +470,18 @@ export function ReviewSuggestionsDialog({
         if (cancelled) return
         if (res.success) {
           setBaseline(res.data)
-          const saved = new Set(res.data.knowledgeUrls.map(normalizeUrlForCompare))
+          const saved = new Set(
+            res.data.knowledgeUrls.map(normalizeUrlForCompare)
+          )
           setKnowledgeUrls(
             new Set(
               suggestions.knowledge.sources
-                .filter(s => s.url && s.accessible && !saved.has(normalizeUrlForCompare(s.url)))
+                .filter(
+                  s =>
+                    s.url &&
+                    s.accessible &&
+                    !saved.has(normalizeUrlForCompare(s.url))
+                )
                 .map(s => s.url!)
             )
           )
@@ -419,11 +507,16 @@ export function ReviewSuggestionsDialog({
       return next
     })
 
-  const savedKnowledge = new Set((baseline?.knowledgeUrls || []).map(normalizeUrlForCompare))
-  const blockingInvalid = [...invalid].some(key => include[key.split('.')[0] as SetupSection])
+  const savedKnowledge = new Set(
+    (baseline?.knowledgeUrls || []).map(normalizeUrlForCompare)
+  )
+  const blockingInvalid = [...invalid].some(
+    key => include[key.split('.')[0] as SetupSection]
+  )
   const selectedCount =
-    (['profile', 'voice', 'goals', 'preferences'] as const).filter(s => include[s]).length +
-    (knowledgeUrls.size > 0 ? 1 : 0)
+    (['profile', 'voice', 'goals', 'preferences'] as const).filter(
+      s => include[s]
+    ).length + (knowledgeUrls.size > 0 ? 1 : 0)
 
   const apply = async () => {
     setApplying(true)
@@ -435,7 +528,9 @@ export function ReviewSuggestionsDialog({
         sections: {
           profile: include.profile ? { mode: modes.profile! } : undefined,
           voice: include.voice ? { mode: modes.voice! } : undefined,
-          preferences: include.preferences ? { mode: modes.preferences! } : undefined,
+          preferences: include.preferences
+            ? { mode: modes.preferences! }
+            : undefined,
           goals: include.goals || undefined,
           knowledgeUrls: knowledgeUrls.size > 0 ? [...knowledgeUrls] : undefined
         }
@@ -447,7 +542,9 @@ export function ReviewSuggestionsDialog({
       setResults(res.results)
 
       // Applied sections leave the draft so forms don't prefill them again.
-      const done = (Object.entries(res.results) as Array<[SetupSection, SectionApplyResult]>)
+      const done = (
+        Object.entries(res.results) as Array<[SetupSection, SectionApplyResult]>
+      )
         .filter(([, r]) => r.status === 'applied')
         .map(([section]) => section)
       updateDraftSuggestions(accountId, s => {
@@ -456,19 +553,27 @@ export function ReviewSuggestionsDialog({
           if (section === 'knowledge') {
             next.knowledge = {
               ...s.knowledge,
-              sources: s.knowledge.sources.filter(src => !src.url || !knowledgeUrls.has(src.url))
+              sources: s.knowledge.sources.filter(
+                src => !src.url || !knowledgeUrls.has(src.url)
+              )
             }
           } else {
-            ;(next as Record<string, unknown>)[section] = EMPTY_SUGGESTIONS[section]
+            ;(next as Record<string, unknown>)[section] =
+              EMPTY_SUGGESTIONS[section]
           }
         }
         return next
       })
 
-      const failed = Object.values(res.results).filter(r => r.status === 'failed').length
+      const failed = Object.values(res.results).filter(
+        r => r.status === 'failed'
+      ).length
       showToast({
         type: failed > 0 ? 'error' : 'success',
-        title: failed > 0 ? 'Some suggestions were not applied' : 'Suggestions applied',
+        title:
+          failed > 0
+            ? 'Some suggestions were not applied'
+            : 'Suggestions applied',
         message:
           failed > 0
             ? 'See the details in the review window.'
@@ -490,19 +595,36 @@ export function ReviewSuggestionsDialog({
     ].filter(field => data[field])
 
     return fields.map(field => {
-      const item = data[field] as { value: unknown; kind: 'fact' | 'recommendation'; source?: string; confidence: 'high' | 'medium' | 'low' }
+      const item = data[field] as {
+        value: unknown
+        kind: 'fact' | 'recommendation'
+        source?: string
+        confidence: 'high' | 'medium' | 'low'
+      }
       const saved = savedValueFor(baseline, section, field)
-      const hasSaved = !isEmptyValue(saved) && formatValue(saved) !== formatValue(item.value)
+      const hasSaved =
+        !isEmptyValue(saved) && formatValue(saved) !== formatValue(item.value)
       const mode = modes[section] ?? 'fill-empty'
       const key = `${section}.${field}`
 
       return (
-        <div key={key} className="border-border/60 space-y-1.5 border-t pt-3 first:border-t-0 first:pt-0">
+        <div
+          key={key}
+          className="border-border/60 space-y-1.5 border-t pt-3 first:border-t-0 first:pt-0"
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-foreground text-xs font-semibold">
-              {field === 'pillars' ? 'Content pillars' : (FIELD_SPECS[section] as Record<string, { label: string }>)[field]?.label}
+              {field === 'pillars'
+                ? 'Content pillars'
+                : (FIELD_SPECS[section] as Record<string, { label: string }>)[
+                    field
+                  ]?.label}
             </span>
-            <ProvenanceBadge kind={item.kind} source={item.source} confidence={item.confidence} />
+            <ProvenanceBadge
+              kind={item.kind}
+              source={item.source}
+              confidence={item.confidence}
+            />
           </div>
           {field === 'pillars' ? (
             <PillarsEditor
@@ -523,12 +645,19 @@ export function ReviewSuggestionsDialog({
           )}
           {hasSaved && (
             <p className="text-muted text-[11px]">
-              Saved now: <span className="text-foreground">{formatValue(saved).slice(0, 160)}</span>
+              Saved now:{' '}
+              <span className="text-foreground">
+                {formatValue(saved).slice(0, 160)}
+              </span>
               {' — '}
               {MERGEABLE.includes(section) && mode === 'replace' ? (
-                <span className="font-semibold text-amber-600 dark:text-amber-400">will be replaced</span>
+                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                  will be replaced
+                </span>
               ) : (
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">will be kept</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  will be kept
+                </span>
               )}
             </p>
           )}
@@ -560,12 +689,16 @@ export function ReviewSuggestionsDialog({
       <div className="border-border bg-surface flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border shadow-2xl">
         <div className="border-border flex items-start justify-between gap-4 border-b p-6">
           <div>
-            <h2 id="review-ai-title" className="text-foreground text-base font-bold">
+            <h2
+              id="review-ai-title"
+              className="text-foreground text-base font-bold"
+            >
               Review AI suggestions
             </h2>
             <p className="text-muted mt-1 text-xs">
-              Edit anything below, choose what to apply, then confirm. By default
-              only empty fields are filled and your saved values are kept.
+              Edit anything below, choose what to apply, then confirm. By
+              default only empty fields are filled and your saved values are
+              kept.
             </p>
           </div>
           <button
@@ -582,7 +715,8 @@ export function ReviewSuggestionsDialog({
         <div className="space-y-5 overflow-y-auto p-6">
           {baselineError && (
             <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-              {baselineError} Saved values can&apos;t be shown, but applying still keeps them unless you choose Replace.
+              {baselineError} Saved values can&apos;t be shown, but applying
+              still keeps them unless you choose Replace.
             </p>
           )}
 
@@ -596,9 +730,13 @@ export function ReviewSuggestionsDialog({
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   )}
                   <span>
-                    <span className="text-foreground font-medium">{source.url}</span>{' '}
+                    <span className="text-foreground font-medium">
+                      {source.url}
+                    </span>{' '}
                     <span className="text-muted">
-                      {source.status === 'fetched' ? 'was read.' : `could not be read. ${source.reason ?? ''}`}
+                      {source.status === 'fetched'
+                        ? 'was read.'
+                        : `could not be read. ${source.reason ?? ''}`}
                     </span>
                   </span>
                 </p>
@@ -606,7 +744,10 @@ export function ReviewSuggestionsDialog({
               {draft.warnings.length > 0 && (
                 <details>
                   <summary className="text-muted cursor-pointer">
-                    {draft.warnings.length} AI suggestion{draft.warnings.length === 1 ? ' was' : 's were'} dropped because {draft.warnings.length === 1 ? 'it' : 'they'} could not be verified
+                    {draft.warnings.length} AI suggestion
+                    {draft.warnings.length === 1 ? ' was' : 's were'} dropped
+                    because {draft.warnings.length === 1 ? 'it' : 'they'} could
+                    not be verified
                   </summary>
                   <ul className="text-muted mt-2 list-disc space-y-1 pl-5">
                     {draft.warnings.map(w => (
@@ -622,10 +763,15 @@ export function ReviewSuggestionsDialog({
             const status = getSectionStatus(suggestions, section)
             const result = results?.[section]
             const needs = [...status.missingRequired, ...status.missingInfo]
-            const disabled = status.state === 'empty' || (section === 'goals' && status.state !== 'ready')
+            const disabled =
+              status.state === 'empty' ||
+              (section === 'goals' && status.state !== 'ready')
 
             return (
-              <section key={section} className="border-border rounded-xl border">
+              <section
+                key={section}
+                className="border-border rounded-xl border"
+              >
                 <header className="border-border flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
                   <div className="flex items-center gap-3">
                     {section !== 'knowledge' && (
@@ -634,24 +780,39 @@ export function ReviewSuggestionsDialog({
                         aria-label={`Apply ${SECTION_LABELS[section]}`}
                         checked={include[section] && !disabled}
                         disabled={disabled || applying}
-                        onChange={e => setInclude(prev => ({ ...prev, [section]: e.target.checked }))}
+                        onChange={e =>
+                          setInclude(prev => ({
+                            ...prev,
+                            [section]: e.target.checked
+                          }))
+                        }
                       />
                     )}
-                    <h3 className="text-foreground text-sm font-semibold">{SECTION_LABELS[section]}</h3>
+                    <h3 className="text-foreground text-sm font-semibold">
+                      {SECTION_LABELS[section]}
+                    </h3>
                     <StatusChip status={status} />
                   </div>
-                  {MERGEABLE.includes(section as EntrySection) && status.state !== 'empty' && (
-                    <select
-                      value={modes[section]}
-                      disabled={applying}
-                      onChange={e => setModes(prev => ({ ...prev, [section]: e.target.value as MergeMode }))}
-                      className="border-border bg-surface text-foreground rounded-lg border px-2 py-1 text-xs"
-                      aria-label={`How to apply ${SECTION_LABELS[section]}`}
-                    >
-                      <option value="fill-empty">Fill empty fields only</option>
-                      <option value="replace">Replace my saved values</option>
-                    </select>
-                  )}
+                  {MERGEABLE.includes(section as EntrySection) &&
+                    status.state !== 'empty' && (
+                      <select
+                        value={modes[section]}
+                        disabled={applying}
+                        onChange={e =>
+                          setModes(prev => ({
+                            ...prev,
+                            [section]: e.target.value as MergeMode
+                          }))
+                        }
+                        className="border-border bg-surface text-foreground rounded-lg border px-2 py-1 text-xs"
+                        aria-label={`How to apply ${SECTION_LABELS[section]}`}
+                      >
+                        <option value="fill-empty">
+                          Fill empty fields only
+                        </option>
+                        <option value="replace">Replace my saved values</option>
+                      </select>
+                    )}
                 </header>
 
                 <div className="space-y-3 p-4">
@@ -662,14 +823,23 @@ export function ReviewSuggestionsDialog({
                   {section === 'knowledge' ? (
                     <>
                       {suggestions.knowledge.sources.map(source => {
-                        const already = source.url && savedKnowledge.has(normalizeUrlForCompare(source.url))
+                        const already =
+                          source.url &&
+                          savedKnowledge.has(normalizeUrlForCompare(source.url))
                         return (
-                          <label key={`${source.title}-${source.url}`} className="flex items-start gap-3 text-xs">
+                          <label
+                            key={`${source.title}-${source.url}`}
+                            className="flex items-start gap-3 text-xs"
+                          >
                             <input
                               type="checkbox"
                               className="mt-0.5"
-                              disabled={!source.url || Boolean(already) || applying}
-                              checked={Boolean(source.url && knowledgeUrls.has(source.url))}
+                              disabled={
+                                !source.url || Boolean(already) || applying
+                              }
+                              checked={Boolean(
+                                source.url && knowledgeUrls.has(source.url)
+                              )}
                               onChange={e =>
                                 setKnowledgeUrls(prev => {
                                   const next = new Set(prev)
@@ -683,14 +853,24 @@ export function ReviewSuggestionsDialog({
                               <span className="text-foreground block font-medium">
                                 {source.title}{' '}
                                 {source.url && (
-                                  <a href={source.url} target="_blank" rel="noreferrer noopener" className="text-accent inline-flex items-center gap-0.5 font-normal">
-                                    {source.url} <ExternalLink className="h-3 w-3" />
+                                  <a
+                                    href={source.url}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="text-accent inline-flex items-center gap-0.5 font-normal"
+                                  >
+                                    {source.url}{' '}
+                                    <ExternalLink className="h-3 w-3" />
                                   </a>
                                 )}
                               </span>
                               <span className="text-muted block">
                                 {source.reason}
-                                {already ? ' Already in your knowledge base.' : !source.accessible ? ' Not read during analysis; it will be fetched when added.' : ''}
+                                {already
+                                  ? ' Already in your knowledge base.'
+                                  : !source.accessible
+                                    ? ' Not read during analysis; it will be fetched when added.'
+                                    : ''}
                               </span>
                             </span>
                           </label>
@@ -698,21 +878,35 @@ export function ReviewSuggestionsDialog({
                       })}
                       {suggestions.knowledge.facts.length > 0 && (
                         <div className="space-y-2">
-                          <p className="text-foreground text-xs font-semibold">Facts found</p>
+                          <p className="text-foreground text-xs font-semibold">
+                            Facts found
+                          </p>
                           {suggestions.knowledge.facts.map(fact => (
-                            <div key={fact.quote} className="bg-surface-hover/50 rounded-lg p-3 text-xs">
+                            <div
+                              key={fact.quote}
+                              className="bg-surface-hover/50 rounded-lg p-3 text-xs"
+                            >
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="text-foreground font-medium">{fact.statement}</span>
-                                <ProvenanceBadge kind="fact" source={fact.source} />
+                                <span className="text-foreground font-medium">
+                                  {fact.statement}
+                                </span>
+                                <ProvenanceBadge
+                                  kind="fact"
+                                  source={fact.source}
+                                />
                               </div>
-                              <p className="text-muted mt-1 italic">&ldquo;{fact.quote}&rdquo;</p>
+                              <p className="text-muted mt-1 italic">
+                                &ldquo;{fact.quote}&rdquo;
+                              </p>
                             </div>
                           ))}
                         </div>
                       )}
                       {suggestions.knowledge.suggestedAdditions.length > 0 && (
                         <div>
-                          <p className="text-foreground text-xs font-semibold">Worth adding on the Knowledge tab</p>
+                          <p className="text-foreground text-xs font-semibold">
+                            Worth adding on the Knowledge tab
+                          </p>
                           <ul className="text-muted mt-1 list-disc space-y-0.5 pl-5 text-xs">
                             {suggestions.knowledge.suggestedAdditions.map(a => (
                               <li key={a}>{a}</li>
@@ -730,9 +924,14 @@ export function ReviewSuggestionsDialog({
                       Needs more information: {needs.join('; ')}
                     </p>
                   )}
-                  {status.state === 'empty' && needs.length === 0 && !result && (
-                    <p className="text-muted text-xs">Your description didn&apos;t give enough to suggest anything here.</p>
-                  )}
+                  {status.state === 'empty' &&
+                    needs.length === 0 &&
+                    !result && (
+                      <p className="text-muted text-xs">
+                        Your description didn&apos;t give enough to suggest
+                        anything here.
+                      </p>
+                    )}
 
                   {result && (
                     <p
@@ -767,7 +966,9 @@ export function ReviewSuggestionsDialog({
 
         <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t p-4">
           <p className="text-muted text-xs">
-            {blockingInvalid ? 'Fix the highlighted values first.' : 'No generation run starts automatically.'}
+            {blockingInvalid
+              ? 'Fix the highlighted values first.'
+              : 'No generation run starts automatically.'}
           </p>
           <div className="flex items-center gap-2">
             {results ? (

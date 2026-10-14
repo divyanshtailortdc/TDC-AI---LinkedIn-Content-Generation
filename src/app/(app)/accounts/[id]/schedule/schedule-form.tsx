@@ -1,6 +1,7 @@
 'use client'
 
-import { CheckCircle2, Clock, Loader2, Save } from 'lucide-react'
+import { useStepSave } from '@/components/account-setup/setup-frame'
+import { CheckCircle2, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { saveSchedule } from './actions'
 
@@ -30,7 +31,6 @@ export function ScheduleForm({
   const [timeOfDay, setTimeOfDay] = useState<string>(
     initialSchedule?.timeOfDay || '09:00'
   )
-  const [isSaving, setIsSaving] = useState(false)
   const [savedSuccess, setSavedSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,30 +44,32 @@ export function ScheduleForm({
     }
   }
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSaving(true)
+  // Runs from the header's Save & Next; false keeps the user on this step.
+  const save = async (): Promise<boolean> => {
     setSavedSuccess(false)
     setError(null)
-    try {
-      const res = await saveSchedule(accountId, {
-        daysOfWeek: selectedDays,
-        timeOfDay,
-        enabled
-      })
-      if (res.success) {
-        setSavedSuccess(true)
-        setTimeout(() => setSavedSuccess(false), 3000)
-      } else {
-        setError(res.error || 'Failed to save schedule')
-      }
-    } finally {
-      setIsSaving(false)
+    const res = await saveSchedule(accountId, {
+      daysOfWeek: selectedDays,
+      timeOfDay,
+      enabled
+    })
+    if (!res.success) {
+      setError(res.error || 'Failed to save schedule')
+      return false
     }
+    setSavedSuccess(true)
+    return true
   }
+  useStepSave(save)
 
   return (
-    <form onSubmit={handleSave} className="space-y-6">
+    <form
+      onSubmit={e => {
+        e.preventDefault()
+        void save()
+      }}
+      className="space-y-6"
+    >
       {savedSuccess && (
         <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs font-medium text-emerald-700 dark:text-emerald-300">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
@@ -151,21 +153,6 @@ export function ScheduleForm({
             Uses the server&apos;s time zone.
           </p>
         </div>
-      </div>
-
-      <div className="flex justify-end">
-        <button
-          type="submit"
-          disabled={isSaving}
-          className="bg-accent hover:bg-accent-hover text-background inline-flex cursor-pointer items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold shadow-xs transition-colors"
-        >
-          {isSaving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Save className="h-3.5 w-3.5" />
-          )}
-          <span>Save Schedule</span>
-        </button>
       </div>
     </form>
   )
