@@ -3,7 +3,7 @@
 import { db } from '@/db'
 import { ideasTable, feedbackTable } from '@/db/schema'
 import { and, eq, inArray } from 'drizzle-orm'
-import { executeDraftingForIdea } from '~/lib/ai/draft'
+import { executeDraftingForIdea } from '~/lib/ai/pipeline/drafting-run'
 import { revalidatePath } from 'next/cache'
 import { requireActiveAccountId } from '@/lib/active-account'
 

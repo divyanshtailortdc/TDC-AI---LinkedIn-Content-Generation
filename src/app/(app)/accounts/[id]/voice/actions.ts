@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '~/db'
 import { samplePostsTable, voiceConfigsTable } from '~/db/schema'
-import { analyzeVoiceSamples } from '~/lib/ai/voice'
+import { analyzeVoiceSamples } from '~/lib/ai/skills/voice-analysis'
 
 // Every voice field is optional so a voice can be saved without an analysis.
 // A field left out keeps its saved value (or the column default on a new
@@ -33,7 +33,7 @@ const saveVoiceSchema = z.object({
     .optional(),
   emojiPolicy: z.string().trim().min(1).max(30).optional(),
   hashtagPolicy: z.string().trim().min(1).max(100).optional(),
-  // Not edited on the Voice page; AI setup (identity-setup/merge.ts) still saves
+  // Not edited on the Voice page; AI setup (settings-merge.ts) still saves
   // words to avoid through this action.
   bannedWords: z.array(z.string()).optional()
 })

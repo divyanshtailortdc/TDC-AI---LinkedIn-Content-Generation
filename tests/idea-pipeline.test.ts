@@ -7,19 +7,20 @@ import {
   findUnsupportedAbsolutes,
   validateIdea,
   type GroundingCorpus
-} from '../src/lib/ai/idea-validator'
+} from '../src/lib/ai/skills/ideation/guard'
 import {
   calculateThesisSimilarity,
   filterDiverseIdeas,
   sharesDominantTopic
 } from '../src/lib/ai/idea-diversity'
-import type { GeneratedIdeaItem } from '../src/lib/ai/schemas'
+import type { GeneratedIdeaItem } from '../src/lib/ai/skills/ideation/schema'
 import { parseHashtagPolicy } from '../src/lib/ai/hashtags'
 import { pickWeightedPillars } from '../src/lib/ai/pillars'
 import { runLinter } from '../src/lib/lint/run-linter'
 import { checkNovelty } from '../src/lib/novelty'
 import { looksLikePlaceholderPage } from '../src/lib/scraper'
-import { guardMediaBrief, type MediaBrief } from '../src/lib/media/brief'
+import { guardMediaBrief } from '../src/lib/ai/skills/media-brief/guard'
+import type { MediaBrief } from '../src/lib/ai/skills/media-brief/schema'
 
 const corpus: GroundingCorpus = {
   verifiedClaims: [

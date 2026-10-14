@@ -10,7 +10,7 @@ import {
   SECTION_LABELS,
   SETUP_SECTIONS,
   type SetupSection
-} from '@/lib/ai/identity-setup/schema'
+} from '@/lib/ai/skills/profile-setup/schema'
 import { AnalyzeWithAiDialog } from './analyze-dialog'
 import {
   clearDraft,

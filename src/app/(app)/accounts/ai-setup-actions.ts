@@ -12,9 +12,9 @@ import {
 } from '@/db/schema'
 import {
   analyzeIdentitySetup,
-  IdentitySetupError,
-  type IdentitySetupAnalysis
-} from '@/lib/ai/identity-setup/analyze'
+  IdentitySetupError
+} from '@/lib/ai/pipeline/profile-setup-run'
+import { type IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
   buildGoalPayload,
   buildPreferencesPayload,
@@ -28,15 +28,15 @@ import {
   type PreferencesValues,
   type ProfileValues,
   type VoiceValues
-} from '@/lib/ai/identity-setup/merge'
+} from '@/lib/settings-merge'
 import {
   AnalyzeIdentityInputSchema,
   fieldLabel,
   IdentitySetupSuggestionsSchema,
-  normalizeUrlForCompare,
   type AnalyzeIdentityInput,
   type SetupSection
-} from '@/lib/ai/identity-setup/schema'
+} from '@/lib/ai/skills/profile-setup/schema'
+import { normalizeUrlForCompare } from '@/lib/urls'
 import { resolvePreferences } from '@/lib/ai/context'
 import { profileFromRecords } from '@/lib/identity-profile'
 import { and, asc, eq } from 'drizzle-orm'
@@ -416,7 +416,6 @@ export async function applyIdentitySetupAction(
                   pillars: current.pillars,
                   ideasPerRun: current.ideasPerRun,
                   post_constraints: {
-                    link_placement: current.constraints.link_placement,
                     cta_required: current.constraints.cta_required
                   },
                   guardrails: current.guardrails

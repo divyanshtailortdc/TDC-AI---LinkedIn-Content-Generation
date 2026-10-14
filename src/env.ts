@@ -13,6 +13,9 @@ export const env = createEnv({
       ),
     ANTHROPIC_API_KEY: z.string().optional(),
     SERPER_API_KEY: z.string().optional(),
+    // How runs research the web: 'fixed' runs preset queries over snippets;
+    // 'agent' lets the research agent choose searches and read pages.
+    RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
     CRON_SECRET: z.string().optional()
   },
@@ -26,6 +29,7 @@ export const env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     SERPER_API_KEY: process.env.SERPER_API_KEY,
+    RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL

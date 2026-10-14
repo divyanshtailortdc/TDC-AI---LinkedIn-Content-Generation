@@ -64,6 +64,13 @@
       "when": 1791956895606,
       "tag": "0008_thin_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791958467506,
+      "tag": "0009_goals_link_strategy",
+      "breakpoints": true
     }
   ]
 }

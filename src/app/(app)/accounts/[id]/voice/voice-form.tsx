@@ -23,8 +23,8 @@ import { parseHashtagPolicy } from '~/lib/ai/hashtags'
 import {
   voiceSuggestionValues,
   type VoiceValues
-} from '~/lib/ai/identity-setup/merge'
-import { WRITING_STYLES } from '~/lib/ai/schemas'
+} from '~/lib/settings-merge'
+import { WRITING_STYLES } from '~/lib/ai/skills/voice-analysis/schema'
 import { saveVoiceConfigAction } from './actions'
 
 interface VoiceFormProps {

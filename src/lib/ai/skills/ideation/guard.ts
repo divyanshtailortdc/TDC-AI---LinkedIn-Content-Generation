@@ -1,4 +1,8 @@
-import type { GeneratedIdeaItem } from './schemas'
+import type {
+  CorpusEvidenceSource,
+  GeneratedIdeaItem,
+  IdeaGenerationItem
+} from './schema'
 
 /**
  * Grounding checks for generated ideas.
@@ -27,7 +31,8 @@ export interface GroundingCorpus {
 
 export interface ClaimVerificationDetail {
   claim: string
-  section: 'thesis' | 'hookConcept' | 'coreArgument' | 'whyNow' | 'supportingEvidence'
+  section:
+    'thesis' | 'hookConcept' | 'coreArgument' | 'whyNow' | 'supportingEvidence'
   support: 'direct' | 'inferred' | 'unsupported'
   matchedSourceId?: string
   matchedSourceTitle?: string
@@ -89,16 +94,34 @@ export function extractNumbers(text: string): string[] {
  * First-person claims about specific events the model has no way to know.
  * These are reported, never rewritten.
  */
-const FABRICATED_ANECDOTE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\b(?:we|i)\s+(?:discovered|realized|found)\s+that\b/i, label: 'invented discovery' },
-  { pattern: /\b(?:we|i)\s+worked\s+with\b/i, label: 'invented engagement' },
-  { pattern: /\bi\s+spoke\s+(?:to|with)\b/i, label: 'invented conversation' },
-  { pattern: /\ba\s+(?:customer|client)\s+(?:once\s+)?(?:told|said|shared|confessed)\b/i, label: 'invented customer quote' },
-  { pattern: /\bone\s+of\s+(?:our|my)\s+(?:customers|clients)\b/i, label: 'invented named customer' },
-  { pattern: /\b(?:we|i)\s+crossed\s+\d/i, label: 'invented milestone' },
-  { pattern: /\b(?:last\s+week|yesterday|this\s+morning)\b.{0,40}\b(?:i|we)\b/i, label: 'invented recent event' },
-  { pattern: /\bi\s+watched\s+(?:a|an|the)\s+\w+/i, label: 'invented observation' }
-]
+const FABRICATED_ANECDOTE_PATTERNS: Array<{ pattern: RegExp; label: string }> =
+  [
+    {
+      pattern: /\b(?:we|i)\s+(?:discovered|realized|found)\s+that\b/i,
+      label: 'invented discovery'
+    },
+    { pattern: /\b(?:we|i)\s+worked\s+with\b/i, label: 'invented engagement' },
+    { pattern: /\bi\s+spoke\s+(?:to|with)\b/i, label: 'invented conversation' },
+    {
+      pattern:
+        /\ba\s+(?:customer|client)\s+(?:once\s+)?(?:told|said|shared|confessed)\b/i,
+      label: 'invented customer quote'
+    },
+    {
+      pattern: /\bone\s+of\s+(?:our|my)\s+(?:customers|clients)\b/i,
+      label: 'invented named customer'
+    },
+    { pattern: /\b(?:we|i)\s+crossed\s+\d/i, label: 'invented milestone' },
+    {
+      pattern:
+        /\b(?:last\s+week|yesterday|this\s+morning)\b.{0,40}\b(?:i|we)\b/i,
+      label: 'invented recent event'
+    },
+    {
+      pattern: /\bi\s+watched\s+(?:a|an|the)\s+\w+/i,
+      label: 'invented observation'
+    }
+  ]
 
 export function detectFabricatedAnecdote(
   text: string,
@@ -207,7 +230,8 @@ export function checkClaimDirectSupport(
 
     const sourceNumbers = extractNumbers(sourceText)
     const numbersMatch =
-      claimNumbers.length > 0 && claimNumbers.every(n => sourceNumbers.includes(n))
+      claimNumbers.length > 0 &&
+      claimNumbers.every(n => sourceNumbers.includes(n))
     const ratio = overlapRatio(normClaim, sourceText)
 
     if (numbersMatch && ratio >= 0.45) {
@@ -226,7 +250,8 @@ export function checkClaimDirectSupport(
   if (best) return best
 
   // A figure with no matching source is the failure mode worth catching.
-  if (claimNumbers.length > 0) return { support: 'unsupported', confidence: 0.1 }
+  if (claimNumbers.length > 0)
+    return { support: 'unsupported', confidence: 0.1 }
 
   // Reasoning that introduces no new facts is interpretation, not fabrication.
   return { support: 'inferred', confidence: 0.6 }
@@ -329,7 +354,8 @@ export function validateIdea(
     })
     if (check.support === 'direct') {
       directClaims.push(text)
-      if (check.matchedSource?.sourceId) sourceIds.push(check.matchedSource.sourceId)
+      if (check.matchedSource?.sourceId)
+        sourceIds.push(check.matchedSource.sourceId)
     } else if (check.support === 'inferred') {
       inferredClaims.push(text)
     } else {
@@ -357,7 +383,8 @@ export function validateIdea(
         sourceId: check.matchedSource.sourceId,
         confidence: Math.max(ev.confidence, 0.9)
       })
-      if (check.matchedSource.sourceId) sourceIds.push(check.matchedSource.sourceId)
+      if (check.matchedSource.sourceId)
+        sourceIds.push(check.matchedSource.sourceId)
       continue
     }
 
@@ -379,7 +406,8 @@ export function validateIdea(
   idea.supportingEvidence = keptEvidence
 
   // 7. Scores
-  const scored = directClaims.length + inferredClaims.length + unsupportedClaims.length
+  const scored =
+    directClaims.length + inferredClaims.length + unsupportedClaims.length
   const coverage =
     scored === 0
       ? 0
@@ -393,9 +421,11 @@ export function validateIdea(
   let originalityScore = 80
   if (idea.noveltyNote && idea.noveltyNote.length > 40) originalityScore += 8
   if (absolutes.length > 0) originalityScore -= 10
-  if (/delve|game-changer|leverage|unlock|fast-paced world/i.test(
+  if (
+    /delve|game-changer|leverage|unlock|fast-paced world/i.test(
       `${idea.hookConcept} ${idea.coreArgument}`
-    )) {
+    )
+  ) {
     originalityScore -= 25
     issues.push('The hook or argument leans on buzzword filler.')
   }
@@ -425,5 +455,64 @@ export function validateIdea(
     hasFabricatedAnecdote,
     hasUnsupportedNumbers,
     claimDetails
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Citations: the model cites evidence by label; sources come from the corpus
+// ---------------------------------------------------------------------------
+
+/** Parses "E3", "e3" or "[E3]" into a zero-based corpus index. */
+export function parseEvidenceRef(ref: string | undefined): number | null {
+  const match = /E\s*(\d+)/i.exec(ref || '')
+  if (!match) return null
+  const index = Number(match[1]) - 1
+  return index >= 0 ? index : null
+}
+
+/**
+ * Expands a generated idea into the full item. Source details come from the
+ * corpus entry the model cited, never from the model's own typing. A citation
+ * that points outside the corpus keeps its claim but gets no source, so the
+ * validator judges it on the text alone.
+ */
+export function resolveGeneratedIdea(
+  generated: IdeaGenerationItem,
+  corpus: CorpusEvidenceSource[]
+): GeneratedIdeaItem {
+  return {
+    title: generated.title,
+    thesis: generated.thesis,
+    perspectiveAngle: generated.perspectiveAngle,
+    angle: generated.angle,
+    pillar: generated.pillar,
+    format: generated.format,
+    whyNow: generated.whyNow,
+    hookConcept: generated.hookConcept,
+    coreArgument: generated.coreArgument,
+    audienceTakeaway: generated.audienceTakeaway,
+    supportingEvidence: (generated.supportingEvidence || []).map(ev => {
+      const index = parseEvidenceRef(ev.evidenceRef)
+      const source = index === null ? undefined : corpus[index]
+      return {
+        claim: ev.claim,
+        factType: 'verified' as const,
+        sourceId: source?.sourceId,
+        sourceUrl: source?.sourceUrl,
+        sourceTitle: source?.sourceTitle,
+        quote: source?.quote,
+        // Confidence is decided by the validator's grounding check.
+        confidence: 0.9
+      }
+    }),
+    suggestedMedia: { mode: 'none', brief: generated.mediaBrief },
+    noveltyNote: generated.noveltyNote,
+    estimatedStrength: generated.estimatedStrength,
+    // Recomputed by validateIdea; placeholders until then.
+    groundingScore: 0,
+    originalityScore: 0,
+    unsupportedClaims: [],
+    sourceIds: [],
+    risks: generated.risks || []
   }
 }

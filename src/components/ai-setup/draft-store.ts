@@ -1,11 +1,11 @@
 'use client'
 
 import { useSyncExternalStore } from 'react'
-import type { IdentitySetupAnalysis } from '@/lib/ai/identity-setup/analyze'
+import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
   IdentitySetupSuggestionsSchema,
   type IdentitySetupSuggestions
-} from '@/lib/ai/identity-setup/schema'
+} from '@/lib/ai/skills/profile-setup/schema'
 
 /**
  * Unsaved AI setup suggestions, kept in the browser until the user applies or

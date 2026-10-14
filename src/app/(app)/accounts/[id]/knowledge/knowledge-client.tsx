@@ -7,9 +7,9 @@ import {
 import { ProvenanceBadge } from '@/components/ai-setup/prefill-banner'
 import { showToast } from '@/components/toast-notification'
 import {
-  EMPTY_SUGGESTIONS,
-  normalizeUrlForCompare
-} from '@/lib/ai/identity-setup/schema'
+  EMPTY_SUGGESTIONS
+} from '@/lib/ai/skills/profile-setup/schema'
+import { normalizeUrlForCompare } from '@/lib/urls'
 import {
   BookOpen,
   CheckCircle2,

@@ -3,10 +3,11 @@
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
+import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
 import {
   goalSuggestionValues,
   type GoalValues
-} from '@/lib/ai/identity-setup/merge'
+} from '@/lib/settings-merge'
 import {
   Compass,
   Edit2,
@@ -14,14 +15,17 @@ import {
   Loader2,
   MessageSquare,
   Plus,
+  Sparkles,
   Target,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import {
   createGoal,
   deleteGoal,
+  suggestGoalsAction,
   toggleGoalActive,
   updateGoal,
   type GoalPayload
@@ -78,6 +82,8 @@ export function GoalsClient({
   // The goal being edited is already on screen in the form; listing it again
   // below would show it twice. Update and Cancel clear this, restoring the list.
   const isEditing = editingGoalId !== null
+  const [suggestions, setSuggestions] = useState<GoalSuggestion[] | null>(null)
+  const [isSuggesting, setIsSuggesting] = useState(false)
 
   // An AI setup goal opens the New Goal form prefilled; saving creates a new
   // goal, so existing goals are never touched.
@@ -88,7 +94,8 @@ export function GoalsClient({
       objectiveType,
       keyMessage,
       desiredAction,
-      targetUrl
+      targetUrl,
+      linkStrategy
     }),
     setValues: next => {
       setEditingGoalId(null)
@@ -98,10 +105,12 @@ export function GoalsClient({
       if (next.keyMessage !== undefined) setKeyMessage(next.keyMessage)
       if (next.desiredAction !== undefined) setDesiredAction(next.desiredAction)
       if (next.targetUrl !== undefined) setTargetUrl(next.targetUrl)
+      if (next.linkStrategy !== undefined) setLinkStrategy(next.linkStrategy)
     },
     suggestionValues: s => goalSuggestionValues(s.goals),
-    // An untouched form's preset objective is just a default.
-    isBlank: key => key === 'objectiveType' && !title.trim()
+    // An untouched form's preset objective and placement are just defaults.
+    isBlank: key =>
+      (key === 'objectiveType' || key === 'linkStrategy') && !title.trim()
   })
 
   const resetForm = () => {
@@ -112,6 +121,39 @@ export function GoalsClient({
     setTargetUrl('')
     setLinkStrategy('first_comment')
     setEditingGoalId(null)
+  }
+
+  const handleSuggest = async () => {
+    setIsSuggesting(true)
+    setError(null)
+    try {
+      const result = await suggestGoalsAction(accountId)
+      if (result.success) {
+        setSuggestions(result.suggestions)
+      } else {
+        showToast({
+          type: 'error',
+          title: 'No Suggestions',
+          message: result.error
+        })
+      }
+    } finally {
+      setIsSuggesting(false)
+    }
+  }
+
+  // Fills the New Goal form; nothing is saved until the user clicks Save Goal.
+  const handleUseSuggestion = (suggestion: GoalSuggestion) => {
+    resetForm()
+    setTitle(suggestion.title)
+    setObjectiveType(suggestion.objectiveType)
+    setKeyMessage(suggestion.keyMessage)
+    setDesiredAction(suggestion.desiredAction || '')
+    setTargetUrl(suggestion.targetUrl || '')
+    setError(null)
+    setSuggestions(null)
+    setShowNewGoal(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -260,19 +302,36 @@ export function GoalsClient({
             land.
           </p>
         </div>
-        {!showNewGoal && (
-          <button
-            type="button"
-            onClick={() => {
-              resetForm()
-              setShowNewGoal(true)
-            }}
-            className="bg-accent hover:bg-accent-hover text-background flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            New Goal
-          </button>
-        )}
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {!isEditing && (
+            <button
+              type="button"
+              onClick={handleSuggest}
+              disabled={isSuggesting}
+              className="border-border bg-surface text-foreground hover:bg-surface-hover flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isSuggesting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="text-accent h-4 w-4" />
+              )}
+              {isSuggesting ? 'Suggesting…' : 'Suggest Goals'}
+            </button>
+          )}
+          {!showNewGoal && (
+            <button
+              type="button"
+              onClick={() => {
+                resetForm()
+                setShowNewGoal(true)
+              }}
+              className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              New Goal
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -286,6 +345,70 @@ export function GoalsClient({
         prefill={prefill}
         note="Saving creates a new goal. Your existing goals are not changed."
       />
+
+      {/* Suggested goals — picking one only fills the form */}
+      {suggestions && !isEditing && (
+        <div className="border-border bg-surface space-y-4 rounded-xl border p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+                <Sparkles className="text-accent h-4 w-4" />
+                Suggested Goals
+              </h2>
+              <p className="text-muted mt-1 text-xs">
+                Based on your saved profile. Pick one to fill the form, then
+                review it and save.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuggestions(null)}
+              aria-label="Dismiss suggestions"
+              className="text-muted hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {suggestions.map(s => (
+              <div
+                key={s.title}
+                className="border-border bg-surface-hover/40 flex flex-col gap-3 rounded-lg border p-4"
+              >
+                <span className="bg-accent/10 text-accent self-start rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+                  {OBJECTIVES.find(
+                    o => o.value === s.objectiveType
+                  )?.label.split(' (')[0] ?? s.objectiveType}
+                </span>
+                <p className="text-foreground text-sm font-semibold">
+                  {s.title}
+                </p>
+                <p className="text-muted text-xs leading-relaxed">
+                  {s.keyMessage}
+                </p>
+                {s.desiredAction && (
+                  <p className="text-muted text-xs">
+                    <span className="text-foreground font-medium">CTA:</span>{' '}
+                    {s.desiredAction}
+                  </p>
+                )}
+                {s.basedOn && (
+                  <p className="text-muted text-[11px]">
+                    Based on: {s.basedOn}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleUseSuggestion(s)}
+                  className="border-border text-foreground hover:bg-surface-hover mt-auto rounded-lg border px-3 py-1.5 text-xs font-medium"
+                >
+                  Use This Goal
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* New Goal Form */}
       {showNewGoal && (

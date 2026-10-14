@@ -5,8 +5,8 @@ import {
   isEmptyValue,
   mergeValues,
   type MergeMode
-} from '@/lib/ai/identity-setup/merge'
-import type { IdentitySetupSuggestions } from '@/lib/ai/identity-setup/schema'
+} from '@/lib/settings-merge'
+import type { IdentitySetupSuggestions } from '@/lib/ai/skills/profile-setup/schema'
 import { useIdentitySetupDraft, type IdentitySetupDraft } from './draft-store'
 
 type Values = Record<string, unknown>

@@ -5,8 +5,8 @@ import type {
   CONFIDENCE,
   PROVENANCE,
   SetupSection
-} from '@/lib/ai/identity-setup/schema'
-import { fieldLabel } from '@/lib/ai/identity-setup/schema'
+} from '@/lib/ai/skills/profile-setup/schema'
+import { fieldLabel } from '@/lib/ai/skills/profile-setup/schema'
 import type { SectionPrefill } from './use-section-prefill'
 
 /** Shows whether a value came from the user's own material or is a suggestion. */

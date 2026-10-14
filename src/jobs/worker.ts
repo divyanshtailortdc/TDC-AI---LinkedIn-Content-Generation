@@ -1,7 +1,7 @@
 import { db } from '@/db'
 import { runsTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { executeResearchAndIdeate } from '~/lib/ai/research-ideate'
+import { executeResearchAndIdeate } from '~/lib/ai/pipeline/ideation-run'
 import { claimNextQueuedRun } from './queue'
 
 declare global {

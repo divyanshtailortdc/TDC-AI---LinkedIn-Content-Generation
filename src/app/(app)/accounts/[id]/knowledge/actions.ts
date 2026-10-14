@@ -3,7 +3,7 @@
 import { db } from '@/db'
 import { knowledgeDocumentsTable } from '@/db/schema'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
-import { extractKnowledgeClaims } from '@/lib/ai/knowledge-extractor'
+import { extractKnowledgeClaims } from '@/lib/ai/skills/knowledge-extraction'
 import { indexKnowledgeDocument } from '@/lib/ai/embeddings'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -16,7 +16,7 @@ export async function fetchUrlPreview(url: string) {
       return {
         success: false,
         error:
-          'That URL returned an error or placeholder page rather than an article. Check the link, or paste the text in as an artifact instead.',
+          'That URL 99returned an error or placeholder page rather than an article. Check the link, or paste the text in as an artifact instead.',
       }
     }
 

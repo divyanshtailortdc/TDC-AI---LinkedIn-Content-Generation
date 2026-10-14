@@ -6,7 +6,7 @@ import { showToast } from '@/components/toast-notification'
 import {
   preferencesSuggestionValues,
   type PreferencesValues
-} from '@/lib/ai/identity-setup/merge'
+} from '@/lib/settings-merge'
 import {
   FileText,
   Loader2,
@@ -103,7 +103,6 @@ export function PreferencesForm({
         ...p,
         example_topics: splitList(topicsInputs[i] || '')
       })),
-      linkPlacement: constraints.link_placement,
       bannedTopics: splitList(bannedTopicsInput),
       complianceNotes
     }),
@@ -111,10 +110,6 @@ export function PreferencesForm({
       if (next.pillars !== undefined) {
         setPillars(next.pillars)
         setTopicsInputs(next.pillars.map(p => (p.example_topics || []).join(', ')))
-      }
-      if (next.linkPlacement) {
-        const linkPlacement = next.linkPlacement
-        setConstraints(prev => ({ ...prev, link_placement: linkPlacement }))
       }
       if (next.bannedTopics !== undefined)
         setBannedTopicsInput(next.bannedTopics.join(', '))

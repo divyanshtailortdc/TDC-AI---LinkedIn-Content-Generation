@@ -10,15 +10,13 @@ import {
   profileSuggestionValues,
   voiceSuggestionValues,
   voiceValuesFromConfig
-} from '../src/lib/ai/identity-setup/merge'
+} from '../src/lib/settings-merge'
 import {
   getSectionStatus,
   hasAnySuggestion,
-  IdentitySetupSuggestionsSchema,
-  normalizeWeights,
-  sanitizeIdentitySetup,
-  type SanitizeContext
-} from '../src/lib/ai/identity-setup/schema'
+  IdentitySetupSuggestionsSchema
+} from '../src/lib/ai/skills/profile-setup/schema'
+import { normalizeWeights, sanitizeIdentitySetup, type SanitizeContext } from '../src/lib/ai/skills/profile-setup/guard'
 import { IdentityProfileSchema } from '../src/lib/identity-profile'
 import {
   isPrivateAddress,
@@ -84,15 +82,13 @@ function fullModelOutput() {
         entry('keyMessage', 'Month-end close should take days, not weeks.'),
         entry('desiredAction', 'Book a call'),
         entry('targetUrl', 'https://calendly.com/ledgerly'),
+        entry('linkStrategy', 'body'),
         entry('objectiveType', 'lead_gen')
       ],
       missing: ['Booking link']
     },
     preferences: {
-      fields: [
-        entry('linkPlacement', 'first_comment'),
-        entry('bannedTopics', 'tax evasion')
-      ],
+      fields: [entry('bannedTopics', 'tax evasion')],
       pillars: [
         { name: 'Close faster', weightPct: 50, topics: ['Month-end'] },
         { name: 'D2C finance', weightPct: 30, topics: [] },
@@ -225,13 +221,18 @@ describe('sanitizeIdentitySetup: partial and incorrect output', () => {
     // Regression: a live run returned link placement as "first comment".
     const { suggestions, warnings } = sanitizeIdentitySetup(
       {
-        preferences: { fields: [entry('linkPlacement', 'First comment')] },
         voice: { fields: [entry('emojiPolicy', 'bullets_only')] },
-        goals: { fields: [entry('objectiveType', 'lead-gen')] }
+        goals: {
+          fields: [
+            entry('objectiveType', 'lead-gen'),
+            entry('targetUrl', 'https://ledgerly.in'),
+            entry('linkStrategy', 'First comment')
+          ]
+        }
       },
       context
     )
-    assert.strictEqual(suggestions.preferences.linkPlacement?.value, 'first_comment')
+    assert.strictEqual(suggestions.goals.linkStrategy?.value, 'first_comment')
     assert.strictEqual(suggestions.voice.emojiPolicy?.value, 'bullets only')
     assert.strictEqual(suggestions.goals.objectiveType?.value, 'lead_gen')
     assert.deepStrictEqual(warnings, [])
@@ -348,7 +349,7 @@ describe('mergeValues: existing data is preserved', () => {
   it('keeps saved preferences and only adds what is empty', () => {
     const row = {
       pillars: [{ name: 'My pillar', weight_pct: 100 }],
-      postConstraints: { link_placement: 'body' as const, cta_required: false },
+      postConstraints: { cta_required: false },
       guardrails: { banned_topics: [], compliance_notes: '' }
     }
     const merged = mergeValues(
@@ -366,7 +367,6 @@ describe('mergeValues: existing data is preserved', () => {
       merged.values
     )
     assert.deepStrictEqual(payload.pillars, row.pillars)
-    assert.strictEqual(payload.post_constraints.link_placement, 'body')
     assert.strictEqual(payload.post_constraints.cta_required, false)
     assert.strictEqual(payload.ideasPerRun, 8)
     assert.deepStrictEqual(payload.guardrails.banned_topics, ['tax evasion'])
@@ -408,7 +408,7 @@ describe('applying suggestions', () => {
       {
         pillars: [],
         ideasPerRun: 5,
-        post_constraints: { link_placement: 'first_comment', cta_required: true },
+        post_constraints: { cta_required: true },
         guardrails: { banned_topics: [], compliance_notes: '' }
       },
       merged.values
@@ -423,6 +423,8 @@ describe('applying suggestions', () => {
     assert.ok('payload' in built)
     assert.strictEqual(built.payload.objectiveType, 'lead_gen')
     assert.strictEqual(built.payload.targetUrl, undefined)
+    // The suggested placement went with the link the user never provided.
+    assert.strictEqual(built.payload.linkStrategy, 'first_comment')
 
     const incomplete = buildGoalPayload({ title: suggestions.goals.title, missing: [] })
     assert.ok('missing' in incomplete)

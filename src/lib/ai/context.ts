@@ -250,6 +250,12 @@ export function renderIdentityBlock(ctx: GenerationContext): string {
     for (const o of ctx.offerings) {
       const parts = [`- ${o.name} (${o.type})`]
       if (o.tagline) parts.push(`  Tagline: ${o.tagline}`)
+      // The profile's offerings text lives here, one offering per line; the
+      // name is only its first line.
+      const details = o.description?.trim()
+      if (details && details !== o.name.trim()) {
+        parts.push(`  Details: ${details.replace(/\n+/g, '\n    ')}`)
+      }
       if (o.whoItIsFor) parts.push(`  For: ${o.whoItIsFor}`)
       if (o.problemSolved) parts.push(`  Problem solved: ${o.problemSolved}`)
       const diff = list(o.differentiators)

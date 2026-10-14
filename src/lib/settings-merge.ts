@@ -2,13 +2,13 @@ import type { GoalPayload } from '@/app/(app)/accounts/[id]/goals/actions'
 import type { PreferencesPayload } from '@/app/(app)/accounts/[id]/preferences/actions'
 import type { SaveVoiceInput } from '@/app/(app)/accounts/[id]/voice/actions'
 import type { ContentPillar, Guardrails, PostConstraints } from '@/db/schema'
-import type { IdentityProfileField } from '@/lib/identity-profile'
 import type {
   GoalSuggestions,
   PreferencesSuggestions,
   ProfileSuggestions,
   VoiceSuggestions
-} from './schema'
+} from '@/lib/ai/skills/profile-setup/schema'
+import type { IdentityProfileField } from '@/lib/identity-profile'
 
 /**
  * Merging AI suggestions into what an account already has.
@@ -169,6 +169,7 @@ export type GoalValues = {
   keyMessage: string
   desiredAction: string
   targetUrl: string
+  linkStrategy: GoalPayload['linkStrategy']
 }
 
 export const EMPTY_GOAL_VALUES: GoalValues = {
@@ -176,7 +177,8 @@ export const EMPTY_GOAL_VALUES: GoalValues = {
   objectiveType: 'authority',
   keyMessage: '',
   desiredAction: '',
-  targetUrl: ''
+  targetUrl: '',
+  linkStrategy: 'first_comment'
 }
 
 export function goalSuggestionValues(
@@ -200,7 +202,8 @@ export function buildGoalPayload(
       objectiveType: values.objectiveType,
       keyMessage: values.keyMessage,
       desiredAction: values.desiredAction || undefined,
-      targetUrl: values.targetUrl || undefined
+      targetUrl: values.targetUrl || undefined,
+      linkStrategy: values.linkStrategy
     }
   }
 }
@@ -209,10 +212,12 @@ export function buildGoalPayload(
 // Preferences
 // ---------------------------------------------------------------------------
 
-/** The preference settings AI setup suggests; ideas per run and CTA are left alone. */
+/**
+ * The preference settings AI setup suggests; ideas per run and CTA are left
+ * alone, and link placement is suggested with the goal it belongs to.
+ */
 export type PreferencesValues = {
   pillars: ContentPillar[]
-  linkPlacement: '' | PostConstraints['link_placement']
   bannedTopics: string[]
   complianceNotes: string
 }
@@ -230,7 +235,6 @@ export function preferencesValuesFromRow(
 ): PreferencesValues {
   return {
     pillars: Array.isArray(row?.pillars) ? row.pillars : [],
-    linkPlacement: row?.postConstraints?.link_placement || '',
     bannedTopics: row?.guardrails?.banned_topics || [],
     complianceNotes: row?.guardrails?.compliance_notes || ''
   }
@@ -254,11 +258,7 @@ export function buildPreferencesPayload(
   return {
     pillars: values.pillars,
     ideasPerRun: current.ideasPerRun,
-    post_constraints: {
-      ...current.post_constraints,
-      link_placement:
-        values.linkPlacement || current.post_constraints.link_placement
-    },
+    post_constraints: current.post_constraints,
     guardrails: {
       banned_topics: values.bannedTopics,
       compliance_notes: values.complianceNotes

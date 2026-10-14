@@ -3,7 +3,7 @@
 import { AlertCircle, Loader2, RotateCcw, Sparkles, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { analyzeIdentitySetupAction } from '@/app/(app)/accounts/ai-setup-actions'
-import type { IdentitySetupAnalysis } from '@/lib/ai/identity-setup/analyze'
+import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 
 const EXAMPLE_DESCRIPTION = `I'm Priya Rao, founder of Ledgerly, a bookkeeping and month-end close service for direct-to-consumer brands in India. We work with founders doing ₹5–50 Cr in revenue who are tired of waiting three weeks for their numbers.
 

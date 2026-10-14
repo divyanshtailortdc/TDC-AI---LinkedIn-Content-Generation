@@ -14,7 +14,7 @@ import {
   type IdentityValues
 } from '@/components/identity-fields'
 import { PageHeader } from '@/components/page-header'
-import { profileSuggestionValues } from '@/lib/ai/identity-setup/merge'
+import { profileSuggestionValues } from '@/lib/settings-merge'
 import { EMPTY_PROFILE } from '@/lib/identity-profile'
 import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'
 import Link from 'next/link'

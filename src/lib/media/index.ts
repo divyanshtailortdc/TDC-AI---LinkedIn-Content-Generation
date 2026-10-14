@@ -8,16 +8,14 @@ import {
   readImageCost,
   type CallUsage
 } from '~/lib/ai/usage'
+import { guardMediaBrief } from '~/lib/ai/skills/media-brief/guard'
 import {
   deriveMediaBrief,
-  guardMediaBrief,
   type BriefGuardResult,
   type EvidenceSource,
   type MediaBrief,
   type VisualType
-} from './brief'
-
-export * from './brief'
+} from '~/lib/ai/skills/media-brief'
 
 export interface MediaPlanRequest {
   mode: 'ai_generated' | 'stock' | 'none'

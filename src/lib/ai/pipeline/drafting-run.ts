@@ -9,57 +9,33 @@ import {
   runsTable
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { generateText, NoObjectGeneratedError, Output } from 'ai'
+import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import {
-  addUsage,
-  EMPTY_USAGE,
-  EPHEMERAL_CACHE,
-  getLanguageModel,
-  readCallUsage,
-  type CallUsage
-} from '~/lib/ai'
-import { refreshRunTotals } from './run-accounting'
+  runLinter,
+  type LintFinding,
+  type LintOptions
+} from '~/lib/lint/run-linter'
+import { createMediaPlan } from '~/lib/media'
 import {
   collectBannedWords,
-  describeHashtags,
   loadGenerationContext,
-  renderAudienceBlock,
-  renderConstraintsBlock,
-  resolveLinkPlacement,
-  renderGoalBlock,
-  renderGuardrailsBlock,
-  renderIdentityBlock,
-  renderVoiceBlock,
-  type GenerationContext
-} from './context'
-import { DraftGenerationSchema, type DraftGenerationResult } from './schemas'
-import { runLinter, type LintFinding, type LintOptions } from '~/lib/lint/run-linter'
-import { createMediaPlan } from '~/lib/media'
+  resolveLinkPlacement
+} from '../context'
+import { refreshRunTotals } from '../run-accounting'
+import { SkillError } from '../run-skill'
+import { writeDraft, type DraftGenerationResult } from '../skills/post-drafting'
+
+/**
+ * A run's second half, per approved idea: run the post-drafting skill, lint
+ * the draft against the platform rules (with one revision pass when a
+ * blocking rule fails), plan the image, and save the draft for review.
+ */
 
 export interface DraftPostResult {
   draftId: string
   charCount: number
   lintErrorsCount: number
   status: string
-}
-
-/** The exemplars that teach rhythm better than any slider can. */
-function renderExemplars(ctx: GenerationContext): string {
-  const exemplars = ctx.samplePosts
-    .slice()
-    .sort((a, b) => Number(b.performedWell) - Number(a.performedWell))
-    .slice(0, 4)
-
-  if (exemplars.length === 0) return ''
-
-  return exemplars
-    .map((s, i) => {
-      const label = s.performedWell
-        ? `Example ${i + 1} (performed well${s.engagementNote ? `: ${s.engagementNote}` : ''})`
-        : `Example ${i + 1}`
-      return `${label}:\n"""\n${s.content}\n"""`
-    })
-    .join('\n\n')
 }
 
 export async function executeDraftingForIdea(
@@ -76,9 +52,7 @@ export async function executeDraftingForIdea(
   })
 
   const constraints = ctx.prefs.constraints
-  const goal = ctx.primaryGoal
-  const linkPlacement = resolveLinkPlacement(goal)
-  const goalLink = goal?.targetUrl || null
+  const linkPlacement = resolveLinkPlacement(ctx.primaryGoal)
 
   const draftStart = Date.now()
   const [draftStep] = runId
@@ -112,117 +86,6 @@ export async function executeDraftingForIdea(
   let draftUsage: CallUsage = EMPTY_USAGE
   let revisionUsage: CallUsage = EMPTY_USAGE
 
-  const exemplars = renderExemplars(ctx)
-  const guardrails = renderGuardrailsBlock(ctx)
-
-  /**
-   * Everything stable for this account and goal goes in one block so it can be
-   * cached. Every draft after the first in a run reads this prefix instead of
-   * paying for it again.
-   */
-  const stableSystem = `You are a ghostwriter producing a finished LinkedIn post for one specific author. You write in their voice, not yours, and you never invent facts.
-
-AUTHOR
-${renderIdentityBlock(ctx)}
-
-READER
-${renderAudienceBlock(ctx)}
-
-GOAL THIS POST SERVES
-${renderGoalBlock(goal)}
-
-VOICE — match this precisely
-${renderVoiceBlock(ctx)}
-
-PLATFORM AND FORMAT RULES
-${renderConstraintsBlock(ctx)}
-${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
-
-TRUTH RULES
-- Use only the evidence supplied with the idea. If a number is not in that evidence, do not write a number.
-- Never claim first-hand experience that is not in the evidence.
-- Write plain text. Real line breaks, no markdown of any kind.
-${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
-
-  const ideaBrief = `Write the post for this approved idea.
-
-Title: ${idea.title}
-Thesis: ${idea.thesis || ''}
-Angle: ${idea.angle || ''}
-Why now: ${idea.whyNow || ''}
-Hook concept (turn this into real copy, do not copy it verbatim): ${idea.hookConcept || idea.hook}
-Core argument: ${idea.coreArgument || ''}
-Reader takeaway: ${idea.audienceTakeaway || ''}
-
-EVIDENCE YOU MAY USE (nothing outside this):
-${
-  (idea.supportingEvidence || []).length > 0
-    ? (idea.supportingEvidence || [])
-        .map(
-          (e, i) =>
-            `[${i + 1}] ${e.claim}${e.quote ? `\n    Quote: "${e.quote}"` : ''}${e.sourceTitle ? `\n    Source: ${e.sourceTitle}` : ''}${e.sourceUrl ? `\n    URL: ${e.sourceUrl}` : ''}`
-        )
-        .join('\n')
-    : 'No external evidence was gathered. Write from reasoning alone and state no statistics.'
-}
-
-Produce:
-1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold
-2. body — plain text, about ${constraints.target_chars} characters total including the hook${
-    goalLink && linkPlacement === 'body'
-      ? `; include this link once, near the call to action: ${goalLink}`
-      : ''
-  }
-3. cta — ${constraints.cta_required ? 'required' : 'optional'}${goal?.desiredAction ? `; steer toward: ${goal.desiredAction}` : ''}
-4. firstComment — ${
-    linkPlacement === 'first_comment'
-      ? `place any link here${goalLink ? ` (use ${goalLink})` : ''}`
-      : 'optional supporting note'
-  }
-5. hashtags — ${describeHashtags(constraints)}, without the # symbol
-6. alternateHooks — ${Math.max(2, Math.min(constraints.variants_per_post, 3))} genuinely different openings
-7. selfScores — honest 1-10 ratings`
-
-  async function callModel(
-    userContent: string,
-    record: (usage: CallUsage) => void
-  ): Promise<DraftGenerationResult | null> {
-    try {
-      const result = await generateText({
-        model: handle!.model,
-        providerOptions: handle!.providerOptions,
-        // The stable block goes through `instructions` so it renders ahead of the
-        // messages, and carries cacheControl so later drafts in the run read it
-        // from cache instead of paying for it again.
-        instructions: [
-          {
-            role: 'system',
-            content: stableSystem,
-            providerOptions: EPHEMERAL_CACHE
-          }
-        ],
-        messages: [{ role: 'user', content: userContent }],
-        output: Output.object({ schema: DraftGenerationSchema })
-      })
-
-      record(readCallUsage(result, handle!.modelId))
-      return result.output ?? null
-    } catch (err) {
-      // Tokens generated before a schema rejection were still billed.
-      if (NoObjectGeneratedError.isInstance(err)) {
-        record(readCallUsage({ usage: err.usage }, handle!.modelId))
-      }
-      throw err
-    }
-  }
-
-  const recordDraft = (u: CallUsage) => {
-    draftUsage = addUsage(draftUsage, u)
-  }
-  const recordRevision = (u: CallUsage) => {
-    revisionUsage = addUsage(revisionUsage, u)
-  }
-
   /** A failed draft still spent tokens; record them so run totals stay true. */
   async function failDraftStep(message: string) {
     if (!draftStep || !runId) return
@@ -240,17 +103,14 @@ Produce:
     await refreshRunTotals(runId)
   }
 
-  let draft: DraftGenerationResult | null = null
+  let draft: DraftGenerationResult
   try {
-    draft = await callModel(ideaBrief, recordDraft)
+    const written = await writeDraft({ ctx, idea })
+    draftUsage = written.usage
+    draft = written.draft
   } catch (err: any) {
+    if (err instanceof SkillError) draftUsage = err.usage
     const message = err?.message || 'Draft generation failed'
-    await failDraftStep(message)
-    throw new Error(message)
-  }
-
-  if (!draft?.hook || !draft?.body) {
-    const message = 'The model returned an incomplete draft.'
     await failDraftStep(message)
     throw new Error(message)
   }
@@ -300,34 +160,24 @@ Produce:
   const blocking = lintFindings.filter(f => f.severity === 'error' && !f.passed)
   if (blocking.length > 0) {
     try {
-      const revision = await callModel(
-        `${ideaBrief}
-
-Your previous draft failed these checks. Rewrite it so every one passes, keeping the argument and the voice intact.
-
-PREVIOUS DRAFT
-Hook: ${draft.hook}
-Body:
-${draft.body}
-CTA: ${draft.cta}
-
-FAILED CHECKS
-${blocking.map(f => `- ${f.message}`).join('\n')}`,
-        recordRevision
+      const revision = await writeDraft(
+        { ctx, idea },
+        { previous: draft, failedChecks: blocking.map(f => f.message) }
       )
-      if (revision?.hook && revision?.body) {
-        const revisedFindings = runLinter(lintOptions(revision))
-        const revisedBlocking = revisedFindings.filter(
-          f => f.severity === 'error' && !f.passed
-        )
-        // Only keep the rewrite if it actually improved matters.
-        if (revisedBlocking.length < blocking.length) {
-          draft = revision
-          lintFindings = revisedFindings
-          revised = true
-        }
+      revisionUsage = revision.usage
+      const revisedFindings = runLinter(lintOptions(revision.draft))
+      const revisedBlocking = revisedFindings.filter(
+        f => f.severity === 'error' && !f.passed
+      )
+      // Only keep the rewrite if it actually improved matters.
+      if (revisedBlocking.length < blocking.length) {
+        draft = revision.draft
+        lintFindings = revisedFindings
+        revised = true
       }
     } catch (err) {
+      // The revision call is a full second draft; a failed one still cost.
+      if (err instanceof SkillError) revisionUsage = err.usage
       console.warn('Revision pass failed; keeping the original draft:', err)
     }
   }
@@ -350,7 +200,8 @@ ${blocking.map(f => `- ${f.message}`).join('\n')}`,
         // The revision pass is a full second draft call; its cost belongs here.
         revisionAttempted: revisionUsage.calls > 0,
         failed: lintFindings.filter(f => !f.passed).map(f => f.rule),
-        errors: lintFindings.filter(f => f.severity === 'error' && !f.passed).length,
+        errors: lintFindings.filter(f => f.severity === 'error' && !f.passed)
+          .length,
         usage: revisionUsage
       }
     })

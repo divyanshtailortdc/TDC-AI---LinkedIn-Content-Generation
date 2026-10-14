@@ -37,6 +37,7 @@ export type AIStage =
   | 'voice_analysis'
   | 'identity_setup'
   | 'extraction'
+  | 'research'
 
 /**
  * Effort is the first quality/cost lever. Ideation and drafting carry the
@@ -63,7 +64,9 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   voice_analysis: { model: defaultModel, effort: 'medium' },
   // Interactive: the user waits on this, so it trades depth for speed.
   identity_setup: { model: defaultModel, effort: 'low' },
-  extraction: { model: fastModel, effort: 'low' }
+  extraction: { model: fastModel, effort: 'low' },
+  // The research agent: several short steps choosing searches and pages.
+  research: { model: defaultModel, effort: 'medium' }
 }
 
 export interface LanguageModelHandle {

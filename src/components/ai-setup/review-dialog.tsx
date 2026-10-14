@@ -20,13 +20,12 @@ import {
   type IdentitySetupBaseline,
   type SectionApplyResult
 } from '@/app/(app)/accounts/ai-setup-actions'
-import { isEmptyValue, type MergeMode } from '@/lib/ai/identity-setup/merge'
+import { isEmptyValue, type MergeMode } from '@/lib/settings-merge'
 import {
   EMPTY_SUGGESTIONS,
   FIELD_SPECS,
   getSectionStatus,
   GoalSuggestionsSchema,
-  normalizeUrlForCompare,
   PreferencesSuggestionsSchema,
   ProfileSuggestionsSchema,
   SECTION_LABELS,
@@ -35,7 +34,8 @@ import {
   type IdentitySetupSuggestions,
   type SectionStatus,
   type SetupSection
-} from '@/lib/ai/identity-setup/schema'
+} from '@/lib/ai/skills/profile-setup/schema'
+import { normalizeUrlForCompare } from '@/lib/urls'
 import {
   clearDraft,
   updateDraftSuggestions,

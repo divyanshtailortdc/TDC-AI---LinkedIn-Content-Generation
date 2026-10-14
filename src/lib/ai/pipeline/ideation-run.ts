@@ -7,144 +7,42 @@ import {
   runsTable
 } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
-import { generateText, Output } from 'ai'
 import { env } from '~/env'
-import { getLanguageModel, readCallUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai'
-import { refreshRunTotals } from './run-accounting'
+import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
+import { checkNovelty } from '~/lib/novelty'
+import {
+  isWebSearchConfigured,
+  runWebSearch,
+  type Finding
+} from '~/lib/research/web-search'
+import { runResearchAgent } from '../agents/research'
 import {
   loadGenerationContext,
   pickWeightedPillars,
-  renderAudienceBlock,
-  renderGoalBlock,
-  renderGuardrailsBlock,
-  renderIdentityBlock,
-  renderVoiceBlock,
   type GenerationContext
-} from './context'
+} from '../context'
+import { retrieveKnowledgePassages, type KnowledgePassage } from '../embeddings'
+import { filterDiverseIdeas } from '../idea-diversity'
+import { refreshRunTotals } from '../run-accounting'
+import { SkillError } from '../run-skill'
 import {
-  IdeaGenerationBatchSchema,
-  resolveGeneratedIdea,
-  PERSPECTIVE_ANGLE_GUIDE,
-  type GeneratedIdeaItem
-} from './schemas'
-import { validateIdea, type GroundingCorpus } from './idea-validator'
-import { retrieveKnowledgePassages, type KnowledgePassage } from './embeddings'
-import { filterDiverseIdeas } from './idea-diversity'
-import { checkNovelty } from '~/lib/novelty'
+  generateIdeas,
+  type GeneratedIdeaItem,
+  type GroundingCorpus
+} from '../skills/ideation'
+
+/**
+ * A run's first half: gather context, research (fixed search or the research
+ * agent), assemble the evidence corpus, run the ideation skill, then keep the
+ * ideas that are diverse and new for this account. Every stage is recorded as
+ * a run step; ideas wait for human approval before anything is drafted.
+ */
 
 export interface ResearchIdeateResult {
   ideasCount: number
   findingsCount: number
   runId: string
   status: string
-}
-
-type Finding = {
-  url: string
-  title: string
-  snippet: string
-  provider: string
-  publishedAt?: string
-}
-
-/** Serper's freshness operator, derived from the configured window. */
-function freshnessToTbs(days: number): string | undefined {
-  if (!days || days <= 0) return undefined
-  if (days <= 1) return 'qdr:d'
-  if (days <= 7) return 'qdr:w'
-  if (days <= 31) return 'qdr:m'
-  if (days <= 366) return 'qdr:y'
-  return undefined
-}
-
-/**
- * Search queries come from what the account is actually trying to say, not a
- * fixed template. Previously every run searched
- * "<goal title> industry trends insights 2026".
- */
-function buildSearchQueries(
-  ctx: GenerationContext,
-  limit: number
-): string[] {
-  const queries: string[] = []
-  const goal = ctx.primaryGoal
-
-  if (goal?.keyMessage) queries.push(goal.keyMessage)
-  if (goal?.title) queries.push(goal.title)
-
-  for (const pillar of ctx.prefs.pillars) {
-    if (queries.length >= limit + 2) break
-    const topics = pillar.example_topics || []
-    queries.push(topics.length > 0 ? `${pillar.name} ${topics[0]}` : pillar.name)
-  }
-
-  for (const audience of ctx.audiences) {
-    if (queries.length >= limit + 2) break
-    const pain = (audience.painPoints || [])[0]
-    if (pain) queries.push(pain)
-  }
-
-  if (queries.length === 0) {
-    queries.push(ctx.account.headline || ctx.account.name)
-  }
-
-  return Array.from(new Set(queries.map(q => q.trim()).filter(Boolean))).slice(
-    0,
-    limit
-  )
-}
-
-async function runWebSearch(
-  ctx: GenerationContext,
-  onQuery: (q: string) => void
-): Promise<Finding[]> {
-  const policy = ctx.prefs.research
-  if (!policy.use_web_search) return []
-  if (!env.SERPER_API_KEY) return []
-
-  const maxSearches = Math.max(1, Math.min(policy.max_searches_per_run || 3, 8))
-  const queries = buildSearchQueries(ctx, maxSearches)
-  const tbs = freshnessToTbs(policy.freshness_days)
-  const findings: Finding[] = []
-
-  for (const finalQuery of queries) {
-    onQuery(finalQuery)
-    try {
-      const res = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        headers: {
-          'X-API-KEY': env.SERPER_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ q: finalQuery, num: 5, ...(tbs ? { tbs } : {}) })
-      })
-      if (!res.ok) {
-        console.warn(`Serper search failed (${res.status}) for "${finalQuery}"`)
-        continue
-      }
-      const data = await res.json()
-      for (const item of data.organic || []) {
-        if (!item.link || !item.title) continue
-        findings.push({
-          url: item.link,
-          title: item.title,
-          snippet: item.snippet || '',
-          provider: 'serper_search',
-          publishedAt: item.date
-        })
-      }
-    } catch (err) {
-      console.warn(`Serper search error for "${finalQuery}":`, err)
-    }
-  }
-
-  // Same URL can surface across queries.
-  const seen = new Set<string>()
-  return findings.filter(f => {
-    if (seen.has(f.url)) return false
-    seen.add(f.url)
-    return true
-  })
 }
 
 /** Knowledge documents this run may draw on: all of the account's. */
@@ -234,29 +132,71 @@ function buildGroundingCorpus(
   }
 }
 
-/**
- * How many evidence items the ideation prompt shows. Citations are resolved
- * against exactly this slice, so an out-of-range label gets no source.
- */
-const PROMPT_EVIDENCE_LIMIT = 30
+type WebResearch = {
+  findings: Finding[]
+  queries: string[]
+  mode: 'fixed' | 'agent' | 'off'
+  usage: CallUsage
+  /** Agent details, or why it fell back to fixed search. */
+  details: Record<string, unknown>
+}
 
-function renderCorpusForPrompt(
-  corpus: GroundingCorpus,
-  limit: number
-): string {
-  if (corpus.verifiedClaims.length === 0) {
-    return 'No evidence was gathered for this run. Do NOT state any statistic, metric or named example. Build ideas from reasoning the author can defend from their own stated expertise.'
+/**
+ * Fixed search unless RESEARCH_MODE=agent. The agent falls back to fixed
+ * search on any failure, so a run never loses its research to it.
+ */
+async function researchTheWeb(ctx: GenerationContext): Promise<WebResearch> {
+  if (!ctx.prefs.research.use_web_search || !isWebSearchConfigured) {
+    return {
+      findings: [],
+      queries: [],
+      mode: 'off',
+      usage: EMPTY_USAGE,
+      details: {}
+    }
   }
-  return corpus.verifiedClaims
-    .slice(0, limit)
-    .map((c, i) => {
-      const parts = [`[E${i + 1}] ${c.claim}`]
-      if (c.quote && c.quote !== c.claim) parts.push(`    Quote: "${c.quote}"`)
-      if (c.sourceTitle) parts.push(`    Source: ${c.sourceTitle}`)
-      if (c.sourceUrl) parts.push(`    URL: ${c.sourceUrl}`)
-      return parts.join('\n')
-    })
-    .join('\n')
+
+  let fallbackReason: string | null = null
+  if (env.RESEARCH_MODE === 'agent') {
+    try {
+      const agent = await runResearchAgent(ctx)
+      if (agent.findings.length > 0) {
+        return {
+          findings: agent.findings,
+          queries: agent.queries,
+          mode: 'agent',
+          usage: agent.usage,
+          details: {
+            pagesRead: agent.pagesRead,
+            rejectedFindings: agent.rejected,
+            agentSteps: agent.steps,
+            model: agent.modelId
+          }
+        }
+      }
+      fallbackReason = `The research agent returned no verifiable findings (${agent.rejected} rejected).`
+      // Its spend still counts.
+      const fixed = await runFixedSearch(ctx)
+      return {
+        ...fixed,
+        usage: agent.usage,
+        details: { fallbackReason, agentQueries: agent.queries }
+      }
+    } catch (err) {
+      console.warn('Research agent failed; using fixed search:', err)
+      fallbackReason =
+        err instanceof Error ? err.message : 'Research agent failed'
+    }
+  }
+
+  const fixed = await runFixedSearch(ctx)
+  return fallbackReason ? { ...fixed, details: { fallbackReason } } : fixed
+}
+
+async function runFixedSearch(ctx: GenerationContext): Promise<WebResearch> {
+  const queries: string[] = []
+  const findings = await runWebSearch(ctx, q => queries.push(q))
+  return { findings, queries, mode: 'fixed', usage: EMPTY_USAGE, details: {} }
 }
 
 export async function executeResearchAndIdeate(
@@ -269,8 +209,6 @@ export async function executeResearchAndIdeate(
 
   const ctx = await loadGenerationContext(run.accountId, { goalId: run.goalId })
 
-  // The run froze its research config at enqueue time so the run stays
-  // explainable weeks later, even after preferences change.
   let ideationUsage: CallUsage = EMPTY_USAGE
 
   // ---------------------------------------------------------------- context
@@ -287,10 +225,7 @@ export async function executeResearchAndIdeate(
     })
     .returning()
 
-  const targetIdeas = Math.max(
-    3,
-    Math.min(ctx.prefs.ideasPerRun || 5, 12)
-  )
+  const targetIdeas = Math.max(3, Math.min(ctx.prefs.ideasPerRun || 5, 12))
 
   if (contextStep) {
     await db
@@ -315,7 +250,6 @@ export async function executeResearchAndIdeate(
 
   // --------------------------------------------------------------- research
   const researchStart = Date.now()
-  const searchedQueries: string[] = []
   const [researchStep] = await db
     .insert(runStepsTable)
     .values({
@@ -323,9 +257,11 @@ export async function executeResearchAndIdeate(
       stage: 'researching',
       status: 'running',
       startedAt: new Date(),
-      requestSummary: ctx.prefs.research.use_web_search
-        ? 'Searching the web and reading the knowledge base'
-        : 'Reading the knowledge base (web search disabled in preferences)'
+      requestSummary: !ctx.prefs.research.use_web_search
+        ? 'Reading the knowledge base (web search disabled in preferences)'
+        : env.RESEARCH_MODE === 'agent'
+          ? 'Research agent searching the web and reading pages, plus the knowledge base'
+          : 'Searching the web and reading the knowledge base'
     })
     .returning()
 
@@ -334,7 +270,8 @@ export async function executeResearchAndIdeate(
     .set({ status: 'researching' })
     .where(eq(runsTable.id, runId))
 
-  const findings = await runWebSearch(ctx, q => searchedQueries.push(q))
+  const research = await researchTheWeb(ctx)
+  const findings = research.findings
 
   for (const f of findings) {
     await db.insert(researchFindingsTable).values({
@@ -360,13 +297,19 @@ export async function executeResearchAndIdeate(
         status: 'completed',
         completedAt: new Date(),
         durationMs: Date.now() - researchStart,
+        // The agent's model calls are spend; fixed search costs no tokens.
+        tokens: research.usage.totalTokens,
+        costUsd: research.usage.costUsd.toFixed(4),
         responseJson: {
-          queries: searchedQueries,
+          mode: research.mode,
+          queries: research.queries,
           webFindings: findings.length,
           knowledgeClaims:
             corpus.verifiedClaims.length - findings.length - passages.length,
           knowledgePassages: passages.length,
-          totalEvidence: corpus.verifiedClaims.length
+          totalEvidence: corpus.verifiedClaims.length,
+          ...research.details,
+          usage: research.usage
         }
       })
       .where(eq(runStepsTable.id, researchStep.id))
@@ -422,130 +365,31 @@ export async function executeResearchAndIdeate(
     .orderBy(desc(postDraftsTable.createdAt))
     .limit(30)
 
-  const anglesList = Object.entries(PERSPECTIVE_ANGLE_GUIDE)
-    .map(([angle, guide]) => `- ${angle}: ${guide}`)
-    .join('\n')
-
-  const pillarBrief =
-    ctx.prefs.pillars.length > 0
-      ? ctx.prefs.pillars
-          .map(
-            p =>
-              `- ${p.name} (${p.weight_pct}% of output)${
-                (p.example_topics || []).length > 0
-                  ? `\n    Example topics: ${(p.example_topics || []).join(', ')}`
-                  : ''
-              }`
-          )
-          .join('\n')
-      : 'No pillars configured — infer sensible themes from the identity and goal.'
-
-  const guardrails = renderGuardrailsBlock(ctx)
-  const recentHooks = recentDrafts
-    .slice(0, 12)
-    .map(d => `- ${d.hook}`)
-    .join('\n')
-
-  const systemPrompt = `You are a senior editorial strategist who plans LinkedIn content for one specific person or company.
-
-Everything you propose must be true of THIS account and defensible from THIS evidence. You are not writing generic B2B advice, and you have no knowledge of this business beyond what appears below.
-
-WHO YOU ARE WRITING FOR
-${renderIdentityBlock(ctx)}
-
-WHO IS READING
-${renderAudienceBlock(ctx)}
-
-THE GOAL THIS RUN SERVES
-${renderGoalBlock(ctx.primaryGoal)}
-
-HOW THIS AUTHOR SOUNDS
-${renderVoiceBlock(ctx)}
-
-CONTENT PILLARS
-${pillarBrief}
-${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
-
-RULES THAT OVERRIDE EVERYTHING ELSE
-1. Never state a statistic, metric, dollar figure or named customer unless it appears verbatim in the evidence below. If you have no number, make the point without one.
-2. Never invent first-hand experience. Do not write "we discovered", "I spoke to a customer", "last week we saw". You do not know what this person did.
-3. Only claim something is timely if the evidence carries a recent date. Otherwise argue from structure, not from news.
-4. Do not pitch the account's product. These are ideas that stand on their own; the offering is context for credibility, not the conclusion.
-5. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".`
-
-  const userPrompt = `EVIDENCE AVAILABLE THIS RUN
-${renderCorpusForPrompt(corpus, PROMPT_EVIDENCE_LIMIT)}
-
-${
-  recentHooks
-    ? `ALREADY PUBLISHED BY THIS ACCOUNT — do not repeat these angles:\n${recentHooks}\n`
-    : ''
-}
-ANALYTICAL LENSES — give each idea a different one:
-${anglesList}
-
-Produce exactly ${candidateCount} distinct post ideas.
-
-Assign pillars in this distribution (one per idea, in order): ${assignedPillars
-    .map(p => p.name)
-    .join(' | ') || 'your own judgement'}
-
-For each idea provide:
-- title: a specific, non-generic working title
-- thesis: the defensible proposition in one or two sentences
-- perspectiveAngle: the lens from the list above (each idea must use a different one)
-- angle: the distinctive point of view in a phrase
-- pillar: the assigned pillar
-- format: the post format that fits best
-- whyNow: why this earns feed space today; use structural reasoning unless dated evidence supports timeliness
-- hookConcept: the idea for the first ${ctx.prefs.constraints.hook_max_chars} characters, before the fold. A concept, not final copy.
-- coreArgument: the "so what", in full
-- audienceTakeaway: what the reader does or believes differently afterwards
-- supportingEvidence: claims traceable to the evidence above. Cite each by its label (evidenceRef "E3") with the claim as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
-- mediaBrief: one sentence of visual direction for the image
-- noveltyNote: why this is not the generic take on the subject
-- risks: anything that could make this land badly
-- estimatedStrength: your honest 1-100 assessment`
-
   let candidates: GeneratedIdeaItem[] = []
+  let validated: GeneratedIdeaItem[] = []
+  const discarded: Array<{ title: string; reason: string }> = []
   let modelError: string | null = null
 
   try {
-    const result = await generateText({
-      model: handle.model,
-      providerOptions: handle.providerOptions,
-      instructions: systemPrompt,
-      prompt: userPrompt,
-      output: Output.object({ schema: IdeaGenerationBatchSchema })
+    const ideation = await generateIdeas({
+      ctx,
+      corpus,
+      recentHooks: recentDrafts.slice(0, 12).map(d => d.hook),
+      candidateCount,
+      assignedPillars: assignedPillars.map(p => p.name)
     })
-
-    ideationUsage = readCallUsage(result, handle.modelId)
-
-    const shownEvidence = corpus.verifiedClaims.slice(0, PROMPT_EVIDENCE_LIMIT)
-    candidates = (result.output?.ideas || []).map(generated =>
-      resolveGeneratedIdea(generated, shownEvidence)
-    )
+    ideationUsage = ideation.usage
+    candidates = ideation.candidates
+    validated = ideation.valid
+    discarded.push(...ideation.discarded)
   } catch (err: any) {
     modelError = err?.message || 'Idea generation failed'
+    // Tokens billed before a schema rejection still count.
+    if (err instanceof SkillError) ideationUsage = err.usage
     console.error('Idea generation failed:', err)
   }
 
-  // ------------------------------------------------------- validate + rank
-  const validated: GeneratedIdeaItem[] = []
-  const discarded: Array<{ title: string; reason: string }> = []
-
-  for (const candidate of candidates) {
-    const result = validateIdea(candidate, corpus)
-    if (!result.isValid) {
-      discarded.push({
-        title: candidate.title,
-        reason: result.issues[0] || 'Failed grounding checks'
-      })
-      continue
-    }
-    validated.push(result.idea)
-  }
-
+  // ------------------------------------------------------------ diversity
   const diversity = filterDiverseIdeas(validated, targetIdeas)
   let selected = diversity.selected
 
@@ -619,7 +463,10 @@ For each idea provide:
         durationMs: Date.now() - ideationStart,
         tokens: ideationUsage.totalTokens,
         costUsd: ideationUsage.costUsd.toFixed(4),
-        error: selected.length === 0 ? modelError || 'No idea survived grounding and novelty checks' : null,
+        error:
+          selected.length === 0
+            ? modelError || 'No idea survived grounding and novelty checks'
+            : null,
         responseJson: {
           generated: candidates.length,
           survivedGrounding: validated.length,

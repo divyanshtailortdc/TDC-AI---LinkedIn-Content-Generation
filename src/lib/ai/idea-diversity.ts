@@ -1,4 +1,8 @@
-import { GeneratedIdeaItem, PerspectiveAngle, PERSPECTIVE_ANGLES } from './schemas'
+import {
+  PERSPECTIVE_ANGLES,
+  type GeneratedIdeaItem,
+  type PerspectiveAngle
+} from './skills/ideation/schema'
 
 /**
  * Builds word n-grams (shingles) for semantic overlap calculation.

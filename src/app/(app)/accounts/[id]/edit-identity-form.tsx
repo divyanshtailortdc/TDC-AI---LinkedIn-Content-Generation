@@ -10,7 +10,7 @@ import {
   type IdentityValues
 } from '@/components/identity-fields'
 import { showToast } from '@/components/toast-notification'
-import { profileSuggestionValues } from '@/lib/ai/identity-setup/merge'
+import { profileSuggestionValues } from '@/lib/settings-merge'
 import { profileFromRecords } from '@/lib/identity-profile'
 import { AlertCircle, Loader2, Save, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
