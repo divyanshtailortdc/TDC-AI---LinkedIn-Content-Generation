@@ -50,6 +50,20 @@
       "when": 1791893520418,
       "tag": "0006_account_industry_linkedin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791956039913,
+      "tag": "0007_mixed_nighthawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791956895606,
+      "tag": "0008_thin_thor",
+      "breakpoints": true
     }
   ]
 }

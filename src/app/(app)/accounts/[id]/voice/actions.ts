@@ -33,6 +33,8 @@ const saveVoiceSchema = z.object({
     .optional(),
   emojiPolicy: z.string().trim().min(1).max(30).optional(),
   hashtagPolicy: z.string().trim().min(1).max(100).optional(),
+  // Not edited on the Voice page; AI setup (identity-setup/merge.ts) still saves
+  // words to avoid through this action.
   bannedWords: z.array(z.string()).optional()
 })
 

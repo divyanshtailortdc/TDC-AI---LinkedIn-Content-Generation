@@ -90,16 +90,7 @@ export const voiceConfigsTable = pgTable('voice_configs', {
   hashtagPolicy: varchar('hashtag_policy', { length: 100 })
     .default('0-3, end of post')
     .notNull(),
-  bannedWords: jsonb('banned_words')
-    .$type<string[]>()
-    .default([
-      'delve',
-      'leverage',
-      'unlock',
-      'game-changer',
-      'fast-paced world',
-      'thrilled to announce'
-    ]),
+  bannedWords: jsonb('banned_words').$type<string[]>().default([]),
   derivedStyleRubric: text('derived_style_rubric'),
   rawSamplesText: text('raw_samples_text'),
   ...commonFieldDefs.dates
