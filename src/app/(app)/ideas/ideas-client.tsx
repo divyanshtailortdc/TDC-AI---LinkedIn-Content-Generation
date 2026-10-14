@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Sparkles, ArrowRight, CheckCheck } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
-import { RunIdeaCard } from '@/components/run-idea-card'
+import { IDEA_STATUS_LABEL, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
 import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas, approveAllIdeas } from './actions'
@@ -18,6 +18,19 @@ type ClientIdeaData = IdeaCardData & { accountId: string }
 
 const STATUS_TABS = ['proposed', 'approved', 'rejected', 'all'] as const
 
+const EMPTY_STATE: Record<(typeof STATUS_TABS)[number], { title: string; body: string }> = {
+  proposed: {
+    title: 'Nothing waiting for review',
+    body: 'Start a run to generate new grounded ideas.'
+  },
+  approved: {
+    title: 'No approved ideas',
+    body: 'Approve ideas from the Proposed tab to draft them into posts.'
+  },
+  rejected: { title: 'No rejected ideas', body: 'Ideas you reject show up here.' },
+  all: { title: 'No ideas yet', body: 'Start a run to generate grounded ideas.' }
+}
+
 export function IdeasClient({
   initialIdeas,
   activeAccount
@@ -27,7 +40,8 @@ export function IdeasClient({
 }) {
   const router = useRouter()
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
-  const [selectedStatus, setSelectedStatus] = useState<string>('proposed')
+  const [selectedStatus, setSelectedStatus] =
+    useState<(typeof STATUS_TABS)[number]>('proposed')
   const [isActionBusy, setIsActionBusy] = useState(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
@@ -71,6 +85,8 @@ export function IdeasClient({
           message: `Successfully approved ${allProposedIds.length} ideas!`,
           type: 'success'
         })
+      } else {
+        showToast({ title: 'Approve all failed', message: res.error, type: 'error' })
       }
     } finally {
       setIsActionBusy(false)
@@ -109,6 +125,7 @@ export function IdeasClient({
       } else {
         showToast({ title: 'Save failed', message: res.error, type: 'error' })
       }
+      return res.success
     } finally {
       setIdeaActionBusyId(null)
     }
@@ -183,14 +200,13 @@ export function IdeasClient({
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Idea Approval Gate"
-        badge="The Gate"
-        description={`Reviewing angles for ${activeAccount.name} · @${activeAccount.handle}`}
+        description={`Review post ideas for ${activeAccount.name}`}
         actions={
           <>
             {allProposedIds.length > 0 && (
               <ConfirmPopover
-                title={`Approve all ${allProposedIds.length} proposed ideas?`}
-                description="Every proposed idea for this identity moves to Approved."
+                title={`Approve all ${allProposedIds.length} ideas?`}
+                description="Every idea waiting for review moves to Approved."
                 confirmLabel="Approve all"
                 tone="success"
                 onConfirm={handleApproveAll}
@@ -202,7 +218,7 @@ export function IdeasClient({
                   className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                 >
                   <CheckCheck className="h-4 w-4" />
-                  <span>Approve All ({allProposedIds.length})</span>
+                  <span>Approve all ({allProposedIds.length})</span>
                 </button>
               </ConfirmPopover>
             )}
@@ -216,7 +232,7 @@ export function IdeasClient({
                 className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-75"
               >
                 <Sparkles className={cn('h-4 w-4', isDrafting && 'animate-pulse')} />
-                <span>{isDrafting ? 'Generating posts…' : `Draft Approved (${approvedCount})`}</span>
+                <span>{isDrafting ? 'Generating posts…' : `Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>
                 {!isDrafting && <ArrowRight className="h-4 w-4" />}
               </button>
             )}
@@ -233,13 +249,13 @@ export function IdeasClient({
                   type="button"
                   onClick={() => setSelectedStatus(st)}
                   className={cn(
-                    'shrink-0 cursor-pointer rounded-lg px-3 py-1.5 font-medium capitalize transition-colors',
+                    'shrink-0 cursor-pointer rounded-lg px-3 py-1.5 font-medium transition-colors',
                     selectedStatus === st
                       ? 'bg-foreground text-background shadow-xs'
                       : 'text-muted hover:bg-surface-hover hover:text-foreground'
                   )}
                 >
-                  {st} ({count})
+                  {st === 'all' ? 'All' : IDEA_STATUS_LABEL[st]} ({count})
                 </button>
               )
             })}
@@ -261,10 +277,11 @@ export function IdeasClient({
           {filteredIdeas.length === 0 ? (
             <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-12 text-center">
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted" />
-              <h3 className="text-sm font-semibold text-foreground">No ideas in this queue</h3>
+              <h3 className="text-sm font-semibold text-foreground">
+                {EMPTY_STATE[selectedStatus].title}
+              </h3>
               <p className="mx-auto mt-1 mb-5 max-w-sm text-xs leading-relaxed text-muted">
-                Generate now from your Dashboard or Run engine to populate new grounded angles for{' '}
-                {activeAccount.name}.
+                {EMPTY_STATE[selectedStatus].body}
               </p>
               <Link
                 href="/runs"
@@ -285,6 +302,7 @@ export function IdeasClient({
                   onEditSave={handleEditSave}
                   onDraft={handleDraftSingle}
                   isBusy={ideaActionBusyId === idea.id}
+                  showStatus={selectedStatus === 'all'}
                 />
               ))}
             </div>

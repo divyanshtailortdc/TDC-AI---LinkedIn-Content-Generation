@@ -86,6 +86,9 @@ export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelP
   const unpricedCalls = total.estimatedCalls
   const thinkingShare =
     total.outputTokens > 0 ? total.reasoningTokens / total.outputTokens : 0
+  // Columns that are empty for the whole run only add noise.
+  const showCached = total.cacheReadTokens > 0
+  const showThinking = total.reasoningTokens > 0
 
   return (
     <div className="border-border bg-surface space-y-5 rounded-2xl border p-6 shadow-xs">
@@ -130,15 +133,17 @@ export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelP
 
       {/* Per-stage breakdown */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-xs">
+        <table className="w-full min-w-[520px] text-xs">
           <thead>
             <tr className="text-muted border-border border-b text-left text-[10px] tracking-wider uppercase">
               <th className="py-2 pr-3 font-semibold">Stage</th>
               <th className="py-2 pr-3 text-right font-semibold">Calls</th>
               <th className="py-2 pr-3 text-right font-semibold">Input</th>
-              <th className="py-2 pr-3 text-right font-semibold">Cached</th>
+              {showCached && <th className="py-2 pr-3 text-right font-semibold">Cached</th>}
               <th className="py-2 pr-3 text-right font-semibold">Output</th>
-              <th className="py-2 pr-3 text-right font-semibold">Thinking</th>
+              {showThinking && (
+                <th className="py-2 pr-3 text-right font-semibold">Thinking</th>
+              )}
               <th className="py-2 pr-3 text-right font-semibold">Cost</th>
               <th className="py-2 font-semibold">Share</th>
             </tr>
@@ -155,15 +160,19 @@ export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelP
                   <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
                     {formatTokens(usage.inputTokens)}
                   </td>
-                  <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                    {usage.cacheReadTokens > 0 ? formatTokens(usage.cacheReadTokens) : '—'}
-                  </td>
+                  {showCached && (
+                    <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                      {usage.cacheReadTokens > 0 ? formatTokens(usage.cacheReadTokens) : '—'}
+                    </td>
+                  )}
                   <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
                     {formatTokens(usage.outputTokens)}
                   </td>
-                  <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                    {usage.reasoningTokens > 0 ? formatTokens(usage.reasoningTokens) : '—'}
-                  </td>
+                  {showThinking && (
+                    <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                      {usage.reasoningTokens > 0 ? formatTokens(usage.reasoningTokens) : '—'}
+                    </td>
+                  )}
                   <td className="text-foreground py-2.5 pr-3 text-right font-semibold tabular-nums">
                     {formatUsd(usage.costUsd)}
                   </td>
