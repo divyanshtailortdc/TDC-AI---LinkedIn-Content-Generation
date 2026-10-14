@@ -263,7 +263,7 @@ export function AdvancedAnalyzeDialog({
                   {accountTypeLocked && (
                     <span className="text-muted inline-flex items-center gap-1 text-[11px]">
                       <Lock className="h-3 w-3" />
-                      Set when the identity was created
+                      Change it on the Profile step
                     </span>
                   )}
                 </div>

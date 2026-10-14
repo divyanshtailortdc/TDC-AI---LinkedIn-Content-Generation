@@ -71,15 +71,6 @@ export default async function DashboardPage() {
       <PageHeader
         title="Dashboard"
         description="Your LinkedIn content generation workspace"
-        actions={
-          <Link
-            href="/accounts/new"
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent-hover"
-          >
-            <Plus className="h-4 w-4" />
-            Add identity
-          </Link>
-        }
       />
 
       <div className="flex-1 overflow-y-auto bg-background p-6 sm:p-8">

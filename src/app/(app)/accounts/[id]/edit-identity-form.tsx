@@ -6,12 +6,13 @@ import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import {
   IdentityFields,
   validateIdentityValues,
+  type AccountType,
   type IdentityFieldErrors,
   type IdentityValues
 } from '@/components/identity-fields'
 import { showToast } from '@/components/toast-notification'
-import { profileSuggestionValues } from '@/lib/settings-merge'
 import { profileFromRecords } from '@/lib/identity-profile'
+import { profileSuggestionValues } from '@/lib/settings-merge'
 import { AlertCircle, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -42,6 +43,9 @@ export function EditIdentityForm({
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<IdentityFieldErrors>({})
+  const [accountType, setAccountType] = useState<AccountType>(
+    account.accountType === 'company' ? 'company' : 'personal'
+  )
   const [values, setValues] = useState<IdentityValues>(() =>
     profileFromRecords(account, initialOfferings[0], initialAudiences[0])
   )
@@ -74,7 +78,11 @@ export function EditIdentityForm({
     }
     setFieldErrors({})
 
-    const res = await updateAccountAction({ id: account.id, ...values })
+    const res = await updateAccountAction({
+      id: account.id,
+      ...values,
+      accountType
+    })
     if (!res.success) {
       setError(res.error || 'Failed to update identity')
       showToast({
@@ -118,9 +126,8 @@ export function EditIdentityForm({
         <IdentityFields
           values={values}
           errors={fieldErrors}
-          accountType={
-            account.accountType === 'company' ? 'company' : 'personal'
-          }
+          accountType={accountType}
+          onAccountTypeChange={setAccountType}
           aiSuggested={{
             targetAudience:
               prefill.draft?.suggestions.profile.targetAudience?.value

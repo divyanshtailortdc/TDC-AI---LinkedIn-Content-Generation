@@ -139,7 +139,25 @@ function profileFromFormData(formData: FormData) {
   }
 }
 
+/** The workspace keeps a single identity; this finds it if it exists. */
+async function findActiveIdentity(exceptId?: string) {
+  return db.query.accountsTable.findFirst({
+    where: exceptId
+      ? and(eq(accountsTable.isActive, true), ne(accountsTable.id, exceptId))
+      : eq(accountsTable.isActive, true)
+  })
+}
+
+const ONE_IDENTITY_MESSAGE =
+  'You already have an identity. Only one identity is allowed; edit it from Account Settings instead.'
+
 export async function createAccount(formData: FormData) {
+  // One identity per workspace. Checked here as well as on the page, since
+  // the page check can be bypassed.
+  if (await findActiveIdentity()) {
+    throw new Error(ONE_IDENTITY_MESSAGE)
+  }
+
   const parsed = IdentityProfileSchema.safeParse(profileFromFormData(formData))
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
@@ -211,7 +229,9 @@ export async function createAccount(formData: FormData) {
 }
 
 const updateAccountSchema = IdentityProfileSchema.extend({
-  id: z.string().uuid('Invalid account identifier')
+  id: z.string().uuid('Invalid account identifier'),
+  /** Person or Company / Product; left out keeps the saved type. */
+  accountType: z.enum(['personal', 'company']).optional()
 })
 
 export type UpdateAccountInput = z.input<typeof updateAccountSchema>
@@ -250,6 +270,9 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       .update(accountsTable)
       .set({
         name: validated.name,
+        ...(validated.accountType
+          ? { accountType: validated.accountType }
+          : {}),
         handle,
         // Keep a headline someone wrote; only fill it when there is none.
         headline: existing.headline?.trim() || deriveHeadline(validated),
@@ -342,6 +365,10 @@ export async function reactivateAccountAction(accountId: string) {
     })
     if (!existing) {
       return { success: false, error: 'Account identity not found' }
+    }
+    // Reactivating would make a second active identity.
+    if (await findActiveIdentity(id)) {
+      return { success: false, error: ONE_IDENTITY_MESSAGE }
     }
 
     // Reactivate identity (isActive: true)

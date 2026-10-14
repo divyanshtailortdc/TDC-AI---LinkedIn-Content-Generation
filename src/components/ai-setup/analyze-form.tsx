@@ -41,7 +41,7 @@ export function AnalyzeForm({
   defaultLinkedinUrl?: string
   defaultWebsiteUrl?: string
   accountType?: 'personal' | 'company'
-  /** True for an existing identity, whose type cannot change. */
+  /** True for an existing identity, whose type is changed on the Profile step. */
   accountTypeLocked?: boolean
   /** The create page follows the type picked in Advanced analysis. */
   onAccountTypeChosen?: (value: 'personal' | 'company') => void

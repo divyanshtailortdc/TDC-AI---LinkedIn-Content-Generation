@@ -7,11 +7,8 @@ import { showToast } from '@/components/toast-notification'
 import {
   AlertCircle,
   ArrowRight,
-  Check,
   CheckCircle2,
-  PenLine,
   SlidersHorizontal,
-  Sparkles,
   X
 } from 'lucide-react'
 import Link from 'next/link'
@@ -19,11 +16,8 @@ import { useRouter } from 'next/navigation'
 import { useState, type ReactNode } from 'react'
 import type { VoiceConfig } from '~/db/schema'
 import { parseHashtagPolicy } from '~/lib/ai/hashtags'
-import {
-  voiceSuggestionValues,
-  type VoiceValues
-} from '~/lib/settings-merge'
 import { WRITING_STYLES } from '~/lib/ai/skills/voice-analysis/schema'
+import { voiceSuggestionValues, type VoiceValues } from '~/lib/settings-merge'
 import { saveVoiceConfigAction } from './actions'
 
 interface VoiceFormProps {
@@ -194,7 +188,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   const [derivedRubric, setDerivedRubric] = useState(
     initialConfig?.derivedStyleRubric || ''
   )
-  const [isEditingSummary, setIsEditingSummary] = useState(false)
   const [tone, setTone] = useState(initialConfig?.tone || '')
   const [perspective, setPerspective] = useState(
     initialConfig?.perspective || ''
@@ -267,7 +260,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     })
 
     if (res.success) {
-      setIsEditingSummary(false)
       showToast({
         type: 'success',
         title: 'Voice Saved',
@@ -311,59 +303,12 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         note="These are recommended settings for your stated brand, not learned from your posts."
       />
 
-      {/* 1. Voice summary */}
-      <section className={sectionClass}>
-        <SectionHeading
-          icon={<Sparkles className="h-4 w-4" />}
-          title="1. Your voice"
-          description="How Claude should sound when it writes for you. It guides every draft."
-          action={
-            <button
-              type="button"
-              onClick={() => setIsEditingSummary(editing => !editing)}
-              className="text-accent flex shrink-0 items-center gap-1.5 text-xs font-medium hover:underline"
-            >
-              {isEditingSummary ? (
-                <>
-                  <Check className="h-3.5 w-3.5" />
-                  Done
-                </>
-              ) : (
-                <>
-                  <PenLine className="h-3.5 w-3.5" />
-                  Edit
-                </>
-              )}
-            </button>
-          }
-        />
-
-        {isEditingSummary ? (
-          <textarea
-            autoFocus
-            rows={6}
-            value={derivedRubric}
-            onChange={e => setDerivedRubric(e.target.value)}
-            placeholder="Describe how your posts should sound..."
-            className="w-full resize-y rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-4 text-sm leading-relaxed text-emerald-900 focus:border-emerald-500/70 focus:outline-hidden dark:text-emerald-100"
-          />
-        ) : derivedRubric.trim() ? (
-          <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm leading-relaxed whitespace-pre-line text-emerald-900 dark:text-emerald-100">
-            {derivedRubric}
-          </p>
-        ) : (
-          <p className="border-border text-muted rounded-xl border border-dashed p-4 text-sm">
-            No summary yet. Click Edit to describe how your posts should sound,
-            or just save the settings below.
-          </p>
-        )}
-      </section>
-
-      {/* 2. Style, speaker, emoji and hashtags */}
+      {/* Style, speaker, emoji and hashtags. The voice summary is not shown:
+          AI setup writes it and the prompts use it, but it is not edited here. */}
       <section className={sectionClass}>
         <SectionHeading
           icon={<SlidersHorizontal className="h-4 w-4" />}
-          title="2. Adjust if needed"
+          title="Adjust if needed"
           description="Change anything that doesn't sound like you."
         />
 

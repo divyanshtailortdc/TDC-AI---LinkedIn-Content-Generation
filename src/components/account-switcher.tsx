@@ -180,16 +180,6 @@ export function AccountSwitcher({
                 </button>
               ))}
             </div>
-            <div className={cn('mt-1 border-t border-border pt-1')}>
-              <Link
-                href="/accounts/new"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add identity
-              </Link>
-            </div>
           </div>
         </>
       )}
