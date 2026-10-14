@@ -71,6 +71,13 @@
       "when": 1791958467506,
       "tag": "0009_goals_link_strategy",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791974384450,
+      "tag": "0010_post_draft_originals",
+      "breakpoints": true
     }
   ]
 }

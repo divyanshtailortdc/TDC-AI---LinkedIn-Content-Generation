@@ -475,6 +475,11 @@ export const postDraftsTable = pgTable('post_drafts', {
   }),
   hook: text('hook').notNull(),
   body: text('body').notNull(),
+  // The AI's output as generated. `hook` and `body` are edited in place during
+  // review; these never change, so a reviewer's final version can be compared
+  // against what the model actually wrote.
+  originalHook: text('original_hook').notNull(),
+  originalBody: text('original_body').notNull(),
   cta: text('cta'),
   firstComment: text('first_comment'),
   hashtags: jsonb('hashtags').$type<string[]>().default([]),

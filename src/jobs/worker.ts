@@ -2,7 +2,7 @@ import { db } from '@/db'
 import { runsTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { executeResearchAndIdeate } from '~/lib/ai/pipeline/ideation-run'
-import { claimNextQueuedRun } from './queue'
+import { claimNextQueuedRun, claimRunById } from './queue'
 
 declare global {
    
@@ -31,11 +31,7 @@ async function markFailed(runId: string, err: unknown) {
  * cannot race the polling worker into executing the same run twice.
  */
 export async function processRunImmediately(runId: string) {
-  const [claimed] = await db
-    .update(runsTable)
-    .set({ status: 'running', currentStep: 1, updatedAt: new Date() })
-    .where(eq(runsTable.id, runId))
-    .returning()
+  const claimed = await claimRunById(runId)
 
   if (!claimed) return null
 

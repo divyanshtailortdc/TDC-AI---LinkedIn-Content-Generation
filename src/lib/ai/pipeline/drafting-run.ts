@@ -265,6 +265,8 @@ export async function executeDraftingForIdea(
       ideaId,
       hook: draft.hook,
       body: draft.body,
+      originalHook: draft.hook,
+      originalBody: draft.body,
       cta: draft.cta,
       firstComment: draft.firstComment || null,
       hashtags: draft.hashtags,

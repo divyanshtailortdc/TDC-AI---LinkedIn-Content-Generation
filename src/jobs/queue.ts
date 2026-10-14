@@ -86,6 +86,16 @@ export async function claimNextQueuedRun() {
 
   if (!nextQueued) return null
 
+  return claimRunById(nextQueued.id)
+}
+
+/**
+ * Moves one specific run from queued to running, or returns null if it is no
+ * longer queued. The status check is what makes this safe to call from both
+ * the polling worker and "Generate now": whichever UPDATE lands second finds
+ * the run already running (or finished) and gets nothing back.
+ */
+export async function claimRunById(runId: string) {
   const [claimed] = await db
     .update(runsTable)
     .set({
@@ -93,9 +103,7 @@ export async function claimNextQueuedRun() {
       currentStep: 1,
       updatedAt: new Date()
     })
-    .where(
-      and(eq(runsTable.id, nextQueued.id), eq(runsTable.status, 'queued'))
-    )
+    .where(and(eq(runsTable.id, runId), eq(runsTable.status, 'queued')))
     .returning()
 
   return claimed ?? null
