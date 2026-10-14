@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { AiSetupBar } from '@/components/ai-setup/ai-setup-bar'
 import { PageHeader } from '@/components/page-header'
 
 interface AccountHeaderProps {
@@ -20,6 +21,8 @@ interface AccountHeaderProps {
     headline?: string | null
     accountType: string
     avatarUrl?: string | null
+    linkedinUrl?: string | null
+    websiteUrl?: string | null
   }
 }
 
@@ -96,6 +99,7 @@ export function AccountHeader({ account }: AccountHeaderProps) {
         badge={account.accountType}
         description={account.headline || undefined}
       />
+      <AiSetupBar account={account} />
       <div className="px-4 sm:px-6 border-b border-border">
         <nav className="flex items-center gap-1 overflow-x-auto w-full h-11">
           {tabs.map(({ label, icon: Icon, href, exact }) => {

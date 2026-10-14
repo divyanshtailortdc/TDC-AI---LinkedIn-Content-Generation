@@ -1,6 +1,12 @@
 'use client'
 
+import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
+import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
+import {
+  preferencesSuggestionValues,
+  type PreferencesValues
+} from '@/lib/ai/identity-setup/merge'
 import {
   FileText,
   Loader2,
@@ -63,10 +69,13 @@ function Section({
 
 export function PreferencesForm({
   accountId,
-  initial
+  initial,
+  hasSaved
 }: {
   accountId: string
   initial: PreferencesPayload
+  /** False until preferences are first saved, when every value is a default. */
+  hasSaved: boolean
 }) {
   const router = useRouter()
 
@@ -85,6 +94,36 @@ export function PreferencesForm({
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // AI setup suggestions fill blank settings only; saving is still manual.
+  const prefill = useSectionPrefill<PreferencesValues>({
+    draftKey: accountId,
+    getCurrent: () => ({
+      pillars: pillars.map((p, i) => ({
+        ...p,
+        example_topics: splitList(topicsInputs[i] || '')
+      })),
+      linkPlacement: constraints.link_placement,
+      bannedTopics: splitList(bannedTopicsInput),
+      complianceNotes
+    }),
+    setValues: next => {
+      if (next.pillars !== undefined) {
+        setPillars(next.pillars)
+        setTopicsInputs(next.pillars.map(p => (p.example_topics || []).join(', ')))
+      }
+      if (next.linkPlacement) {
+        const linkPlacement = next.linkPlacement
+        setConstraints(prev => ({ ...prev, link_placement: linkPlacement }))
+      }
+      if (next.bannedTopics !== undefined)
+        setBannedTopicsInput(next.bannedTopics.join(', '))
+      if (next.complianceNotes !== undefined)
+        setComplianceNotes(next.complianceNotes)
+    },
+    suggestionValues: s => preferencesSuggestionValues(s.preferences),
+    isBlank: () => !hasSaved
+  })
 
   // Weights are relative; the server rebalances them to 100% on save.
   const totalWeight = pillars.reduce(
@@ -184,6 +223,12 @@ export function PreferencesForm({
           {error}
         </div>
       )}
+
+      <PrefillBanner
+        section="preferences"
+        prefill={prefill}
+        note="Ideas per run, the CTA setting and the Schedule tab are not changed."
+      />
 
       {/* 1. Content pillars */}
       <Section

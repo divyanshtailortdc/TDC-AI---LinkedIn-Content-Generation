@@ -35,6 +35,7 @@ export type AIStage =
   | 'drafting'
   | 'media_brief'
   | 'voice_analysis'
+  | 'identity_setup'
   | 'extraction'
 
 /**
@@ -60,6 +61,8 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   drafting: { model: defaultModel, effort: 'high' },
   media_brief: { model: defaultModel, effort: 'medium' },
   voice_analysis: { model: defaultModel, effort: 'medium' },
+  // Interactive: the user waits on this, so it trades depth for speed.
+  identity_setup: { model: 'claude-opus-5-5', effort: 'low' },
   extraction: { model: fastModel, effort: 'low' }
 }
 

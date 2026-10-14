@@ -1,0 +1,267 @@
+import type { GoalPayload } from '@/app/(app)/accounts/[id]/goals/actions'
+import type { PreferencesPayload } from '@/app/(app)/accounts/[id]/preferences/actions'
+import type { SaveVoiceInput } from '@/app/(app)/accounts/[id]/voice/actions'
+import type { ContentPillar, Guardrails, PostConstraints } from '@/db/schema'
+import type { IdentityProfileField } from '@/lib/identity-profile'
+import type {
+  GoalSuggestions,
+  PreferencesSuggestions,
+  ProfileSuggestions,
+  VoiceSuggestions
+} from './schema'
+
+/**
+ * Merging AI suggestions into what an account already has.
+ *
+ * "fill-empty" (the default everywhere) only writes fields that are blank, so
+ * saved data is never overwritten silently. "replace" is used only when the
+ * user explicitly chooses it.
+ */
+
+export type MergeMode = 'fill-empty' | 'replace'
+
+export type MergeResult<T> = {
+  values: T
+  /** Fields that took the suggested value. */
+  filled: string[]
+  /** Fields where a saved value differs from the suggestion and was kept. */
+  kept: string[]
+}
+
+export function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  if (typeof value === 'string') return value.trim().length === 0
+  if (Array.isArray(value)) return value.length === 0
+  return false
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+export function mergeValues<T extends Record<string, unknown>>(
+  current: T,
+  suggested: Partial<T>,
+  mode: MergeMode
+): MergeResult<T> {
+  const values = { ...current }
+  const filled: string[] = []
+  const kept: string[] = []
+
+  for (const key of Object.keys(suggested) as Array<keyof T & string>) {
+    const next = suggested[key]
+    if (isEmptyValue(next)) continue
+    if (mode === 'replace' || isEmptyValue(current[key])) {
+      if (!sameValue(current[key], next)) {
+        values[key] = next as T[typeof key]
+        filled.push(key)
+      }
+    } else if (!sameValue(current[key], next)) {
+      kept.push(key)
+    }
+  }
+
+  return { values, filled, kept }
+}
+
+/** Picks `.value` from every suggested field of a section. */
+function valuesOf<T extends Record<string, unknown>>(
+  section: T
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, field] of Object.entries(section)) {
+    if (key === 'missing' || !field || typeof field !== 'object') continue
+    if ('value' in field) out[key] = (field as { value: unknown }).value
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+
+export type ProfileValues = Record<IdentityProfileField, string>
+
+export function profileSuggestionValues(
+  profile: ProfileSuggestions
+): Partial<ProfileValues> {
+  return valuesOf(profile) as Partial<ProfileValues>
+}
+
+// ---------------------------------------------------------------------------
+// Voice
+// ---------------------------------------------------------------------------
+
+/** The settings the Voice page edits. */
+export type VoiceValues = {
+  tone: string
+  derivedStyleRubric: string
+  formality: number | null
+  directness: number | null
+  perspective: string
+  emojiPolicy: string
+  hashtagPolicy: string
+  bannedWords: string[]
+}
+
+export function voiceValuesFromConfig(
+  config:
+    | {
+        tone?: string | null
+        derivedStyleRubric?: string | null
+        formality?: number | null
+        directness?: number | null
+        perspective?: string | null
+        emojiPolicy?: string | null
+        hashtagPolicy?: string | null
+        bannedWords?: string[] | null
+      }
+    | null
+    | undefined
+): VoiceValues {
+  return {
+    tone: config?.tone || '',
+    derivedStyleRubric: config?.derivedStyleRubric || '',
+    formality: config?.formality ?? null,
+    directness: config?.directness ?? null,
+    perspective: config?.perspective || '',
+    emojiPolicy: config?.emojiPolicy || '',
+    hashtagPolicy: config?.hashtagPolicy || '',
+    bannedWords: config?.bannedWords || []
+  }
+}
+
+export function voiceSuggestionValues(
+  voice: VoiceSuggestions
+): Partial<VoiceValues> {
+  return valuesOf(voice) as Partial<VoiceValues>
+}
+
+/**
+ * The payload for saveVoiceConfigAction. Blank values are left out, which the
+ * action treats as "keep what is saved"; sample posts are never sent, so the
+ * account's real posts are untouched.
+ */
+export function buildVoiceSaveInput(
+  accountId: string,
+  values: VoiceValues
+): SaveVoiceInput {
+  return {
+    accountId,
+    tone: values.tone || undefined,
+    derivedStyleRubric: values.derivedStyleRubric || undefined,
+    formality: values.formality ?? undefined,
+    directness: values.directness ?? undefined,
+    perspective: values.perspective || undefined,
+    emojiPolicy: values.emojiPolicy || undefined,
+    hashtagPolicy: values.hashtagPolicy || undefined,
+    bannedWords: values.bannedWords.length > 0 ? values.bannedWords : undefined
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Goals: suggestions always become a new goal, so nothing existing changes.
+// ---------------------------------------------------------------------------
+
+export type GoalValues = {
+  title: string
+  objectiveType: GoalPayload['objectiveType']
+  keyMessage: string
+  desiredAction: string
+  targetUrl: string
+}
+
+export const EMPTY_GOAL_VALUES: GoalValues = {
+  title: '',
+  objectiveType: 'authority',
+  keyMessage: '',
+  desiredAction: '',
+  targetUrl: ''
+}
+
+export function goalSuggestionValues(
+  goals: GoalSuggestions
+): Partial<GoalValues> {
+  return valuesOf(goals) as Partial<GoalValues>
+}
+
+export function buildGoalPayload(
+  goals: GoalSuggestions
+): { payload: GoalPayload } | { missing: string[] } {
+  const values = { ...EMPTY_GOAL_VALUES, ...goalSuggestionValues(goals) }
+  const missing = (['title', 'keyMessage'] as const).filter(field =>
+    isEmptyValue(values[field])
+  )
+  if (missing.length > 0) return { missing: [...missing] }
+
+  return {
+    payload: {
+      title: values.title,
+      objectiveType: values.objectiveType,
+      keyMessage: values.keyMessage,
+      desiredAction: values.desiredAction || undefined,
+      targetUrl: values.targetUrl || undefined
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Preferences
+// ---------------------------------------------------------------------------
+
+/** The preference settings AI setup suggests; ideas per run and CTA are left alone. */
+export type PreferencesValues = {
+  pillars: ContentPillar[]
+  linkPlacement: '' | PostConstraints['link_placement']
+  bannedTopics: string[]
+  complianceNotes: string
+}
+
+/** No saved row means every field is empty; defaults are not the user's choice. */
+export function preferencesValuesFromRow(
+  row:
+    | {
+        pillars?: ContentPillar[] | null
+        postConstraints?: Partial<PostConstraints> | null
+        guardrails?: Partial<Guardrails> | null
+      }
+    | null
+    | undefined
+): PreferencesValues {
+  return {
+    pillars: Array.isArray(row?.pillars) ? row.pillars : [],
+    linkPlacement: row?.postConstraints?.link_placement || '',
+    bannedTopics: row?.guardrails?.banned_topics || [],
+    complianceNotes: row?.guardrails?.compliance_notes || ''
+  }
+}
+
+export function preferencesSuggestionValues(
+  preferences: PreferencesSuggestions
+): Partial<PreferencesValues> {
+  return valuesOf(preferences) as Partial<PreferencesValues>
+}
+
+/**
+ * A full payload for savePreferences: `current` is what the account resolves
+ * to today (saved values or the pipeline defaults), with the merged values
+ * laid over it.
+ */
+export function buildPreferencesPayload(
+  current: PreferencesPayload,
+  values: PreferencesValues
+): PreferencesPayload {
+  return {
+    pillars: values.pillars,
+    ideasPerRun: current.ideasPerRun,
+    post_constraints: {
+      ...current.post_constraints,
+      link_placement:
+        values.linkPlacement || current.post_constraints.link_placement
+    },
+    guardrails: {
+      banned_topics: values.bannedTopics,
+      compliance_notes: values.complianceNotes
+    }
+  }
+}
