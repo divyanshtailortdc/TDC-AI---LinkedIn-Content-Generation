@@ -43,9 +43,17 @@ export const EMPTY_USAGE: CallUsage = Object.freeze({
   estimatedCalls: 0
 }) as CallUsage
 
-/** Anthropic list prices per million tokens. */
-const MODEL_RATES: Record<string, { input: number; output: number }> = {
+/**
+ * Anthropic list prices per million tokens. `cacheRead` overrides the default
+ * cache-read multiplier for models priced differently.
+ */
+const MODEL_RATES: Record<
+  string,
+  { input: number; output: number; cacheRead?: number }
+> = {
+  'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.05 },
   'claude-opus-5': { input: 5, output: 25 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.05 },
   'claude-sonnet-5': { input: 2, output: 10 },
   'claude-haiku-4-5': { input: 1, output: 5 }
 }
@@ -77,7 +85,10 @@ export function estimateCostUsd(
 
   return (
     perToken(usage.noCacheInputTokens, rate.input) +
-    perToken(usage.cacheReadTokens, rate.input * CACHE_READ_MULTIPLIER) +
+    perToken(
+      usage.cacheReadTokens,
+      rate.input * (rate.cacheRead ?? CACHE_READ_MULTIPLIER)
+    ) +
     perToken(usage.cacheWriteTokens, rate.input * CACHE_WRITE_MULTIPLIER) +
     perToken(usage.outputTokens, rate.output)
   )

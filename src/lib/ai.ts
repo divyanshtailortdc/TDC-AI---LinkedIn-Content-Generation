@@ -20,8 +20,8 @@ export const anthropicClient = hasAnthropicKey
   ? createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })
   : null
 
-/** Reasoning-heavy work: ideation and drafting. */
-export const defaultModel = 'claude-opus-5'
+/** Reasoning-heavy work: ideation, drafting and AI setup. */
+export const defaultModel = 'claude-sonnet-5-5'
 /** Bulk extraction where judgment matters less than throughput. */
 export const fastModel = 'claude-haiku-4-5'
 
@@ -62,7 +62,7 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   media_brief: { model: defaultModel, effort: 'medium' },
   voice_analysis: { model: defaultModel, effort: 'medium' },
   // Interactive: the user waits on this, so it trades depth for speed.
-  identity_setup: { model: 'claude-opus-5-5', effort: 'low' },
+  identity_setup: { model: defaultModel, effort: 'low' },
   extraction: { model: fastModel, effort: 'low' }
 }
 
