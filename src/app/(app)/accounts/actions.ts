@@ -2,6 +2,7 @@
 
 import { db } from '@/db'
 import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
+import { writeActiveAccountCookie } from '@/lib/active-account'
 import {
   deriveHeadline,
   IdentityProfileSchema,
@@ -185,8 +186,11 @@ export async function createAccount(formData: FormData) {
 
   await upsertPrimaryOfferingAndAudience(account.id, data)
 
-  revalidatePath('/')
-  revalidatePath('/accounts')
+  // The identity just created is the one being set up, so it becomes active
+  // straight away. Revalidating the root layout re-renders the sidebar (its
+  // switcher list and active identity) along with every account-scoped page.
+  await writeActiveAccountCookie(account.id)
+  revalidatePath('/', 'layout')
   // The create page sets this when AI setup suggestions are waiting to be
   // reviewed, so the account page can pick them up.
   redirect(

@@ -4,6 +4,7 @@ import { AnalyzeWithAiDialog } from '@/components/ai-setup/analyze-dialog'
 import {
   clearDraft,
   NEW_IDENTITY_KEY,
+  resetDraft,
   saveDraft
 } from '@/components/ai-setup/draft-store'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
@@ -22,6 +23,12 @@ import { useFormStatus } from 'react-dom'
 import { createAccount } from '../actions'
 
 export default function NewAccountPage() {
+  // Every visit starts blank. AI suggestions left by an earlier visit that was
+  // never saved (for example another identity's analysis) would otherwise
+  // prefill this form, so drop them before the prefill hook below reads them.
+  // A lazy initializer runs once per mount, during the first render, so the
+  // stale draft never reaches the form even for a frame.
+  useState(() => resetDraft(NEW_IDENTITY_KEY))
   const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
   const [analyzeOpen, setAnalyzeOpen] = useState(false)
 

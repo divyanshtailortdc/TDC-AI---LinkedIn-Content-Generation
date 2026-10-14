@@ -46,6 +46,20 @@ export async function getActiveAccount(): Promise<ActiveAccount | null> {
   return fallback ? pick(fallback) : null
 }
 
+/**
+ * Makes `accountId` the active identity. Cookies can only be written from a
+ * Server Action or Route Handler, so only call this from one of those.
+ */
+export async function writeActiveAccountCookie(accountId: string) {
+  const cookieStore = await cookies()
+  cookieStore.set(ACTIVE_ACCOUNT_COOKIE, accountId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365
+  })
+}
+
 /** Convenience for call sites that only need the id and already handle the "no accounts yet" case. */
 export async function getActiveAccountId(): Promise<string | null> {
   const account = await getActiveAccount()

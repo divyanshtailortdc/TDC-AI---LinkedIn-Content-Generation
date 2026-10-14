@@ -39,8 +39,15 @@ export function AccountSwitcher({
   const [isPending, startTransition] = useTransition()
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // The create page is for an identity that doesn't exist yet, so no identity
+  // is shown as active there. The previous one stays active underneath (its
+  // cookie is untouched), so Cancel and Back still return to it, and picking
+  // it here leaves the create page for its settings like any other identity.
+  const isCreating = pathname === '/accounts/new'
+  const shownAccount = isCreating ? null : activeAccount
+
   const handleSelect = (accountId: string) => {
-    if (accountId === activeAccount?.id) {
+    if (accountId === shownAccount?.id) {
       setOpen(false)
       return
     }
@@ -49,12 +56,15 @@ export function AccountSwitcher({
       const res = await setActiveAccount(accountId)
       if (res.success) {
         // /accounts/[id]/... is pinned to whichever account's id is in the
-        // URL, so a plain refresh() re-renders the same (now stale) account.
-        // If we're inside the account we just switched away from, follow the
-        // switch onto the new active account's equivalent settings tab.
+        // URL, so a plain refresh() re-renders that same account. On any
+        // identity's settings (not just the one switched away from), follow
+        // the switch onto the new active account's equivalent settings tab.
+        // Picking an identity on the create page means working on that one
+        // instead, so it leaves for that identity's profile.
         const accountsMatch = pathname.match(/^\/accounts\/([^/]+)(\/.*)?$/)
-        if (accountsMatch && accountsMatch[1] === activeAccount?.id) {
-          router.push(`/accounts/${accountId}${accountsMatch[2] || ''}`)
+        if (accountsMatch) {
+          const tab = accountsMatch[1] === 'new' ? '' : accountsMatch[2] || ''
+          router.push(`/accounts/${accountId}${tab}`)
         } else {
           router.refresh()
         }
@@ -96,20 +106,32 @@ export function AccountSwitcher({
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={isPending}
-        title={collapsed ? activeAccount?.name || 'Select identity' : undefined}
+        title={
+          collapsed
+            ? isCreating
+              ? 'Creating new identity'
+              : activeAccount?.name || 'Select identity'
+            : undefined
+        }
         className={cn(
           'flex cursor-pointer items-center rounded-lg border border-border bg-surface text-left transition-colors hover:bg-surface-hover disabled:opacity-60',
           collapsed ? 'w-full justify-center p-1.5' : 'w-full gap-2.5 px-2.5 py-2'
         )}
       >
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-background">
-          {activeAccount ? initialsOf(activeAccount.name) : '?'}
-        </div>
+        {isCreating ? (
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted">
+            <Plus className="h-3.5 w-3.5" />
+          </div>
+        ) : (
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-background">
+            {activeAccount ? initialsOf(activeAccount.name) : '?'}
+          </div>
+        )}
         {!collapsed && (
           <>
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold leading-tight text-foreground">
-                {activeAccount?.name || 'Select identity'}
+                {isCreating ? 'Creating new identity' : activeAccount?.name || 'Select identity'}
               </p>
               {/* <p className="truncate text-[11px] leading-tight text-muted">
                 {activeAccount ? `@${activeAccount.handle}` : 'No active identity'}
@@ -152,7 +174,7 @@ export function AccountSwitcher({
                     <p className="truncate text-xs font-medium text-foreground">{account.name}</p>
                     {/* <p className="truncate text-[10px] text-muted">@{account.handle}</p> */}
                   </div>
-                  {account.id === activeAccount?.id && (
+                  {account.id === shownAccount?.id && (
                     <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
                   )}
                 </button>

@@ -190,7 +190,7 @@ export function Sidebar({
             href={`/accounts/${activeAccount.id}`}
             label="Account Settings"
             icon={Settings}
-            active={pathname.startsWith('/accounts')}
+            active={pathname.startsWith('/accounts') && pathname !== '/accounts/new'}
             collapsed={collapsed}
           />
         )}

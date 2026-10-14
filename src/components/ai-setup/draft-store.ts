@@ -13,7 +13,8 @@ import {
  *
  * Keyed by account id, or NEW_IDENTITY_KEY on the create page. sessionStorage
  * keeps a draft across tab switches and reloads; when it is unavailable the
- * in-memory copy still survives client-side navigation.
+ * in-memory copy still survives client-side navigation. The create page drops
+ * its draft each time it opens (see resetDraft), so it always starts blank.
  */
 
 export const NEW_IDENTITY_KEY = 'new'
@@ -86,6 +87,21 @@ export function saveDraft(key: string, analysis: IdentitySetupAnalysis) {
 
 export function clearDraft(key: string) {
   writeDraft(key, null)
+}
+
+/**
+ * Forgets the draft under `key` without notifying subscribers, so it is safe
+ * to call while rendering: the create page does this on its first render so a
+ * draft left by an earlier visit never reaches the new form.
+ */
+export function resetDraft(key: string) {
+  if (typeof window === 'undefined') return
+  memory.set(key, null)
+  try {
+    window.sessionStorage.removeItem(STORAGE_PREFIX + key)
+  } catch {
+    // Storage blocked: the in-memory reset is what readDraft checks first.
+  }
 }
 
 export function updateDraftSuggestions(
