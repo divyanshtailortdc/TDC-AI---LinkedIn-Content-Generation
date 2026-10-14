@@ -77,17 +77,7 @@ function analyzeHeuristically(text: string): VoiceAnalysisResult {
     directness,
     perspective,
     emojiPolicy,
-    hashtagPolicy,
-    bannedWords: [
-      'delve',
-      'leverage',
-      'unlock',
-      'game-changer',
-      'revolutionary',
-      'synergy',
-      "in today's fast-paced world",
-      "I'm thrilled to announce"
-    ]
+    hashtagPolicy
   }
 
   return sanitizeVoiceAnalysis(rawResult)
@@ -169,14 +159,10 @@ CRITICAL EDITORIAL RULES:
      * 2-3 genuinely DISTINCTIVE signature phrases to reuse sparingly (trademark transitions, mantras, recurring formulations). Never generic fragments like "So I", "It doesn't", "That's why", "In other words", "I think", "Here are".
      * Emotional tone and the closing convention, again from the actual endings (e.g. "Imperative command without question").
 
-2. BANNED WORDS (ANTI-PATTERNS):
-   - Do NOT mark a word as banned simply because it was not present in the sample posts.
-   - Only identify corporate buzzwords, hollow marketing hype, or cliches that are STRONGLY INCONSISTENT with this author's specific tone (e.g. if the author writes crisp, pragmatic engineering posts, flag words like "delve", "leverage", "synergy", "game-changer", "revolutionary", "in today's fast-paced world", "I'm thrilled to announce" that clash with their voice). Limit to 4-8 high-confidence anti-patterns.
-
-3. HIGH-PERFORMING POSTS:
+2. HIGH-PERFORMING POSTS:
    - Pay special attention to any posts marked [PERFORMED EXCEPTIONALLY WELL]. These indicate hook mechanics, pacing, and line-break structures that resonated most strongly with the audience. Weigh their formatting and argument progression more heavily, but do not overfit to their specific topical subject matter.
 
-4. WRITING STYLE, SPEAKER AND TONE SCALES:
+3. WRITING STYLE, SPEAKER AND TONE SCALES:
    - These pre-fill the author's settings, so judge each one from the samples themselves; never fall back to a default.
    - tone: the ONE writing style that best describes how most posts are built: ${WRITING_STYLES.map(s => `${s.value} (${s.description})`).join('; ')}.
    - perspective: "I" when the author speaks personally, "we" when they speak for their team or company, "third person" when posts refer to the company or brand by name instead of "I" or "we".

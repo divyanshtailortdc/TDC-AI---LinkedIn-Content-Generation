@@ -75,45 +75,15 @@ export const VoiceAnalysisSchema = z.object({
   emojiPolicy: z.enum(['none', 'bullets only', 'liberal']),
   hashtagPolicy: z
     .string()
-    .describe('e.g. "0-3, end of post", "none", "3-5 relevant tags"'),
-  bannedWords: z
-    .array(z.string())
-    .describe(
-      "Corporate buzzwords, hollow hyperbole, or cliches that strongly clash with this author's specific voice. Do NOT list words just because they were absent."
-    )
+    .describe('e.g. "0-3, end of post", "none", "3-5 relevant tags"')
 })
 
 export type VoiceAnalysisResult = z.infer<typeof VoiceAnalysisSchema>
 
-/**
- * Cleans Claude's voice analysis: keeps banned words to real anti-patterns and
- * clamps the scales to 1..5.
- */
+/** Cleans Claude's voice analysis: trims the rubric and clamps the scales to 1..5. */
 export function sanitizeVoiceAnalysis(
   raw: VoiceAnalysisResult
 ): VoiceAnalysisResult {
-  // Filter banned words: remove duplicates, strip excessive whitespace, drop generic words
-  const cleanedBannedWords = Array.from(
-    new Set(
-      (raw.bannedWords || [])
-        .map(w => w.trim().toLowerCase())
-        .filter(
-          w =>
-            w.length > 2 &&
-            ![
-              'the',
-              'and',
-              'with',
-              'from',
-              'this',
-              'that',
-              'about',
-              'some'
-            ].includes(w)
-        )
-    )
-  )
-
   // Clamp numeric scores to 1..5
   const formality = Math.min(5, Math.max(1, Math.round(raw.formality || 3)))
   const directness = Math.min(5, Math.max(1, Math.round(raw.directness || 4)))
@@ -121,7 +91,6 @@ export function sanitizeVoiceAnalysis(
   return {
     ...raw,
     derivedStyleRubric: raw.derivedStyleRubric.trim(),
-    bannedWords: cleanedBannedWords,
     formality,
     directness
   }

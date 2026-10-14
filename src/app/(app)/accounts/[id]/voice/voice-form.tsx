@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Loader2,
   PenLine,
-  Plus,
   Save,
   SlidersHorizontal,
   Sparkles,
@@ -119,18 +118,6 @@ function cleanErrorMessage(err: unknown): string {
   return String(err)
 }
 
-/** Normalizes and de-duplicates words to avoid, the way the save action does. */
-function mergeWords(...lists: string[][]): string[] {
-  return Array.from(
-    new Set(
-      lists
-        .flat()
-        .map(w => w.trim().toLowerCase())
-        .filter(w => w.length > 2)
-    )
-  )
-}
-
 function SectionHeading({
   icon,
   title,
@@ -227,10 +214,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     formality: initialConfig?.formality ?? null,
     directness: initialConfig?.directness ?? null
   })
-  const [bannedWords, setBannedWords] = useState<string[]>(
-    initialConfig?.bannedWords ?? []
-  )
-  const [newBannedWord, setNewBannedWord] = useState('')
 
   // AI setup suggestions fill blank settings only; saving is still manual.
   const prefill = useSectionPrefill<VoiceValues>({
@@ -243,7 +226,8 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
       perspective,
       emojiPolicy,
       hashtagPolicy,
-      bannedWords
+      // Not edited on this page; reported as saved so nothing fills it.
+      bannedWords: initialConfig?.bannedWords ?? []
     }),
     setValues: next => {
       if (next.tone !== undefined) setTone(next.tone)
@@ -259,21 +243,15 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
       if (next.perspective !== undefined) setPerspective(next.perspective)
       if (next.emojiPolicy !== undefined) setEmojiPolicy(next.emojiPolicy)
       if (next.hashtagPolicy !== undefined) setHashtagPolicy(next.hashtagPolicy)
-      if (next.bannedWords !== undefined) setBannedWords(next.bannedWords)
     },
-    suggestionValues: s => voiceSuggestionValues(s.voice)
-  })
-
-  const addBannedWords = () => {
-    const words = mergeWords(newBannedWord.split(','))
-    if (words.length === 0) {
-      setError('Words to avoid need at least 3 characters.')
-      return
+    // Words to avoid are not part of the Voice page, so they are never prefilled.
+    suggestionValues: s => {
+      const { bannedWords: _bannedWords, ...values } = voiceSuggestionValues(
+        s.voice
+      )
+      return values
     }
-    setError(null)
-    setBannedWords(prev => mergeWords(prev, words))
-    setNewBannedWord('')
-  }
+  })
 
   const handleSave = () => {
     setError(null)
@@ -288,8 +266,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         emojiPolicy: emojiPolicy || undefined,
         hashtagPolicy: hashtagPolicy || undefined,
         formality: scales.formality ?? undefined,
-        directness: scales.directness ?? undefined,
-        bannedWords
+        directness: scales.directness ?? undefined
       })
 
       if (res.success) {
@@ -385,7 +362,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         )}
       </section>
 
-      {/* 2. Style, speaker and words to avoid */}
+      {/* 2. Style, speaker, emoji and hashtags */}
       <section className={sectionClass}>
         <SectionHeading
           icon={<SlidersHorizontal className="h-4 w-4" />}
@@ -498,64 +475,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
               }
             })}
           />
-        </div>
-
-        <div className="space-y-2">
-          <div>
-            <p className="text-foreground text-sm font-medium">
-              Words to avoid
-            </p>
-            <p className="text-muted text-xs">
-              Claude never uses these, and every draft is checked for them.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {bannedWords.map(word => (
-              <span
-                key={word}
-                className="border-border bg-surface-hover text-foreground inline-flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2.5 text-xs"
-              >
-                {word}
-                <button
-                  type="button"
-                  aria-label={`Remove ${word}`}
-                  onClick={() =>
-                    setBannedWords(prev => prev.filter(w => w !== word))
-                  }
-                  className="text-muted rounded-full p-0.5 hover:text-red-500"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-            {bannedWords.length === 0 && (
-              <span className="text-muted text-xs italic">None yet.</span>
-            )}
-          </div>
-          <div className="flex max-w-md items-center gap-2">
-            <input
-              type="text"
-              value={newBannedWord}
-              onChange={e => setNewBannedWord(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  addBannedWords()
-                }
-              }}
-              placeholder="Add words, separated by commas"
-              className="border-border bg-background text-foreground placeholder-muted/50 focus:border-accent flex-1 rounded-lg border px-3 py-1.5 text-sm focus:outline-hidden"
-            />
-            <button
-              type="button"
-              onClick={addBannedWords}
-              disabled={!newBannedWord.trim()}
-              className="border-border bg-surface-hover text-foreground hover:bg-border flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add
-            </button>
-          </div>
         </div>
 
         <p className="text-muted border-border border-t pt-4 text-xs">
