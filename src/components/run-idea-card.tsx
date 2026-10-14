@@ -165,6 +165,7 @@ export function RunIdeaCard({
   const detailTakeaway =
     summaryField !== 'audienceTakeaway' ? idea.audienceTakeaway : null
   const showViewPost = idea.status === 'drafted'
+  const collapsed = mode === 'view' && !showDetails
 
   const evidence = Array.isArray(idea.supportingEvidence)
     ? (idea.supportingEvidence as EvidenceItem[]).filter(e => e?.claim)
@@ -208,7 +209,15 @@ export function RunIdeaCard({
   }
 
   return (
-    <article className="border-border bg-surface hover:border-foreground/15 flex flex-col rounded-2xl border p-5 shadow-xs transition-colors">
+    // A collapsed card has one fixed size (room for a two-line title and a
+    // three-line summary) so every tab lines up; opening Details or the editor
+    // lets just that card grow.
+    <article
+      className={cn(
+        'border-border bg-surface hover:border-foreground/15 flex min-w-0 flex-col rounded-2xl border p-5 shadow-xs transition-colors',
+        collapsed ? 'h-64' : 'min-h-64'
+      )}
+    >
       {(idea.pillar || weakSources || showStatus) && (
         <div className="mb-2 flex items-center gap-2 text-xs">
           {idea.pillar && (
@@ -304,13 +313,19 @@ export function RunIdeaCard({
           <h3
             className={cn(
               'text-base leading-snug font-semibold text-balance',
-              isOpen ? 'text-foreground' : 'text-foreground/70'
+              isOpen ? 'text-foreground' : 'text-foreground/70',
+              collapsed && 'line-clamp-2'
             )}
           >
             {title}
           </h3>
           {summary && (
-            <p className="text-muted mt-1.5 text-sm leading-relaxed">
+            <p
+              className={cn(
+                'text-muted mt-1.5 text-sm leading-relaxed',
+                collapsed && 'line-clamp-3'
+              )}
+            >
               {summary}
             </p>
           )}
@@ -416,7 +431,7 @@ export function RunIdeaCard({
             canApprove ||
             showDraft ||
             showViewPost) && (
-            // mt-auto keeps the actions on the card's bottom edge in a grid row.
+            // mt-auto pins the actions to the bottom edge of the fixed-height card.
             <div className="mt-auto pt-4">
               <div className="border-border flex items-center gap-2 border-t pt-3">
                 {hasDetails && (

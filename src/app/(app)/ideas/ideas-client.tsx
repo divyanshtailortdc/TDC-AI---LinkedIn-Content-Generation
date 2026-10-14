@@ -292,7 +292,7 @@ export function IdeasClient({
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 pb-8 lg:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-4 pb-8 lg:grid-cols-2">
               {filteredIdeas.map((idea) => (
                 <RunIdeaCard
                   key={idea.id}
