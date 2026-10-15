@@ -31,7 +31,7 @@ const OBJECTIVES: Array<{ value: Objective; label: string }> = [
 
 const PERSPECTIVES = [
   { value: 'I', label: 'Me' },
-  { value: 'we', label: 'My team' },
+  { value: 'we', label: 'Team' },
   { value: 'third person', label: 'Brand' }
 ] as const
 
@@ -43,7 +43,7 @@ const FORMALITY = [
 
 const EMOJI = [
   { value: 'none', label: 'None' },
-  { value: 'bullets only', label: 'As bullets' },
+  { value: 'bullets only', label: 'Bullets' },
   { value: 'liberal', label: 'Freely' }
 ] as const
 
@@ -60,7 +60,7 @@ function Section({
   children: ReactNode
 }) {
   return (
-    <section className="border-border space-y-3 border-t pt-5 first:border-t-0 first:pt-0">
+    <section className="border-border space-y-4 border-t pt-6 first:border-t-0 first:pt-0">
       <div>
         <h3 className="text-foreground text-sm font-semibold">{title}</h3>
         <p className="text-muted mt-0.5 text-xs">{hint}</p>
@@ -87,7 +87,32 @@ function Label({
   )
 }
 
-/** A row of choices where the first, "Let AI decide", clears the choice. */
+/** The "Let AI decide" toggle beside a setting; on means no choice was made. */
+function LetAiDecide({
+  selected,
+  onClick
+}: {
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+        selected
+          ? 'border-accent bg-accent/5 text-foreground'
+          : 'border-border text-muted hover:text-foreground'
+      }`}
+    >
+      <Sparkles className="h-3 w-3" />
+      Let AI decide
+    </button>
+  )
+}
+
+/** A row of choices; none selected means the AI decides. */
 function Choices<T extends string | number>({
   label,
   value,
@@ -101,16 +126,21 @@ function Choices<T extends string | number>({
   disabled?: boolean
   onChange: (value: T | undefined) => void
 }) {
-  const all = [{ value: undefined, label: 'Auto' }, ...options]
   return (
     <div>
-      <Label>{label}</Label>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-foreground text-xs font-medium">{label}</span>
+        <LetAiDecide
+          selected={value === undefined}
+          onClick={() => onChange(undefined)}
+        />
+      </div>
       <div
         role="radiogroup"
         aria-label={label}
-        className="border-border bg-surface-hover grid grid-cols-2 gap-1 rounded-lg border p-1 sm:grid-cols-4"
+        className="border-border bg-surface-hover grid grid-cols-3 gap-1 rounded-lg border p-1"
       >
-        {all.map(option => {
+        {options.map(option => {
           const selected = option.value === value
           return (
             <button
@@ -118,10 +148,9 @@ function Choices<T extends string | number>({
               type="button"
               role="radio"
               aria-checked={selected}
-              title={option.value === undefined ? 'Let AI decide' : undefined}
               disabled={disabled}
               onClick={() => onChange(option.value)}
-              className={`rounded-md px-2 py-1.5 text-xs transition-colors ${
+              className={`rounded-md px-1 py-1.5 text-xs whitespace-nowrap transition-colors ${
                 selected
                   ? 'bg-surface text-foreground font-semibold shadow-xs'
                   : 'text-muted hover:text-foreground'
@@ -216,7 +245,7 @@ export function AdvancedAnalyzeDialog({
         if (e.target === e.currentTarget && !isAnalyzing) onClose()
       }}
     >
-      <div className="border-border bg-surface flex max-h-[92dvh] w-full max-w-3xl flex-col rounded-2xl border shadow-2xl">
+      <div className="border-border bg-surface flex h-[min(46rem,92dvh)] w-full max-w-4xl flex-col rounded-2xl border shadow-2xl">
         <div className="border-border flex items-start justify-between gap-4 border-b px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="bg-accent/10 text-accent flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
@@ -230,9 +259,9 @@ export function AdvancedAnalyzeDialog({
                 Advanced analysis
               </h2>
               <p className="text-muted mt-0.5 text-xs">
-                Tell the AI what you already know for more accurate, less
-                generic suggestions. Your choices are used exactly; leave
-                anything on &ldquo;Let AI decide&rdquo;.
+                Tell the AI what you already know. Your choices are used
+                exactly; anything you leave on &ldquo;Let AI decide&rdquo; is
+                picked by the AI.
               </p>
             </div>
           </div>
@@ -250,7 +279,7 @@ export function AdvancedAnalyzeDialog({
         {/* A fieldset cannot be the scroll container in a flex column, so
             the scrolling happens on this wrapper instead. */}
         <div className="scrollbar-visible min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <fieldset disabled={isAnalyzing} className="min-w-0 space-y-5">
+          <fieldset disabled={isAnalyzing} className="min-w-0 space-y-6">
             <Section
               title="Identity"
               hint="Who is posting, and what the AI should know about them."
@@ -303,7 +332,8 @@ export function AdvancedAnalyzeDialog({
 
               <div>
                 <Label htmlFor="adv-description">
-                  Company details <span className="text-rose-500">*</span>
+                  About you or your business{' '}
+                  <span className="text-rose-500">*</span>
                 </Label>
                 <textarea
                   id="adv-description"
@@ -364,21 +394,16 @@ export function AdvancedAnalyzeDialog({
               hint="Pick a default voice, or leave it to the AI."
             >
               <div>
-                <Label>Writing style</Label>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                  <button
-                    type="button"
-                    aria-pressed={!tone}
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-foreground text-xs font-medium">
+                    Writing style
+                  </span>
+                  <LetAiDecide
+                    selected={!tone}
                     onClick={() => setTone(undefined)}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
-                      !tone
-                        ? 'border-accent bg-accent/5 text-foreground ring-accent/20 font-semibold ring-1'
-                        : 'border-border text-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Sparkles className="mb-1 h-3.5 w-3.5" />
-                    Let AI decide
-                  </button>
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {WRITING_STYLES.map(style => {
                     const selected = tone === style.value
                     return (
@@ -388,7 +413,7 @@ export function AdvancedAnalyzeDialog({
                         aria-pressed={selected}
                         title={style.description}
                         onClick={() => setTone(style.value)}
-                        className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                        className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
                           selected
                             ? 'border-accent bg-accent/5 ring-accent/20 ring-1'
                             : 'border-border hover:border-accent/40'
@@ -397,7 +422,7 @@ export function AdvancedAnalyzeDialog({
                         <span className="text-foreground block text-xs font-semibold">
                           {style.label}
                         </span>
-                        <span className="text-muted line-clamp-2 text-[11px] leading-snug">
+                        <span className="text-muted mt-0.5 line-clamp-2 text-[11px] leading-snug">
                           {style.description}
                         </span>
                       </button>
