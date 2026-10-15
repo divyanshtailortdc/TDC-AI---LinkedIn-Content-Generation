@@ -18,7 +18,6 @@ import {
   SlidersHorizontal,
   Trash2
 } from 'lucide-react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import {
@@ -47,12 +46,12 @@ function Section({
 }: {
   icon: typeof FileText
   title: string
-  description: string
+  description?: string
   action?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
-    <section className="border-border bg-surface space-y-5 rounded-2xl border p-6 shadow-xs sm:p-8">
+    <section className="border-border bg-surface space-y-4 rounded-2xl border p-5 shadow-xs">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-foreground flex items-center gap-2.5 text-base font-semibold">
@@ -61,7 +60,9 @@ function Section({
             </div>
             {title}
           </h2>
-          <p className="text-muted mt-0.5 text-xs">{description}</p>
+          {description && (
+            <p className="text-muted mt-0.5 text-xs">{description}</p>
+          )}
         </div>
         {action}
       </div>
@@ -111,7 +112,9 @@ export function PreferencesForm({
     setValues: next => {
       if (next.pillars !== undefined) {
         setPillars(next.pillars)
-        setTopicsInputs(next.pillars.map(p => (p.example_topics || []).join(', ')))
+        setTopicsInputs(
+          next.pillars.map(p => (p.example_topics || []).join(', '))
+        )
       }
       if (next.bannedTopics !== undefined)
         setBannedTopicsInput(next.bannedTopics.join(', '))
@@ -134,9 +137,11 @@ export function PreferencesForm({
         )
       : Math.round(100 / pillars.length)
 
+  // A new pillar goes on top, where it is seen, not below the whole list. The
+  // topics inputs line up with the pillars by position, so both grow together.
   const addPillar = () => {
-    setPillars([...pillars, { name: '', weight_pct: 1, example_topics: [] }])
-    setTopicsInputs([...topicsInputs, ''])
+    setPillars([{ name: '', weight_pct: 1, example_topics: [] }, ...pillars])
+    setTopicsInputs(['', ...topicsInputs])
   }
 
   const updatePillar = (index: number, patch: Partial<PillarConfig>) => {
@@ -203,42 +208,20 @@ export function PreferencesForm({
   })
 
   return (
-    <div className="space-y-8">
-      <p className="text-muted text-sm">
-        Tone, emoji, hashtags and words to avoid are set in{' '}
-        <Link
-          href={`/accounts/${accountId}/voice`}
-          className="text-accent hover:underline"
-        >
-          Voice
-        </Link>
-        ; links, and where they go, on each{' '}
-        <Link
-          href={`/accounts/${accountId}/goals`}
-          className="text-accent hover:underline"
-        >
-          Goal
-        </Link>
-        .
-      </p>
-
+    <div className="space-y-5">
       {error && (
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
           {error}
         </div>
       )}
 
-      <PrefillBanner
-        section="preferences"
-        prefill={prefill}
-        note="Ideas per run, the CTA setting and your schedule are not changed."
-      />
+      <PrefillBanner section="preferences" prefill={prefill} />
 
       {/* 1. Content pillars */}
       <Section
         icon={SlidersHorizontal}
         title="Content Pillars"
-        description="The themes you post about. A bigger weight means more ideas on that theme."
+        description="A bigger weight means more ideas on that theme."
         action={
           <button
             type="button"
@@ -253,8 +236,7 @@ export function PreferencesForm({
       >
         {pillars.length === 0 ? (
           <div className="border-border text-muted rounded-xl border border-dashed p-6 text-center text-xs">
-            No pillars yet. Ideas will follow your profile and goals until you
-            add some.
+            No pillars yet.
           </div>
         ) : (
           <div className="space-y-3">
@@ -319,11 +301,7 @@ export function PreferencesForm({
       </Section>
 
       {/* 2. Posts */}
-      <Section
-        icon={FileText}
-        title="Posts"
-        description="How many ideas each run suggests, and how posts end."
-      >
+      <Section icon={FileText} title="Posts">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="text-foreground mb-1 block text-xs font-medium">
@@ -364,14 +342,10 @@ export function PreferencesForm({
       </Section>
 
       {/* 3. Guardrails */}
-      <Section
-        icon={ShieldAlert}
-        title="Things to Avoid"
-        description="Subjects the AI should never write about. Leave empty if you have none."
-      >
+      <Section icon={ShieldAlert} title="Things to Avoid">
         <div>
           <label className="text-foreground mb-1 block text-xs font-medium">
-            Topics to Avoid (comma-separated)
+            Topics to avoid
           </label>
           <input
             type="text"
@@ -384,7 +358,7 @@ export function PreferencesForm({
 
         <div>
           <label className="text-foreground mb-1 block text-xs font-medium">
-            Compliance Notes (Optional)
+            Compliance notes (optional)
           </label>
           {/* Fixed height (~5 lines); longer notes scroll inside the box
               rather than clipping or stretching the page. */}

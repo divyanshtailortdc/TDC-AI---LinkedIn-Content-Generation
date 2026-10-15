@@ -60,8 +60,7 @@ export const SETUP_STEPS: SetupStep[] = [
     path: '/preferences',
     icon: SlidersHorizontal,
     title: 'Preferences',
-    description:
-      'What to post about, how many ideas you get, and an optional schedule.'
+    description: 'What to post about, and an optional schedule.'
   },
   {
     key: 'runs',

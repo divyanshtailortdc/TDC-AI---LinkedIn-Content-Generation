@@ -104,10 +104,7 @@ export function ScheduleForm({
       {savedSuccess && (
         <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs font-medium text-emerald-700 dark:text-emerald-300">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>
-            Schedule saved successfully! Automated background runs will trigger
-            at configured times.
-          </span>
+          <span>Schedule saved.</span>
         </div>
       )}
 
@@ -120,7 +117,7 @@ export function ScheduleForm({
       {/* Main Schedule Card */}
       <div
         id="schedule"
-        className="border-border bg-surface scroll-mt-4 space-y-6 rounded-2xl border p-6 shadow-xs sm:p-8"
+        className="border-border bg-surface scroll-mt-4 space-y-5 rounded-2xl border p-5 shadow-xs"
       >
         <div>
           <h2 className="text-foreground flex items-center gap-2.5 text-base font-semibold">
@@ -132,22 +129,13 @@ export function ScheduleForm({
               Optional
             </span>
           </h2>
-          <p className="text-muted mt-0.5 text-xs">
-            Leave it off to start runs yourself from the Runs step.
-          </p>
         </div>
 
         {/* Enable Schedule Toggle */}
-        <div className="border-border flex items-center justify-between border-b pb-6">
-          <div>
-            <span className="text-foreground block text-sm font-semibold">
-              Generate Ideas Automatically
-            </span>
-            <span className="text-muted mt-0.5 block text-xs">
-              Fresh ideas wait in your queue on the days you pick. The number of
-              ideas per run is set above.
-            </span>
-          </div>
+        <div className="border-border flex items-center justify-between border-b pb-5">
+          <span className="text-foreground text-sm font-semibold">
+            Generate ideas automatically
+          </span>
 
           <label className="relative inline-flex cursor-pointer items-center">
             <input

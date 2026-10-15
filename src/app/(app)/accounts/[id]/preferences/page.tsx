@@ -55,7 +55,7 @@ export default async function PreferencesPage({ params }: PageProps) {
           }}
         />
         {/* Optional, so it lives here rather than as a step of its own. */}
-        <div className="mt-8">
+        <div className="mt-5">
           <ScheduleForm accountId={account.id} initialSchedule={schedule} />
         </div>
       </StepFields>
