@@ -8,6 +8,7 @@ import {
   tidyProfileList,
   type SanitizeContext
 } from '../src/lib/ai/skills/profile-setup/guard'
+import { buildPrompt } from '../src/lib/ai/skills/profile-setup/prompt'
 import {
   AnalysisGuidanceSchema,
   AnalyzeIdentityInputSchema,
@@ -799,5 +800,213 @@ describe('audience and offerings are clean lists', () => {
     )
     assert.ok(warnings.some(w => w.includes('kept the first 6 of 7')))
     assert.ok(warnings.some(w => w.includes('kept the first 8 of 9')))
+  })
+})
+
+describe('each audience and offering line keeps where it came from', () => {
+  const run = (fields: unknown[], ctx: SanitizeContext = context) =>
+    sanitizeIdentitySetup({ profile: { fields } }, ctx)
+
+  it('pools stated and suggested lines, and calls the mix a suggestion', () => {
+    const { suggestions } = run([
+      entry(
+        'targetAudience',
+        'Founders of Indian D2C brands',
+        'fact',
+        'description'
+      ),
+      entry('targetAudience', 'Finance leads at D2C brands\nAngel investors')
+    ])
+    const audience = suggestions.profile.targetAudience
+    assert.strictEqual(audience?.kind, 'recommendation')
+    assert.strictEqual(audience?.source, undefined)
+    assert.strictEqual(
+      audience?.value,
+      'Founders of Indian D2C brands\nFinance leads at D2C brands\nAngel investors'
+    )
+    assert.deepStrictEqual(audience?.lines, [
+      {
+        text: 'Founders of Indian D2C brands',
+        kind: 'fact',
+        source: 'description'
+      },
+      { text: 'Finance leads at D2C brands', kind: 'recommendation' },
+      { text: 'Angel investors', kind: 'recommendation' }
+    ])
+    // The draft store re-validates suggestions; the lines must survive it.
+    const reparsed = IdentitySetupSuggestionsSchema.parse(suggestions)
+    assert.deepStrictEqual(
+      reparsed.profile.targetAudience?.lines,
+      audience?.lines
+    )
+  })
+
+  it('is a fact as a whole only when every line is stated by one source', () => {
+    const { suggestions } = run([
+      entry('offerings', 'Bookkeeping for D2C brands', 'fact', 'description')
+    ])
+    assert.strictEqual(suggestions.profile.offerings?.kind, 'fact')
+    assert.strictEqual(suggestions.profile.offerings?.source, 'description')
+  })
+
+  it('shows a "stated" line that is not in its source as a suggestion', () => {
+    const { suggestions } = run([
+      entry(
+        'targetAudience',
+        'Venture partners scouting fintech deals',
+        'fact',
+        'description'
+      )
+    ])
+    assert.strictEqual(
+      suggestions.profile.targetAudience?.kind,
+      'recommendation'
+    )
+    assert.strictEqual(
+      suggestions.profile.targetAudience?.lines?.[0]?.kind,
+      'recommendation'
+    )
+  })
+
+  it('takes offerings from the user or their own site, audiences only from the user', () => {
+    const { suggestions } = run(
+      [
+        entry('offerings', 'Month-end close', 'fact', 'https://ledgerly.in'),
+        // Even the business's own site does not state who it is for.
+        entry(
+          'targetAudience',
+          'D2C brands across India',
+          'fact',
+          'https://ledgerly.in'
+        ),
+        entry(
+          'offerings',
+          'Payroll processing\nGST filing',
+          'fact',
+          'https://yourstory.com/ledgerly'
+        )
+      ],
+      {
+        ...context,
+        fetchedSources: [
+          ...context.fetchedSources,
+          {
+            url: 'https://yourstory.com/ledgerly',
+            content:
+              'Ledgerly offers payroll processing and GST filing for D2C brands.'
+          }
+        ]
+      }
+    )
+    assert.deepStrictEqual(suggestions.profile.offerings?.lines, [
+      { text: 'Month-end close', kind: 'fact', source: 'https://ledgerly.in' },
+      { text: 'Payroll processing', kind: 'recommendation' },
+      { text: 'GST filing', kind: 'recommendation' }
+    ])
+    assert.strictEqual(
+      suggestions.profile.targetAudience?.kind,
+      'recommendation'
+    )
+  })
+
+  it('keeps a line given twice once', () => {
+    const { suggestions } = run([
+      entry('targetAudience', 'Founders of Indian D2C brands'),
+      entry('targetAudience', 'founders of Indian D2C brands.')
+    ])
+    assert.deepStrictEqual(suggestions.profile.targetAudience?.lines, [
+      {
+        text: 'Founders of Indian D2C brands',
+        kind: 'fact',
+        source: 'description'
+      }
+    ])
+  })
+
+  it('labels lines by what their source says, not what the model claimed', () => {
+    const { suggestions } = run(
+      [
+        // Called a suggestion, but the description says it.
+        entry('offerings', 'Bookkeeping for D2C brands\nGST'),
+        // The user's own Advanced analysis answer.
+        entry('targetAudience', 'CFOs at consumer startups')
+      ],
+      { ...context, trustedText: 'CFOs at consumer startups' }
+    )
+    assert.deepStrictEqual(suggestions.profile.offerings?.lines, [
+      {
+        text: 'Bookkeeping for D2C brands',
+        kind: 'fact',
+        source: 'description'
+      },
+      // Too short to compare by words, and not in the description as written.
+      { text: 'GST', kind: 'recommendation' }
+    ])
+    assert.strictEqual(suggestions.profile.targetAudience?.source, 'provided')
+  })
+
+  it("does not count the business's own name as the source stating a line", () => {
+    // Regression: "Canva Pro" was shown as from the description because the
+    // description says "Canva".
+    const { suggestions } = run([
+      entry('company', 'Ledgerly', 'fact', 'description'),
+      entry('offerings', 'Ledgerly Pro\nLedgerly bookkeeping')
+    ])
+    assert.deepStrictEqual(suggestions.profile.offerings?.lines, [
+      { text: 'Ledgerly Pro', kind: 'recommendation' },
+      { text: 'Ledgerly bookkeeping', kind: 'fact', source: 'description' }
+    ])
+  })
+
+  it('drops a line with an invented figure and keeps the rest in step', () => {
+    const { suggestions, warnings } = run([
+      entry(
+        'targetAudience',
+        'Founders of Indian D2C brands',
+        'fact',
+        'description'
+      ),
+      entry('targetAudience', 'Brands with 300 staff')
+    ])
+    const audience = suggestions.profile.targetAudience
+    assert.strictEqual(audience?.value, 'Founders of Indian D2C brands')
+    assert.strictEqual(audience?.lines?.length, 1)
+    assert.strictEqual(audience?.kind, 'fact')
+    assert.ok(warnings.some(w => w.includes('300')))
+  })
+})
+
+describe("the prompt marks the business's own site", () => {
+  it('flags the page research verified, not other pages', () => {
+    const page = (url: string) => ({
+      status: {
+        url,
+        kind: 'web' as const,
+        status: 'fetched' as const,
+        title: 'page'
+      },
+      content: 'text'
+    })
+    const prompt = buildPrompt(
+      'Ledgerly',
+      [page('https://ledgerly.in/'), page('https://yourstory.com/ledgerly')],
+      undefined,
+      {
+        verified: {
+          websiteUrl: {
+            url: 'https://www.ledgerly.in/',
+            evidence: 'named',
+            confidence: 'high'
+          }
+        },
+        notes: []
+      }
+    )
+    assert.ok(
+      prompt.includes('url="https://ledgerly.in/" kind="web" official="yes"')
+    )
+    assert.ok(
+      prompt.includes('url="https://yourstory.com/ledgerly" kind="web" title=')
+    )
   })
 })

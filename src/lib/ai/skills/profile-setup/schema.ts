@@ -74,12 +74,32 @@ export type Suggested<T> = {
   confidence: (typeof CONFIDENCE)[number]
 }
 
+/** Where one line of a list came from. */
+export const LineBasisSchema = z.object({
+  text: z.string().trim().min(1).max(300),
+  kind: z.enum(PROVENANCE),
+  source: z.string().trim().max(500).optional()
+})
+
+export type LineBasis = z.infer<typeof LineBasisSchema>
+
+/**
+ * Audience and offerings usually mix lines the user stated with lines the AI
+ * suggests, so each line keeps its own provenance. The field as a whole is a
+ * fact only when every line is one from the same source.
+ */
+function suggestedLines(max: number) {
+  return suggested(text(max)).extend({
+    lines: z.array(LineBasisSchema).max(15).optional()
+  })
+}
+
 export const ProfileSuggestionsSchema = z.object({
   name: suggested(text(200)).optional(),
   company: suggested(text(200)).optional(),
   description: suggested(text(5000)).optional(),
-  targetAudience: suggested(text(2000)).optional(),
-  offerings: suggested(text(3000)).optional(),
+  targetAudience: suggestedLines(2000).optional(),
+  offerings: suggestedLines(3000).optional(),
   industry: suggested(text(200)).optional(),
   linkedinUrl: suggested(text(500)).optional(),
   websiteUrl: suggested(text(500)).optional(),

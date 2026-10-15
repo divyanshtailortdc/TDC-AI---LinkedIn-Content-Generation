@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   canonicalLinkedinUrl,
   figureChecker,
+  hostnameOf,
   splitSentences,
   type VerifiedLink
 } from './research'
@@ -22,7 +23,8 @@ import {
   type EntrySection,
   type FieldSpec,
   type IdentitySetupSuggestions,
-  type KnowledgeSuggestions
+  type KnowledgeSuggestions,
+  type LineBasis
 } from './schema'
 
 // ---------------------------------------------------------------------------
@@ -171,6 +173,13 @@ const PROFILE_LIST_LIMITS: Record<string, number> = {
   offerings: 8
 }
 
+/** Two lines are the same item when they differ only in case and punctuation. */
+const lineKey = (line: string) =>
+  line
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+
 /**
  * Audience and offerings are one item per line. Bullets are dropped, and a
  * line that repeats an earlier one (ignoring case and punctuation) is removed.
@@ -178,15 +187,77 @@ const PROFILE_LIST_LIMITS: Record<string, number> = {
 export function tidyProfileList(value: string): string[] {
   const seen = new Set<string>()
   return readListValue(value).filter(line => {
-    const key = line
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .trim()
+    const key = lineKey(line)
     if (!key || seen.has(key)) return false
     seen.add(key)
     return true
   })
 }
+
+/** Words that say nothing about whether a line is backed by its source. */
+const FILLER = new Set(
+  'with from that this their them they your into over more than what when want wants need needs looking about also have each other will using through'.split(
+    ' '
+  )
+)
+
+/** Content words with plural and tense endings removed: "referrals" → "referral". */
+function stems(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter(word => word.length >= 4 && !FILLER.has(word))
+    .map(word => word.replace(/(?:es|s|ing|ed)$/, ''))
+    .filter(stem => stem.length >= 3)
+}
+
+/**
+ * Builds a check for whether `sourceText` states a line: at least three
+ * quarters of the line's content words must appear there ("injured" matches
+ * "injury", "physio" matches "physiotherapist"). Words in `ignore` (the
+ * business's own name) do not count: "Canva Pro" is not stated by every text
+ * that says "Canva". A line with no other words ("VAT", "Canva Pro") must
+ * appear as written. Nothing is rewritten; this only decides whether a line
+ * is shown as stated or as a suggestion.
+ */
+export function backedBy(
+  sourceText: string
+): (line: string, ignore?: ReadonlySet<string>) => boolean {
+  const known = Array.from(new Set(stems(sourceText)))
+  const matches = (stem: string) =>
+    known.some(
+      k =>
+        k === stem ||
+        (Math.min(k.length, stem.length) >= 4 &&
+          (k.startsWith(stem) || stem.startsWith(k)))
+    )
+  const plain = lineKey(sourceText)
+  return (line, ignore = new Set()) => {
+    const wanted = stems(line).filter(stem => !ignore.has(stem))
+    if (wanted.length === 0) return plain.includes(lineKey(line))
+    return wanted.filter(matches).length * 4 >= wanted.length * 3
+  }
+}
+
+/**
+ * A list field from its lines. It is a fact only when every line is one from
+ * the same source; any mix is a recommendation, with each line's own
+ * provenance kept in `lines` for the review to show.
+ */
+export function summarizeLines(lines: LineBasis[]) {
+  const first = lines[0]
+  const uniform =
+    first !== undefined &&
+    lines.every(
+      line => line.kind === first.kind && line.source === first.source
+    )
+  return {
+    value: lines.map(line => line.text).join('\n'),
+    kind: uniform ? first.kind : ('recommendation' as const),
+    source: uniform ? first.source : undefined,
+    lines
+  }
+}
+
+const CONFIDENCE_ORDER = ['low', 'medium', 'high']
 
 /** Why a link does not fit the field it was put in, or null when it fits. */
 function urlTypeProblem(field: string, url: string): string | null {
@@ -227,7 +298,8 @@ function groundFigures(
       : (['title', 'keyMessage', 'desiredAction'] as const)
 
   for (const field of fields) {
-    const entry = result[field] as { value?: unknown } | undefined
+    const entry = result[field] as
+      { value?: unknown; lines?: LineBasis[] } | undefined
     if (!entry || typeof entry.value !== 'string') continue
     const text = entry.value
 
@@ -254,6 +326,12 @@ function groundFigures(
       )
     } else {
       entry.value = kept.join(field === 'description' ? ' ' : '\n')
+      if (entry.lines) {
+        Object.assign(
+          entry,
+          summarizeLines(entry.lines.filter(line => kept.includes(line.text)))
+        )
+      }
       warnings.push(
         `${SECTION_LABELS[section]} → ${labelFor(field)}: removed text with figures that are not in your details or any source (${example}).`
       )
@@ -349,6 +427,55 @@ export function sanitizeIdentitySetup(
     return fetchedByKey.get(normalizeUrlForCompare(source))?.content ?? null
   }
 
+  // The business's own site: the one the user gave, or the one research
+  // verified. Only it (or the user's own words) can state their offerings.
+  const hostOf = (url: string) =>
+    hostnameOf(/^https?:\/\//i.test(url) ? url : `https://${url}`)
+  const officialHosts = new Set(
+    [...context.providedUrls, context.verifiedLinks?.websiteUrl?.url]
+      .map(url => (url ? hostOf(url) : null))
+      .filter(
+        (host): host is string =>
+          Boolean(host) && !/(^|\.)linkedin\.com$/.test(host!)
+      )
+  )
+  const isOfficial = (url: string) => {
+    const host = hostOf(url)
+    return host !== null && officialHosts.has(host)
+  }
+
+  // Who states each audience or offering line, checked line by line whatever
+  // the model claimed. An audience is stated only in the user's own words
+  // (description or Advanced analysis answers); a page never says who a
+  // business is for, so any reading of one is the AI's suggestion. Offerings
+  // may also come from the business's own site, but not other pages, which can
+  // describe it wrongly or out of date.
+  const lineBases = [
+    { source: DESCRIPTION_SOURCE, backs: backedBy(context.description) },
+    ...(context.trustedText?.trim()
+      ? [{ source: PROVIDED_SOURCE, backs: backedBy(context.trustedText) }]
+      : []),
+    ...context.fetchedSources
+      .filter(page => isOfficial(page.url))
+      .map(page => ({
+        source: page.url,
+        backs: backedBy(page.content),
+        offeringsOnly: true
+      }))
+  ]
+  // Set from the profile's own name and company while it is read.
+  let nameStems: ReadonlySet<string> = new Set()
+  const lineBasis = (field: string, text: string): LineBasis => {
+    const basis = lineBases.find(
+      b =>
+        (field === 'offerings' || !('offeringsOnly' in b)) &&
+        b.backs(text, nameStems)
+    )
+    return basis
+      ? { text, kind: 'fact', source: basis.source }
+      : { text, kind: 'recommendation' }
+  }
+
   const resolveAllowedUrl = (
     value: string,
     scope: 'user' | 'profile' | 'knowledge'
@@ -375,6 +502,31 @@ export function sanitizeIdentitySetup(
         )
       }
       return result
+    }
+
+    // Audience and offerings lines are pooled across entries, each labelled
+    // by lineBasis, then built into one field after the loop.
+    const pools: Record<string, { lines: LineBasis[]; confidence: string }> = {}
+    const pool = (field: string, lines: string[], confidence: string) => {
+      const target = (pools[field] ??= { lines: [], confidence: 'high' })
+      target.lines.push(...lines.map(text => lineBasis(field, text)))
+      if (
+        CONFIDENCE_ORDER.indexOf(confidence) <
+        CONFIDENCE_ORDER.indexOf(target.confidence)
+      ) {
+        target.confidence = confidence
+      }
+    }
+
+    if (section === 'profile') {
+      nameStems = new Set(
+        asArray(sectionRaw.fields).flatMap(entryRaw => {
+          const entry = asRecord(entryRaw)
+          return entry && ['name', 'company'].includes(asString(entry.field))
+            ? stems(asString(entry.value))
+            : []
+        })
+      )
     }
 
     const specs = FIELD_SPECS[section] as Record<string, FieldSpec>
@@ -414,18 +566,9 @@ export function sanitizeIdentitySetup(
         value = label
       }
 
-      const listLimit =
-        section === 'profile' ? PROFILE_LIST_LIMITS[field] : undefined
-      if (listLimit) {
-        const lines = tidyProfileList(String(value))
-        if (lines.length === 0) continue
-        if (lines.length > listLimit) {
-          warnings.push(
-            `Profile → ${spec.label}: kept the first ${listLimit} of ${lines.length} lines.`
-          )
-        }
-        value = lines.slice(0, listLimit).join('\n')
-      }
+      const isList = section === 'profile' && field in PROFILE_LIST_LIMITS
+      const lines = isList ? tidyProfileList(String(value)) : []
+      if (isList && lines.length === 0) continue
 
       let kind = asString(entry.kind) === 'fact' ? 'fact' : 'recommendation'
       let source: string | undefined = asString(entry.source) || undefined
@@ -469,16 +612,17 @@ export function sanitizeIdentitySetup(
       }
       if (kind === 'recommendation') source = undefined
 
-      const candidate = {
-        value,
-        kind,
-        source,
-        confidence:
-          forcedConfidence ??
-          (CONFIDENCE.includes(asString(entry.confidence) as never)
-            ? asString(entry.confidence)
-            : 'medium')
+      const confidence =
+        forcedConfidence ??
+        (CONFIDENCE.includes(asString(entry.confidence) as never)
+          ? asString(entry.confidence)
+          : 'medium')
+      if (isList) {
+        pool(field, lines, confidence)
+        continue
       }
+
+      const candidate = { value, kind, source, confidence }
       const fieldSchema = schema.shape[field] as z.ZodType | undefined
       const parsed = fieldSchema?.safeParse(candidate)
       if (!parsed?.success) {
@@ -488,6 +632,32 @@ export function sanitizeIdentitySetup(
         continue
       }
       result[field] = parsed.data
+    }
+
+    for (const [field, { lines, confidence }] of Object.entries(pools)) {
+      // The same line from two entries is kept once.
+      const byKey = new Map<string, LineBasis>()
+      for (const line of lines) {
+        if (!byKey.has(lineKey(line.text))) byKey.set(lineKey(line.text), line)
+      }
+      const unique = Array.from(byKey.values())
+      const limit = PROFILE_LIST_LIMITS[field]!
+      if (unique.length > limit) {
+        warnings.push(
+          `Profile → ${specs[field]!.label}: kept the first ${limit} of ${unique.length} lines.`
+        )
+      }
+      const parsed = (schema.shape[field] as z.ZodType).safeParse({
+        ...summarizeLines(unique.slice(0, limit)),
+        confidence
+      })
+      if (parsed.success) {
+        result[field] = parsed.data
+      } else {
+        warnings.push(
+          `${SECTION_LABELS[section]} → ${specs[field]!.label}: ignored an invalid value.`
+        )
+      }
     }
     return result
   }

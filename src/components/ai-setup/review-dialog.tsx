@@ -6,7 +6,6 @@ import {
   type IdentitySetupBaseline,
   type SectionApplyResult
 } from '@/app/(app)/accounts/ai-setup-actions'
-import { isEmptyValue, type MergeMode } from '@/lib/settings-merge'
 import { showToast } from '@/components/toast-notification'
 import {
   EMPTY_SUGGESTIONS,
@@ -19,9 +18,11 @@ import {
   SETUP_SECTIONS,
   VoiceSuggestionsSchema,
   type IdentitySetupSuggestions,
+  type LineBasis,
   type SectionStatus,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
+import { isEmptyValue, type MergeMode } from '@/lib/settings-merge'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import {
   AlertCircle,
@@ -171,6 +172,38 @@ function commitField(
     [section]: { ...s[section], [field]: candidate }
   }))
   return null
+}
+
+/**
+ * Groups of lines by where they came from, for a list that mixes what the user
+ * stated with what the AI suggests. Null when every line has one origin; the
+ * field's own badge says it then.
+ */
+function lineGroups(lines: LineBasis[] | undefined): LineBasis[][] | null {
+  const groups = new Map<string, LineBasis[]>()
+  for (const line of lines ?? []) {
+    const key = `${line.kind}|${line.source ?? ''}`
+    groups.set(key, [...(groups.get(key) ?? []), line])
+  }
+  return groups.size > 1 ? Array.from(groups.values()) : null
+}
+
+function LineSources({ groups }: { groups: LineBasis[][] }) {
+  return (
+    <ul className="space-y-1">
+      {groups.map(group => (
+        <li
+          key={`${group[0]!.kind}|${group[0]!.source ?? ''}`}
+          className="flex flex-wrap items-baseline gap-1.5"
+        >
+          <ProvenanceBadge kind={group[0]!.kind} source={group[0]!.source} />
+          <span className="text-muted text-[11px]">
+            {group.map(line => line.text).join(' · ')}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function FieldEditor({
@@ -600,7 +633,10 @@ export function ReviewSuggestionsDialog({
         kind: 'fact' | 'recommendation'
         source?: string
         confidence: 'high' | 'medium' | 'low'
+        lines?: LineBasis[]
       }
+      // Until edited, a mixed list shows where each line came from.
+      const groups = lineGroups(item.lines)
       const saved = savedValueFor(baseline, section, field)
       const hasSaved =
         !isEmptyValue(saved) && formatValue(saved) !== formatValue(item.value)
@@ -620,12 +656,15 @@ export function ReviewSuggestionsDialog({
                     field
                   ]?.label}
             </span>
-            <ProvenanceBadge
-              kind={item.kind}
-              source={item.source}
-              confidence={item.confidence}
-            />
+            {!groups && (
+              <ProvenanceBadge
+                kind={item.kind}
+                source={item.source}
+                confidence={item.confidence}
+              />
+            )}
           </div>
+          {groups && <LineSources groups={groups} />}
           {field === 'pillars' ? (
             <PillarsEditor
               key={`${draft.id}-${key}`}
