@@ -1116,39 +1116,6 @@ export function PostsClientInner({
         description={`Reviewing drafts for ${activeAccount.name} · @${activeAccount.handle}`}
         bottomContent={
           <div className="flex w-max min-w-full items-center gap-4">
-            {/* Status is the primary triage axis, so it gets counts and one click. */}
-            <div className="flex shrink-0 items-center gap-2">
-              {(
-                ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
-              ).map(status => {
-                const count = statusCounts[status]
-                const isActive = statusFilter === status
-                return (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => setStatusFilter(status)}
-                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                      isActive
-                        ? 'border-accent bg-accent/10 text-accent'
-                        : 'border-border bg-surface text-muted hover:text-foreground'
-                    }`}
-                  >
-                    {STATUS_LABELS[status]}
-                    <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
-                        isActive
-                          ? 'bg-accent/15'
-                          : 'bg-surface-hover text-muted'
-                      }`}
-                    >
-                      {count}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-
             <div className="flex shrink-0 items-center gap-2">
               <div className="relative w-64 shrink-0">
                 <Search className="text-muted pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
@@ -1160,6 +1127,22 @@ export function PostsClientInner({
                   className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border py-1.5 pr-3 pl-8 text-xs outline-none"
                 />
               </div>
+
+              {/* Status is the primary triage axis, so it keeps its counts. */}
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as StatusFilter)}
+                aria-label="Filter by status"
+                className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+              >
+                {(
+                  ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
+                ).map(status => (
+                  <option key={status} value={status}>
+                    {STATUS_LABELS[status]} ({statusCounts[status]})
+                  </option>
+                ))}
+              </select>
 
               <div className="flex items-center gap-1.5">
                 <CalendarDays className="text-muted h-3.5 w-3.5" />
@@ -1362,10 +1345,12 @@ export function PostsClientInner({
               {/* REVIEW HEADER — sticky, so the decision is always one glance away.
                   It used to sit at the bottom of the right column, beneath the
                   image tools, floating over the first comment it duplicated. */}
-              <div className="border-border bg-surface sticky top-0 z-20 rounded-2xl border shadow-sm">
-                {/* Row 1: where you are in the queue */}
-                <div className="border-border/60 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="border-border bg-surface sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl border px-5 py-3 shadow-sm">
+                {/* One row: where you are in the queue, the decision, then
+                    previous / next. The two wrappers below are `contents`, so
+                    their children sit directly in this row. */}
+                <div className="contents">
+                  <div className="flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden whitespace-nowrap">
                     <span className="text-foreground text-xs font-semibold tabular-nums">
                       Post {currentIndex + 1} of {totalPosts}
                     </span>
@@ -1400,7 +1385,7 @@ export function PostsClientInner({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="order-last flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
                       disabled={currentIndex <= 0}
@@ -1424,15 +1409,15 @@ export function PostsClientInner({
                   </div>
                 </div>
 
-                {/* Row 2: the one thing to do next, which depends on the post's state */}
-                <div className="px-5 py-3">
+                {/* The one thing to do next, which depends on the post's state */}
+                <div className="contents">
                   {showPostRejection ? (
                     <form
                       onSubmit={e => {
                         e.preventDefault()
                         void handleReject(postRejectionReason)
                       }}
-                      className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                      className="flex min-w-0 flex-[2] flex-col gap-2 sm:flex-row sm:items-center"
                     >
                       <input
                         type="text"
@@ -1463,8 +1448,8 @@ export function PostsClientInner({
                       </div>
                     </form>
                   ) : activePost.status === 'approved' ? (
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    <div className="flex shrink-0 items-center gap-3">
+                      <p className="hidden text-xs text-emerald-600 2xl:block dark:text-emerald-400">
                         <span className="font-semibold">Approved.</span>{' '}
                         <span className="text-muted">
                           Publish it on LinkedIn in this order:
@@ -1516,12 +1501,8 @@ export function PostsClientInner({
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-muted text-xs">
-                        {activePost.status === 'rejected'
-                          ? 'Rejected. Changed your mind?'
-                          : 'Read it as it will appear in the feed, then decide.'}
-                      </p>
+                    <div className="flex shrink-0 items-center gap-3">
+                     
                       <div className="flex items-center gap-2">
                         {activePost.status !== 'rejected' && (
                           <button
@@ -1531,7 +1512,6 @@ export function PostsClientInner({
                             className="border-border text-muted flex cursor-pointer items-center rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
                           >
                             Reject
-                            <kbd className="border-border bg-surface-hover text-muted ml-1.5 rounded border px-1 py-px font-mono text-[10px] font-normal">R</kbd>
                           </button>
                         )}
                         <button
@@ -1546,9 +1526,6 @@ export function PostsClientInner({
                             : activePost.status === 'rejected'
                               ? 'Approve instead'
                               : 'Approve'}
-                          <kbd className="ml-1.5 rounded border border-white/30 px-1 py-px font-mono text-[10px] font-normal opacity-80">
-                            A
-                          </kbd>
                         </button>
                       </div>
                     </div>
@@ -2380,158 +2357,6 @@ export function PostsClientInner({
                     )}
                   </div>
 
-                  {/* C. EVIDENCE & CITATIONS (Collapsed by default) */}
-                  <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
-                    <button
-                      type="button"
-                      onClick={() => setShowCitations(!showCitations)}
-                      className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Quote className="h-3.5 w-3.5 text-emerald-500" />
-                        Sources & Evidence ({citations.length})
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted text-[11px]">
-                          {citations.length > 0
-                            ? `${citations.length} verified`
-                            : 'No citations'}
-                        </span>
-                        {showCitations ? (
-                          <ChevronUp className="text-muted h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="text-muted h-4 w-4" />
-                        )}
-                      </div>
-                    </button>
-
-                    {showCitations && (
-                      <div className="border-border/40 space-y-2 border-t p-4 pt-0">
-                        {citations.length === 0 ? (
-                          <p className="text-muted py-2 text-xs">
-                            ⚠ No specific factual citations linked to this
-                            draft.
-                          </p>
-                        ) : (
-                          citations.map(c => (
-                            <div
-                              key={c.id}
-                              className="border-border bg-surface-hover/40 space-y-1 rounded-xl border p-3 text-xs"
-                            >
-                              <p className="text-foreground font-medium">
-                                {c.claim}
-                              </p>
-                              {c.quote && (
-                                <p className="text-muted text-[11px] italic">
-                                  &quot;{c.quote}&quot;
-                                </p>
-                              )}
-                              {c.sourceUrl && (
-                                <a
-                                  href={c.sourceUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-accent inline-flex items-center gap-1 pt-1 text-[11px] hover:underline"
-                                >
-                                  <span>{c.sourceTitle || 'View Source'}</span>
-                                  <ExternalLink className="h-3 w-3" />
-                                </a>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* D. ADVANCED GENERATION DETAILS (Debug info, collapsed by default) */}
-                  <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
-                    <button
-                      type="button"
-                      onClick={() => setShowAdvancedMedia(!showAdvancedMedia)}
-                      className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Info className="text-muted h-3.5 w-3.5" />
-                        Advanced Generation Details
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted text-[11px]">
-                          Debug telemetry
-                        </span>
-                        {showAdvancedMedia ? (
-                          <ChevronUp className="text-muted h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="text-muted h-4 w-4" />
-                        )}
-                      </div>
-                    </button>
-
-                    {showAdvancedMedia && (
-                      <div className="border-border/40 space-y-3 border-t p-4 pt-0 text-xs">
-                        <div className="grid grid-cols-2 gap-2 text-[11px]">
-                          <div className="bg-surface-hover rounded-lg p-2">
-                            <span className="text-muted block">
-                              Relevance Score
-                            </span>
-                            <span className="text-foreground font-semibold">
-                              {isUserPromptedMedia
-                                ? 'Not scored (your prompt)'
-                                : `${activePost.media?.relevanceScore ?? 'N/A'}/100 (${relevanceInfo.level})`}
-                            </span>
-                          </div>
-                          <div className="bg-surface-hover rounded-lg p-2">
-                            <span className="text-muted block">
-                              Media Version
-                            </span>
-                            <span className="text-foreground font-semibold">
-                              v{activePost.media?.version || 1} (Attempt{' '}
-                              {activePost.media?.regenerationAttempt || 0})
-                            </span>
-                          </div>
-                          <div className="bg-surface-hover rounded-lg p-2">
-                            <span className="text-muted block">
-                              Visual Type
-                            </span>
-                            <span className="text-foreground font-semibold capitalize">
-                              {activePost.media?.visualType || 'N/A'}
-                            </span>
-                          </div>
-                          <div className="bg-surface-hover rounded-lg p-2">
-                            <span className="text-muted block">Relevance</span>
-                            <span className="text-foreground font-semibold">
-                              {typeof activePost.media?.relevanceScore ===
-                              'number'
-                                ? `${activePost.media.relevanceScore}/100`
-                                : 'Not scored'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {activePost.media?.promptOrQuery && (
-                          <div>
-                            <span className="text-muted mb-1 block text-[11px] font-medium">
-                              Raw Image Prompt
-                            </span>
-                            <p className="bg-surface-hover text-muted rounded-lg p-2.5 font-mono text-[10px] leading-relaxed wrap-break-word">
-                              {activePost.media.promptOrQuery}
-                            </p>
-                          </div>
-                        )}
-
-                        {activePost.media?.providerRequestId && (
-                          <div className="text-muted flex items-center justify-between pt-1 font-mono text-[10px]">
-                            <span>
-                              Req:{' '}
-                              {activePost.media.providerRequestId.slice(0, 8)}
-                              ...
-                            </span>
-                            <span>Seed: {activePost.media.seed ?? 'auto'}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
 
                 </div>
               </div>

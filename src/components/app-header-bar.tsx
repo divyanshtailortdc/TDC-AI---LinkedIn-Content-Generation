@@ -1,3 +1,4 @@
+import { MobileNavButton } from '@/components/mobile-nav'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { ReactNode } from 'react'
 
@@ -39,6 +40,7 @@ export function AppHeaderBar({
             : '@2xl:h-[4.2rem] @2xl:flex-nowrap'
         }`}
       >
+        <MobileNavButton />
         {children}
         <div className="ml-auto flex shrink-0 items-center gap-2.5">
           {actions}

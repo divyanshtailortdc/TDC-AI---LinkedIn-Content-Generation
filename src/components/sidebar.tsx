@@ -1,28 +1,33 @@
 'use client'
 
-import { useCallback, useSyncExternalStore } from 'react'
+import {
+  AccountSwitcher,
+  type SwitchableAccount
+} from '@/components/account-switcher'
+import { useMobileNav } from '@/components/mobile-nav'
+import logoDark from '@/img/tdccommercelogo-dark.webp'
+import logoLight from '@/img/tdccommercelogo.webp'
+import { cn } from '@/lib/cn'
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  LayoutDashboard,
+  Lightbulb,
+  Play,
+  Settings,
+  X
+} from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  LayoutDashboard,
-  Lightbulb,
-  FileText,
-  Play,
-  Settings,
-  ChevronLeft,
-  ChevronRight
-} from 'lucide-react'
-import { AccountSwitcher, type SwitchableAccount } from '@/components/account-switcher'
-import { cn } from '@/lib/cn'
-import logoLight from '@/img/tdccommercelogo.webp'
-import logoDark from '@/img/tdccommercelogo-dark.webp'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
   { href: '/posts', label: 'Posts', icon: FileText },
-  { href: '/runs', label: 'Run Details', icon: Play },
+  { href: '/runs', label: 'Run Details', icon: Play }
 ]
 
 const STORAGE_KEY = 'sidebar-collapsed'
@@ -40,6 +45,24 @@ function readCollapsedPref() {
 // there; the client re-syncs to the stored preference right after.
 function readCollapsedPrefServer() {
   return false
+}
+
+// The sidebar is a slide-out drawer below `lg` (matches Tailwind's breakpoint);
+// the collapsed rail only exists on screens wide enough to keep it visible.
+const DESKTOP_QUERY = '(min-width: 1024px)'
+
+function subscribeToDesktop(onChange: () => void) {
+  const mql = window.matchMedia(DESKTOP_QUERY)
+  mql.addEventListener('change', onChange)
+  return () => mql.removeEventListener('change', onChange)
+}
+
+function useIsDesktop() {
+  return useSyncExternalStore(
+    subscribeToDesktop,
+    () => window.matchMedia(DESKTOP_QUERY).matches,
+    () => true
+  )
 }
 
 /** Persisted collapse state for the sidebar rail, shared via localStorage. */
@@ -111,7 +134,7 @@ function NavLink({
 
       {/* Tooltip shown only in collapsed rail mode */}
       {collapsed && (
-        <span className="pointer-events-none absolute left-full ml-3 whitespace-nowrap rounded-lg bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 z-30">
+        <span className="bg-foreground text-background pointer-events-none absolute left-full z-30 ml-3 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
           {label}
         </span>
       )}
@@ -130,110 +153,154 @@ export function Sidebar({
   ideasToReview?: number
 }) {
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useSidebarCollapsed()
-  const toggle = () => setCollapsed(!collapsed)
+  const [collapsedPref, setCollapsed] = useSidebarCollapsed()
+  const isDesktop = useIsDesktop()
+  const { open, setOpen } = useMobileNav()
+  // The drawer always shows the full sidebar; only the desktop rail collapses.
+  const collapsed = collapsedPref && isDesktop
+  const toggle = () => setCollapsed(!collapsedPref)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, setOpen])
 
   return (
-    <aside
-      className={cn(
-        'shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border transition-[width] duration-200 ease-in-out',
-        collapsed ? 'w-19' : 'w-70'
+    <>
+      {open && (
+        <div
+          aria-hidden
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+        />
       )}
-    >
-      {/* Logo */}
-      <div
+      <aside
         className={cn(
-          'relative flex items-center border-b border-sidebar-border py-4',
-          collapsed ? 'justify-center px-2' : 'flex-col justify-center gap-2 px-5'
+          'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-50 flex h-full w-70 max-w-[85vw] shrink-0 -translate-x-full flex-col border-r shadow-xl transition-transform duration-200 ease-in-out',
+          'lg:static lg:z-auto lg:max-w-none lg:translate-none lg:shadow-none lg:transition-[width]',
+          open && 'translate-x-0',
+          collapsedPref && 'lg:w-19'
         )}
       >
-        {collapsed ? (
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent text-background text-xs font-bold">
-            TDC
-          </div>
-        ) : (
-          <>
-            {/* Both variants render; CSS picks one so the logo is correct during SSR
-                and never flashes the wrong ink while next-themes hydrates. */}
-            <Image
-              src={logoLight}
-              alt="TDC Commerce"
-              priority
-              className="h-8 w-auto self-start dark:hidden"
-            />
-            <Image
-              src={logoDark}
-              alt="TDC Commerce"
-              priority
-              className="h-8 w-auto self-start hidden dark:block"
-            />
-            <p className="pl-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted/80 leading-none">
-              LinkedIn Content Engine
-            </p>
-          </>
-        )}
-
-        {/* Collapse toggle */}
-        <button
-          type="button"
-          onClick={toggle}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        {/* Logo */}
+        <div
           className={cn(
-            'absolute flex items-center justify-center border border-sidebar-border bg-surface text-muted transition-colors hover:bg-surface-hover hover:text-foreground',
+            'border-sidebar-border relative flex items-center border-b py-4',
             collapsed
-              ? 'top-1/2 -right-3 h-6 w-6 -translate-y-1/2 rounded-full shadow-sm'
-              : 'top-4 right-4 h-8 w-8 rounded-lg'
+              ? 'justify-center px-2'
+              : 'flex-col justify-center gap-2 px-5'
           )}
         >
           {collapsed ? (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <div className="bg-accent text-background flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold">
+              TDC
+            </div>
           ) : (
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <>
+              {/* Both variants render; CSS picks one so the logo is correct during SSR
+                and never flashes the wrong ink while next-themes hydrates. */}
+              <Image
+                src={logoLight}
+                alt="TDC Commerce"
+                priority
+                className="h-8 w-auto self-start dark:hidden"
+              />
+              <Image
+                src={logoDark}
+                alt="TDC Commerce"
+                priority
+                className="hidden h-8 w-auto self-start dark:block"
+              />
+              <p className="text-muted/80 pl-1 text-[11px] leading-none font-medium tracking-[0.14em] uppercase">
+                LinkedIn Content Engine
+              </p>
+            </>
           )}
-        </button>
-      </div>
 
-      {/* Nav */}
-      <nav className="flex-1 space-y-1.5 overflow-y-auto overflow-x-visible px-3 py-5">
-        {navItems.map(({ href, label, icon, ...rest }) => {
-          const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
-          return (
-            <NavLink
-              key={href}
-              href={href}
-              label={label}
-              icon={icon}
-              active={active}
-              collapsed={collapsed}
-              badge={'badge' in rest ? ideasToReview : 0}
-            />
-          )
-        })}
+          {/* Close the drawer (below lg only) */}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close navigation"
+            className="border-sidebar-border bg-surface text-muted hover:bg-surface-hover hover:text-foreground absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-lg border transition-colors lg:hidden"
+          >
+            <X className="h-4 w-4" />
+          </button>
 
-        {/* Account settings targets the active identity, so its href is dynamic
+          {/* Collapse toggle (lg and up only) */}
+          <button
+            type="button"
+            onClick={toggle}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={cn(
+              'border-sidebar-border bg-surface text-muted hover:bg-surface-hover hover:text-foreground absolute hidden items-center justify-center border transition-colors lg:flex',
+              collapsed
+                ? 'top-1/2 -right-3 h-6 w-6 -translate-y-1/2 rounded-full shadow-sm'
+                : 'top-4 right-4 h-8 w-8 rounded-lg'
+            )}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronLeft className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 space-y-1.5 overflow-x-visible overflow-y-auto px-3 py-5">
+          {navItems.map(({ href, label, icon, ...rest }) => {
+            const active =
+              href === '/' ? pathname === '/' : pathname.startsWith(href)
+            return (
+              <NavLink
+                key={href}
+                href={href}
+                label={label}
+                icon={icon}
+                active={active}
+                collapsed={collapsed}
+                badge={'badge' in rest ? ideasToReview : 0}
+              />
+            )
+          })}
+
+          {/* Account settings targets the active identity, so its href is dynamic
             rather than part of the static navItems list. */}
-        {activeAccount && (
-          <NavLink
-            href={`/accounts/${activeAccount.id}`}
-            label="Account Settings"
-            icon={Settings}
-            active={pathname.startsWith('/accounts') && pathname !== '/accounts/new'}
+          {activeAccount && (
+            <NavLink
+              href={`/accounts/${activeAccount.id}`}
+              label="Account Settings"
+              icon={Settings}
+              active={
+                pathname.startsWith('/accounts') && pathname !== '/accounts/new'
+              }
+              collapsed={collapsed}
+            />
+          )}
+        </nav>
+
+        {/* Active identity switcher */}
+        <div
+          className={cn(
+            'border-sidebar-border border-t py-3',
+            collapsed ? 'px-2' : 'px-3'
+          )}
+        >
+          <AccountSwitcher
+            accounts={accounts}
+            activeAccount={activeAccount}
             collapsed={collapsed}
           />
-        )}
-      </nav>
-
-      {/* Active identity switcher */}
-      <div className={cn('border-t border-sidebar-border py-3', collapsed ? 'px-2' : 'px-3')}>
-        <AccountSwitcher
-          accounts={accounts}
-          activeAccount={activeAccount}
-          collapsed={collapsed}
-        />
-        {/* {!collapsed && (
+          {/* {!collapsed && (
           <p className="mt-2.5 px-1 text-xs text-muted">Phase 1 · v0.1</p>
         )} */}
-      </div>
-    </aside>
+        </div>
+      </aside>
+    </>
   )
 }

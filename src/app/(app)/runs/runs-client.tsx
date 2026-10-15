@@ -81,7 +81,7 @@ export function RunsClient({
         : String(value)
 
   const content = (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="space-y-8">
       {spend && runs.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
@@ -277,7 +277,7 @@ export function RunsClient({
           </button>
         }
       />
-      <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-surface-hover/30">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-surface-hover/30">
         {content}
       </div>
     </div>

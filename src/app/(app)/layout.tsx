@@ -1,3 +1,4 @@
+import { MobileNavProvider } from '@/components/mobile-nav'
 import { Sidebar } from '@/components/sidebar'
 import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
@@ -40,16 +41,18 @@ export default async function AppLayout({
     : []
 
   return (
-    <div className="flex h-full min-h-screen">
-      <Sidebar
-        accounts={accounts}
-        activeAccount={activeAccount}
-        ideasToReview={pending}
-      />
-      <main className="flex-1 overflow-y-auto bg-background relative flex flex-col">
-        {children}
-      </main>
-      <ToastContainer />
-    </div>
+    <MobileNavProvider>
+      <div className="flex h-full min-h-screen">
+        <Sidebar
+          accounts={accounts}
+          activeAccount={activeAccount}
+          ideasToReview={pending}
+        />
+        <main className="flex-1 min-w-0 overflow-y-auto bg-background relative flex flex-col">
+          {children}
+        </main>
+        <ToastContainer />
+      </div>
+    </MobileNavProvider>
   )
 }

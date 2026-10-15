@@ -405,8 +405,8 @@ export function RunDetailClient({
         }
       />
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 bg-surface-hover/30">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-surface-hover/30">
+        <div className="space-y-6">
           <AiDraftingStatus
             status={draftStatus}
             subject="this run's approved ideas"
