@@ -128,9 +128,6 @@ export function AiSetupCard({
           <h2 className="text-foreground text-sm font-semibold">
             AI Profile Assistant
           </h2>
-          <span className="border-border text-muted ml-auto rounded-md border px-2 py-0.5 text-[10px] font-semibold">
-            Auto-fill
-          </span>
         </header>
       ) : (
         <h2 className="text-foreground flex shrink-0 items-center gap-2 text-sm font-semibold">
@@ -146,11 +143,11 @@ export function AiSetupCard({
               assistant ? 'mt-3' : 'mt-1.5 mb-4'
             }`}
           >
-            {reanalyzing
-              ? 'Analyze again with new details. Your current suggestions are replaced.'
-              : assistant
-                ? 'Paste your LinkedIn bio, company summary, or website text, and add your online links below. AI will draft profile fields for you to review and tweak before saving.'
-                : 'Paste your company or profile details. AI suggests every step for you to review before anything is saved.'}
+           {reanalyzing
+  ? 'Update your details and generate new suggestions.'
+  : assistant
+    ? 'Add your profile details and links. AI will suggest fields for you to review.'
+    : 'Add your company details. AI will suggest updates for you to review.'}
           </p>
           <AnalyzeForm
             variant={variant}

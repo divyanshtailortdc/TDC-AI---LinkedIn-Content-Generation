@@ -1,3 +1,4 @@
+import { StepFields } from '@/components/account-setup/setup-frame'
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
 import { accountsTable, voiceConfigsTable } from '@/db/schema'
@@ -25,13 +26,15 @@ export default async function VoicePage({ params }: VoicePageProps) {
   })
 
   return (
-    <SetupShell account={account}>
-      {/* Remount after each save so the form shows what was stored. */}
-      <VoiceForm
-        key={voiceConfig?.updatedAt.getTime() ?? 'new'}
-        accountId={account.id}
-        initialConfig={voiceConfig}
-      />
+    <SetupShell account={account} hasSavedData={Boolean(voiceConfig)}>
+      <StepFields>
+        {/* Remount after each save so the form shows what was stored. */}
+        <VoiceForm
+          key={voiceConfig?.updatedAt.getTime() ?? 'new'}
+          accountId={account.id}
+          initialConfig={voiceConfig}
+        />
+      </StepFields>
     </SetupShell>
   )
 }

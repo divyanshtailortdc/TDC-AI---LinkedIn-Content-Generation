@@ -1,5 +1,6 @@
 'use client'
 
+import { useStepView } from '@/components/account-setup/setup-frame'
 import {
   updateDraftSuggestions,
   useIdentitySetupDraft
@@ -241,6 +242,19 @@ export function KnowledgeClient({
     }
   }
 
+  // A saved knowledge base is read-only until the header's Edit; Cancel clears
+  // whatever was typed. Suggestions from the AI setup keep the step open.
+  const editing = useStepView({
+    dirty: hasAiKnowledge,
+    onCancel: () => {
+      setInputUrl('')
+      setUrlPreview(null)
+      setArtifactTitle('')
+      setArtifactContent('')
+      setError(null)
+    }
+  })
+
   return (
     <div className="space-y-8">
       {error && (
@@ -361,7 +375,11 @@ export function KnowledgeClient({
       )}
 
       {/* Ingestion Panel */}
-      <section className="border-border bg-surface space-y-6 rounded-xl border p-6">
+      <section
+        className={`border-border bg-surface space-y-6 rounded-xl border p-6 ${
+          editing ? '' : 'hidden'
+        }`}
+      >
         <div className="bg-surface-hover border-border flex w-fit items-center gap-2 rounded-lg border p-1">
           <button
             type="button"
@@ -635,7 +653,9 @@ export function KnowledgeClient({
                         type="button"
                         onClick={() => handleDelete(doc.id)}
                         disabled={deletingId === doc.id}
-                        className="text-muted p-1 transition-colors hover:text-rose-500"
+                        className={`text-muted p-1 transition-colors hover:text-rose-500 ${
+                          editing ? '' : 'hidden'
+                        }`}
                         title="Delete document"
                       >
                         {deletingId === doc.id ? (

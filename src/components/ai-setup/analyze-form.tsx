@@ -216,11 +216,6 @@ export function AnalyzeForm({
           )}
           {assistant && (
             <div className="mt-1.5 flex items-start justify-between gap-3">
-              <p className="text-muted text-[11px] leading-snug">
-                {hasReadableLink
-                  ? 'Also reads the links under Online presence.'
-                  : 'LinkedIn often blocks reading; your text is used instead.'}
-              </p>
               <button
                 type="button"
                 disabled={isAnalyzing}
@@ -353,15 +348,7 @@ export function AnalyzeForm({
                 Advanced analysis options
                 <ChevronRight className="ml-auto h-3.5 w-3.5" />
               </button>
-              <p
-                className="border-border text-muted flex items-start gap-2 border-t pt-3 text-[11px] leading-snug"
-                aria-live="polite"
-              >
-                <Info className="mt-px h-3.5 w-3.5 shrink-0" />
-                {isAnalyzing
-                  ? 'This usually takes about a minute.'
-                  : 'AI suggestions never overwrite filled fields without your confirmation.'}
-              </p>
+
             </>
           ) : (
             <p
@@ -396,12 +383,12 @@ export function AnalyzeForm({
             setDescription(value)
             if (validationError) setValidationError(null)
           }}
+          // The same links as the Online presence inputs: typing them here
+          // fills the Profile's own LinkedIn and Website fields too.
           linkedinUrl={linkedin}
-          onLinkedinUrlChange={setLinkedinUrl}
+          onLinkedinUrlChange={setLinkedin}
           websiteUrl={website}
-          onWebsiteUrlChange={setWebsiteUrl}
-          // The assistant card asks for the links itself.
-          urlsFromForm={urlsFromForm || assistant}
+          onWebsiteUrlChange={setWebsite}
           accountType={accountType}
           accountTypeLocked={accountTypeLocked}
           isAnalyzing={isAnalyzing}
@@ -484,10 +471,10 @@ function OnlinePresence({
   return (
     <fieldset className="border-border min-w-0 space-y-3 border-t pt-3">
       <legend className="sr-only">Online presence</legend>
-      <p className="text-foreground text-xs font-semibold">
+      {/* <p className="text-foreground text-xs font-semibold">
         Online presence{' '}
         <span className="text-muted font-normal">(optional)</span>
-      </p>
+      </p> */}
 
       {field({
         id: 'ai-linkedin',

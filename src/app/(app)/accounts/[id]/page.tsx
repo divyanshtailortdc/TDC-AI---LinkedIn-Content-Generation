@@ -55,7 +55,7 @@ export default async function AccountPage({
   const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
 
   return (
-    <SetupShell account={account}>
+    <SetupShell account={account} hasSavedData>
       {/* Setup Complete Banner */}
       {allDone && (
         <div className="mb-6 flex flex-col justify-between gap-4 rounded-xl border border-emerald-500/30 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center dark:bg-emerald-950/20">

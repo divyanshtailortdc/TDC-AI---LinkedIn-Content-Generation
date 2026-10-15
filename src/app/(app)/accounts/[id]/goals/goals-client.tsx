@@ -1,6 +1,9 @@
 'use client'
 
-import { useStepSave } from '@/components/account-setup/setup-frame'
+import {
+  useStepSave,
+  useStepView
+} from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
@@ -222,6 +225,20 @@ export function GoalsClient({
     showNewGoal && (title.trim() || keyMessage.trim()) ? submitGoal() : true
   )
 
+  // A saved list is read-only until the header's Edit; Cancel closes any open
+  // editor and discards what was typed. Goals the AI filled in are unsaved
+  // changes, so they keep the step open.
+  const editing = useStepView({
+    dirty: prefill.active && prefill.filled.length > 0,
+    onCancel: () => {
+      prefill.undo()
+      resetForm()
+      setSuggestions(null)
+      setShowNewGoal(initialGoals.length === 0)
+      setError(null)
+    }
+  })
+
   const handleToggle = async (goalId: string, current: boolean) => {
     setActionId(goalId)
     try {
@@ -302,7 +319,9 @@ export function GoalsClient({
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap justify-end gap-2">
+      <div
+        className={`flex flex-wrap justify-end gap-2 ${editing ? '' : 'hidden'}`}
+      >
         {!isEditing && (
           <button
             type="button"
@@ -410,7 +429,7 @@ export function GoalsClient({
       )}
 
       {/* New Goal Form */}
-      {showNewGoal && (
+      {showNewGoal && editing && (
         <form
           onSubmit={handleSubmit}
           className="border-border bg-surface space-y-6 rounded-xl border p-6"
@@ -645,8 +664,10 @@ export function GoalsClient({
                         <button
                           type="button"
                           onClick={() => handleToggle(g.id, g.isActive)}
-                          disabled={actionId === g.id}
+                          disabled={actionId === g.id || !editing}
                           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            editing ? '' : 'cursor-default'
+                          } ${
                             g.isActive
                               ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
                               : 'bg-surface-hover text-muted'
@@ -659,7 +680,9 @@ export function GoalsClient({
                           type="button"
                           onClick={() => handleEdit(g)}
                           disabled={actionId === g.id}
-                          className="text-muted hover:text-accent p-1 transition-colors"
+                          className={`text-muted hover:text-accent p-1 transition-colors ${
+                            editing ? '' : 'hidden'
+                          }`}
                           title="Edit goal"
                         >
                           <Edit2 className="h-4 w-4" />
@@ -669,7 +692,9 @@ export function GoalsClient({
                           type="button"
                           onClick={() => handleDelete(g.id)}
                           disabled={actionId === g.id}
-                          className="text-muted p-1 transition-colors hover:text-rose-500"
+                          className={`text-muted p-1 transition-colors hover:text-rose-500 ${
+                            editing ? '' : 'hidden'
+                          }`}
                           title="Delete goal"
                         >
                           <Trash2 className="h-4 w-4" />

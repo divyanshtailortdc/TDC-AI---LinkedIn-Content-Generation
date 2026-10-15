@@ -1,6 +1,9 @@
 'use client'
 
-import { useStepSave } from '@/components/account-setup/setup-frame'
+import {
+  useStepSave,
+  useStepView
+} from '@/components/account-setup/setup-frame'
 import { Calendar, CheckCircle2, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { saveSchedule } from './actions'
@@ -77,6 +80,18 @@ export function ScheduleForm({
     return true
   }
   useStepSave(save)
+
+  // The header's Cancel puts the schedule back to what is saved.
+  useStepView({
+    dirty: isDirty,
+    onCancel: () => {
+      setEnabled(initialSchedule?.enabled ?? false)
+      setSelectedDays((initialSchedule?.daysOfWeek as number[]) || [1, 3, 5])
+      setTimeOfDay(initialSchedule?.timeOfDay || '09:00')
+      setSavedSuccess(false)
+      setError(null)
+    }
+  })
 
   return (
     <form

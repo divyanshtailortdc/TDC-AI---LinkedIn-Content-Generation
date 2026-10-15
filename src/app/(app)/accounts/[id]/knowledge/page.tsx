@@ -27,7 +27,7 @@ export default async function KnowledgePage({ params }: PageProps) {
     .orderBy(desc(knowledgeDocumentsTable.createdAt))
 
   return (
-    <SetupShell account={account}>
+    <SetupShell account={account} hasSavedData={docs.length > 0}>
       <KnowledgeClient
         accountId={account.id}
         accountName={account.name}

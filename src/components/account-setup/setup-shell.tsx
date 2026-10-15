@@ -20,9 +20,12 @@ type ShellAccount = {
 /** The setup frame for an existing account; each page renders its own step. */
 export function SetupShell({
   account,
+  hasSavedData = false,
   children
 }: {
   account: ShellAccount
+  /** The step already has saved data: it opens read-only, with Edit in the header. */
+  hasSavedData?: boolean
   children: ReactNode
 }) {
   const pathname = usePathname()
@@ -42,6 +45,7 @@ export function SetupShell({
     <SetupFrame
       stepIndex={index}
       nextHref={next ? `/accounts/${account.id}${next.path}` : undefined}
+      hasSavedData={hasSavedData}
       identity={
         <>
           <div className="bg-accent text-background flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold shadow-xs">

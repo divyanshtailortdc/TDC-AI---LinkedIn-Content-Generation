@@ -75,13 +75,16 @@ function SectionCard({
  */
 function AccountTypePicker({
   value,
-  onChange
+  onChange,
+  readOnly = false
 }: {
   value: AccountType
   /** Leave out to show the choice read-only. */
   onChange?: (value: AccountType) => void
+  /** Viewing a saved profile: locked until the person clicks Edit. */
+  readOnly?: boolean
 }) {
-  const locked = !onChange
+  const locked = !onChange || readOnly
   return (
     <SectionCard
       title="What kind of identity is this?"
@@ -90,7 +93,9 @@ function AccountTypePicker({
         locked && (
           <span className="text-muted inline-flex shrink-0 items-center gap-1 text-xs">
             <Lock className="h-3 w-3" />
-            Set when the identity was created
+            {readOnly
+              ? 'Click Edit to change'
+              : 'Set when the identity was created'}
           </span>
         )
       }
@@ -223,6 +228,7 @@ function IdentityField({
   rightHint,
   icon,
   textareaClass = 'h-24',
+  readOnly = false,
   onChange
 }: {
   def: IdentityFieldDefinition
@@ -233,8 +239,31 @@ function IdentityField({
   icon?: ReactNode
   /** Starting height of the box when the field is a textarea. */
   textareaClass?: string
+  /** Show the saved text, not an input. */
+  readOnly?: boolean
   onChange: (value: string) => void
 }) {
+  if (readOnly) {
+    // Plain text: nothing here looks or behaves like something to type into.
+    return (
+      <div>
+        <FieldLabel
+          def={{ ...def, required: false, hint: undefined }}
+          rightHint={undefined}
+        />
+        <div
+          id={def.name}
+          role="textbox"
+          aria-readonly="true"
+          aria-multiline={def.type === 'textarea'}
+          className="border-border/60 bg-surface-hover/40 text-foreground scrollbar-visible max-h-40 min-h-[2.375rem] overflow-y-auto rounded-lg border px-3.5 py-2 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap"
+        >
+          {value.trim() ? value : <span className="text-muted">Not set</span>}
+        </div>
+      </div>
+    )
+  }
+
   const className = `${baseInputClass} ${
     error ? 'border-red-500/60 ring-1 ring-red-500/30' : 'border-border'
   }`
@@ -283,6 +312,7 @@ export function IdentityFields({
   errors = {},
   accountType,
   onAccountTypeChange,
+  readOnly = false,
   onChange
 }: {
   values: IdentityValues
@@ -290,6 +320,8 @@ export function IdentityFields({
   accountType: AccountType
   /** Leave out to show the identity type read-only (edit page). */
   onAccountTypeChange?: (value: AccountType) => void
+  /** A saved profile being viewed: every field is plain text until edited. */
+  readOnly?: boolean
   onChange: (field: IdentityProfileField, value: string) => void
 }) {
   const field = (
@@ -339,6 +371,7 @@ export function IdentityFields({
         error={errors[name]}
         rightHint={extras.rightHint}
         textareaClass={extras.textareaClass}
+        readOnly={readOnly}
         onChange={value => onChange(name, value)}
       />
     )
@@ -346,7 +379,11 @@ export function IdentityFields({
 
   return (
     <div className="space-y-5">
-      <AccountTypePicker value={accountType} onChange={onAccountTypeChange} />
+      <AccountTypePicker
+        value={accountType}
+        onChange={onAccountTypeChange}
+        readOnly={readOnly}
+      />
 
       <SectionCard
         title="Basic information"

@@ -1,6 +1,9 @@
 'use client'
 
-import { useStepSave } from '@/components/account-setup/setup-frame'
+import {
+  useStepSave,
+  useStepView
+} from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
@@ -274,6 +277,26 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     return false
   }
   useStepSave(save)
+
+  // The header's Cancel puts every setting back to what is saved.
+  const resetToSaved = () => {
+    prefill.undo()
+    setDerivedRubric(initialConfig?.derivedStyleRubric || '')
+    setTone(initialConfig?.tone || '')
+    setPerspective(initialConfig?.perspective || '')
+    setEmojiPolicy(initialConfig?.emojiPolicy || '')
+    setHashtagPolicy(initialConfig?.hashtagPolicy || '')
+    setScales({
+      formality: initialConfig?.formality ?? null,
+      directness: initialConfig?.directness ?? null
+    })
+    setError(null)
+  }
+  // Settings the AI filled in are unsaved changes, so they keep the form open.
+  useStepView({
+    dirty: prefill.active && prefill.filled.length > 0,
+    onCancel: resetToSaved
+  })
 
   const sectionClass =
     'border-border bg-surface space-y-5 rounded-2xl border p-6 shadow-xs sm:p-8'

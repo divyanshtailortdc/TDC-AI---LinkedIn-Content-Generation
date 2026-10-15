@@ -1,6 +1,9 @@
 'use client'
 
-import { useStepSave } from '@/components/account-setup/setup-frame'
+import {
+  useStepSave,
+  useStepView
+} from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { showToast } from '@/components/toast-notification'
@@ -180,6 +183,25 @@ export function PreferencesForm({
   }
   useStepSave(save)
 
+  // The header's Cancel puts every setting back to what is saved.
+  const resetToSaved = () => {
+    prefill.undo()
+    setPillars(initial.pillars)
+    setTopicsInputs(
+      initial.pillars.map(p => (p.example_topics || []).join(', '))
+    )
+    setIdeasPerRun(initial.ideasPerRun)
+    setConstraints(initial.post_constraints)
+    setBannedTopicsInput(initial.guardrails.banned_topics.join(', '))
+    setComplianceNotes(initial.guardrails.compliance_notes)
+    setError(null)
+  }
+  // Settings the AI filled in are unsaved changes, so they keep the form open.
+  useStepView({
+    dirty: prefill.active && prefill.filled.length > 0,
+    onCancel: resetToSaved
+  })
+
   return (
     <div className="space-y-8">
       <p className="text-muted text-sm">
@@ -220,6 +242,7 @@ export function PreferencesForm({
         action={
           <button
             type="button"
+            data-edit-only
             onClick={addPillar}
             className="text-accent hover:bg-accent/10 flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
           >
@@ -268,6 +291,7 @@ export function PreferencesForm({
                   </span>
                   <button
                     type="button"
+                    data-edit-only
                     onClick={() => removePillar(idx)}
                     className="text-muted p-1 transition-colors hover:text-rose-500"
                     title="Remove pillar"

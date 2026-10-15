@@ -3,7 +3,7 @@
 import { useSuggestedSections } from '@/components/ai-setup/draft-store'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { SetupSection } from '@/lib/ai/skills/profile-setup/schema'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -12,6 +12,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -46,6 +47,80 @@ export function useStepSave(save: StepSave) {
     if (!ctx) return
     return ctx.register(() => latest.current())
   }, [ctx])
+}
+
+// ---------------------------------------------------------------------------
+// Edit / view: a step that already has saved data opens read-only
+// ---------------------------------------------------------------------------
+
+type StepView = { dirty: boolean; cancel: () => void }
+
+const StepViewContext = createContext<{
+  /** False while a saved step is being viewed. */
+  editing: boolean
+  setView: (id: string, view: StepView) => void
+  removeView: (id: string) => void
+} | null>(null)
+
+/**
+ * Lets a step's form take part in the header's Edit / Cancel. Returns whether
+ * the step is being edited right now.
+ *
+ * - `dirty`: the form holds changes that are not saved (for example the AI
+ *   filled fields), so it must be editable and cannot be hidden behind Edit.
+ * - `onCancel`: put the form back to what is saved.
+ */
+export function useStepView({
+  dirty = false,
+  onCancel
+}: {
+  dirty?: boolean
+  onCancel?: () => void
+} = {}): boolean {
+  const ctx = useContext(StepViewContext)
+  const id = useId()
+  const latest = useRef(onCancel)
+  useEffect(() => {
+    latest.current = onCancel
+  })
+  const cancel = useCallback(() => latest.current?.(), [])
+
+  const setView = ctx?.setView
+  const removeView = ctx?.removeView
+  useEffect(() => {
+    setView?.(id, { dirty, cancel })
+  }, [setView, id, dirty, cancel])
+  useEffect(() => () => removeView?.(id), [removeView, id])
+
+  return ctx ? ctx.editing : true
+}
+
+/**
+ * Wraps a step's controls. While a saved step is viewed, every input, select
+ * and button inside is disabled and drawn as plain read-only text, so nothing
+ * on screen invites typing until the person clicks Edit. Anything marked
+ * `data-edit-only` (an Add or Remove button) is hidden outright.
+ */
+export function StepFields({
+  children,
+  className = ''
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  const editing = useContext(StepViewContext)?.editing ?? true
+  return (
+    <fieldset
+      disabled={!editing}
+      className={`m-0 min-w-0 border-0 p-0 ${
+        editing
+          ? ''
+          : '[&_:is(input,textarea,select):disabled]:bg-surface-hover/40 [&_:is(input,textarea,select):disabled]:border-border/60 [&_:is(input,textarea,select):disabled]:text-foreground [&_:is(input,textarea,select):disabled]:cursor-default [&_:is(input,textarea,select):disabled]:opacity-100 [&_[data-edit-only]]:hidden [&_button:disabled]:cursor-default [&_button:disabled]:opacity-100'
+      } ${className}`}
+    >
+      {children}
+    </fieldset>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +237,7 @@ export function SetupFrame({
   aside,
   stepIndex,
   nextHref,
+  hasSavedData = false,
   title,
   description,
   children
@@ -173,6 +249,12 @@ export function SetupFrame({
   stepIndex: number
   /** Where Save & Next goes after a successful save; none on the last step. */
   nextHref?: string
+  /**
+   * The step already has saved data, so it opens read-only with Edit in the
+   * header. Read once, when the step opens: saving the first goal on a blank
+   * step must not hide the form under the person's hands.
+   */
+  hasSavedData?: boolean
   /** Override the step's own title and description. */
   title?: string
   description?: string
@@ -192,6 +274,34 @@ export function SetupFrame({
   const ctx = useMemo(() => ({ register }), [register])
   const [saving, setSaving] = useState(false)
 
+  const [viewable] = useState(hasSavedData)
+  const [edit, setEdit] = useState(false)
+  const [views, setViews] = useState<Record<string, StepView>>({})
+  const setView = useCallback((id: string, view: StepView) => {
+    setViews(prev =>
+      prev[id]?.dirty === view.dirty && prev[id]?.cancel === view.cancel
+        ? prev
+        : { ...prev, [id]: view }
+    )
+  }, [])
+  const removeView = useCallback((id: string) => {
+    setViews(prev => {
+      const { [id]: _removed, ...rest } = prev
+      return rest
+    })
+  }, [])
+  // Unsaved changes keep the step editable; otherwise a saved step is viewed.
+  const editing =
+    !viewable || edit || Object.values(views).some(view => view.dirty)
+  const viewCtx = useMemo(
+    () => ({ editing, setView, removeView }),
+    [editing, setView, removeView]
+  )
+  const cancelEditing = () => {
+    for (const view of Object.values(views)) view.cancel()
+    setEdit(false)
+  }
+
   const saveAndNext = async () => {
     setSaving(true)
     try {
@@ -203,7 +313,8 @@ export function SetupFrame({
           break
         }
       }
-      if (ok && nextHref) router.push(nextHref)
+      if (ok) setEdit(false)
+      // if (ok && nextHref) router.push(nextHref)
     } finally {
       setSaving(false)
     }
@@ -229,16 +340,38 @@ export function SetupFrame({
                 <div className="border-border rounded-xl border">
                   <ThemeToggle />
                 </div>
-                {!isLast && (
+                {!isLast && viewable && !editing && (
                   <button
                     type="button"
-                    onClick={saveAndNext}
-                    disabled={saving}
-                    className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10"
+                    onClick={() => setEdit(true)}
+                    className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-10"
                   >
-                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {saving ? 'Saving…' : 'Save & Next'}
+                    <Pencil className="h-4 w-4" />
+                    Edit
                   </button>
+                )}
+                {!isLast && (!viewable || editing) && (
+                  <>
+                    {viewable && (
+                      <button
+                        type="button"
+                        onClick={cancelEditing}
+                        disabled={saving}
+                        className="border-border text-foreground hover:bg-surface-hover inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-60 sm:h-10"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={saveAndNext}
+                      disabled={saving}
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10"
+                    >
+                      {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -277,7 +410,9 @@ export function SetupFrame({
                 </span>
               </div>
               <div className="min-h-0 flex-1 px-4 pb-4 sm:px-6 sm:pb-5 xl:overflow-y-auto">
-                {children}
+                <StepViewContext.Provider value={viewCtx}>
+                  {children}
+                </StepViewContext.Provider>
               </div>
             </section>
           </div>

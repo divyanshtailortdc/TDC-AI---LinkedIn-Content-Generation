@@ -1,7 +1,10 @@
 'use client'
 
 import { useProfileUrls } from '@/components/account-setup/profile-urls'
-import { useStepSave } from '@/components/account-setup/setup-frame'
+import {
+  useStepSave,
+  useStepView
+} from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import {
@@ -55,6 +58,26 @@ export function EditIdentityForm({
   // presence card, so they live in the shared store rather than in `fields`.
   const links = useProfileUrls()
   const values: IdentityValues = { ...fields, ...links?.urls }
+
+  // What is saved right now. An identity that is already set up opens as plain
+  // text; the header's Edit makes the fields editable, and its Cancel puts
+  // these back.
+  const [saved, setSaved] = useState<{
+    values: IdentityValues
+    accountType: AccountType
+  }>(() => ({
+    values: {
+      ...profileFromRecords(account, initialOfferings[0], initialAudiences[0]),
+      ...links?.urls
+    },
+    accountType: account.accountType === 'company' ? 'company' : 'personal'
+  }))
+  const dirty =
+    accountType !== saved.accountType ||
+    (Object.keys(values) as Array<keyof IdentityValues>).some(
+      key => values[key] !== saved.values[key]
+    )
+  const missingRequired = Object.keys(validateIdentityValues(values)).length > 0
   const setValues = (next: Partial<IdentityValues>) => {
     const { linkedinUrl, websiteUrl, ...rest } = next
     setFields(prev => ({ ...prev, ...rest }))
@@ -77,9 +100,31 @@ export function EditIdentityForm({
     Math.max(0, initialOfferings.length - 1) +
     Math.max(0, initialAudiences.length - 1)
 
+  /** Back to the saved profile, as plain text. */
+  const cancelEditing = () => {
+    prefill.undo()
+    setFields(saved.values)
+    links?.setUrls({
+      linkedinUrl: saved.values.linkedinUrl,
+      websiteUrl: saved.values.websiteUrl
+    })
+    setAccountType(saved.accountType)
+    setFieldErrors({})
+    setError(null)
+  }
+  // Anything that changes a value (the AI filling fields, or typing the links
+  // in the assistant) needs to be seen and saved, so the header keeps the
+  // fields open for it. Edit and Cancel live in the header, on every step.
+  const editing = useStepView({ dirty, onCancel: cancelEditing })
+
   // Runs from the header's Save & Next; false keeps the user on this step.
   const save = async (): Promise<boolean> => {
     setError(null)
+
+    // Nothing was changed and nothing required is missing: nothing to save.
+    if (!dirty && Object.keys(validateIdentityValues(values)).length === 0) {
+      return true
+    }
 
     const errors = validateIdentityValues(values)
     links?.setErrors({
@@ -117,6 +162,8 @@ export function EditIdentityForm({
       title: 'Identity Updated',
       message: `Identity "${values.name.trim()}" has been saved.`
     })
+    // What was just saved is the new baseline, shown as plain text again.
+    setSaved({ values, accountType })
     router.refresh()
     return true
   }
@@ -140,6 +187,13 @@ export function EditIdentityForm({
         </div>
       )}
 
+      {!editing && missingRequired && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          Some required details are missing. Click Edit at the top to complete
+          them.
+        </p>
+      )}
+
       <PrefillBanner section="profile" prefill={prefill} />
 
       <div>
@@ -148,6 +202,7 @@ export function EditIdentityForm({
           errors={fieldErrors}
           accountType={accountType}
           onAccountTypeChange={setAccountType}
+          readOnly={!editing}
           onChange={(field, value) => {
             setFields(prev => ({ ...prev, [field]: value }))
             if (fieldErrors[field]) {

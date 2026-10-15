@@ -27,7 +27,7 @@ export default async function GoalsPage({ params }: PageProps) {
     .orderBy(desc(goalsTable.createdAt))
 
   return (
-    <SetupShell account={account}>
+    <SetupShell account={account} hasSavedData={goals.length > 0}>
       <GoalsClient accountId={account.id} initialGoals={goals} />
     </SetupShell>
   )
