@@ -246,7 +246,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
     }
   })
 
-  // Runs from the header's Save & Next; false keeps the user on this step.
+  // Runs from the header's Save; false keeps the user on this step.
   const save = async (): Promise<boolean> => {
     setError(null)
     // Only what this page edits is sent; every other voice detail keeps its

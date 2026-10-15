@@ -148,7 +148,7 @@ export function PreferencesForm({
     setTopicsInputs(topicsInputs.filter((_, i) => i !== index))
   }
 
-  // Runs from the header's Save & Next; false keeps the user on this step.
+  // Runs from the header's Save; false keeps the user on this step.
   const save = async (): Promise<boolean> => {
     setError(null)
     try {

@@ -61,7 +61,7 @@ export function ScheduleForm({
       time: timeOfDay
     }) !== initialKey
 
-  // Runs from the header's Save & Next (after Preferences); false keeps the
+  // Runs from the header's Save (after Preferences); false keeps the
   // user on this step.
   const save = async (): Promise<boolean> => {
     if (!isDirty) return true

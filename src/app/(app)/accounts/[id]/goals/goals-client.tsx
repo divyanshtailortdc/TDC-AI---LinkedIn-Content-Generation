@@ -1,9 +1,6 @@
 'use client'
 
-import {
-  useStepSave,
-  useStepView
-} from '@/components/account-setup/setup-frame'
+import { useStepView } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { ConfirmPopover } from '@/components/confirm-popover'
@@ -221,16 +218,13 @@ export function GoalsClient({
     void submitGoal()
   }
 
-  // Save & Next saves a goal the user has started; otherwise it just moves on.
-  useStepSave(() =>
-    showNewGoal && (title.trim() || keyMessage.trim()) ? submitGoal() : true
-  )
-
   // A saved list is read-only until the header's Edit; Cancel closes any open
-  // editor and discards what was typed. Goals the AI filled in are unsaved
-  // changes, so they keep the step open.
+  // editor and discards what was typed. Goals save with Save Goal below, not
+  // from the header. A goal being typed, or one the AI filled in, is an unsaved
+  // change: it keeps the step open and Next asks before leaving it.
+  const started = showNewGoal && Boolean(title.trim() || keyMessage.trim())
   const editing = useStepView({
-    dirty: prefill.active && prefill.filled.length > 0,
+    dirty: started || (prefill.active && prefill.filled.length > 0),
     onCancel: () => {
       prefill.undo()
       resetForm()

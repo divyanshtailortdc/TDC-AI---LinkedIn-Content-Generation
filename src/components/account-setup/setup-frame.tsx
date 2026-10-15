@@ -3,9 +3,8 @@
 import { useSuggestedSections } from '@/components/ai-setup/draft-store'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { SetupSection } from '@/lib/ai/skills/profile-setup/schema'
-import { Loader2, Pencil } from 'lucide-react'
+import { ArrowRight, Loader2, Pencil } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import {
   createContext,
   Fragment,
@@ -21,7 +20,7 @@ import {
 import { SETUP_STEPS } from './steps'
 
 // ---------------------------------------------------------------------------
-// Save & Next: the step's form hands its save to the header button
+// Save: the step's form hands its save to the header button
 // ---------------------------------------------------------------------------
 
 /** Saves the step; resolves false when it failed and the user should stay. */
@@ -32,7 +31,7 @@ const StepSaveContext = createContext<{
 } | null>(null)
 
 /**
- * Lets a form take part in the header's Save & Next. A step can hold several
+ * Lets a form take part in the header's Save. A step can hold several
  * forms (Preferences also holds the schedule); they are saved in the order
  * they appear, and the step only advances if every one succeeds. The latest
  * `save` is always the one called, so it can read current form state.
@@ -227,7 +226,7 @@ export function SetupStepper({
 
 /**
  * The frame shared by every setup step, filling exactly the screen: a header
- * card (who, the steps, theme, Save & Next), then one main card holding the
+ * card (who, the steps, theme, Next and Save), then one main card holding the
  * step's title and content, with the AI assistant beside it on the Profile
  * step. Only the body scrolls.
  */
@@ -247,7 +246,7 @@ export function SetupFrame({
   /** The Profile step's AI assistant, shown on the right. Other steps have none. */
   aside?: ReactNode
   stepIndex: number
-  /** Where Save & Next goes after a successful save; none on the last step. */
+  /** Where the header's Next button goes; none on the last step. */
   nextHref?: string
   /**
    * The step already has saved data, so it opens read-only with Edit in the
@@ -260,15 +259,19 @@ export function SetupFrame({
   description?: string
   children: ReactNode
 }) {
-  const router = useRouter()
   const step = SETUP_STEPS[stepIndex]!
   const isLast = stepIndex === SETUP_STEPS.length - 1
 
   const saves = useRef(new Set<StepSave>())
+  // Whether any form on this step has something to save from the header; a
+  // step whose changes save on the spot (Knowledge) has no Save button.
+  const [saveCount, setSaveCount] = useState(0)
   const register = useCallback((save: StepSave) => {
     saves.current.add(save)
+    setSaveCount(saves.current.size)
     return () => {
       saves.current.delete(save)
+      setSaveCount(saves.current.size)
     }
   }, [])
   const ctx = useMemo(() => ({ register }), [register])
@@ -302,7 +305,8 @@ export function SetupFrame({
     setEdit(false)
   }
 
-  const saveAndNext = async () => {
+  // Save only saves: the person stays on the step and moves on with Next.
+  const saveStep = async () => {
     setSaving(true)
     try {
       let ok = true
@@ -314,11 +318,15 @@ export function SetupFrame({
         }
       }
       if (ok) setEdit(false)
-      // if (ok && nextHref) router.push(nextHref)
     } finally {
       setSaving(false)
     }
   }
+
+  const hasUnsaved = Object.values(views).some(view => view.dirty)
+  // Next is for moving on from a saved or untouched step. While a saved step
+  // is being edited the header offers Cancel and Save instead.
+  const showNext = Boolean(nextHref) && !(viewable && editing)
 
   return (
     <StepSaveContext.Provider value={ctx}>
@@ -340,19 +348,9 @@ export function SetupFrame({
                 <div className="border-border rounded-xl border">
                   <ThemeToggle />
                 </div>
-                {!isLast && viewable && !editing && (
-                  <button
-                    type="button"
-                    onClick={() => setEdit(true)}
-                    className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-10"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Edit
-                  </button>
-                )}
-                {!isLast && (!viewable || editing) && (
+                {!isLast && (
                   <>
-                    {viewable && (
+                    {viewable && editing && (
                       <button
                         type="button"
                         onClick={cancelEditing}
@@ -362,15 +360,57 @@ export function SetupFrame({
                         Cancel
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={saveAndNext}
-                      disabled={saving}
-                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10"
-                    >
-                      {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {saving ? 'Saving…' : 'Save'}
-                    </button>
+                    {showNext && nextHref && (
+                      <Link
+                        href={nextHref}
+                        aria-disabled={saving}
+                        onClick={e => {
+                          if (
+                            saving ||
+                            (hasUnsaved &&
+                              !window.confirm(
+                                'You have unsaved changes. Leave without saving?'
+                              ))
+                          ) {
+                            e.preventDefault()
+                          }
+                        }}
+                        className="border-border text-foreground hover:bg-surface-hover inline-flex h-9 items-center gap-2 rounded-lg border px-4 text-sm font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60 sm:h-10"
+                      >
+                        Next
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    )}
+                    {viewable && !editing ? (
+                      <button
+                        type="button"
+                        onClick={() => setEdit(true)}
+                        className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-10"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        Edit
+                      </button>
+                    ) : saveCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={saveStep}
+                        disabled={saving}
+                        className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10"
+                      >
+                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {saving ? 'Saving…' : 'Save'}
+                      </button>
+                    ) : viewable && !hasUnsaved ? (
+                      // Nothing to save here: changes were saved as they were
+                      // made, so editing just ends.
+                      <button
+                        type="button"
+                        onClick={() => setEdit(false)}
+                        className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-10"
+                      >
+                        Done
+                      </button>
+                    ) : null}
                   </>
                 )}
               </div>

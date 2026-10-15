@@ -80,7 +80,7 @@ export default function NewAccountPage() {
   )
 }
 
-/** Inside the frame so it can take over the header's Save & Next. */
+/** Inside the frame so it can take over the header's Save. */
 function CreateIdentityForm({
   formRef,
   values: fields,

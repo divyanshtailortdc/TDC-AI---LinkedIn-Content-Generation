@@ -117,7 +117,7 @@ export function EditIdentityForm({
   // fields open for it. Edit and Cancel live in the header, on every step.
   const editing = useStepView({ dirty, onCancel: cancelEditing })
 
-  // Runs from the header's Save & Next; false keeps the user on this step.
+  // Runs from the header's Save; false keeps the user on this step.
   const save = async (): Promise<boolean> => {
     setError(null)
 
