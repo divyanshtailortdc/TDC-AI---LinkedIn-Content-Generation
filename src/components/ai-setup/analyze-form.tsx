@@ -59,7 +59,7 @@ export function AnalyzeForm({
    */
   urls?: { linkedinUrl?: string | null; websiteUrl?: string | null }
   /**
-   * The Profile step's LinkedIn and Website URLs, shown as required inputs in
+   * The Profile step's LinkedIn and Website URLs, shown as inputs in
    * the assistant. Without it the assistant keeps them in its own state.
    */
   presence?: {
@@ -236,6 +236,17 @@ export function AnalyzeForm({
           )}
         </div>
 
+        {assistant && (
+          <OnlinePresence
+            disabled={isAnalyzing}
+            linkedinUrl={linkedin}
+            onLinkedinUrlChange={setLinkedin}
+            websiteUrl={website}
+            onWebsiteUrlChange={setWebsite}
+            errors={presence?.errors ?? {}}
+          />
+        )}
+
         {!assistant &&
           (urlsFromForm ? (
             <p className="text-muted text-[11px] leading-snug">
@@ -331,14 +342,6 @@ export function AnalyzeForm({
 
           {assistant ? (
             <>
-              <OnlinePresence
-                disabled={isAnalyzing}
-                linkedinUrl={linkedin}
-                onLinkedinUrlChange={setLinkedin}
-                websiteUrl={website}
-                onWebsiteUrlChange={setWebsite}
-                errors={presence?.errors ?? {}}
-              />
               <button
                 type="button"
                 disabled={isAnalyzing}
@@ -412,8 +415,8 @@ export function AnalyzeForm({
 }
 
 /**
- * The assistant's Online presence block: the profile's own required LinkedIn
- * and Website URLs.
+ * The assistant's Online presence block: the profile's own LinkedIn and
+ * Website URLs.
  */
 function OnlinePresence({
   disabled,
@@ -437,7 +440,6 @@ function OnlinePresence({
     onChange,
     placeholder,
     icon,
-    required,
     error
   }: {
     id: string
@@ -446,7 +448,6 @@ function OnlinePresence({
     onChange: (value: string) => void
     placeholder: string
     icon: ReactNode
-    required?: boolean
     error?: string
   }) => (
     <div>
@@ -455,7 +456,6 @@ function OnlinePresence({
         className="text-foreground mb-1 block text-xs font-medium"
       >
         {label}
-        {required && <span className="ml-0.5 text-rose-500">*</span>}
       </label>
       <div className="relative">
         <span className="text-muted pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
@@ -465,7 +465,6 @@ function OnlinePresence({
           id={id}
           type="url"
           value={value}
-          required={required}
           disabled={disabled}
           aria-invalid={error ? true : undefined}
           onChange={e => onChange(e.target.value)}
@@ -485,16 +484,10 @@ function OnlinePresence({
   return (
     <fieldset className="border-border min-w-0 space-y-3 border-t pt-3">
       <legend className="sr-only">Online presence</legend>
-      <div>
-        <p className="text-foreground flex items-center gap-2 text-xs font-semibold">
-          <Globe className="text-muted h-3.5 w-3.5" />
-          Online presence
-        </p>
-        <p className="text-muted mt-1 text-[11px] leading-snug">
-          Saved with your profile for post attribution. Your website is read
-          with your text; LinkedIn can&apos;t be read, so paste your bio above.
-        </p>
-      </div>
+      <p className="text-foreground text-xs font-semibold">
+        Online presence{' '}
+        <span className="text-muted font-normal">(optional)</span>
+      </p>
 
       {field({
         id: 'ai-linkedin',
@@ -503,7 +496,6 @@ function OnlinePresence({
         onChange: onLinkedinUrlChange,
         placeholder: linkedinDef.placeholder,
         icon: <Link2 className="h-3.5 w-3.5" />,
-        required: true,
         error: errors.linkedinUrl
       })}
       {field({
@@ -513,7 +505,6 @@ function OnlinePresence({
         onChange: onWebsiteUrlChange,
         placeholder: websiteDef.placeholder,
         icon: <Globe className="h-3.5 w-3.5" />,
-        required: true,
         error: errors.websiteUrl
       })}
     </fieldset>
