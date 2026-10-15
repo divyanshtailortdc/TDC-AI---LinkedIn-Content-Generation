@@ -47,7 +47,7 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
     name: 'name',
     label: 'Display Name',
     type: 'text',
-    placeholder: 'e.g. Aditya Sharma',
+    placeholder: 'Enter your display name',
     required: true
   },
   {
@@ -61,7 +61,7 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
     name: 'description',
     label: 'Description',
     type: 'textarea',
-    placeholder: 'Who you are and what you do, in a few sentences.',
+    placeholder: 'e.g. Founder of a B2B SaaS startup helping sales teams automate outreach. 10+ years in product and growth.',
     required: true
   },
   {
@@ -69,7 +69,7 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
     label: 'Target Audience',
     type: 'textarea',
     placeholder:
-      'e.g. Senior Product Managers and VPs of Product at B2B SaaS companies',
+      'e.g. Heads of Sales and RevOps leaders at B2B SaaS companies with 50-500 employees',
     required: true
   },
   {

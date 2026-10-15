@@ -305,12 +305,19 @@ export function IdentityFields({
       def = {
         ...def,
         placeholder:
-          accountType === 'company' ? 'e.g. Acme AI' : 'e.g. Aditya Sharma'
+          accountType === 'company' ? 'e.g. Acme AI' : 'Enter your display name'
       }
     } else if (name === 'industry') {
       def = { ...def, type: 'textarea' }
     } else if (name === 'description') {
-      def = { ...def, label: 'Short Description' }
+      def = {
+        ...def,
+        label: 'Short Description',
+        placeholder:
+          accountType === 'company'
+            ? 'e.g. Acme AI builds workflow automation software that helps sales teams book more meetings.'
+            : def.placeholder
+      }
     } else if (name === 'company') {
       def =
         accountType === 'company'
@@ -322,7 +329,7 @@ export function IdentityFields({
           : {
               ...def,
               label: 'Current Company',
-              placeholder: 'e.g. The Developer Company'
+              placeholder: 'e.g. Acme Corp'
             }
     }
     return (
