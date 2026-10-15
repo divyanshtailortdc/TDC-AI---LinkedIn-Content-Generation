@@ -624,7 +624,14 @@ describe('applying suggestions', () => {
       profileSuggestionValues(suggestions.profile),
       'fill-empty'
     )
-    assert.ok(IdentityProfileSchema.safeParse(merged.values).success)
+    // The two URLs are entered in the assistant's Online presence card.
+    const withUrls = {
+      ...merged.values,
+      linkedinUrl: 'https://www.linkedin.com/in/priya-rao',
+      websiteUrl: 'https://ledgerly.in'
+    }
+    assert.ok(IdentityProfileSchema.safeParse(withUrls).success)
+    assert.ok(!IdentityProfileSchema.safeParse(merged.values).success)
   })
 })
 

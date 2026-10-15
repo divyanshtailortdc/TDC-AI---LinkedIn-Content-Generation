@@ -6,7 +6,7 @@ import {
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, Globe, Link2, Lock, User } from 'lucide-react'
+import { Building2, Lock, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
@@ -296,7 +296,6 @@ export function IdentityFields({
     name: IdentityProfileField,
     extras: {
       rightHint?: string
-      icon?: ReactNode
       textareaClass?: string
     } = {}
   ) => {
@@ -339,14 +338,11 @@ export function IdentityFields({
         value={values[name]}
         error={errors[name]}
         rightHint={extras.rightHint}
-        icon={extras.icon}
         textareaClass={extras.textareaClass}
         onChange={value => onChange(name, value)}
       />
     )
   }
-
-  const iconClass = 'h-4 w-4'
 
   return (
     <div className="space-y-5">
@@ -384,15 +380,10 @@ export function IdentityFields({
         </div>
       </SectionCard>
 
-      <SectionCard
-        title="Online presence"
-        description="URLs for post reference attribution and AI context fetching"
-      >
-        <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-          {field('linkedinUrl', { icon: <Link2 className={iconClass} /> })}
-          {field('websiteUrl', { icon: <Globe className={iconClass} /> })}
-        </div>
-      </SectionCard>
+      {/* The two URLs are entered in the AI assistant's Online presence
+          card; the form still submits them. */}
+      <input type="hidden" name="linkedinUrl" value={values.linkedinUrl} />
+      <input type="hidden" name="websiteUrl" value={values.websiteUrl} />
     </div>
   )
 }

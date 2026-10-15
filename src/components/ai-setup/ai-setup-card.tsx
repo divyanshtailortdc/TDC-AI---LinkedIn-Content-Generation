@@ -1,5 +1,6 @@
 'use client'
 
+import { useProfileUrls } from '@/components/account-setup/profile-urls'
 import {
   EMPTY_SUGGESTIONS,
   getSectionStatus,
@@ -46,15 +47,15 @@ export function AiSetupCard({
 }: {
   /**
    * "rail" is the card beside most steps. "assistant" is the Profile step's
-   * panel on the right, with a Pro Tip beneath it; there the URLs always come
-   * from the Profile form.
+   * panel on the right, with a Pro Tip beneath it; its Online presence holds
+   * the Profile step's required LinkedIn and Website URLs.
    */
   variant?: 'rail' | 'assistant'
   account?: ({ id: string; accountType?: string } & Urls) | null
   /** Create page only: the type picked so far, and how Advanced changes it. */
   accountType?: 'personal' | 'company'
   onAccountTypeChange?: (value: 'personal' | 'company') => void
-  /** Create page only: the URLs typed into its form, which analysis reads. */
+  /** Rail card on the create page only: the URLs typed into its form. */
   urls?: Urls
   onApply?: () => void
   onEdit?: () => void
@@ -99,16 +100,19 @@ export function AiSetupCard({
   const showForm = !hasSuggestions || reanalyzing
   const assistant = variant === 'assistant'
 
-  // Where the create form holds the URLs, analysis reads them from there; the
-  // assistant has no URL inputs of its own, so it falls back to the saved ones.
-  const formUrls: Urls | undefined = assistant
-    ? (urls ?? {
-        linkedinUrl: account?.linkedinUrl,
-        websiteUrl: account?.websiteUrl
-      })
-    : account
-      ? undefined
-      : urls
+  // The assistant's Online presence inputs are the Profile step's own URLs,
+  // shared with the Profile form. The rail card on the create page instead
+  // reads them from that form.
+  const profileUrls = useProfileUrls()
+  const presence =
+    assistant && profileUrls
+      ? {
+          urls: profileUrls.urls,
+          errors: profileUrls.errors,
+          onChange: profileUrls.setUrls
+        }
+      : undefined
+  const formUrls: Urls | undefined = !assistant && !account ? urls : undefined
 
   const card = (
     <section
@@ -145,7 +149,7 @@ export function AiSetupCard({
             {reanalyzing
               ? 'Analyze again with new details. Your current suggestions are replaced.'
               : assistant
-                ? 'Paste your LinkedIn bio, company summary, or website text. AI will draft profile fields for you to review and tweak before saving.'
+                ? 'Paste your LinkedIn bio, company summary, or website text, and add your online links below. AI will draft profile fields for you to review and tweak before saving.'
                 : 'Paste your company or profile details. AI suggests every step for you to review before anything is saved.'}
           </p>
           <AnalyzeForm
@@ -154,6 +158,7 @@ export function AiSetupCard({
             defaultLinkedinUrl={account?.linkedinUrl || urls?.linkedinUrl || ''}
             defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
             urls={formUrls}
+            presence={presence}
             accountType={
               account
                 ? account.accountType === 'company'

@@ -3,7 +3,7 @@
 import { AiSetupCard } from '@/components/ai-setup/ai-setup-card'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { ProfileUrlsProvider, useProfileUrls } from './profile-urls'
+import { ProfileUrlsProvider } from './profile-urls'
 import { SetupFrame, SetupStepper } from './setup-frame'
 import { getStepIndex, SETUP_STEPS } from './steps'
 
@@ -15,18 +15,6 @@ type ShellAccount = {
   avatarUrl?: string | null
   linkedinUrl?: string | null
   websiteUrl?: string | null
-}
-
-/** The Profile step's assistant, reading the URLs typed into the form beside it. */
-function ProfileAside({ account }: { account: ShellAccount }) {
-  const urls = useProfileUrls()
-  return (
-    <AiSetupCard
-      account={account}
-      variant="assistant"
-      urls={urls ?? undefined}
-    />
-  )
 }
 
 /** The setup frame for an existing account; each page renders its own step. */
@@ -79,7 +67,11 @@ export function SetupShell({
           draftKey={account.id}
         />
       }
-      aside={isProfile ? <ProfileAside account={account} /> : undefined}
+      aside={
+        isProfile ? (
+          <AiSetupCard account={account} variant="assistant" />
+        ) : undefined
+      }
     >
       {children}
     </SetupFrame>

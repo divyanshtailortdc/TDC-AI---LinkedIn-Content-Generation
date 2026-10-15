@@ -2,24 +2,31 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode
 } from 'react'
 
 export type ProfileUrls = { linkedinUrl: string; websiteUrl: string }
+export type ProfileUrlErrors = Partial<Record<keyof ProfileUrls, string>>
 
-const ProfileUrlsContext = createContext<{
+type ProfileUrlsContextValue = {
   urls: ProfileUrls
-  setUrls: (urls: ProfileUrls) => void
-} | null>(null)
+  /** Validation messages for the two URLs, shown in the assistant card. */
+  errors: ProfileUrlErrors
+  /** Changing a URL clears its error. */
+  setUrls: (patch: Partial<ProfileUrls>) => void
+  setErrors: (errors: ProfileUrlErrors) => void
+}
+
+const ProfileUrlsContext = createContext<ProfileUrlsContextValue | null>(null)
 
 /**
- * Carries the Profile form's LinkedIn and Website URLs over to the AI
- * assistant beside it, so the assistant reads them from the form instead of
- * asking for them a second time.
+ * Holds the LinkedIn and Website URLs of the Profile step. They are entered in
+ * the AI assistant's Online presence card, while the Profile form beside it
+ * validates and saves them, so both read and write the same values here.
  */
 export function ProfileUrlsProvider({
   initial,
@@ -28,8 +35,24 @@ export function ProfileUrlsProvider({
   initial: ProfileUrls
   children: ReactNode
 }) {
-  const [urls, setUrls] = useState(initial)
-  const value = useMemo(() => ({ urls, setUrls }), [urls])
+  const [urls, setUrlState] = useState(initial)
+  const [errors, setErrors] = useState<ProfileUrlErrors>({})
+
+  const setUrls = useCallback((patch: Partial<ProfileUrls>) => {
+    setUrlState(prev => ({ ...prev, ...patch }))
+    setErrors(prev => {
+      const next = { ...prev }
+      for (const key of Object.keys(patch) as Array<keyof ProfileUrls>) {
+        delete next[key]
+      }
+      return next
+    })
+  }, [])
+
+  const value = useMemo(
+    () => ({ urls, errors, setUrls, setErrors }),
+    [urls, errors, setUrls]
+  )
   return (
     <ProfileUrlsContext.Provider value={value}>
       {children}
@@ -37,15 +60,7 @@ export function ProfileUrlsProvider({
   )
 }
 
-/** The URLs currently typed into the Profile form, or null outside a provider. */
-export function useProfileUrls(): ProfileUrls | null {
-  return useContext(ProfileUrlsContext)?.urls ?? null
-}
-
-/** Called by the Profile form so the assistant sees what is typed. */
-export function useReportProfileUrls(linkedinUrl: string, websiteUrl: string) {
-  const setUrls = useContext(ProfileUrlsContext)?.setUrls
-  useEffect(() => {
-    setUrls?.({ linkedinUrl, websiteUrl })
-  }, [setUrls, linkedinUrl, websiteUrl])
+/** The Profile step's URLs, or null outside a provider. */
+export function useProfileUrls(): ProfileUrlsContextValue | null {
+  return useContext(ProfileUrlsContext)
 }

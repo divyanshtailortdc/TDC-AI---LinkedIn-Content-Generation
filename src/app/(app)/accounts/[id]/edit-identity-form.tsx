@@ -1,6 +1,6 @@
 'use client'
 
-import { useReportProfileUrls } from '@/components/account-setup/profile-urls'
+import { useProfileUrls } from '@/components/account-setup/profile-urls'
 import { useStepSave } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
@@ -47,16 +47,29 @@ export function EditIdentityForm({
   const [accountType, setAccountType] = useState<AccountType>(
     account.accountType === 'company' ? 'company' : 'personal'
   )
-  const [values, setValues] = useState<IdentityValues>(() =>
+  const [fields, setFields] = useState<IdentityValues>(() =>
     profileFromRecords(account, initialOfferings[0], initialAudiences[0])
   )
 
-  useReportProfileUrls(values.linkedinUrl ?? '', values.websiteUrl ?? '')
+  // The LinkedIn and Website URLs are entered in the assistant's Online
+  // presence card, so they live in the shared store rather than in `fields`.
+  const links = useProfileUrls()
+  const values: IdentityValues = { ...fields, ...links?.urls }
+  const setValues = (next: Partial<IdentityValues>) => {
+    const { linkedinUrl, websiteUrl, ...rest } = next
+    setFields(prev => ({ ...prev, ...rest }))
+    if (linkedinUrl !== undefined || websiteUrl !== undefined) {
+      links?.setUrls({
+        ...(linkedinUrl !== undefined && { linkedinUrl }),
+        ...(websiteUrl !== undefined && { websiteUrl })
+      })
+    }
+  }
 
   const prefill = useSectionPrefill({
     draftKey: account.id,
     getCurrent: () => values,
-    setValues: next => setValues(prev => ({ ...prev, ...next })),
+    setValues,
     suggestionValues: s => profileSuggestionValues(s.profile)
   })
 
@@ -69,6 +82,10 @@ export function EditIdentityForm({
     setError(null)
 
     const errors = validateIdentityValues(values)
+    links?.setErrors({
+      linkedinUrl: errors.linkedinUrl,
+      websiteUrl: errors.websiteUrl
+    })
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       setError('Please fill in all required fields marked with *.')
@@ -132,7 +149,7 @@ export function EditIdentityForm({
           accountType={accountType}
           onAccountTypeChange={setAccountType}
           onChange={(field, value) => {
-            setValues(prev => ({ ...prev, [field]: value }))
+            setFields(prev => ({ ...prev, [field]: value }))
             if (fieldErrors[field]) {
               setFieldErrors(prev => ({ ...prev, [field]: undefined }))
             }
