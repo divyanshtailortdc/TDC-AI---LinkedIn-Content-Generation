@@ -1,5 +1,6 @@
 'use client'
 
+import { useReportProfileUrls } from '@/components/account-setup/profile-urls'
 import { useStepSave } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
@@ -49,6 +50,8 @@ export function EditIdentityForm({
   const [values, setValues] = useState<IdentityValues>(() =>
     profileFromRecords(account, initialOfferings[0], initialAudiences[0])
   )
+
+  useReportProfileUrls(values.linkedinUrl ?? '', values.websiteUrl ?? '')
 
   const prefill = useSectionPrefill({
     draftKey: account.id,
@@ -128,10 +131,6 @@ export function EditIdentityForm({
           errors={fieldErrors}
           accountType={accountType}
           onAccountTypeChange={setAccountType}
-          aiSuggested={{
-            targetAudience:
-              prefill.draft?.suggestions.profile.targetAudience?.value
-          }}
           onChange={(field, value) => {
             setValues(prev => ({ ...prev, [field]: value }))
             if (fieldErrors[field]) {

@@ -7,8 +7,11 @@ import type {
 } from '@/lib/ai/skills/profile-setup/schema'
 import {
   AlertCircle,
+  ChevronRight,
+  Info,
   Loader2,
   RotateCcw,
+  Settings2,
   SlidersHorizontal,
   Sparkles
 } from 'lucide-react'
@@ -23,23 +26,32 @@ const inputClass =
   'w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
 
 /**
- * The Analyze with AI inputs, shown inside the AI Suggestions card: paste a
- * description (and optional links), then analyze. The description box grows
- * to fill whatever height the card has.
+ * The Analyze with AI inputs: paste a description (and optional links), then
+ * analyze. In the "rail" look (the AI Suggestions card beside most steps) the
+ * description box grows to fill the card; the "assistant" look is the Profile
+ * step's compact panel, whose URLs always come from the form beside it.
  */
 export function AnalyzeForm({
+  variant = 'rail',
   accountId,
   defaultLinkedinUrl = '',
   defaultWebsiteUrl = '',
+  urls,
   accountType = 'personal',
   accountTypeLocked = false,
   onAccountTypeChosen,
   onAnalyzed,
   onCancel
 }: {
+  variant?: 'rail' | 'assistant'
   accountId?: string
   defaultLinkedinUrl?: string
   defaultWebsiteUrl?: string
+  /**
+   * Given on the create page, whose own form holds the LinkedIn and Website
+   * URLs: they are read from there instead of being asked for a second time.
+   */
+  urls?: { linkedinUrl?: string | null; websiteUrl?: string | null }
   accountType?: 'personal' | 'company'
   /** True for an existing identity, whose type is changed on the Profile step. */
   accountTypeLocked?: boolean
@@ -62,6 +74,11 @@ export function AnalyzeForm({
   // A request that finishes after Cancel is ignored rather than applied.
   const requestId = useRef(0)
 
+  const assistant = variant === 'assistant'
+  const urlsFromForm = urls !== undefined
+  const linkedin = urlsFromForm ? (urls.linkedinUrl ?? '') : linkedinUrl
+  const website = urlsFromForm ? (urls.websiteUrl ?? '') : websiteUrl
+
   // Quick analysis sends just the text; Advanced adds the user's choices.
   const analyze = async (guidance?: AnalysisGuidance) => {
     if (!description.trim()) {
@@ -77,8 +94,8 @@ export function AnalyzeForm({
       const res = await analyzeIdentitySetupAction({
         accountId,
         description,
-        linkedinUrl: linkedinUrl.trim() || undefined,
-        websiteUrl: websiteUrl.trim() || undefined,
+        linkedinUrl: linkedin.trim() || undefined,
+        websiteUrl: website.trim() || undefined,
         // Quick analysis still tells the AI the type it already knows.
         guidance: guidance ?? { accountType }
       })
@@ -112,28 +129,38 @@ export function AnalyzeForm({
           e.preventDefault()
           void analyze()
         }}
-        className="flex min-h-0 flex-1 flex-col gap-3"
+        className={
+          assistant
+            ? 'mt-4 flex flex-col gap-3'
+            : 'flex min-h-0 flex-1 flex-col gap-3'
+        }
       >
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <label
-              htmlFor="ai-description"
-              className="text-foreground text-xs font-medium"
-            >
-              Company details <span className="text-rose-500">*</span>
+        <div className={assistant ? '' : 'flex min-h-0 flex-1 flex-col'}>
+          {assistant ? (
+            <label htmlFor="ai-description" className="sr-only">
+              Your LinkedIn bio, company description or website content
             </label>
-            <button
-              type="button"
-              disabled={isAnalyzing}
-              onClick={() => {
-                setDescription(EXAMPLE_DESCRIPTION)
-                setValidationError(null)
-              }}
-              className="text-accent text-[11px] font-medium hover:underline disabled:opacity-50"
-            >
-              Use an example
-            </button>
-          </div>
+          ) : (
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label
+                htmlFor="ai-description"
+                className="text-foreground text-xs font-medium"
+              >
+                Company details <span className="text-rose-500">*</span>
+              </label>
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => {
+                  setDescription(EXAMPLE_DESCRIPTION)
+                  setValidationError(null)
+                }}
+                className="text-accent text-[11px] font-medium hover:underline disabled:opacity-50"
+              >
+                Use an example
+              </button>
+            </div>
+          )}
           <textarea
             id="ai-description"
             value={description}
@@ -142,53 +169,89 @@ export function AnalyzeForm({
               setDescription(e.target.value)
               if (validationError) setValidationError(null)
             }}
-            placeholder="Paste anything about you or your company: who you are, what you offer, who you want to reach and what LinkedIn should do for you."
-            className={`${inputClass} min-h-28 flex-1 resize-none text-xs leading-relaxed ${
-              validationError ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
-            }`}
+            placeholder={
+              assistant
+                ? 'Paste your LinkedIn bio, company description, or website content...'
+                : 'Paste anything about you or your company: who you are, what you offer, who you want to reach and what LinkedIn should do for you.'
+            }
+            className={`${inputClass} ${
+              assistant
+                ? 'h-28 resize-y text-sm'
+                : 'min-h-28 flex-1 resize-none text-xs leading-relaxed'
+            } ${validationError ? 'border-red-500/60 ring-1 ring-red-500/30' : ''}`}
           />
           {validationError && (
             <p className="mt-1 text-[11px] text-red-500">{validationError}</p>
           )}
+          {assistant && (
+            <div className="mt-1.5 flex items-start justify-between gap-3">
+              <p className="text-muted text-[11px] leading-snug">
+                {linkedin.trim() || website.trim()
+                  ? 'Also reads the LinkedIn and Website URLs from Online presence.'
+                  : 'LinkedIn often blocks reading; your text is used instead.'}
+              </p>
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => {
+                  setDescription(EXAMPLE_DESCRIPTION)
+                  setValidationError(null)
+                }}
+                className="text-accent shrink-0 text-[11px] font-medium hover:underline disabled:opacity-50"
+              >
+                Use an example
+              </button>
+            </div>
+          )}
         </div>
 
-        <div>
-          <label
-            htmlFor="ai-linkedin"
-            className="text-foreground mb-1 block text-xs font-medium"
-          >
-            LinkedIn URL{' '}
-            <span className="text-muted font-normal">(optional)</span>
-          </label>
-          <input
-            id="ai-linkedin"
-            type="url"
-            value={linkedinUrl}
-            disabled={isAnalyzing}
-            onChange={e => setLinkedinUrl(e.target.value)}
-            placeholder="linkedin.com/in/your-name"
-            className={`${inputClass} text-xs`}
-          />
-        </div>
+        {!assistant &&
+          (urlsFromForm ? (
+            <p className="text-muted text-[11px] leading-snug">
+              Also reads the LinkedIn and Website URLs under Online presence, if
+              you fill them in.
+            </p>
+          ) : (
+            <>
+              <div>
+                <label
+                  htmlFor="ai-linkedin"
+                  className="text-foreground mb-1 block text-xs font-medium"
+                >
+                  LinkedIn URL{' '}
+                  <span className="text-muted font-normal">(optional)</span>
+                </label>
+                <input
+                  id="ai-linkedin"
+                  type="url"
+                  value={linkedinUrl}
+                  disabled={isAnalyzing}
+                  onChange={e => setLinkedinUrl(e.target.value)}
+                  placeholder="linkedin.com/in/your-name"
+                  className={`${inputClass} text-xs`}
+                />
+              </div>
 
-        <div>
-          <label
-            htmlFor="ai-website"
-            className="text-foreground mb-1 block text-xs font-medium"
-          >
-            Website URL{' '}
-            <span className="text-muted font-normal">(optional)</span>
-          </label>
-          <input
-            id="ai-website"
-            type="url"
-            value={websiteUrl}
-            disabled={isAnalyzing}
-            onChange={e => setWebsiteUrl(e.target.value)}
-            placeholder="example.com"
-            className={`${inputClass} text-xs`}
-          />
-        </div>
+              <div>
+                <label
+                  htmlFor="ai-website"
+                  className="text-foreground mb-1 block text-xs font-medium"
+                >
+                  Website URL{' '}
+                  <span className="text-muted font-normal">(optional)</span>
+                </label>
+                <input
+                  id="ai-website"
+                  type="url"
+                  value={websiteUrl}
+                  disabled={isAnalyzing}
+                  onChange={e => setWebsiteUrl(e.target.value)}
+                  placeholder="example.com"
+                  className={`${inputClass} text-xs`}
+                />
+              </div>
+            </>
+          ))}
 
         {failure && (
           <p className="flex items-start gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] leading-snug text-red-600 dark:text-red-400">
@@ -197,7 +260,7 @@ export function AnalyzeForm({
           </p>
         )}
 
-        <div className="space-y-1.5">
+        <div className={assistant ? 'space-y-3' : 'space-y-1.5'}>
           <div className="flex flex-col gap-2">
             <button
               type="submit"
@@ -221,22 +284,53 @@ export function AnalyzeForm({
                 </>
               )}
             </button>
-            <button
-              type="button"
-              disabled={isAnalyzing}
-              onClick={() => setAdvancedOpen(true)}
-              title="Advanced analysis: set identity type, voice, goal and topics for more accurate results"
-              className="border-border text-foreground hover:bg-surface-hover flex w-full items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Advanced analysis
-            </button>
+            {!assistant && (
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => setAdvancedOpen(true)}
+                title="Advanced analysis: set identity type, voice, goal and topics for more accurate results"
+                className="border-border text-foreground hover:bg-surface-hover flex w-full items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Advanced analysis
+              </button>
+            )}
           </div>
-          <p className="text-muted text-center text-[11px]" aria-live="polite">
-            {isAnalyzing
-              ? 'This usually takes about a minute.'
-              : 'LinkedIn often blocks reading; your text is used instead.'}
-          </p>
+
+          {assistant ? (
+            <>
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => setAdvancedOpen(true)}
+                title="Set identity type, voice, goal and topics for more accurate results"
+                className="border-border text-muted hover:text-foreground flex w-full items-center gap-2 border-t pt-3 text-xs font-medium transition-colors disabled:opacity-60"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                Advanced analysis options
+                <ChevronRight className="ml-auto h-3.5 w-3.5" />
+              </button>
+              <p
+                className="border-border text-muted flex items-start gap-2 border-t pt-3 text-[11px] leading-snug"
+                aria-live="polite"
+              >
+                <Info className="mt-px h-3.5 w-3.5 shrink-0" />
+                {isAnalyzing
+                  ? 'This usually takes about a minute.'
+                  : 'AI suggestions never overwrite filled fields without your confirmation.'}
+              </p>
+            </>
+          ) : (
+            <p
+              className="text-muted text-center text-[11px]"
+              aria-live="polite"
+            >
+              {isAnalyzing
+                ? 'This usually takes about a minute.'
+                : 'LinkedIn often blocks reading; your text is used instead.'}
+            </p>
+          )}
           {onCancel && (
             <button
               type="button"
@@ -260,10 +354,11 @@ export function AnalyzeForm({
             setDescription(value)
             if (validationError) setValidationError(null)
           }}
-          linkedinUrl={linkedinUrl}
+          linkedinUrl={linkedin}
           onLinkedinUrlChange={setLinkedinUrl}
-          websiteUrl={websiteUrl}
+          websiteUrl={website}
           onWebsiteUrlChange={setWebsiteUrl}
+          urlsFromForm={urlsFromForm}
           accountType={accountType}
           accountTypeLocked={accountTypeLocked}
           isAnalyzing={isAnalyzing}

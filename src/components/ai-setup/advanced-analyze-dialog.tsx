@@ -148,6 +148,7 @@ export function AdvancedAnalyzeDialog({
   onLinkedinUrlChange,
   websiteUrl,
   onWebsiteUrlChange,
+  urlsFromForm = false,
   accountType,
   accountTypeLocked,
   isAnalyzing,
@@ -161,6 +162,8 @@ export function AdvancedAnalyzeDialog({
   onLinkedinUrlChange: (value: string) => void
   websiteUrl: string
   onWebsiteUrlChange: (value: string) => void
+  /** The page's own form holds the two URLs, so they are not asked for here. */
+  urlsFromForm?: boolean
   accountType: AccountType
   /** True for an existing identity, whose type is fixed. */
   accountTypeLocked: boolean
@@ -327,36 +330,38 @@ export function AdvancedAnalyzeDialog({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="adv-linkedin">
-                    LinkedIn URL{' '}
-                    <span className="text-muted font-normal">(optional)</span>
-                  </Label>
-                  <input
-                    id="adv-linkedin"
-                    type="url"
-                    value={linkedinUrl}
-                    onChange={e => onLinkedinUrlChange(e.target.value)}
-                    placeholder="linkedin.com/in/your-name"
-                    className={inputClass}
-                  />
+              {!urlsFromForm && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="adv-linkedin">
+                      LinkedIn URL{' '}
+                      <span className="text-muted font-normal">(optional)</span>
+                    </Label>
+                    <input
+                      id="adv-linkedin"
+                      type="url"
+                      value={linkedinUrl}
+                      onChange={e => onLinkedinUrlChange(e.target.value)}
+                      placeholder="linkedin.com/in/your-name"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="adv-website">
+                      Website URL{' '}
+                      <span className="text-muted font-normal">(optional)</span>
+                    </Label>
+                    <input
+                      id="adv-website"
+                      type="url"
+                      value={websiteUrl}
+                      onChange={e => onWebsiteUrlChange(e.target.value)}
+                      placeholder="example.com"
+                      className={inputClass}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="adv-website">
-                    Website URL{' '}
-                    <span className="text-muted font-normal">(optional)</span>
-                  </Label>
-                  <input
-                    id="adv-website"
-                    type="url"
-                    value={websiteUrl}
-                    onChange={e => onWebsiteUrlChange(e.target.value)}
-                    placeholder="example.com"
-                    className={inputClass}
-                  />
-                </div>
-              </div>
+              )}
             </Section>
 
             <Section

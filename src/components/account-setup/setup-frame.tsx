@@ -152,9 +152,9 @@ export function SetupStepper({
 
 /**
  * The frame shared by every setup step, filling exactly the screen: a header
- * card (who, the steps, theme, Save & Next), then the AI Suggestions card
- * beside one main card holding the step's title and content. Only the body
- * scrolls.
+ * card (who, the steps, theme, Save & Next), then one main card holding the
+ * step's title and content, with the AI assistant beside it on the Profile
+ * step. Only the body scrolls.
  */
 export function SetupFrame({
   identity,
@@ -168,7 +168,8 @@ export function SetupFrame({
 }: {
   identity: ReactNode
   nav: ReactNode
-  aside: ReactNode
+  /** The Profile step's AI assistant, shown on the right. Other steps have none. */
+  aside?: ReactNode
   stepIndex: number
   /** Where Save & Next goes after a successful save; none on the last step. */
   nextHref?: string
@@ -248,8 +249,18 @@ export function SetupFrame({
             every step, and only the main card's content scrolls. Narrower
             screens stack the cards and let the page scroll instead. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5 xl:overflow-hidden">
-          <div className="mx-auto grid max-w-screen-2xl gap-5 xl:h-full xl:grid-cols-[16rem_minmax(0,1fr)]">
-            <aside className="min-h-0 xl:h-full">{aside}</aside>
+          <div
+            className={`mx-auto grid max-w-screen-2xl gap-5 xl:h-full ${
+              aside ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : ''
+            }`}
+          >
+            {/* It still comes first when the cards stack, since the assistant
+                is the quickest way to fill the form. */}
+            {aside && (
+              <aside className="order-first min-h-0 xl:order-last xl:h-full xl:overflow-y-auto">
+                {aside}
+              </aside>
+            )}
 
             <section className="border-border bg-surface flex min-h-0 min-w-0 flex-col rounded-xl border shadow-xs xl:h-full">
               <div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-3 sm:px-6 sm:pt-5">

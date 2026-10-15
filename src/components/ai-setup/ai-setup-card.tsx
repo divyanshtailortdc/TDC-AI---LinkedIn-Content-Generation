@@ -5,7 +5,7 @@ import {
   getSectionStatus,
   SETUP_SECTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
-import { RefreshCw, Sparkles, X } from 'lucide-react'
+import { Lightbulb, RefreshCw, Sparkles, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -36,6 +36,7 @@ const outlineButton =
  * what Apply and Edit do.
  */
 export function AiSetupCard({
+  variant = 'rail',
   account,
   urls,
   accountType,
@@ -43,11 +44,17 @@ export function AiSetupCard({
   onApply,
   onEdit
 }: {
+  /**
+   * "rail" is the card beside most steps. "assistant" is the Profile step's
+   * panel on the right, with a Pro Tip beneath it; there the URLs always come
+   * from the Profile form.
+   */
+  variant?: 'rail' | 'assistant'
   account?: ({ id: string; accountType?: string } & Urls) | null
   /** Create page only: the type picked so far, and how Advanced changes it. */
   accountType?: 'personal' | 'company'
   onAccountTypeChange?: (value: 'personal' | 'company') => void
-  /** URLs typed into the create form, offered as defaults in the dialog. */
+  /** Create page only: the URLs typed into its form, which analysis reads. */
   urls?: Urls
   onApply?: () => void
   onEdit?: () => void
@@ -90,103 +97,144 @@ export function AiSetupCard({
   const base = account ? `/accounts/${account.id}` : null
 
   const showForm = !hasSuggestions || reanalyzing
+  const assistant = variant === 'assistant'
 
-  return (
-    <>
-      <section className="border-border bg-surface flex flex-col rounded-xl border p-5 shadow-xs xl:h-full">
+  // Where the create form holds the URLs, analysis reads them from there; the
+  // assistant has no URL inputs of its own, so it falls back to the saved ones.
+  const formUrls: Urls | undefined = assistant
+    ? (urls ?? {
+        linkedinUrl: account?.linkedinUrl,
+        websiteUrl: account?.websiteUrl
+      })
+    : account
+      ? undefined
+      : urls
+
+  const card = (
+    <section
+      className={`border-border bg-surface flex flex-col rounded-xl border p-5 shadow-xs ${
+        assistant ? '' : 'xl:h-full'
+      }`}
+    >
+      {assistant ? (
+        <header className="flex items-center gap-2.5">
+          <span className="bg-accent/10 text-accent flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <h2 className="text-foreground text-sm font-semibold">
+            AI Profile Assistant
+          </h2>
+          <span className="border-border text-muted ml-auto rounded-md border px-2 py-0.5 text-[10px] font-semibold">
+            Auto-fill
+          </span>
+        </header>
+      ) : (
         <h2 className="text-foreground flex shrink-0 items-center gap-2 text-sm font-semibold">
           <Sparkles className="text-accent h-4 w-4" />
           AI Suggestions
         </h2>
+      )}
 
-        {showForm ? (
-          <>
-            <p className="text-muted mt-1.5 mb-4 shrink-0 text-xs leading-relaxed">
-              {reanalyzing
-                ? 'Analyze again with new details. Your current suggestions are replaced.'
+      {showForm ? (
+        <>
+          <p
+            className={`text-muted shrink-0 text-xs leading-relaxed ${
+              assistant ? 'mt-3' : 'mt-1.5 mb-4'
+            }`}
+          >
+            {reanalyzing
+              ? 'Analyze again with new details. Your current suggestions are replaced.'
+              : assistant
+                ? 'Paste your LinkedIn bio, company summary, or website text. AI will draft profile fields for you to review and tweak before saving.'
                 : 'Paste your company or profile details. AI suggests every step for you to review before anything is saved.'}
-            </p>
-            <AnalyzeForm
-              accountId={account?.id}
-              defaultLinkedinUrl={
-                account?.linkedinUrl || urls?.linkedinUrl || ''
-              }
-              defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
-              accountType={
-                account
-                  ? account.accountType === 'company'
-                    ? 'company'
-                    : 'personal'
-                  : (accountType ?? 'personal')
-              }
-              accountTypeLocked={Boolean(account)}
-              onAccountTypeChosen={onAccountTypeChange}
-              onAnalyzed={analysis => {
-                saveDraft(draftKey, analysis)
-                setReanalyzing(false)
+          </p>
+          <AnalyzeForm
+            variant={variant}
+            accountId={account?.id}
+            defaultLinkedinUrl={account?.linkedinUrl || urls?.linkedinUrl || ''}
+            defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
+            urls={formUrls}
+            accountType={
+              account
+                ? account.accountType === 'company'
+                  ? 'company'
+                  : 'personal'
+                : (accountType ?? 'personal')
+            }
+            accountTypeLocked={Boolean(account)}
+            onAccountTypeChosen={onAccountTypeChange}
+            onAnalyzed={analysis => {
+              saveDraft(draftKey, analysis)
+              setReanalyzing(false)
+            }}
+            onCancel={hasSuggestions ? () => setReanalyzing(false) : undefined}
+          />
+        </>
+      ) : (
+        <>
+          <p className="text-muted mt-2.5 text-xs leading-relaxed">
+            Based on your description, we&apos;ve generated suggestions across
+            all sections. Nothing is saved until you apply it.
+          </p>
+          <div className="mt-4 space-y-2">
+            <button
+              type="button"
+              onClick={() => (account ? setReviewOpen(true) : onApply?.())}
+              className={primaryButton}
+            >
+              Apply Suggestions
+            </button>
+            {base ? (
+              <Link href={base} className={outlineButton}>
+                Edit Details
+              </Link>
+            ) : (
+              <button type="button" onClick={onEdit} className={outlineButton}>
+                Edit Details
+              </button>
+            )}
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setReanalyzing(true)}
+              className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Re-analyze
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  confirm(
+                    'Discard these AI suggestions? Your saved settings are not affected.'
+                  )
+                ) {
+                  clearDraft(draftKey)
+                }
               }}
-              onCancel={
-                hasSuggestions ? () => setReanalyzing(false) : undefined
-              }
-            />
-          </>
-        ) : (
-          <>
-            <p className="text-muted mt-2.5 text-xs leading-relaxed">
-              Based on your description, we&apos;ve generated suggestions across
-              all sections. Nothing is saved until you apply it.
-            </p>
-            <div className="mt-4 space-y-2">
-              <button
-                type="button"
-                onClick={() => (account ? setReviewOpen(true) : onApply?.())}
-                className={primaryButton}
-              >
-                Apply Suggestions
-              </button>
-              {base ? (
-                <Link href={base} className={outlineButton}>
-                  Edit Details
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onEdit}
-                  className={outlineButton}
-                >
-                  Edit Details
-                </button>
-              )}
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setReanalyzing(true)}
-                className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Re-analyze
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (
-                    confirm(
-                      'Discard these AI suggestions? Your saved settings are not affected.'
-                    )
-                  ) {
-                    clearDraft(draftKey)
-                  }
-                }}
-                className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
-              >
-                <X className="h-3.5 w-3.5" />
-                Discard
-              </button>
-            </div>
-          </>
-        )}
-      </section>
+              className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
+            >
+              <X className="h-3.5 w-3.5" />
+              Discard
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  )
+
+  return (
+    <>
+      {assistant ? (
+        <div className="space-y-4">
+          {card}
+          <ProTipCard />
+        </div>
+      ) : (
+        card
+      )}
 
       {account && reviewOpen && draft && (
         <ReviewSuggestionsDialog
@@ -200,5 +248,21 @@ export function AiSetupCard({
         />
       )}
     </>
+  )
+}
+
+/** A short nudge under the Profile step's assistant. */
+function ProTipCard() {
+  return (
+    <section className="border-border bg-surface rounded-xl border p-4 shadow-xs">
+      <h3 className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+        <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+        Pro Tip
+      </h3>
+      <p className="text-muted mt-1.5 text-xs leading-relaxed">
+        The more specific you are with your Target Audience, the higher
+        engagement your generated posts will achieve on LinkedIn.
+      </p>
+    </section>
   )
 }

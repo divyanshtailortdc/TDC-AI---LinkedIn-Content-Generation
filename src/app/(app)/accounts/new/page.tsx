@@ -52,6 +52,7 @@ export default function NewAccountPage() {
       nav={<SetupStepper activeIndex={0} draftKey={NEW_IDENTITY_KEY} />}
       aside={
         <AiSetupCard
+          variant="assistant"
           urls={{
             linkedinUrl: values.linkedinUrl,
             websiteUrl: values.websiteUrl
@@ -148,10 +149,6 @@ function CreateIdentityForm({
         errors={errors}
         accountType={accountType}
         onAccountTypeChange={setAccountType}
-        aiSuggested={{
-          targetAudience:
-            prefill.draft?.suggestions.profile.targetAudience?.value
-        }}
         onChange={(field, value) => {
           setValues(prev => ({ ...prev, [field]: value }))
           if (errors[field])
