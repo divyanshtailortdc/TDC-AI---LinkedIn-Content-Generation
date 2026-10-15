@@ -4,6 +4,7 @@ import {
   applyGuidance,
   normalizeWeights,
   sanitizeIdentitySetup,
+  tidyIndustry,
   type SanitizeContext
 } from '../src/lib/ai/skills/profile-setup/guard'
 import {
@@ -688,5 +689,75 @@ describe('safe-url', () => {
       resolvePublicHttpUrl('http://localtest.me'),
       UnsafeUrlError
     )
+  })
+})
+
+describe('industry is a short label, not a sentence', () => {
+  it('keeps real labels, including ones with hyphens and ampersands', () => {
+    for (const label of [
+      'Fintech',
+      'B2B SaaS',
+      'Healthcare',
+      'Bookkeeping services',
+      'Direct-to-consumer retail',
+      'Health & Wellness'
+    ]) {
+      assert.strictEqual(tidyIndustry(label), label)
+    }
+  })
+
+  it('cuts a long answer back to its lead phrase', () => {
+    assert.strictEqual(
+      tidyIndustry(
+        'Bookkeeping service for direct-to-consumer brands in India'
+      ),
+      'Bookkeeping service'
+    )
+    assert.strictEqual(
+      tidyIndustry('Fintech, helping founders close their books in 5 days'),
+      'Fintech'
+    )
+    assert.strictEqual(tidyIndustry('"B2B SaaS."'), 'B2B SaaS')
+  })
+
+  it('gives up on a pasted description rather than saving it', () => {
+    assert.strictEqual(
+      tidyIndustry(
+        'I am Priya Rao, founder of Ledgerly, a bookkeeping service for Indian D2C brands'
+      ),
+      null
+    )
+    assert.strictEqual(
+      tidyIndustry(
+        'A very long unbroken phrase that keeps going well past four words'
+      ),
+      null
+    )
+  })
+
+  it('sanitizes the model output: shortens, or leaves blank with a warning', () => {
+    const long = sanitizeIdentitySetup(
+      {
+        profile: {
+          fields: [
+            entry('industry', 'Bookkeeping service for Indian D2C brands'),
+            entry('description', DESCRIPTION, 'fact', 'description')
+          ]
+        }
+      },
+      context
+    )
+    assert.strictEqual(
+      long.suggestions.profile.industry?.value,
+      'Bookkeeping service'
+    )
+    assert.ok(long.warnings.some(w => w.includes('Industry')))
+
+    const pasted = sanitizeIdentitySetup(
+      { profile: { fields: [entry('industry', DESCRIPTION)] } },
+      context
+    )
+    assert.strictEqual(pasted.suggestions.profile.industry, undefined)
+    assert.ok(pasted.warnings.some(w => w.includes('left blank')))
   })
 })

@@ -1,10 +1,12 @@
 import 'server-only'
 
 import { isAICapable } from '@/lib/ai'
+import { isWebSearchConfigured, searchWeb } from '@/lib/research/web-search'
 import { UnsafeUrlError } from '@/lib/safe-url'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { SkillError } from '../run-skill'
 import { suggestSetup, type SetupSource } from '../skills/profile-setup'
+import { findEntity } from '../skills/profile-setup/entity'
 import {
   AnalyzeIdentityInputSchema,
   hasAnySuggestion,
@@ -12,6 +14,7 @@ import {
   type IdentitySetupAnalysis,
   type SourceFetchStatus
 } from '../skills/profile-setup/schema'
+import { researchIdentity, type ResearchResult } from './identity-research'
 
 /**
  * AI setup ("Describe yourself once"): fetch the pages the user named, run the
@@ -23,7 +26,10 @@ import {
 const SOURCE_PROMPT_CHARS = 8000
 /** A slow website should not hold up the analysis; the description is enough. */
 const SOURCE_FETCH_TIMEOUT_MS = 8000
-/** Past this the user is better off retrying than waiting. */
+/** A single search that hangs must not hold up the analysis. */
+const SEARCH_TIMEOUT_MS = 8000
+/** Web research as a whole; past this the analysis goes ahead without it. */
+const RESEARCH_BUDGET_MS = 30_000
 
 export class IdentitySetupError extends Error {
   constructor(
@@ -113,6 +119,81 @@ async function fetchSource(
   }
 }
 
+/** One search that gives up (returning nothing) rather than hang the analysis. */
+async function searchWithTimeout(query: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      searchWeb(query, { freshnessDays: 0, resultCount: 8 }),
+      new Promise<never[]>(resolve => {
+        timer = setTimeout(() => resolve([]), SEARCH_TIMEOUT_MS)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Looks the person or business up on the web and verifies what it finds
+ * (see identity-research.ts). Never fails the analysis: any problem is
+ * reported as "not verified" and the user's own details are used.
+ */
+async function researchOnline(
+  entityLookup: Promise<Awaited<ReturnType<typeof findEntity>>>,
+  input: {
+    description: string
+    linkedinUrl?: string
+    websiteUrl?: string
+  }
+): Promise<ResearchResult> {
+  const empty = (note: string): ResearchResult => ({
+    sources: [],
+    verified: {},
+    notes: [note]
+  })
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      (async () =>
+        researchIdentity(
+          {
+            description: input.description,
+            entity: await entityLookup,
+            provided: {
+              linkedinUrl: input.linkedinUrl,
+              websiteUrl: input.websiteUrl
+            }
+          },
+          {
+            searchConfigured: isWebSearchConfigured,
+            search: query => searchWithTimeout(query),
+            fetchPage: url => fetchSource(url, 'web')
+          }
+        ))(),
+      new Promise<ResearchResult>(resolve => {
+        timer = setTimeout(
+          () =>
+            resolve(
+              empty(
+                'Web research took too long, so only your details and the links you gave were used.'
+              )
+            ),
+          RESEARCH_BUDGET_MS
+        )
+      })
+    ])
+  } catch (error) {
+    console.warn('Identity web research failed:', error)
+    return empty(
+      'Web research could not be completed, so only your details and the links you gave were used.'
+    )
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function analyzeIdentitySetup(
   input: AnalyzeIdentityInput
 ): Promise<IdentitySetupAnalysis> {
@@ -136,9 +217,20 @@ export async function analyzeIdentitySetup(
   const requested: Array<[string, SourceFetchStatus['kind']]> = []
   if (linkedinUrl) requested.push([linkedinUrl, 'linkedin'])
   if (websiteUrl) requested.push([websiteUrl, 'website'])
-  const sources: SetupSource[] = await Promise.all(
+  // Working out who to look up overlaps with reading the pages the user gave.
+  const entityLookup = isWebSearchConfigured
+    ? findEntity(description, guidance?.accountType)
+    : Promise.resolve(null)
+  const providedSources: SetupSource[] = await Promise.all(
     requested.map(([url, kind]) => fetchSource(url, kind))
   )
+  const research = await researchOnline(entityLookup, {
+    description,
+    linkedinUrl,
+    websiteUrl
+  })
+  // Pages found by search come after the user's own, and are labelled as such.
+  const sources: SetupSource[] = [...providedSources, ...research.sources]
 
   let result: Awaited<ReturnType<typeof suggestSetup>>
   try {
@@ -146,7 +238,8 @@ export async function analyzeIdentitySetup(
       description,
       sources,
       providedUrls: requested.map(([url]) => url),
-      guidance
+      guidance,
+      research: { verified: research.verified, notes: research.notes }
     })
   } catch (error) {
     console.error('Identity setup analysis failed:', error)

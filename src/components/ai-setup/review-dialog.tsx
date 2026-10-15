@@ -735,7 +735,9 @@ export function ReviewSuggestionsDialog({
                     </span>{' '}
                     <span className="text-muted">
                       {source.status === 'fetched'
-                        ? 'was read.'
+                        ? source.kind === 'web'
+                          ? 'was found by web search, checked to match you, and read.'
+                          : 'was read.'
                         : `could not be read. ${source.reason ?? ''}`}
                     </span>
                   </span>

@@ -20,10 +20,15 @@ export function ProvenanceBadge({
   confidence?: (typeof CONFIDENCE)[number]
 }) {
   const edited = source === 'edited'
+  // A fact sourced to a page (one you linked, or one research found and read)
+  // is not the same as something you wrote, and the badge says so.
+  const fromPage = kind === 'fact' && /^https?:\/\//i.test(source ?? '')
   const label = edited
     ? 'Edited'
     : kind === 'fact'
-      ? 'From your info'
+      ? fromPage
+        ? 'From a web page'
+        : 'From your info'
       : 'AI suggestion'
   const sourceLabel =
     !source || edited
