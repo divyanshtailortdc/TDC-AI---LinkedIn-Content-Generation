@@ -1,6 +1,7 @@
 'use client'
 
 import { useProfileUrls } from '@/components/account-setup/profile-urls'
+import { ConfirmPopover } from '@/components/confirm-popover'
 import {
   EMPTY_SUGGESTIONS,
   getSectionStatus,
@@ -205,22 +206,20 @@ export function AiSetupCard({
               <RefreshCw className="h-3.5 w-3.5" />
               Re-analyze
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  confirm(
-                    'Discard these AI suggestions? Your saved settings are not affected.'
-                  )
-                ) {
-                  clearDraft(draftKey)
-                }
-              }}
-              className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
+            <ConfirmPopover
+              title="Discard these AI suggestions?"
+              description="Your saved settings are not affected."
+              confirmLabel="Discard"
+              onConfirm={() => clearDraft(draftKey)}
             >
-              <X className="h-3.5 w-3.5" />
-              Discard
-            </button>
+              <button
+                type="button"
+                className="text-muted hover:text-foreground inline-flex items-center gap-1 text-xs"
+              >
+                <X className="h-3.5 w-3.5" />
+                Discard
+              </button>
+            </ConfirmPopover>
           </div>
         </>
       )}

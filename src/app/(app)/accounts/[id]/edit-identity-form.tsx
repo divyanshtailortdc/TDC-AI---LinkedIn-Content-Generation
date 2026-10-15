@@ -204,7 +204,8 @@ export function EditIdentityForm({
           onAccountTypeChange={setAccountType}
           readOnly={!editing}
           onChange={(field, value) => {
-            setFields(prev => ({ ...prev, [field]: value }))
+            // The two links live in the store shared with the assistant.
+            setValues({ [field]: value })
             if (fieldErrors[field]) {
               setFieldErrors(prev => ({ ...prev, [field]: undefined }))
             }

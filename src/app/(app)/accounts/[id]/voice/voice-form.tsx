@@ -441,24 +441,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
             })}
           />
         </div>
-
-        <p className="text-muted border-border border-t pt-4 text-xs">
-          Topics, ideas per run, links and subjects to avoid are set in{' '}
-          <Link
-            href={`/accounts/${accountId}/preferences`}
-            className="text-accent inline-flex items-center gap-0.5 font-medium hover:underline"
-          >
-            Preferences
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-        </p>
       </section>
-
-      <p className="text-muted text-xs">
-        {initialConfig
-          ? 'Changes apply to new drafts after you save.'
-          : 'Anything left unselected uses a default.'}
-      </p>
     </div>
   )
 }

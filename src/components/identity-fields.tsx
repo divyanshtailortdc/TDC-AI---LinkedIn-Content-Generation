@@ -89,16 +89,6 @@ function AccountTypePicker({
     <SectionCard
       title="What kind of identity is this?"
       required
-      aside={
-        locked && (
-          <span className="text-muted inline-flex shrink-0 items-center gap-1 text-xs">
-            <Lock className="h-3 w-3" />
-            {readOnly
-              ? 'Click Edit to change'
-              : 'Set when the identity was created'}
-          </span>
-        )
-      }
     >
       <input type="hidden" name="accountType" value={value} />
       <div
@@ -256,7 +246,13 @@ function IdentityField({
           role="textbox"
           aria-readonly="true"
           aria-multiline={def.type === 'textarea'}
-          className="border-border/60 bg-surface-hover/40 text-foreground scrollbar-visible max-h-40 min-h-[2.375rem] overflow-y-auto rounded-lg border px-3.5 py-2 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap"
+          title={def.type === 'url' ? value : undefined}
+          className={`border-border/60 bg-surface-hover/40 text-foreground scrollbar-visible max-h-40 min-h-[2.375rem] rounded-lg border px-3.5 py-2 text-sm leading-relaxed ${
+            // A link stays on one line, with the whole address on hover.
+            def.type === 'url'
+              ? 'truncate'
+              : 'overflow-y-auto wrap-break-word whitespace-pre-wrap'
+          }`}
         >
           {value.trim() ? value : <span className="text-muted">Not set</span>}
         </div>
@@ -387,11 +383,6 @@ export function IdentityFields({
 
       <SectionCard
         title="Basic information"
-        description={
-          accountType === 'company'
-            ? 'Core attributes the model references for your brand'
-            : 'Core attributes the model references for personal branding'
-        }
       >
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {field('name')}
@@ -399,28 +390,15 @@ export function IdentityFields({
           <div className="sm:col-span-2">
             {field('industry', { textareaClass: 'h-20' })}
           </div>
-          <div className="sm:col-span-2">
-            {field('description', {
-              rightHint: '2-3 sentences recommended',
-              textareaClass: 'h-28'
-            })}
-          </div>
+          
           <div className="sm:col-span-2">
             {field('targetAudience', { textareaClass: 'h-28' })}
           </div>
-          <div className="sm:col-span-2">
-            {field('offerings', {
-              rightHint: 'Key expertise, products or services',
-              textareaClass: 'h-28'
-            })}
-          </div>
+          {/* The same two links as the AI assistant's Online presence inputs. */}
+          {field('linkedinUrl')}
+          {field('websiteUrl')}
         </div>
       </SectionCard>
-
-      {/* The two URLs are entered in the AI assistant's Online presence
-          card; the form still submits them. */}
-      <input type="hidden" name="linkedinUrl" value={values.linkedinUrl} />
-      <input type="hidden" name="websiteUrl" value={values.websiteUrl} />
     </div>
   )
 }

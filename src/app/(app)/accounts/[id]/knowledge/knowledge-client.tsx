@@ -1,6 +1,7 @@
 'use client'
 
 import { useStepView } from '@/components/account-setup/setup-frame'
+import { ConfirmPopover } from '@/components/confirm-popover'
 import {
   updateDraftSuggestions,
   useIdentitySetupDraft
@@ -213,14 +214,8 @@ export function KnowledgeClient({
     }
   }
 
+  // Confirmed by the ConfirmPopover around the delete button.
   const handleDelete = async (docId: string) => {
-    if (
-      !confirm(
-        'Are you sure you want to delete this document from the knowledge base?'
-      )
-    ) {
-      return
-    }
     setDeletingId(docId)
     try {
       await deleteKnowledgeDocument(docId, accountId)
@@ -649,21 +644,28 @@ export function KnowledgeClient({
                         )}
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(doc.id)}
+                      <ConfirmPopover
+                        title="Delete this document?"
+                        description="It is removed from the knowledge base, along with its extracted claims."
+                        confirmLabel="Delete"
+                        onConfirm={() => handleDelete(doc.id)}
                         disabled={deletingId === doc.id}
-                        className={`text-muted p-1 transition-colors hover:text-rose-500 ${
-                          editing ? '' : 'hidden'
-                        }`}
-                        title="Delete document"
                       >
-                        {deletingId === doc.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          disabled={deletingId === doc.id}
+                          className={`text-muted p-1 transition-colors hover:text-rose-500 ${
+                            editing ? '' : 'hidden'
+                          }`}
+                          title="Delete document"
+                        >
+                          {deletingId === doc.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </ConfirmPopover>
                     </div>
                   </div>
 

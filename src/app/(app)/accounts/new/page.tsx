@@ -171,7 +171,8 @@ function CreateIdentityForm({
         accountType={accountType}
         onAccountTypeChange={setAccountType}
         onChange={(field, value) => {
-          setFields(prev => ({ ...prev, [field]: value }))
+          // The two links live in the store shared with the assistant.
+          setValues({ [field]: value })
           if (errors[field])
             setErrors(prev => ({ ...prev, [field]: undefined }))
         }}

@@ -6,6 +6,7 @@ import {
 } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
+import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
@@ -261,8 +262,8 @@ export function GoalsClient({
     }
   }
 
+  // Confirmed by the ConfirmPopover around the delete button.
   const handleDelete = async (goalId: string) => {
-    if (!confirm('Are you sure you want to delete this goal?')) return
     setActionId(goalId)
     try {
       await deleteGoal(goalId, accountId)
@@ -494,13 +495,9 @@ export function GoalsClient({
           {/* The One Key Message to Land */}
           <div className="border-accent/30 bg-accent/5 space-y-1.5 rounded-xl border p-4">
             <label className="text-accent block text-xs font-bold tracking-wider uppercase">
-              The One Key Message to Land{' '}
-              <span className="text-rose-500">*</span>
+              Key Message <span className="text-rose-500">*</span>
             </label>
-            <p className="text-muted text-xs">
-              The belief your readers should hold after reading. Every post
-              under this goal works toward it.
-            </p>
+
             <textarea
               rows={2}
               value={keyMessage}
@@ -628,7 +625,7 @@ export function GoalsClient({
                         {g.keyMessage && (
                           <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
                             <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
-                              Key Message To Land:
+                              Key Message:
                             </span>
                             <p className="text-foreground leading-relaxed font-medium">
                               &quot;{g.keyMessage}&quot;
@@ -688,17 +685,24 @@ export function GoalsClient({
                           <Edit2 className="h-4 w-4" />
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(g.id)}
+                        <ConfirmPopover
+                          title="Delete this goal?"
+                          description="The goal will be permanently removed."
+                          confirmLabel="Delete"
+                          onConfirm={() => handleDelete(g.id)}
                           disabled={actionId === g.id}
-                          className={`text-muted p-1 transition-colors hover:text-rose-500 ${
-                            editing ? '' : 'hidden'
-                          }`}
-                          title="Delete goal"
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                          <button
+                            type="button"
+                            disabled={actionId === g.id}
+                            className={`text-muted p-1 transition-colors hover:text-rose-500 ${
+                              editing ? '' : 'hidden'
+                            }`}
+                            title="Delete goal"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </ConfirmPopover>
                       </div>
                     </div>
                   </div>
