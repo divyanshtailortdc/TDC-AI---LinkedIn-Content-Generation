@@ -66,7 +66,11 @@ export async function suggestSetup(input: {
     providedUrls: input.providedUrls,
     fetchedSources: input.sources
       .filter(s => s.status.status === 'fetched' && s.content)
-      .map(s => ({ url: s.status.url, content: s.content! }))
+      .map(s => ({
+        url: s.status.url,
+        content: s.content!,
+        title: s.status.title
+      }))
   })
   // The CTA link and every other Advanced choice are applied after the URL
   // checks, so they hold whatever the model returned.

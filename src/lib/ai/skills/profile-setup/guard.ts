@@ -29,7 +29,7 @@ export type SanitizeContext = {
   /** URLs the user typed into the form. */
   providedUrls: string[]
   /** Pages that were fetched successfully, with the text the model saw. */
-  fetchedSources: Array<{ url: string; content: string }>
+  fetchedSources: Array<{ url: string; content: string; title?: string }>
 }
 
 const EMPTY_VALUE = /^(n\/?a|unknown|not specified|not provided|-+)$/i
@@ -361,6 +361,22 @@ export function sanitizeIdentitySetup(
       title,
       reason,
       accessible: fetchedByKey.has(normalizeUrlForCompare(url))
+    })
+  }
+
+  // A page the user gave us and we could read is a knowledge source whether or
+  // not the model thought to list it. It is only offered: nothing is added
+  // until the user ticks it in the review.
+  for (const page of context.fetchedSources) {
+    const key = normalizeUrlForCompare(page.url)
+    if (sources.some(s => s.url && normalizeUrlForCompare(s.url) === key)) {
+      continue
+    }
+    sources.push({
+      url: page.url,
+      title: (page.title || page.url).slice(0, 200),
+      reason: 'A page you provided. It was read for this analysis.',
+      accessible: true
     })
   }
 
