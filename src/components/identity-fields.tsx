@@ -6,7 +6,7 @@ import {
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, User } from 'lucide-react'
+import { Building2, Globe, Link2, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
@@ -231,27 +231,31 @@ function IdentityField({
   onChange: (value: string) => void
 }) {
   if (readOnly) {
-    // Plain text: nothing here looks or behaves like something to type into.
+    // Plain text: no box, no border, so nothing looks like something to type
+    // into. Small muted label over the saved value, like a details page.
     return (
       <div>
-        <FieldLabel
-          def={{ ...def, required: false, hint: undefined }}
-          rightHint={undefined}
-        />
+        <div className="text-muted mb-0.5 text-[11px] font-medium tracking-wider uppercase">
+          {def.label}
+        </div>
         <div
           id={def.name}
           role="textbox"
           aria-readonly="true"
           aria-multiline={def.type === 'textarea'}
           title={def.type === 'url' ? value : undefined}
-          className={`border-border/60 bg-surface-hover/40 text-foreground scrollbar-visible max-h-40 min-h-[2.375rem] rounded-lg border px-3.5 py-2 text-sm leading-relaxed ${
+          className={`text-foreground scrollbar-visible max-h-40 text-sm leading-relaxed ${
             // A link stays on one line, with the whole address on hover.
             def.type === 'url'
               ? 'truncate'
               : 'overflow-y-auto wrap-break-word whitespace-pre-wrap'
           }`}
         >
-          {value.trim() ? value : <span className="text-muted">Not set</span>}
+          {value.trim() ? (
+            value
+          ) : (
+            <span className="text-muted italic">Not set</span>
+          )}
         </div>
       </div>
     )
@@ -401,10 +405,26 @@ export function IdentityFields({
         </div>
       </SectionCard>
 
-      {/* The two URLs are entered in the AI assistant's Online presence
-          card; the form still submits them. */}
-      <input type="hidden" name="linkedinUrl" value={values.linkedinUrl} />
-      <input type="hidden" name="websiteUrl" value={values.websiteUrl} />
+      <SectionCard title="Online presence">
+        <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
+          <IdentityField
+            def={IDENTITY_FIELDS.find(f => f.name === 'linkedinUrl')!}
+            value={values.linkedinUrl}
+            error={errors.linkedinUrl}
+            icon={<Link2 className="h-4 w-4" />}
+            readOnly={readOnly}
+            onChange={value => onChange('linkedinUrl', value)}
+          />
+          <IdentityField
+            def={IDENTITY_FIELDS.find(f => f.name === 'websiteUrl')!}
+            value={values.websiteUrl}
+            error={errors.websiteUrl}
+            icon={<Globe className="h-4 w-4" />}
+            readOnly={readOnly}
+            onChange={value => onChange('websiteUrl', value)}
+          />
+        </div>
+      </SectionCard>
     </div>
   )
 }

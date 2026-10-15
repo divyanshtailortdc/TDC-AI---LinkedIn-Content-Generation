@@ -1,10 +1,6 @@
 'use client'
 
 import {
-  ProfileUrlsProvider,
-  useProfileUrls
-} from '@/components/account-setup/profile-urls'
-import {
   SetupFrame,
   SetupStepper,
   useStepSave
@@ -40,7 +36,7 @@ export default function NewAccountPage() {
   const [accountType, setAccountType] = useState<AccountType>('personal')
 
   return (
-    <ProfileUrlsProvider initial={{ linkedinUrl: '', websiteUrl: '' }}>
+    <>
       <SetupFrame
         stepIndex={0}
         title="Create Your Identity"
@@ -76,7 +72,7 @@ export default function NewAccountPage() {
           setAccountType={setAccountType}
         />
       </SetupFrame>
-    </ProfileUrlsProvider>
+    </>
   )
 }
 
@@ -96,20 +92,9 @@ function CreateIdentityForm({
 }) {
   const [errors, setErrors] = useState<IdentityFieldErrors>({})
 
-  // The LinkedIn and Website URLs are entered in the assistant's Online
-  // presence card, so they live in the shared store rather than in `fields`.
-  const links = useProfileUrls()
-  const values: IdentityValues = { ...fields, ...links?.urls }
-  const setValues = (next: Partial<IdentityValues>) => {
-    const { linkedinUrl, websiteUrl, ...rest } = next
-    setFields(prev => ({ ...prev, ...rest }))
-    if (linkedinUrl !== undefined || websiteUrl !== undefined) {
-      links?.setUrls({
-        ...(linkedinUrl !== undefined && { linkedinUrl }),
-        ...(websiteUrl !== undefined && { websiteUrl })
-      })
-    }
-  }
+  const values = fields
+  const setValues = (next: Partial<IdentityValues>) =>
+    setFields(prev => ({ ...prev, ...next }))
 
   const prefill = useSectionPrefill({
     draftKey: NEW_IDENTITY_KEY,
@@ -124,10 +109,6 @@ function CreateIdentityForm({
     // Chips and bullet lists have no native required check.
     const found = validateIdentityValues(values)
     setErrors(found)
-    links?.setErrors({
-      linkedinUrl: found.linkedinUrl,
-      websiteUrl: found.websiteUrl
-    })
     if (Object.keys(found).length > 0 || !formRef.current) return false
 
     try {

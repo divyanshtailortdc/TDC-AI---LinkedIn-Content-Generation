@@ -5,14 +5,19 @@ import { z } from 'zod'
  * apply step, so all three validate the same way.
  */
 
+const URL_MESSAGE = 'URLs must start with http:// or https://'
+
+/** The message for an invalid optional URL, or undefined when it is fine. */
+export function optionalUrlError(value: string): string | undefined {
+  const v = value.trim()
+  return !v || /^https?:\/\/[^\s]+\.[^\s]+/i.test(v) ? undefined : URL_MESSAGE
+}
+
 const optionalHttpUrl = z
   .string()
   .trim()
   .optional()
-  .refine(
-    value => !value || /^https?:\/\/[^\s]+\.[^\s]+/i.test(value),
-    'URLs must start with http:// or https://'
-  )
+  .refine(value => !optionalUrlError(value ?? ''), URL_MESSAGE)
 
 export const IdentityProfileSchema = z.object({
   name: z.string().trim().min(1, 'Display name is required').max(200),

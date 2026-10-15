@@ -202,7 +202,7 @@ export function PreferencesForm({
     setError(null)
   }
   // Settings the AI filled in are unsaved changes, so they keep the form open.
-  useStepView({
+  const editing = useStepView({
     dirty: prefill.active && prefill.filled.length > 0,
     onCancel: resetToSaved
   })
@@ -243,7 +243,11 @@ export function PreferencesForm({
             {pillars.map((pillar, idx) => (
               <div
                 key={idx}
-                className="bg-surface-hover border-border space-y-2 rounded-xl border p-4"
+                className={`space-y-2 rounded-xl border p-4 ${
+                  editing
+                    ? 'bg-surface-hover border-border'
+                    : 'border-border/50 bg-transparent'
+                }`}
               >
                 <div className="flex items-center gap-3">
                   <input
@@ -268,9 +272,16 @@ export function PreferencesForm({
                       className="border-border bg-surface text-foreground w-16 rounded-md border px-2 py-1.5 text-center font-mono text-sm"
                     />
                   </label>
-                  <span className="text-muted w-12 shrink-0 text-right font-mono text-xs">
-                    ≈{shareOf(pillar)}%
-                  </span>
+                  {/* Only when it adds something: with one pillar (or weights
+                      that already sum to 100) the share equals the weight. */}
+                  {shareOf(pillar) !== Number(pillar.weight_pct) && (
+                    <span
+                      title="Share of ideas after the weights are balanced to 100%"
+                      className="text-muted shrink-0 text-right font-mono text-xs"
+                    >
+                      ≈{shareOf(pillar)}%
+                    </span>
+                  )}
                   <button
                     type="button"
                     data-edit-only
@@ -322,7 +333,11 @@ export function PreferencesForm({
             </select>
           </div>
 
-          <label className="border-border bg-surface-hover mt-5 flex cursor-pointer items-center gap-3 rounded-lg border p-3">
+          <label className={`mt-5 flex items-center gap-3 rounded-lg border p-3 ${
+              editing
+                ? 'border-border bg-surface-hover cursor-pointer'
+                : 'cursor-default border-transparent px-0'
+            }`}>
             <input
               type="checkbox"
               checked={constraints.cta_required}
