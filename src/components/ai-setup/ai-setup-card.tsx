@@ -48,7 +48,7 @@ export function AiSetupCard({
   /**
    * "rail" is the card beside most steps. "assistant" is the Profile step's
    * panel on the right, with a Pro Tip beneath it; its Online presence holds
-   * the Profile step's required LinkedIn and Website URLs.
+   * the Profile step's LinkedIn and Website URLs.
    */
   variant?: 'rail' | 'assistant'
   account?: ({ id: string; accountType?: string } & Urls) | null

@@ -134,8 +134,8 @@ function profileFromFormData(formData: FormData) {
     targetAudience: field('targetAudience'),
     offerings: field('offerings'),
     industry: field('industry'),
-    linkedinUrl: field('linkedinUrl'),
-    websiteUrl: field('websiteUrl')
+    linkedinUrl: field('linkedinUrl') || undefined,
+    websiteUrl: field('websiteUrl') || undefined
   }
 }
 
