@@ -20,7 +20,7 @@ import logoDark from '@/img/tdccommercelogo-dark.webp'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/ideas', label: 'Ideas', icon: Lightbulb },
+  { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
   { href: '/posts', label: 'Posts', icon: FileText },
   { href: '/runs', label: 'Run Details', icon: Play },
 ]
@@ -63,28 +63,51 @@ function NavLink({
   label,
   icon: Icon,
   active,
-  collapsed
+  collapsed,
+  badge = 0
 }: {
   href: string
   label: string
   icon: typeof LayoutDashboard
   active: boolean
   collapsed: boolean
+  /** How many things are waiting here; shown as a count, and bolds the label. */
+  badge?: number
 }) {
   return (
     <Link
       href={href}
       title={collapsed ? label : undefined}
+      aria-current={active ? 'page' : undefined}
       className={cn(
-        'group relative flex items-center rounded-2xl text-sm font-medium transition-colors',
-        collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3.5 py-2.5',
+        'group relative flex h-11 items-center rounded-xl text-[15px] transition-colors',
+        collapsed ? 'justify-center px-0' : 'gap-3.5 px-3.5',
+        badge > 0 ? 'font-semibold' : 'font-medium',
         active
-          ? 'bg-accent/10 text-accent'
-          : 'text-muted hover:bg-surface-hover hover:text-foreground'
+          ? 'bg-brand/20 text-brand-strong'
+          : 'text-foreground hover:bg-foreground/10 hover:shadow-xs'
       )}
     >
-      <Icon className="h-4.5 w-4.5 shrink-0" strokeWidth={2} />
+      {/* The active page's marker, flush against the sidebar's left edge. */}
+      {active && (
+        <span
+          aria-hidden
+          className="bg-brand absolute top-0 -left-3 h-full w-[3px] rounded-r-full"
+        />
+      )}
+      <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
       {!collapsed && <span className="truncate">{label}</span>}
+      {!collapsed && badge > 0 && (
+        <span className="bg-brand/20 text-brand-strong ml-auto inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      {collapsed && badge > 0 && (
+        <span
+          aria-hidden
+          className="bg-brand ring-sidebar absolute top-2 right-2.5 h-2.5 w-2.5 rounded-full ring-2"
+        />
+      )}
 
       {/* Tooltip shown only in collapsed rail mode */}
       {collapsed && (
@@ -98,10 +121,13 @@ function NavLink({
 
 export function Sidebar({
   accounts,
-  activeAccount
+  activeAccount,
+  ideasToReview = 0
 }: {
   accounts: SwitchableAccount[]
   activeAccount: SwitchableAccount | null
+  /** Ideas of the active identity still waiting for approval. */
+  ideasToReview?: number
 }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useSidebarCollapsed()
@@ -141,7 +167,7 @@ export function Sidebar({
               priority
               className="h-8 w-auto self-start hidden dark:block"
             />
-            <p className="pl-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted/80 leading-none">
+            <p className="pl-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted/80 leading-none">
               LinkedIn Content Engine
             </p>
           </>
@@ -152,7 +178,12 @@ export function Sidebar({
           type="button"
           onClick={toggle}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="absolute top-1/2 -right-3 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-border bg-surface text-muted shadow-sm transition-colors hover:bg-surface-hover hover:text-foreground"
+          className={cn(
+            'absolute flex items-center justify-center border border-sidebar-border bg-surface text-muted transition-colors hover:bg-surface-hover hover:text-foreground',
+            collapsed
+              ? 'top-1/2 -right-3 h-6 w-6 -translate-y-1/2 rounded-full shadow-sm'
+              : 'top-4 right-4 h-8 w-8 rounded-lg'
+          )}
         >
           {collapsed ? (
             <ChevronRight className="h-3.5 w-3.5" />
@@ -163,13 +194,8 @@ export function Sidebar({
       </div>
 
       {/* Nav */}
-      <nav
-        className={cn(
-          'flex-1 overflow-y-auto overflow-x-visible py-4 space-y-1',
-          collapsed ? 'px-3' : 'px-3'
-        )}
-      >
-        {navItems.map(({ href, label, icon }) => {
+      <nav className="flex-1 space-y-1.5 overflow-y-auto overflow-x-visible px-3 py-5">
+        {navItems.map(({ href, label, icon, ...rest }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
           return (
             <NavLink
@@ -179,6 +205,7 @@ export function Sidebar({
               icon={icon}
               active={active}
               collapsed={collapsed}
+              badge={'badge' in rest ? ideasToReview : 0}
             />
           )
         })}

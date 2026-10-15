@@ -1,8 +1,8 @@
 import { Sidebar } from '@/components/sidebar'
 import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
-import { accountsTable } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { accountsTable, ideasTable } from '@/db/schema'
+import { and, count, eq } from 'drizzle-orm'
 import { getActiveAccount } from '@/lib/active-account'
 
 export const dynamic = 'force-dynamic'
@@ -26,9 +26,26 @@ export default async function AppLayout({
     getActiveAccount()
   ])
 
+  // The badge on Ideas: what the active identity still has to approve.
+  const [{ pending = 0 } = {}] = activeAccount
+    ? await db
+        .select({ pending: count() })
+        .from(ideasTable)
+        .where(
+          and(
+            eq(ideasTable.accountId, activeAccount.id),
+            eq(ideasTable.status, 'proposed')
+          )
+        )
+    : []
+
   return (
     <div className="flex h-full min-h-screen">
-      <Sidebar accounts={accounts} activeAccount={activeAccount} />
+      <Sidebar
+        accounts={accounts}
+        activeAccount={activeAccount}
+        ideasToReview={pending}
+      />
       <main className="flex-1 overflow-y-auto bg-background relative flex flex-col">
         {children}
       </main>

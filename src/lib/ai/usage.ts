@@ -10,6 +10,8 @@
  * prefix reads at a tenth of the price) and understated cache writes.
  */
 
+import { defaultModel } from '../models'
+
 export interface CallUsage {
   calls: number
   /** All input tokens, cached and uncached. */
@@ -69,7 +71,8 @@ function num(value: unknown): number {
 
 function rateFor(modelId: string) {
   const key = modelId.replace(/^anthropic\//, '')
-  return MODEL_RATES[key] || MODEL_RATES['claude-opus-5']!
+  // A model missing from the table is priced as the one the app uses.
+  return MODEL_RATES[key] || MODEL_RATES[defaultModel]!
 }
 
 /** Rate-table estimate, pricing cached input at its real multipliers. */

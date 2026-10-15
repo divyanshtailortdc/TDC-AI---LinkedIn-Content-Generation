@@ -48,17 +48,17 @@ export function SetupShell({
       hasSavedData={hasSavedData}
       identity={
         <>
-          <div className="bg-accent text-background flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold shadow-xs">
+          <div className="bg-accent text-background flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold shadow-xs sm:h-12 sm:w-12 sm:text-base">
             {initials}
           </div>
           <div className="min-w-0">
             <p
-              className="text-foreground truncate text-sm leading-tight font-bold"
+              className="text-foreground truncate text-base leading-tight font-bold"
               title={account.name}
             >
               {account.name}
             </p>
-            <p className="text-muted mt-0.5 text-[11px] leading-snug">
+            <p className="text-muted mt-1 text-xs leading-snug">
               Workspace / Project Setup
             </p>
           </div>

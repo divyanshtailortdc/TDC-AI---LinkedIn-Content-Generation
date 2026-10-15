@@ -13,6 +13,8 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -28,6 +30,9 @@
   --muted: #71717a;
   --accent: #09090b;
   --accent-hover: #27272a;
+  /* The logo's teal; -strong is the shade used for text on a pale teal fill. */
+  --brand: #159bb2;
+  --brand-strong: #0e7a8d;
 }
 
 .dark {
@@ -41,6 +46,8 @@
   --muted: #a1a1aa;
   --accent: #fafafa;
   --accent-hover: #e4e4e7;
+  --brand: #22b5cd;
+  --brand-strong: #5ad0e3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -55,6 +62,8 @@
     --muted: #a1a1aa;
     --accent: #fafafa;
     --accent-hover: #e4e4e7;
+    --brand: #22b5cd;
+    --brand-strong: #5ad0e3;
   }
 }
 

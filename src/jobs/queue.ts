@@ -10,6 +10,7 @@ import {
 } from '@/db/schema'
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '@/lib/ai/context'
+import { defaultModel } from '@/lib/models'
 
 export interface EnqueueRunOptions {
   accountId: string
@@ -48,6 +49,8 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
       goalId: defaultGoal?.id || null,
       preferenceSetId: preference?.id || null,
       workflow: 'standard',
+      // Recorded up front: the database default is a leftover placeholder.
+      model: defaultModel,
       trigger: opts.trigger || 'manual',
       status: 'queued',
       currentStep: 0,

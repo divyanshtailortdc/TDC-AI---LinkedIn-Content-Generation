@@ -1,6 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGateway, type EmbeddingModel, type LanguageModel } from 'ai'
 import { env } from '~/env'
+import { defaultModel, fastModel } from './models'
+
+export { defaultModel, fastModel }
 
 export const hasAIGateway = Boolean(
   env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_API_KEY.trim().length > 0
@@ -19,11 +22,6 @@ export const gatewayClient = hasAIGateway
 export const anthropicClient = hasAnthropicKey
   ? createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })
   : null
-
-/** Reasoning-heavy work: ideation, drafting and AI setup. */
-export const defaultModel = 'claude-sonnet-5-5'
-/** Bulk extraction where judgment matters less than throughput. */
-export const fastModel = 'claude-haiku-4-5'
 
 /** The gateway namespaces models by provider; the direct client does not. */
 function toGatewayModelId(modelId: string): string {

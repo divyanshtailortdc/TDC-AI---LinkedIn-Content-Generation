@@ -35,7 +35,6 @@ interface RunSummary {
     cacheReadTokens?: number
     inputTokens?: number
   } | null
-  model: string | null
   error: string | null
   createdAt: Date | string
 }
@@ -219,7 +218,7 @@ export function RunsClient({
                   </div>
 
                   <p className="text-xs text-muted font-mono">
-                    ID: {run.id.slice(0, 8)}... • Model: {run.model || 'claude-opus-5'}
+                    ID: {run.id.slice(0, 8)}...
                   </p>
 
                   {run.error && (

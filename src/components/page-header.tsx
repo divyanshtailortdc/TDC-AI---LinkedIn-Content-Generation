@@ -1,15 +1,21 @@
+import { AppHeaderBar } from '@/components/app-header-bar'
 import React from 'react'
-import { ThemeToggle } from '@/components/theme-toggle'
 
 export interface PageHeaderProps {
   title: React.ReactNode
   badge?: string
-  description?: string
+  description?: React.ReactNode
+  /** Shown before the title on the same line, e.g. a "back" link. */
   preTitle?: React.ReactNode
   actions?: React.ReactNode
+  /**
+   * Tabs or filters. They get their own toolbar strip under the bar, so the
+   * bar itself is the same height on every page.
+   */
   bottomContent?: React.ReactNode
 }
 
+/** A route's title bar: the shared header, with the page's own actions. */
 export function PageHeader({
   title,
   badge,
@@ -19,41 +25,36 @@ export function PageHeader({
   bottomContent
 }: PageHeaderProps) {
   return (
-    <div className="flex-none px-4 py-2 sm:px-6 sm:py-3 border-b border-border bg-background z-10 w-full">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          {preTitle && <div className="mb-1.5">{preTitle}</div>}
-          <div className="flex items-center gap-2.5">
+    <div className="z-10 w-full flex-none">
+      <AppHeaderBar actions={actions}>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-3">
+            {preTitle && <div className="shrink-0">{preTitle}</div>}
             {typeof title === 'string' ? (
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              <h1 className="text-foreground truncate text-xl font-bold tracking-tight sm:text-2xl">
                 {title}
               </h1>
             ) : (
               title
             )}
             {badge && (
-              <span className="rounded-full bg-accent/10 text-accent px-2.5 py-0.5 text-xs font-semibold">
+              <span className="bg-accent/10 text-accent shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold">
                 {badge}
               </span>
             )}
           </div>
           {description && (
-            <p className="text-xs sm:text-sm text-muted mt-1">
+            <p className="text-muted mt-1 truncate text-xs sm:text-sm">
               {description}
             </p>
           )}
         </div>
+      </AppHeaderBar>
 
-        <div className="flex items-center gap-3">
-          {actions}
-          <div className="ml-1 sm:ml-3 border-l border-border pl-3 sm:pl-5 flex items-center h-full">
-            <ThemeToggle />
-          </div>
-        </div>
-      </div>
       {bottomContent && (
-        <div className="mt-2 pt-2  border-border/50">
-          {bottomContent}
+        <div className="border-border bg-surface border-b px-4 py-3 sm:px-6">
+          {/* One row that scrolls sideways rather than wrapping taller. */}
+          <div className="w-full overflow-x-auto">{bottomContent}</div>
         </div>
       )}
     </div>

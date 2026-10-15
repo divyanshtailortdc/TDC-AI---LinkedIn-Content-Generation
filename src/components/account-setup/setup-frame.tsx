@@ -1,7 +1,7 @@
 'use client'
 
 import { useSuggestedSections } from '@/components/ai-setup/draft-store'
-import { ThemeToggle } from '@/components/theme-toggle'
+import { AppHeaderBar } from '@/components/app-header-bar'
 import type { SetupSection } from '@/lib/ai/skills/profile-setup/schema'
 import { ArrowRight, Loader2, Pencil } from 'lucide-react'
 import Link from 'next/link'
@@ -153,7 +153,7 @@ export function SetupStepper({
           const content = (
             <>
               <span
-                className={`relative flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
+                className={`relative flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition-colors sm:h-10 sm:w-10 sm:text-base ${
                   active
                     ? 'bg-accent text-background shadow-sm'
                     : step.optional
@@ -161,7 +161,7 @@ export function SetupStepper({
                       : 'border-border bg-surface text-muted group-hover:border-accent/40 group-hover:text-foreground border'
                 }`}
               >
-                {active ? index + 1 : <Icon className="h-3.5 w-3.5" />}
+                {active ? index + 1 : <Icon className="h-4 w-4" />}
                 {hasSuggestions && (
                   <span
                     title="AI suggestions ready"
@@ -170,10 +170,10 @@ export function SetupStepper({
                 )}
               </span>
               <span
-                className={`flex items-center gap-1 text-xs whitespace-nowrap transition-colors ${
+                className={`flex items-center gap-1 text-sm whitespace-nowrap transition-colors ${
                   active
                     ? 'text-foreground font-semibold'
-                    : 'text-muted group-hover:text-foreground hidden font-medium sm:flex'
+                    : 'text-muted group-hover:text-foreground hidden font-medium @min-[60rem]:flex'
                 }`}
               >
                 {step.label}
@@ -191,7 +191,7 @@ export function SetupStepper({
               {index > 0 && (
                 <li
                   aria-hidden
-                  className="bg-border mx-1.5 mt-4 h-px min-w-3 flex-1 sm:mx-2.5"
+                  className="bg-border mx-1.5 mt-4 h-px min-w-3 flex-1 sm:mx-2.5 sm:mt-5"
                 />
               )}
               <li className="flex shrink-0 flex-col items-center">
@@ -331,100 +331,100 @@ export function SetupFrame({
   return (
     <StepSaveContext.Provider value={ctx}>
       <div className="bg-surface-hover/40 flex h-dvh min-h-0 flex-col">
-        <div className="shrink-0 px-4 pt-4 sm:px-6">
+        <div className="shrink-0">
           {/* Sized by its own width, not the screen's: the app sidebar takes
               part of the screen, so a "wide" screen can still be a narrow header. */}
-          <header className="border-border bg-surface @container mx-auto max-w-screen-2xl rounded-2xl border px-4 py-3 shadow-xs sm:px-5">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-              <div className="flex min-w-0 flex-1 items-center gap-3 @4xl:w-44 @4xl:flex-none">
-                {identity}
-              </div>
-
-              <div className="order-last w-full @4xl:order-0 @4xl:w-auto @4xl:flex-1">
-                {nav}
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2.5">
-                <div className="border-border rounded-xl border">
-                  <ThemeToggle />
-                </div>
-                {!isLast && (
-                  <>
-                    {viewable && editing && (
-                      <button
-                        type="button"
-                        onClick={cancelEditing}
-                        disabled={saving}
-                        className="border-border text-foreground hover:bg-surface-hover inline-flex h-9 items-center rounded-lg border px-4 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-60 sm:h-10"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                    {showNext && nextHref && (
-                      <Link
-                        href={nextHref}
-                        aria-disabled={saving}
-                        onClick={e => {
-                          if (
-                            saving ||
-                            (hasUnsaved &&
-                              !window.confirm(
-                                'You have unsaved changes. Leave without saving?'
-                              ))
-                          ) {
-                            e.preventDefault()
-                          }
-                        }}
-                        className="border-border text-foreground hover:bg-surface-hover inline-flex h-9 items-center gap-2 rounded-lg border px-4 text-sm font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60 sm:h-10"
-                      >
-                        Next
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    )}
-                    {viewable && !editing ? (
-                      <button
-                        type="button"
-                        onClick={() => setEdit(true)}
-                        className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-10"
-                      >
-                        <Pencil className="h-4 w-4" />
-                        Edit
-                      </button>
-                    ) : saveCount > 0 ? (
-                      <button
-                        type="button"
-                        onClick={saveStep}
-                        disabled={saving}
-                        className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10"
-                      >
-                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {saving ? 'Saving…' : 'Save'}
-                      </button>
-                    ) : viewable && !hasUnsaved ? (
-                      // Nothing to save here: changes were saved as they were
-                      // made, so editing just ends.
-                      <button
-                        type="button"
-                        onClick={() => setEdit(false)}
-                        className="bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-10"
-                      >
-                        Done
-                      </button>
-                    ) : null}
-                  </>
-                )}
-              </div>
+          <AppHeaderBar
+            wide
+            actions={
+              !isLast ? (
+                <>
+                  {viewable && editing && (
+                    <button
+                      type="button"
+                      onClick={cancelEditing}
+                      disabled={saving}
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-10 items-center rounded-lg border px-5 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-60 sm:h-11"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  {showNext && nextHref && (
+                    <Link
+                      href={nextHref}
+                      aria-disabled={saving}
+                      onClick={e => {
+                        if (
+                          saving ||
+                          (hasUnsaved &&
+                            !window.confirm(
+                              'You have unsaved changes. Leave without saving?'
+                            ))
+                        ) {
+                          e.preventDefault()
+                        }
+                      }}
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-10 items-center gap-2 rounded-lg border px-5 text-sm font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60 sm:h-11"
+                    >
+                      Next
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  )}
+                  {viewable && !editing ? (
+                    <button
+                      type="button"
+                      onClick={() => setEdit(true)}
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-11"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit
+                    </button>
+                  ) : saveCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={saveStep}
+                      disabled={saving}
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-11"
+                    >
+                      {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  ) : viewable && !hasUnsaved ? (
+                    // Nothing to save here: changes were saved as they were
+                    // made, so editing just ends.
+                    <button
+                      type="button"
+                      onClick={() => setEdit(false)}
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-11"
+                    >
+                      Done
+                    </button>
+                  ) : null}
+                </>
+              ) : undefined
+            }
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-3 @min-[56rem]:w-44 @min-[56rem]:flex-none">
+              {identity}
             </div>
-          </header>
+
+            <div className="order-last w-full @min-[56rem]:order-0 @min-[56rem]:w-auto @min-[56rem]:min-w-0 @min-[56rem]:flex-1">
+              {nav}
+            </div>
+          </AppHeaderBar>
         </div>
 
-        {/* On wide screens both cards fill the remaining height and width on
-            every step, and only the main card's content scrolls. Narrower
-            screens stack the cards and let the page scroll instead. */}
+        {/* The frame is always the height of the screen: more data scrolls
+            inside the main card, it never makes the frame or the card taller.
+            On wide screens the cards sit side by side; on narrower ones the
+            assistant stacks above, and the main card keeps a fixed share of
+            the screen while the body scrolls between the two. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5 xl:overflow-hidden">
           <div
-            className={`mx-auto grid max-w-screen-2xl gap-5 xl:h-full ${
-              aside ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : ''
+            className={`mx-auto grid h-full gap-5 ${
+              aside
+                ? 'grid-rows-[auto_minmax(24rem,1fr)] xl:grid-cols-[minmax(0,1fr)_22rem] xl:grid-rows-1'
+                : 'grid-rows-1'
             }`}
           >
             {/* It still comes first when the cards stack, since the assistant
@@ -435,7 +435,7 @@ export function SetupFrame({
               </aside>
             )}
 
-            <section className="border-border bg-surface flex min-h-0 min-w-0 flex-col rounded-xl border shadow-xs xl:h-full">
+            <section className="border-border bg-surface flex min-h-0 min-w-0 flex-col rounded-xl border shadow-xs">
               <div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-3 sm:px-6 sm:pt-5">
                 <div className="min-w-0">
                   <h1 className="text-foreground text-lg font-bold tracking-tight">
@@ -449,7 +449,7 @@ export function SetupFrame({
                   Step {stepIndex + 1} of {SETUP_STEPS.length}
                 </span>
               </div>
-              <div className="min-h-0 flex-1 px-4 pb-4 sm:px-6 sm:pb-5 xl:overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-5">
                 <StepViewContext.Provider value={viewCtx}>
                   {children}
                 </StepViewContext.Provider>

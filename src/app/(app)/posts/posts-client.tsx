@@ -1115,9 +1115,9 @@ export function PostsClientInner({
         badge="Daily Surface"
         description={`Reviewing drafts for ${activeAccount.name} · @${activeAccount.handle}`}
         bottomContent={
-          <div className="flex flex-col gap-2.5">
+          <div className="flex w-max min-w-full items-center gap-4">
             {/* Status is the primary triage axis, so it gets counts and one click. */}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               {(
                 ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
               ).map(status => {
@@ -1149,8 +1149,8 @@ export function PostsClientInner({
               })}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="relative w-64 shrink-0">
                 <Search className="text-muted pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
                 <input
                   type="search"

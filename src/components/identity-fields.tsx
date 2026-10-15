@@ -390,15 +390,26 @@ export function IdentityFields({
           <div className="sm:col-span-2">
             {field('industry', { textareaClass: 'h-20' })}
           </div>
-          
+          <div className="sm:col-span-2">
+            {field('description', {
+              textareaClass: 'h-28'
+            })}
+          </div>
           <div className="sm:col-span-2">
             {field('targetAudience', { textareaClass: 'h-28' })}
           </div>
-          {/* The same two links as the AI assistant's Online presence inputs. */}
-          {field('linkedinUrl')}
-          {field('websiteUrl')}
+          <div className="sm:col-span-2">
+            {field('offerings', {
+              textareaClass: 'h-28'
+            })}
+          </div>
         </div>
       </SectionCard>
+
+      {/* The two URLs are entered in the AI assistant's Online presence
+          card; the form still submits them. */}
+      <input type="hidden" name="linkedinUrl" value={values.linkedinUrl} />
+      <input type="hidden" name="websiteUrl" value={values.websiteUrl} />
     </div>
   )
 }

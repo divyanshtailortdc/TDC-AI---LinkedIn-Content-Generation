@@ -28,6 +28,8 @@ export async function approveIdea(ideaId: string) {
       .set({ status: 'approved', updatedAt: new Date() })
       .where(eq(ideasTable.id, ideaId))
 
+    // The sidebar's Ideas badge counts these.
+    revalidatePath('/', 'layout')
     revalidatePath('/ideas')
     revalidatePath('/runs')
     return { success: true }
@@ -58,6 +60,8 @@ export async function rejectIdea(ideaId: string, reason?: string) {
       }
     }
 
+    // The sidebar's Ideas badge counts these.
+    revalidatePath('/', 'layout')
     revalidatePath('/ideas')
     revalidatePath('/runs')
     return { success: true }
@@ -162,6 +166,8 @@ export async function approveAllIdeas(ideaIds: string[]) {
       .set({ status: 'approved', updatedAt: new Date() })
       .where(and(inArray(ideasTable.id, ideaIds), eq(ideasTable.accountId, activeAccountId)))
 
+    // The sidebar's Ideas badge counts these.
+    revalidatePath('/', 'layout')
     revalidatePath('/ideas')
     revalidatePath('/runs')
     return { success: true }

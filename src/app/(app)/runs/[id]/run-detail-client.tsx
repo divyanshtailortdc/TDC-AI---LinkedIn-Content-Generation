@@ -352,7 +352,6 @@ export function RunDetailClient({
       <PageHeader
         title={`Run for ${account.name}`}
         badge={run.status.replace(/_/g, ' ')}
-        description={`${run.trigger === 'manual' ? 'Manual' : run.trigger} run · ${run.model || 'claude-opus-5'}`}
         preTitle={
           <Link
             href="/runs"
@@ -599,8 +598,6 @@ export function RunDetailClient({
                 <dd className="text-foreground font-mono break-all">{run.id}</dd>
                 <dt className="text-muted">Trigger</dt>
                 <dd className="text-foreground">{run.trigger}</dd>
-                <dt className="text-muted">Model</dt>
-                <dd className="text-foreground">{run.model || 'claude-opus-5'}</dd>
               </dl>
               <p className="text-xs text-muted">
                 The research and media settings active when this run started:

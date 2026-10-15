@@ -26,7 +26,6 @@ export default async function RunsPage() {
       totalSteps: runsTable.totalSteps,
       costUsd: runsTable.costUsd,
       tokenCounts: runsTable.tokenCounts,
-      model: runsTable.model,
       error: runsTable.error,
       createdAt: runsTable.createdAt,
       accountName: accountsTable.name
