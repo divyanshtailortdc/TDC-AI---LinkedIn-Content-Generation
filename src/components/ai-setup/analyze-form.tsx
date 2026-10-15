@@ -5,17 +5,20 @@ import type {
   AnalysisGuidance,
   IdentitySetupAnalysis
 } from '@/lib/ai/skills/profile-setup/schema'
+import { IDENTITY_FIELDS } from '@/lib/identity-profile'
 import {
   AlertCircle,
   ChevronRight,
+  Globe,
   Info,
+  Link2,
   Loader2,
   RotateCcw,
   Settings2,
   SlidersHorizontal,
   Sparkles
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { AdvancedAnalyzeDialog } from './advanced-analyze-dialog'
 
 const EXAMPLE_DESCRIPTION = `I'm Priya Rao, founder of Ledgerly, a bookkeeping and month-end close service for direct-to-consumer brands in India. We work with founders doing ₹5–50 Cr in revenue who are tired of waiting three weeks for their numbers.
@@ -29,7 +32,9 @@ const inputClass =
  * The Analyze with AI inputs: paste a description (and optional links), then
  * analyze. In the "rail" look (the AI Suggestions card beside most steps) the
  * description box grows to fill the card; the "assistant" look is the Profile
- * step's compact panel, whose URLs always come from the form beside it.
+ * step's compact panel, which also holds the Online presence links. The
+ * LinkedIn and Website URLs there are the profile's own (`presence`, shared
+ * with the Profile form).
  */
 export function AnalyzeForm({
   variant = 'rail',
@@ -37,6 +42,7 @@ export function AnalyzeForm({
   defaultLinkedinUrl = '',
   defaultWebsiteUrl = '',
   urls,
+  presence,
   accountType = 'personal',
   accountTypeLocked = false,
   onAccountTypeChosen,
@@ -52,6 +58,15 @@ export function AnalyzeForm({
    * URLs: they are read from there instead of being asked for a second time.
    */
   urls?: { linkedinUrl?: string | null; websiteUrl?: string | null }
+  /**
+   * The Profile step's LinkedIn and Website URLs, shown as required inputs in
+   * the assistant. Without it the assistant keeps them in its own state.
+   */
+  presence?: {
+    urls: { linkedinUrl: string; websiteUrl: string }
+    errors: { linkedinUrl?: string; websiteUrl?: string }
+    onChange: (patch: { linkedinUrl?: string; websiteUrl?: string }) => void
+  }
   accountType?: 'personal' | 'company'
   /** True for an existing identity, whose type is changed on the Profile step. */
   accountTypeLocked?: boolean
@@ -76,8 +91,24 @@ export function AnalyzeForm({
 
   const assistant = variant === 'assistant'
   const urlsFromForm = urls !== undefined
-  const linkedin = urlsFromForm ? (urls.linkedinUrl ?? '') : linkedinUrl
-  const website = urlsFromForm ? (urls.websiteUrl ?? '') : websiteUrl
+  const linkedin = presence
+    ? presence.urls.linkedinUrl
+    : urlsFromForm
+      ? (urls.linkedinUrl ?? '')
+      : linkedinUrl
+  const website = presence
+    ? presence.urls.websiteUrl
+    : urlsFromForm
+      ? (urls.websiteUrl ?? '')
+      : websiteUrl
+  const setLinkedin = presence
+    ? (value: string) => presence.onChange({ linkedinUrl: value })
+    : setLinkedinUrl
+  const setWebsite = presence
+    ? (value: string) => presence.onChange({ websiteUrl: value })
+    : setWebsiteUrl
+  // LinkedIn is never fetched, so only the website is actually read.
+  const hasReadableLink = Boolean(website.trim())
 
   // Quick analysis sends just the text; Advanced adds the user's choices.
   const analyze = async (guidance?: AnalysisGuidance) => {
@@ -186,8 +217,8 @@ export function AnalyzeForm({
           {assistant && (
             <div className="mt-1.5 flex items-start justify-between gap-3">
               <p className="text-muted text-[11px] leading-snug">
-                {linkedin.trim() || website.trim()
-                  ? 'Also reads the LinkedIn and Website URLs from Online presence.'
+                {hasReadableLink
+                  ? 'Also reads the links under Online presence.'
                   : 'LinkedIn often blocks reading; your text is used instead.'}
               </p>
               <button
@@ -300,6 +331,14 @@ export function AnalyzeForm({
 
           {assistant ? (
             <>
+              <OnlinePresence
+                disabled={isAnalyzing}
+                linkedinUrl={linkedin}
+                onLinkedinUrlChange={setLinkedin}
+                websiteUrl={website}
+                onWebsiteUrlChange={setWebsite}
+                errors={presence?.errors ?? {}}
+              />
               <button
                 type="button"
                 disabled={isAnalyzing}
@@ -358,7 +397,8 @@ export function AnalyzeForm({
           onLinkedinUrlChange={setLinkedinUrl}
           websiteUrl={website}
           onWebsiteUrlChange={setWebsiteUrl}
-          urlsFromForm={urlsFromForm}
+          // The assistant card asks for the links itself.
+          urlsFromForm={urlsFromForm || assistant}
           accountType={accountType}
           accountTypeLocked={accountTypeLocked}
           isAnalyzing={isAnalyzing}
@@ -368,5 +408,114 @@ export function AnalyzeForm({
         />
       )}
     </>
+  )
+}
+
+/**
+ * The assistant's Online presence block: the profile's own required LinkedIn
+ * and Website URLs.
+ */
+function OnlinePresence({
+  disabled,
+  linkedinUrl,
+  onLinkedinUrlChange,
+  websiteUrl,
+  onWebsiteUrlChange,
+  errors
+}: {
+  disabled: boolean
+  linkedinUrl: string
+  onLinkedinUrlChange: (value: string) => void
+  websiteUrl: string
+  onWebsiteUrlChange: (value: string) => void
+  errors: { linkedinUrl?: string; websiteUrl?: string }
+}) {
+  const field = ({
+    id,
+    label,
+    value,
+    onChange,
+    placeholder,
+    icon,
+    required,
+    error
+  }: {
+    id: string
+    label: ReactNode
+    value: string
+    onChange: (value: string) => void
+    placeholder: string
+    icon: ReactNode
+    required?: boolean
+    error?: string
+  }) => (
+    <div>
+      <label
+        htmlFor={id}
+        className="text-foreground mb-1 block text-xs font-medium"
+      >
+        {label}
+        {required && <span className="ml-0.5 text-rose-500">*</span>}
+      </label>
+      <div className="relative">
+        <span className="text-muted pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
+          {icon}
+        </span>
+        <input
+          id={id}
+          type="url"
+          value={value}
+          required={required}
+          disabled={disabled}
+          aria-invalid={error ? true : undefined}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`${inputClass} pl-8 text-xs ${
+            error ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
+          }`}
+        />
+      </div>
+      {error && <p className="mt-1 text-[11px] text-red-500">{error}</p>}
+    </div>
+  )
+
+  const linkedinDef = IDENTITY_FIELDS.find(f => f.name === 'linkedinUrl')!
+  const websiteDef = IDENTITY_FIELDS.find(f => f.name === 'websiteUrl')!
+
+  return (
+    <fieldset className="border-border min-w-0 space-y-3 border-t pt-3">
+      <legend className="sr-only">Online presence</legend>
+      <div>
+        <p className="text-foreground flex items-center gap-2 text-xs font-semibold">
+          <Globe className="text-muted h-3.5 w-3.5" />
+          Online presence
+        </p>
+        <p className="text-muted mt-1 text-[11px] leading-snug">
+          Saved with your profile for post attribution. Your website is read
+          with your text; LinkedIn can&apos;t be read, so paste your bio above.
+        </p>
+      </div>
+
+      {field({
+        id: 'ai-linkedin',
+        label: linkedinDef.label,
+        value: linkedinUrl,
+        onChange: onLinkedinUrlChange,
+        placeholder: linkedinDef.placeholder,
+        icon: <Link2 className="h-3.5 w-3.5" />,
+        required: true,
+        error: errors.linkedinUrl
+      })}
+      {field({
+        id: 'ai-website',
+        label: websiteDef.label,
+        value: websiteUrl,
+        onChange: onWebsiteUrlChange,
+        placeholder: websiteDef.placeholder,
+        icon: <Globe className="h-3.5 w-3.5" />,
+        required: true,
+        error: errors.websiteUrl
+      })}
+    </fieldset>
   )
 }

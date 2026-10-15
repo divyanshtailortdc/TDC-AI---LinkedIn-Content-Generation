@@ -1,6 +1,10 @@
 'use client'
 
 import {
+  ProfileUrlsProvider,
+  useProfileUrls
+} from '@/components/account-setup/profile-urls'
+import {
   SetupFrame,
   SetupStepper,
   useStepSave
@@ -36,53 +40,51 @@ export default function NewAccountPage() {
   const [accountType, setAccountType] = useState<AccountType>('personal')
 
   return (
-    <SetupFrame
-      stepIndex={0}
-      title="Create Your Identity"
-      description="Tell us about yourself or your business to generate relevant LinkedIn content."
-      identity={
-        <Link
-          href="/"
-          className="text-muted hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to dashboard
-        </Link>
-      }
-      nav={<SetupStepper activeIndex={0} draftKey={NEW_IDENTITY_KEY} />}
-      aside={
-        <AiSetupCard
-          variant="assistant"
-          urls={{
-            linkedinUrl: values.linkedinUrl,
-            websiteUrl: values.websiteUrl
-          }}
+    <ProfileUrlsProvider initial={{ linkedinUrl: '', websiteUrl: '' }}>
+      <SetupFrame
+        stepIndex={0}
+        title="Create Your Identity"
+        description="Tell us about yourself or your business to generate relevant LinkedIn content."
+        identity={
+          <Link
+            href="/"
+            className="text-muted hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to dashboard
+          </Link>
+        }
+        nav={<SetupStepper activeIndex={0} draftKey={NEW_IDENTITY_KEY} />}
+        aside={
+          <AiSetupCard
+            variant="assistant"
+            accountType={accountType}
+            onAccountTypeChange={setAccountType}
+            // Apply saves the identity; the other sections are reviewed after.
+            onApply={() => formRef.current?.requestSubmit()}
+            onEdit={() =>
+              formRef.current?.querySelector<HTMLElement>('#name')?.focus()
+            }
+          />
+        }
+      >
+        <CreateIdentityForm
+          formRef={formRef}
+          values={values}
+          setValues={setValues}
           accountType={accountType}
-          onAccountTypeChange={setAccountType}
-          // Apply saves the identity; the other sections are reviewed after.
-          onApply={() => formRef.current?.requestSubmit()}
-          onEdit={() =>
-            formRef.current?.querySelector<HTMLElement>('#name')?.focus()
-          }
+          setAccountType={setAccountType}
         />
-      }
-    >
-      <CreateIdentityForm
-        formRef={formRef}
-        values={values}
-        setValues={setValues}
-        accountType={accountType}
-        setAccountType={setAccountType}
-      />
-    </SetupFrame>
+      </SetupFrame>
+    </ProfileUrlsProvider>
   )
 }
 
 /** Inside the frame so it can take over the header's Save & Next. */
 function CreateIdentityForm({
   formRef,
-  values,
-  setValues,
+  values: fields,
+  setValues: setFields,
   accountType,
   setAccountType
 }: {
@@ -94,10 +96,25 @@ function CreateIdentityForm({
 }) {
   const [errors, setErrors] = useState<IdentityFieldErrors>({})
 
+  // The LinkedIn and Website URLs are entered in the assistant's Online
+  // presence card, so they live in the shared store rather than in `fields`.
+  const links = useProfileUrls()
+  const values: IdentityValues = { ...fields, ...links?.urls }
+  const setValues = (next: Partial<IdentityValues>) => {
+    const { linkedinUrl, websiteUrl, ...rest } = next
+    setFields(prev => ({ ...prev, ...rest }))
+    if (linkedinUrl !== undefined || websiteUrl !== undefined) {
+      links?.setUrls({
+        ...(linkedinUrl !== undefined && { linkedinUrl }),
+        ...(websiteUrl !== undefined && { websiteUrl })
+      })
+    }
+  }
+
   const prefill = useSectionPrefill({
     draftKey: NEW_IDENTITY_KEY,
     getCurrent: () => values,
-    setValues: next => setValues(prev => ({ ...prev, ...next })),
+    setValues,
     suggestionValues: s => profileSuggestionValues(s.profile)
   })
 
@@ -107,6 +124,10 @@ function CreateIdentityForm({
     // Chips and bullet lists have no native required check.
     const found = validateIdentityValues(values)
     setErrors(found)
+    links?.setErrors({
+      linkedinUrl: found.linkedinUrl,
+      websiteUrl: found.websiteUrl
+    })
     if (Object.keys(found).length > 0 || !formRef.current) return false
 
     try {
@@ -150,7 +171,7 @@ function CreateIdentityForm({
         accountType={accountType}
         onAccountTypeChange={setAccountType}
         onChange={(field, value) => {
-          setValues(prev => ({ ...prev, [field]: value }))
+          setFields(prev => ({ ...prev, [field]: value }))
           if (errors[field])
             setErrors(prev => ({ ...prev, [field]: undefined }))
         }}

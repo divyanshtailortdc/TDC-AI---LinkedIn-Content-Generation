@@ -4,7 +4,12 @@ import { parseJsonLoosely } from '../../parse-json'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
 import { applyGuidance, sanitizeIdentitySetup } from './guard'
-import { buildPrompt, INSTRUCTIONS, type SetupSource } from './prompt'
+import {
+  buildPrompt,
+  INSTRUCTIONS,
+  type ResearchFindings,
+  type SetupSource
+} from './prompt'
 import {
   IdentitySetupModelSchema,
   type AnalysisGuidance,
@@ -28,6 +33,8 @@ export async function suggestSetup(input: {
   providedUrls: string[]
   /** Advanced analysis choices; they override the model's. */
   guidance?: AnalysisGuidance
+  /** What web research verified, and what it could not. */
+  research?: ResearchFindings
 }): Promise<{
   suggestions: IdentitySetupSuggestions
   warnings: string[]
@@ -41,7 +48,12 @@ export async function suggestSetup(input: {
     const result = await runSkill({
       stage: 'identity_setup',
       instructions: INSTRUCTIONS,
-      prompt: buildPrompt(input.description, input.sources, input.guidance),
+      prompt: buildPrompt(
+        input.description,
+        input.sources,
+        input.guidance,
+        input.research
+      ),
       schema: IdentitySetupModelSchema,
       timeoutMs: MODEL_TIMEOUT_MS,
       // One retry for a transient failure; more would multiply the wait.
@@ -66,7 +78,20 @@ export async function suggestSetup(input: {
     providedUrls: input.providedUrls,
     fetchedSources: input.sources
       .filter(s => s.status.status === 'fetched' && s.content)
-      .map(s => ({ url: s.status.url, content: s.content! }))
+      .map(s => ({
+        url: s.status.url,
+        content: s.content!,
+        title: s.status.title
+      })),
+    verifiedLinks: input.research?.verified,
+    webSourceUrls: input.sources
+      .filter(s => s.status.kind === 'web' && s.status.status === 'fetched')
+      .map(s => s.status.url),
+    researchNotes: input.research?.notes,
+    // What the user chose in Advanced analysis is theirs, figures included.
+    trustedText: Object.values(input.guidance ?? {})
+      .filter((value): value is string => typeof value === 'string')
+      .join('\n')
   })
   // The CTA link and every other Advanced choice are applied after the URL
   // checks, so they hold whatever the model returned.

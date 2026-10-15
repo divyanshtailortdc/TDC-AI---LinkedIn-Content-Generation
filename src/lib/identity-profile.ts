@@ -5,14 +5,15 @@ import { z } from 'zod'
  * apply step, so all three validate the same way.
  */
 
-const optionalHttpUrl = z
-  .string()
-  .trim()
-  .optional()
-  .refine(
-    value => !value || /^https?:\/\/[^\s]+\.[^\s]+/i.test(value),
-    'URLs must start with http:// or https://'
-  )
+const requiredHttpUrl = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .refine(
+      value => !value || /^https?:\/\/[^\s]+\.[^\s]+/i.test(value),
+      'URLs must start with http:// or https://'
+    )
 
 export const IdentityProfileSchema = z.object({
   name: z.string().trim().min(1, 'Display name is required').max(200),
@@ -25,8 +26,8 @@ export const IdentityProfileSchema = z.object({
     .max(2000),
   offerings: z.string().trim().min(1, 'Offerings are required').max(3000),
   industry: z.string().trim().min(1, 'Industry is required').max(200),
-  linkedinUrl: optionalHttpUrl,
-  websiteUrl: optionalHttpUrl
+  linkedinUrl: requiredHttpUrl('LinkedIn Profile / Page URL'),
+  websiteUrl: requiredHttpUrl('Website URL')
 })
 
 export type IdentityProfile = z.infer<typeof IdentityProfileSchema>
@@ -90,16 +91,16 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
   {
     name: 'linkedinUrl',
     label: 'LinkedIn Profile / Page URL',
-    hint: '(optional)',
     type: 'url',
-    placeholder: 'https://www.linkedin.com/in/your-name'
+    placeholder: 'https://www.linkedin.com/in/your-name',
+    required: true
   },
   {
     name: 'websiteUrl',
     label: 'Website URL',
-    hint: '(optional)',
     type: 'url',
-    placeholder: 'https://example.com'
+    placeholder: 'https://example.com',
+    required: true
   }
 ]
 

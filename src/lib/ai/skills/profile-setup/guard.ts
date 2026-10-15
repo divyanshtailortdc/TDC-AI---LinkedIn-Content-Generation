@@ -1,6 +1,12 @@
 import { extractUrls, normalizeUrlForCompare } from '@/lib/urls'
 import { z } from 'zod'
 import {
+  canonicalLinkedinUrl,
+  figureChecker,
+  splitSentences,
+  type VerifiedLink
+} from './research'
+import {
   CONFIDENCE,
   DESCRIPTION_SOURCE,
   EMPTY_SUGGESTIONS,
@@ -29,7 +35,18 @@ export type SanitizeContext = {
   /** URLs the user typed into the form. */
   providedUrls: string[]
   /** Pages that were fetched successfully, with the text the model saw. */
-  fetchedSources: Array<{ url: string; content: string }>
+  fetchedSources: Array<{ url: string; content: string; title?: string }>
+  /**
+   * Links web research verified. Besides the user's own, these are the only
+   * links a profile link field may hold.
+   */
+  verifiedLinks?: { websiteUrl?: VerifiedLink; linkedinUrl?: VerifiedLink }
+  /** Pages found by web research and read; knowledge sources may list them. */
+  webSourceUrls?: string[]
+  /** What web research could not verify, reported under "missing". */
+  researchNotes?: string[]
+  /** Text the user wrote in Advanced analysis; figures in it are theirs. */
+  trustedText?: string
 }
 
 const EMPTY_VALUE = /^(n\/?a|unknown|not specified|not provided|-+)$/i
@@ -108,6 +125,119 @@ function readEntryValue(spec: FieldSpec, raw: unknown): unknown {
   }
 }
 
+const MAX_INDUSTRY_WORDS = 4
+const MAX_INDUSTRY_LENGTH = 40
+
+/** Words that start the rest of a sentence rather than naming a sector. */
+const INDUSTRY_CLAUSE_BREAK =
+  /\s*(?:[.;:!?\n\u2014\u2013,]|\s-\s|\b(?:for|that|which|who|helping|providing|serving|specializing|specialising|offering|founded|based)\b)\s*/i
+
+function isIndustryLabel(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= MAX_INDUSTRY_LENGTH &&
+    value.split(/\s+/).length <= MAX_INDUSTRY_WORDS &&
+    !/[.;:!?]/.test(value) &&
+    // "I am Priya Rao" and "A bookkeeping firm" are sentence openings.
+    !/^(?:i|we|my|our|the|a|an|this|it|he|she|they)\b/i.test(value)
+  )
+}
+
+/** Beyond this it is a pasted description, not a label with a qualifier. */
+const MAX_QUALIFIED_INDUSTRY_WORDS = 12
+
+/**
+ * Industry is a label ("Fintech", "B2B SaaS", "Bookkeeping services"), not a
+ * sentence. A short value passes through. A label with a short qualifier is
+ * cut back to its lead phrase ("Bookkeeping service for D2C brands" becomes
+ * "Bookkeeping service"). Anything longer is treated as the description
+ * pasted into the wrong box and returns null, because a blank field is
+ * better than a wrong one.
+ */
+export function tidyIndustry(value: string): string | null {
+  const label = value
+    .trim()
+    .replace(/^["'\u201c\u201d]+|["'\u201c\u201d.]+$/g, '')
+    .trim()
+  if (isIndustryLabel(label)) return label
+  if (label.split(/\s+/).length > MAX_QUALIFIED_INDUSTRY_WORDS) return null
+  const lead = label.split(INDUSTRY_CLAUSE_BREAK)[0]?.trim() ?? ''
+  return isIndustryLabel(lead) ? lead : null
+}
+
+/** Why a link does not fit the field it was put in, or null when it fits. */
+function urlTypeProblem(field: string, url: string): string | null {
+  const isLinkedin = canonicalLinkedinUrl(url) !== null
+  let host = ''
+  try {
+    host = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname
+  } catch {
+    return 'is not a valid web address'
+  }
+  const onLinkedin = /(^|\.)linkedin\.com$/i.test(host)
+  if (field === 'linkedinUrl' && !isLinkedin) {
+    return 'is not a LinkedIn profile or company page'
+  }
+  if (field === 'websiteUrl' && onLinkedin) {
+    return 'is a LinkedIn page, not a website'
+  }
+  return null
+}
+
+/**
+ * Figures that are not in the user's words or a page that was read are
+ * invented. Sentences (in prose) or lines (in lists) carrying one are
+ * removed; a single-value field with one is dropped. Nothing is rewritten.
+ */
+function groundFigures(
+  section: 'profile' | 'goals',
+  result: Record<string, unknown>,
+  corpus: string,
+  warnings: string[]
+) {
+  const unbacked = figureChecker(corpus)
+  const labelFor = (field: string) =>
+    (FIELD_SPECS[section] as Record<string, FieldSpec>)[field]?.label ?? field
+  const fields =
+    section === 'profile'
+      ? (['description', 'offerings', 'targetAudience'] as const)
+      : (['title', 'keyMessage', 'desiredAction'] as const)
+
+  for (const field of fields) {
+    const entry = result[field] as { value?: unknown } | undefined
+    if (!entry || typeof entry.value !== 'string') continue
+    const text = entry.value
+
+    const pieces =
+      field === 'description'
+        ? splitSentences(text)
+        : section === 'profile'
+          ? text
+              .split('\n')
+              .map(line => line.trim())
+              .filter(Boolean)
+          : [text]
+    const kept = pieces.filter(piece => unbacked(piece).length === 0)
+    if (kept.length === pieces.length) continue
+
+    const removed = unbacked(
+      pieces.filter(piece => !kept.includes(piece)).join(' ')
+    )
+    const example = removed.slice(0, 3).join(', ')
+    if (kept.length === 0) {
+      delete result[field]
+      warnings.push(
+        `${SECTION_LABELS[section]} → ${labelFor(field)}: left blank because it stated figures that are not in your details or any source (${example}).`
+      )
+    } else {
+      entry.value = kept.join(field === 'description' ? ' ' : '\n')
+      warnings.push(
+        `${SECTION_LABELS[section]} → ${labelFor(field)}: removed text with figures that are not in your details or any source (${example}).`
+      )
+    }
+  }
+}
+
 function isEmptyValue(value: unknown): boolean {
   if (value === undefined || value === null) return true
   if (typeof value === 'string')
@@ -165,12 +295,27 @@ export function sanitizeIdentitySetup(
     }
   }
 
-  const allowedUrls = new Map<string, string>()
+  // Which links each kind of field may hold. A goal's call-to-action link is
+  // only ever one the user wrote; a profile link may also be one web research
+  // verified; a knowledge source may also be a page that was found and read.
+  const userUrls = new Map<string, string>()
   for (const url of [
     ...context.providedUrls,
     ...extractUrls(context.description)
   ]) {
-    allowedUrls.set(normalizeUrlForCompare(url), url)
+    userUrls.set(normalizeUrlForCompare(url), url)
+  }
+  const verifiedByUrl = new Map<string, VerifiedLink>()
+  for (const link of Object.values(context.verifiedLinks ?? {})) {
+    if (link) verifiedByUrl.set(normalizeUrlForCompare(link.url), link)
+  }
+  const profileUrls = new Map(userUrls)
+  for (const link of verifiedByUrl.values()) {
+    profileUrls.set(normalizeUrlForCompare(link.url), link.url)
+  }
+  const knowledgeUrls = new Map(profileUrls)
+  for (const url of context.webSourceUrls ?? []) {
+    knowledgeUrls.set(normalizeUrlForCompare(url), url)
   }
   const fetchedByKey = new Map(
     context.fetchedSources.map(s => [normalizeUrlForCompare(s.url), s])
@@ -181,8 +326,16 @@ export function sanitizeIdentitySetup(
     return fetchedByKey.get(normalizeUrlForCompare(source))?.content ?? null
   }
 
-  const resolveAllowedUrl = (value: string): string | null =>
-    allowedUrls.get(normalizeUrlForCompare(value)) ?? null
+  const resolveAllowedUrl = (
+    value: string,
+    scope: 'user' | 'profile' | 'knowledge'
+  ): string | null =>
+    (scope === 'user'
+      ? userUrls
+      : scope === 'profile'
+        ? profileUrls
+        : knowledgeUrls
+    ).get(normalizeUrlForCompare(value)) ?? null
 
   const readSection = <S extends EntrySection>(
     section: S,
@@ -224,20 +377,48 @@ export function sanitizeIdentitySetup(
         continue
       }
 
+      if (section === 'profile' && field === 'industry') {
+        const label = tidyIndustry(String(value))
+        if (!label) {
+          warnings.push(
+            'Profile → Industry: the AI wrote a sentence instead of a short label, so it was left blank.'
+          )
+          continue
+        }
+        if (label !== String(value).trim()) {
+          warnings.push('Profile → Industry: shortened to a short label.')
+        }
+        value = label
+      }
+
       let kind = asString(entry.kind) === 'fact' ? 'fact' : 'recommendation'
       let source: string | undefined = asString(entry.source) || undefined
 
+      let forcedConfidence: string | undefined
       if (spec.type === 'text' && spec.url) {
-        const allowed = resolveAllowedUrl(String(value))
+        const allowed = resolveAllowedUrl(
+          String(value),
+          section === 'profile' ? 'profile' : 'user'
+        )
         if (!allowed) {
           warnings.push(
-            `${SECTION_LABELS[section]} → ${spec.label}: dropped a URL you did not provide.`
+            `${SECTION_LABELS[section]} → ${spec.label}: dropped a URL that was neither provided by you nor verified.`
+          )
+          continue
+        }
+        const wrongKind = urlTypeProblem(field, allowed)
+        if (wrongKind) {
+          warnings.push(
+            `${SECTION_LABELS[section]} → ${spec.label}: dropped a link that ${wrongKind}.`
           )
           continue
         }
         value = allowed
         kind = 'fact'
-        source = PROVIDED_SOURCE
+        const verified = verifiedByUrl.get(normalizeUrlForCompare(allowed))
+        // A link found by research is sourced to itself; one the user typed to them.
+        source = verified ? verified.url : PROVIDED_SOURCE
+        forcedConfidence = verified?.confidence
       } else if (
         kind === 'fact' &&
         (!source || resolveSourceText(source) === null)
@@ -256,9 +437,11 @@ export function sanitizeIdentitySetup(
         value,
         kind,
         source,
-        confidence: CONFIDENCE.includes(asString(entry.confidence) as never)
-          ? asString(entry.confidence)
-          : 'medium'
+        confidence:
+          forcedConfidence ??
+          (CONFIDENCE.includes(asString(entry.confidence) as never)
+            ? asString(entry.confidence)
+            : 'medium')
       }
       const fieldSchema = schema.shape[field] as z.ZodType | undefined
       const parsed = fieldSchema?.safeParse(candidate)
@@ -276,6 +459,15 @@ export function sanitizeIdentitySetup(
   const profile = readSection('profile', ProfileSuggestionsSchema)
   const voice = readSection('voice', VoiceSuggestionsSchema)
   const goals = readSection('goals', GoalSuggestionsSchema)
+
+  // Every figure must come from the user or a page that was read.
+  const figureCorpus = [
+    context.description,
+    context.trustedText ?? '',
+    ...context.fetchedSources.map(s => s.content)
+  ].join('\n')
+  groundFigures('profile', profile, figureCorpus, warnings)
+  groundFigures('goals', goals, figureCorpus, warnings)
   // Placement only means something next to a link that survived the URL check.
   if (!goals.targetUrl) delete goals.linkStrategy
   const preferences = readSection('preferences', PreferencesSuggestionsSchema)
@@ -294,6 +486,39 @@ export function sanitizeIdentitySetup(
       }
     }
   }
+
+  // Links web research verified fill any link field the user left empty. They
+  // are sourced to themselves, so the review shows where each came from.
+  for (const field of ['websiteUrl', 'linkedinUrl'] as const) {
+    const link = context.verifiedLinks?.[field]
+    if (link && !profile[field]) {
+      profile[field] = {
+        value: link.url,
+        kind: 'fact',
+        source: link.url,
+        confidence: link.confidence
+      }
+    }
+  }
+  // What could not be found or verified is said plainly, not left to guess.
+  // Research states these precisely, so the model's vaguer note on the same
+  // link ("Website URL: not provided") is dropped.
+  const notes = context.researchNotes ?? []
+  const researchCovers = (label: 'website' | 'linkedin') =>
+    notes.some(note => note.toLowerCase().startsWith(`${label}:`))
+  const modelMissing = asArray(profile.missing)
+    .map(String)
+    .filter(item => {
+      const lower = item.toLowerCase()
+      if (researchCovers('website') && /^website( url)?\b/.test(lower))
+        return false
+      if (researchCovers('linkedin') && /^linkedin( url| page)?\b/.test(lower))
+        return false
+      return true
+    })
+  profile.missing = Array.from(
+    new Set([...modelMissing, ...notes].map(note => note.slice(0, 300)))
+  ).slice(0, 15)
 
   // Pillars: always recommendations, weights normalized to 100.
   const prefsRaw = asRecord(root.preferences)
@@ -341,11 +566,13 @@ export function sanitizeIdentitySetup(
       suggestedAdditions.push(`${title}: ${reason}`)
       continue
     }
-    const url = resolveAllowedUrl(rawUrl)
+    const url = resolveAllowedUrl(rawUrl, 'knowledge')
     if (!url) {
       // Keep the idea, never the invented link.
       suggestedAdditions.push(`${title}: ${reason}`)
-      warnings.push('Knowledge: dropped a source URL you did not provide.')
+      warnings.push(
+        'Knowledge: dropped a source URL that was neither provided nor verified.'
+      )
       continue
     }
     if (
@@ -361,6 +588,27 @@ export function sanitizeIdentitySetup(
       title,
       reason,
       accessible: fetchedByKey.has(normalizeUrlForCompare(url))
+    })
+  }
+
+  // A page the user gave us and we could read is a knowledge source whether or
+  // not the model thought to list it. It is only offered: nothing is added
+  // until the user ticks it in the review.
+  const foundByResearch = new Set(
+    (context.webSourceUrls ?? []).map(normalizeUrlForCompare)
+  )
+  for (const page of context.fetchedSources) {
+    const key = normalizeUrlForCompare(page.url)
+    if (sources.some(s => s.url && normalizeUrlForCompare(s.url) === key)) {
+      continue
+    }
+    sources.push({
+      url: page.url,
+      title: (page.title || page.url).slice(0, 200),
+      reason: foundByResearch.has(key)
+        ? 'Found by web search and checked to be about you. It was read for this analysis.'
+        : 'A page you provided. It was read for this analysis.',
+      accessible: true
     })
   }
 
