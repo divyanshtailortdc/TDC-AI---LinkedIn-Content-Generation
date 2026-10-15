@@ -19,11 +19,13 @@ import { createMediaPlan } from '~/lib/media'
 import {
   collectBannedWords,
   loadGenerationContext,
+  renderMediaContext,
   resolveLinkPlacement
 } from '../context'
 import { refreshRunTotals } from '../run-accounting'
 import { SkillError } from '../run-skill'
 import { writeDraft, type DraftGenerationResult } from '../skills/post-drafting'
+import { collectFigureSources } from '../skills/post-drafting/guard'
 
 /**
  * A run's second half, per approved idea: run the post-drafting skill, lint
@@ -134,6 +136,7 @@ export async function executeDraftingForIdea(
 
   // ------------------------------------------------------------------- lint
   const evidence = idea.supportingEvidence || []
+  const figureSources = collectFigureSources(ctx, idea)
   const lintOptions = (d: DraftGenerationResult): LintOptions => ({
     hook: d.hook,
     body: d.body,
@@ -149,7 +152,8 @@ export async function executeDraftingForIdea(
     emojiLevel: constraints.emoji_level,
     ctaRequired: constraints.cta_required,
     citationsCount: evidence.length,
-    minCitations: ctx.prefs.research.min_citations_per_post
+    minCitations: ctx.prefs.research.min_citations_per_post,
+    figureSources
   })
 
   const lintStart = Date.now()
@@ -229,7 +233,8 @@ export async function executeDraftingForIdea(
     thesis: idea.thesis || idea.coreArgument || idea.title,
     coreArgument: idea.coreArgument || undefined,
     evidence,
-    accountName: ctx.account.name
+    accountName: ctx.account.name,
+    accountContext: renderMediaContext(ctx)
   })
 
   if (runId && mediaMode !== 'none') {

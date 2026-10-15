@@ -141,6 +141,25 @@ export function normalizeOverlay(overlay: {
 }
 
 /**
+ * True when `term` appears other than as something to leave out. The brief's
+ * own instructions tell the model never to ask for watermarks or logos, so its
+ * prompts routinely end "no logos, no watermarks"; counting that as a request
+ * failed sound briefs and paid for a retry.
+ */
+function mentionsAffirmatively(text: string, term: string): boolean {
+  let from = 0
+  for (;;) {
+    const at = text.indexOf(term, from)
+    if (at === -1) return false
+    const clause = text.slice(0, at).split(/[.;:!?\n]/).pop() || ''
+    if (!/\b(?:no|not|without|never|avoid|free of|excluding)\b/.test(clause.slice(-60))) {
+      return true
+    }
+    from = at + term.length
+  }
+}
+
+/**
  * Enforces the rules that hold regardless of subject, and scores how much of
  * the brief's vocabulary actually comes from the post.
  */
@@ -158,7 +177,7 @@ export function guardMediaBrief(
   const ownName = (accountName || '').toLowerCase()
   for (const banned of BANNED_VISUAL_ELEMENTS) {
     if (ownName && banned === ownName) continue
-    if (haystack.includes(banned)) {
+    if (mentionsAffirmatively(haystack, banned)) {
       issues.push(`References a third-party brand or watermark: "${banned}".`)
     }
   }

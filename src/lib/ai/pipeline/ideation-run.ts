@@ -1,12 +1,11 @@
 import { db } from '@/db'
 import {
   ideasTable,
-  postDraftsTable,
   researchFindingsTable,
   runStepsTable,
   runsTable
 } from '@/db/schema'
-import { desc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { env } from '~/env'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import { checkNovelty } from '~/lib/novelty'
@@ -19,17 +18,15 @@ import { runResearchAgent } from '../agents/research'
 import {
   loadGenerationContext,
   pickWeightedPillars,
+  renderIdeationHistoryBlock,
   type GenerationContext
 } from '../context'
-import { retrieveKnowledgePassages, type KnowledgePassage } from '../embeddings'
+import { retrieveKnowledgePassages } from '../embeddings'
 import { filterDiverseIdeas } from '../idea-diversity'
 import { refreshRunTotals } from '../run-accounting'
 import { SkillError } from '../run-skill'
-import {
-  generateIdeas,
-  type GeneratedIdeaItem,
-  type GroundingCorpus
-} from '../skills/ideation'
+import { generateIdeas, type GeneratedIdeaItem } from '../skills/ideation'
+import { buildGroundingCorpus } from './grounding-corpus'
 
 /**
  * A run's first half: gather context, research (fixed search or the research
@@ -48,88 +45,6 @@ export interface ResearchIdeateResult {
 /** Knowledge documents this run may draw on: all of the account's. */
 function selectKnowledgeDocs(ctx: GenerationContext) {
   return ctx.knowledgeDocs
-}
-
-function buildGroundingCorpus(
-  ctx: GenerationContext,
-  findings: Finding[],
-  passages: KnowledgePassage[] = []
-): GroundingCorpus {
-  const verifiedClaims: GroundingCorpus['verifiedClaims'] = []
-  const docs = selectKnowledgeDocs(ctx)
-
-  for (const doc of docs) {
-    for (const claim of doc.keyClaims || []) {
-      if (!claim.claim) continue
-      verifiedClaims.push({
-        claim: claim.claim,
-        quote: claim.quote,
-        sourceUrl: doc.sourceUrl || undefined,
-        sourceTitle: doc.title,
-        sourceId: doc.id
-      })
-    }
-    // The summary grounds the document's overall thesis.
-    if (doc.summary) {
-      verifiedClaims.push({
-        claim: doc.summary,
-        sourceUrl: doc.sourceUrl || undefined,
-        sourceTitle: doc.title,
-        sourceId: doc.id
-      })
-    }
-  }
-
-  // Verbatim passages, so the quote is the passage itself.
-  const docsById = new Map(docs.map(d => [d.id, d]))
-  for (const passage of passages) {
-    const doc = docsById.get(passage.documentId)
-    if (!doc) continue
-    verifiedClaims.push({
-      claim: passage.content,
-      quote: passage.content,
-      sourceUrl: doc.sourceUrl || undefined,
-      sourceTitle: doc.title,
-      sourceId: doc.id
-    })
-  }
-
-  for (const f of findings) {
-    if (!f.snippet && !f.title) continue
-    verifiedClaims.push({
-      claim: f.snippet || f.title,
-      quote: f.snippet || undefined,
-      sourceUrl: f.url,
-      sourceTitle: f.title,
-      publishedAt: f.publishedAt,
-      isFresh: f.provider === 'serper_search'
-    })
-  }
-
-  // The account's own verified numbers — the defense against invented metrics.
-  for (const offering of ctx.offerings) {
-    for (const proof of offering.proofPoints || []) {
-      if (!proof.label) continue
-      verifiedClaims.push({
-        claim: proof.detail ? `${proof.label}: ${proof.detail}` : proof.label,
-        quote: proof.detail || proof.label,
-        sourceUrl: proof.sourceUrl || offering.url || undefined,
-        sourceTitle: `${offering.name} — verified proof point`
-      })
-    }
-    if (offering.description) {
-      verifiedClaims.push({
-        claim: offering.description,
-        sourceTitle: `${offering.name} overview`,
-        sourceUrl: offering.url || undefined
-      })
-    }
-  }
-
-  return {
-    verifiedClaims,
-    hasFreshEvidence: findings.some(f => f.provider === 'serper_search')
-  }
 }
 
 type WebResearch = {
@@ -354,16 +269,18 @@ export async function executeResearchAndIdeate(
   const candidateCount = Math.min(targetIdeas + 3, 15)
   const assignedPillars = pickWeightedPillars(ctx.prefs.pillars, candidateCount)
 
-  // Recent posts, so "fresh angle" means fresh for this account.
-  const recentDrafts = await db
-    .select({
-      hook: postDraftsTable.hook,
-      body: postDraftsTable.body
-    })
-    .from(postDraftsTable)
-    .where(eq(postDraftsTable.accountId, ctx.account.id))
-    .orderBy(desc(postDraftsTable.createdAt))
-    .limit(30)
+  // Earlier posts and ideas, so "fresh angle" means fresh for this account.
+  // Ideas count whatever their status: re-proposing one the reviewer rejected
+  // or has not got to yet is as much a repeat as re-proposing a post.
+  const pastWork = [
+    ...ctx.history.drafts.map(d => ({ hook: d.hook, body: d.body })),
+    ...ctx.history.ideas
+      .filter(i => i.runId !== runId)
+      .map(i => ({
+        hook: i.hookConcept,
+        body: `${i.title} ${i.thesis} ${i.coreArgument}`
+      }))
+  ]
 
   let candidates: GeneratedIdeaItem[] = []
   let validated: GeneratedIdeaItem[] = []
@@ -374,7 +291,7 @@ export async function executeResearchAndIdeate(
     const ideation = await generateIdeas({
       ctx,
       corpus,
-      recentHooks: recentDrafts.slice(0, 12).map(d => d.hook),
+      history: renderIdeationHistoryBlock(ctx, runId),
       candidateCount,
       assignedPillars: assignedPillars.map(p => p.name)
     })
@@ -393,13 +310,13 @@ export async function executeResearchAndIdeate(
   const diversity = filterDiverseIdeas(validated, targetIdeas)
   let selected = diversity.selected
 
-  // Novelty against what this account has already published.
-  if (recentDrafts.length > 0) {
+  // Novelty against what this account has already drafted or been shown.
+  if (pastWork.length > 0) {
     selected = selected.filter(idea => {
       const novelty = checkNovelty(
         idea.hookConcept,
-        `${idea.thesis} ${idea.coreArgument}`,
-        recentDrafts.map(d => ({ hook: d.hook, body: d.body }))
+        `${idea.title} ${idea.thesis} ${idea.coreArgument}`,
+        pastWork
       )
       if (!novelty.isNovel) {
         discarded.push({

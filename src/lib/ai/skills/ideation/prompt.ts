@@ -5,7 +5,7 @@ import {
   renderIdentityBlock,
   renderVoiceBlock,
   type GenerationContext
-} from '../../context'
+} from '../../context-blocks'
 import type { GroundingCorpus } from './guard'
 import { PERSPECTIVE_ANGLE_GUIDE } from './schema'
 
@@ -83,8 +83,8 @@ RULES THAT OVERRIDE EVERYTHING ELSE
 /** This run's evidence, history and the exact ideas to produce. */
 export function buildPrompt(input: {
   corpus: GroundingCorpus
-  /** Recent hooks this account already published. */
-  recentHooks: string[]
+  /** Earlier work and the reviewer's verdicts, from renderIdeationHistoryBlock. */
+  history: string
   candidateCount: number
   /** One pillar name per idea, in order. */
   assignedPillars: string[]
@@ -95,16 +95,10 @@ export function buildPrompt(input: {
     .map(([angle, guide]) => `- ${angle}: ${guide}`)
     .join('\n')
 
-  const recentHooks = input.recentHooks.map(h => `- ${h}`).join('\n')
-
   return `EVIDENCE AVAILABLE THIS RUN
 ${renderCorpusForPrompt(corpus, PROMPT_EVIDENCE_LIMIT)}
 
-${
-  recentHooks
-    ? `ALREADY PUBLISHED BY THIS ACCOUNT — do not repeat these angles:\n${recentHooks}\n`
-    : ''
-}
+${input.history ? `${input.history}\n` : ''}
 ANALYTICAL LENSES — give each idea a different one:
 ${anglesList}
 

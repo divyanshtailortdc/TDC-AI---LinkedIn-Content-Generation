@@ -2,7 +2,6 @@
 
 import { db } from '@/db'
 import {
-  accountsTable,
   feedbackTable,
   ideasTable,
   postDraftsTable,
@@ -10,6 +9,7 @@ import {
 } from '@/db/schema'
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { validateImageUrl } from '~/lib/media/image-input'
 import { requireActiveAccountId } from '@/lib/active-account'
@@ -208,12 +208,16 @@ export async function removePostMediaAction(draftId: string) {
 }
 
 
-/** The account name lets the image brief keep visuals on-brand. */
+/**
+ * The account name lets the brief allow the account's own brand; the context
+ * (field and audience) keeps the image in their world.
+ */
 async function loadMediaSettings(accountId: string) {
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, accountId)
-  })
-  return { accountName: account?.name }
+  const ctx = await loadGenerationContext(accountId)
+  return {
+    accountName: ctx.account.name,
+    accountContext: renderMediaContext(ctx)
+  }
 }
 
 export async function generatePostMediaAction(
@@ -231,7 +235,7 @@ export async function generatePostMediaAction(
     })
     if (!draft) throw new Error('Post draft not found')
 
-    let topic = 'Business strategy'
+    let topic: string | undefined = undefined
     let coreArgument: string | undefined = undefined
     let thesis: string | undefined = undefined
     let evidence: any[] = []
@@ -241,7 +245,7 @@ export async function generatePostMediaAction(
         where: eq(ideasTable.id, draft.ideaId)
       })
       if (idea) {
-        topic = idea.pillar || idea.title || topic
+        topic = idea.pillar || idea.title || undefined
         coreArgument = idea.coreArgument || undefined
         thesis = idea.thesis || idea.coreArgument || undefined
         evidence = (idea.supportingEvidence as any[]) || []
@@ -249,7 +253,8 @@ export async function generatePostMediaAction(
     }
 
     const mode = options?.mode || 'ai_generated'
-    const brief = options?.customPrompt?.trim() || draft.hook
+    // The post text already carries the hook; only the reviewer's own words add direction.
+    const brief = options?.customPrompt?.trim() || undefined
     const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
 
     const mediaSettings = await loadMediaSettings(draft.accountId)
@@ -344,7 +349,7 @@ export async function regeneratePostMediaAction(
     })
     if (!draft) throw new Error('Post draft not found')
 
-    let topic = 'Business strategy'
+    let topic: string | undefined = undefined
     let coreArgument: string | undefined = undefined
     let thesis: string | undefined = undefined
     let evidence: any[] = []
@@ -354,7 +359,7 @@ export async function regeneratePostMediaAction(
         where: eq(ideasTable.id, draft.ideaId)
       })
       if (idea) {
-        topic = idea.pillar || idea.title || topic
+        topic = idea.pillar || idea.title || undefined
         coreArgument = idea.coreArgument || undefined
         thesis = idea.thesis || idea.coreArgument || undefined
         evidence = (idea.supportingEvidence as any[]) || []
@@ -384,34 +389,29 @@ export async function regeneratePostMediaAction(
     const currentVersion = existingMedia?.version || 1
     const currentAttempt = existingMedia?.regenerationAttempt || 0
 
-    // 2. Mark existing media record as superseded (never return or overwrite existing media)
-    if (existingMedia) {
-      await db
-        .update(postMediaTable)
-        .set({
-          status: 'superseded',
-          rejectionReason:
-            options?.rejectionReason || 'User triggered media regeneration for new concept',
-          updatedAt: new Date()
-        })
-        .where(eq(postMediaTable.id, existingMedia.id))
-    }
-
     const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
-    const rejectionReason =
-      options?.rejectionReason ||
-      'Previous visual was rejected. Generate a fresh, distinctly different visual concept strictly aligned with post thesis.'
+    const mode = options?.mode || 'ai_generated'
+    const customPrompt = options?.customPrompt?.trim() || undefined
+    // Only the reviewer's own words go to the model as their reason; the brief
+    // already asks for a different concept from the rejected one.
+    const reviewerReason = options?.rejectionReason?.trim() || undefined
 
-    // 3. Call regenerateMediaPlan with negative rejection context
+    // 2. Produce the new visual before touching the current one, so a failed
+    //    search or generation leaves the post's image in place.
     const mediaPlan = await regenerateMediaPlan({
       draftId,
+      mode,
+      // A typed stock query is searched as written; for a generated image the
+      // reviewer's words steer the new concept.
+      searchQuery: mode === 'stock' ? customPrompt : undefined,
+      direction: mode === 'ai_generated' ? customPrompt : undefined,
       postText: fullPostContent,
       thesis: thesis || coreArgument || topic,
       previousMediaId: existingMedia?.id,
       previousConcept,
       previousImagePrompt,
       previousImageUrl,
-      rejectionReason,
+      rejectionReason: reviewerReason,
       regenerationAttempt: currentAttempt,
       version: currentVersion,
       evidence,
@@ -419,38 +419,53 @@ export async function regeneratePostMediaAction(
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
-      // 4. Insert a completely NEW media version
-      const [newMedia] = await db
-        .insert(postMediaTable)
-        .values({
-          draftId,
-          version: mediaPlan.version,
-          status: 'active',
-          previousMediaId: existingMedia?.id || null,
-          regenerationAttempt: mediaPlan.regenerationAttempt,
-          rejectionReason,
-          mode: mediaPlan.mode,
-          imageUrl: mediaPlan.imageUrl,
-          altText: mediaPlan.altText || null,
-          promptOrQuery: mediaPlan.promptOrQuery || null,
-          metadata: {
-            sourcePageUrl: mediaPlan.sourcePageUrl,
-            fallbackApplied: mediaPlan.fallbackApplied || false,
-            visualType: mediaPlan.visualType,
-            relevanceScore: mediaPlan.relevanceScore,
-            relevanceExplanation: mediaPlan.relevanceExplanation,
-            alignedConcepts: mediaPlan.alignedConcepts,
-            textOverlay: mediaPlan.textOverlay,
-            mediaBrief: mediaPlan.mediaBrief,
-            issues: mediaPlan.issues,
-            providerRequestId: mediaPlan.providerRequestId,
-            seed: mediaPlan.seed,
-            usage: mediaPlan.usage
-          }
-        })
-        .returning()
+      // 3. Supersede and insert together: never return or overwrite existing media.
+      const newMedia = await db.transaction(async tx => {
+        if (existingMedia) {
+          await tx
+            .update(postMediaTable)
+            .set({
+              status: 'superseded',
+              rejectionReason:
+                reviewerReason || 'User triggered media regeneration for new concept',
+              updatedAt: new Date()
+            })
+            .where(eq(postMediaTable.id, existingMedia.id))
+        }
 
-      if (!newMedia) throw new Error('Failed to insert regenerated media record')
+        const [inserted] = await tx
+          .insert(postMediaTable)
+          .values({
+            draftId,
+            version: mediaPlan.version,
+            status: 'active',
+            previousMediaId: existingMedia?.id || null,
+            regenerationAttempt: mediaPlan.regenerationAttempt,
+            rejectionReason: reviewerReason || null,
+            mode: mediaPlan.mode,
+            imageUrl: mediaPlan.imageUrl,
+            altText: mediaPlan.altText || null,
+            promptOrQuery: mediaPlan.promptOrQuery || null,
+            metadata: {
+              sourcePageUrl: mediaPlan.sourcePageUrl,
+              fallbackApplied: mediaPlan.fallbackApplied || false,
+              visualType: mediaPlan.visualType,
+              relevanceScore: mediaPlan.relevanceScore,
+              relevanceExplanation: mediaPlan.relevanceExplanation,
+              alignedConcepts: mediaPlan.alignedConcepts,
+              textOverlay: mediaPlan.textOverlay,
+              mediaBrief: mediaPlan.mediaBrief,
+              issues: mediaPlan.issues,
+              providerRequestId: mediaPlan.providerRequestId,
+              seed: mediaPlan.seed,
+              usage: mediaPlan.usage
+            }
+          })
+          .returning()
+
+        if (!inserted) throw new Error('Failed to insert regenerated media record')
+        return inserted
+      })
 
       revalidatePath('/posts')
       revalidatePath(`/posts/${draftId}`)
@@ -478,7 +493,10 @@ export async function regeneratePostMediaAction(
       }
     }
 
-    return { success: false, error: 'Could not generate visual for this post' }
+    return {
+      success: false,
+      error: mediaPlan.error || 'Could not generate visual for this post'
+    }
   } catch (err: any) {
     console.error('Error regenerating post media:', err)
     return {

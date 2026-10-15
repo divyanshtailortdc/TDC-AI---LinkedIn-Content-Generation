@@ -1,15 +1,17 @@
 import type { Idea } from '@/db/schema'
 import {
+  describeCta,
   describeHashtags,
   renderAudienceBlock,
   renderConstraintsBlock,
   renderGoalBlock,
   renderGuardrailsBlock,
   renderIdentityBlock,
+  renderReviewerFeedbackBlock,
   renderVoiceBlock,
   resolveLinkPlacement,
   type GenerationContext
-} from '../../context'
+} from '../../context-blocks'
 import type { DraftGenerationResult } from './schema'
 
 /** The exemplars that teach rhythm better than any slider can. */
@@ -40,6 +42,7 @@ export function buildInstructions(ctx: GenerationContext): string {
   const goal = ctx.primaryGoal
   const exemplars = renderExemplars(ctx)
   const guardrails = renderGuardrailsBlock(ctx)
+  const feedback = renderReviewerFeedbackBlock(ctx)
 
   return `You are a ghostwriter producing a finished LinkedIn post for one specific author. You write in their voice, not yours, and you never invent facts.
 
@@ -60,10 +63,10 @@ ${renderConstraintsBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 TRUTH RULES
-- Use only the evidence supplied with the idea. If a number is not in that evidence, do not write a number.
+- Use only the evidence supplied with the idea and the author's own details above. If a number is not in either, do not write a number.
 - Never claim first-hand experience that is not in the evidence.
 - Write plain text. Real line breaks, no markdown of any kind.
-${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
+${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
 }
 
 /** The approved idea, its evidence, and exactly what to produce. */
@@ -102,7 +105,7 @@ Produce:
       ? `; include this link once, near the call to action: ${goalLink}`
       : ''
   }
-3. cta — ${constraints.cta_required ? 'required' : 'optional'}${goal?.desiredAction ? `; steer toward: ${goal.desiredAction}` : ''}
+3. cta — ${describeCta(ctx)}
 4. firstComment — ${
     linkPlacement === 'first_comment'
       ? `place any link here${goalLink ? ` (use ${goalLink})` : ''}`

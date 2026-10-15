@@ -120,6 +120,10 @@ export interface DeriveMediaBriefInput {
   styleGuidance?: string
   aspectRatio?: '1:1' | '16:9' | '4:5'
   accountName?: string
+  /** Who posts and who sees it, from renderMediaContext. */
+  accountContext?: string
+  /** Visual direction already chosen for this post: the reviewer's, or the approved idea's. */
+  direction?: string
 }
 
 export interface DerivedMediaBrief {

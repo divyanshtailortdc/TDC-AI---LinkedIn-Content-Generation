@@ -18,11 +18,20 @@ ${input.postText}
 
 ${input.thesis ? `THE ARGUMENT: ${input.thesis}\n` : ''}${
     evidence ? `FACTS THE POST RELIES ON:\n${evidence}\n` : ''
+  }${
+    input.accountContext
+      ? `WHO POSTS IT AND WHO SEES IT\n${input.accountContext}\n`
+      : ''
+  }${
+    input.direction?.trim()
+      ? `VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above:\n${input.direction.trim()}\n`
+      : ''
   }
 The image ships at ${input.aspectRatio || '16:9'} and will be seen mostly on a phone, roughly the width of a thumb.
 
 Requirements:
 - The visual must express THIS post's specific argument. A generic office, handshake or glowing network says nothing.
+- Use subjects, settings and objects these readers recognise from their own work. Do not default to abstract technology imagery unless the post is about technology.
 - Any text in the image must be readable at feed size: one short headline, at most three short labels.
 - Never render a statistic that is not stated in the post above.
 - Never include a company logo, publication mark, watermark, or a recognisable real person.

@@ -23,7 +23,8 @@ export type { GeneratedIdeaItem } from './schema'
 export async function generateIdeas(input: {
   ctx: GenerationContext
   corpus: GroundingCorpus
-  recentHooks: string[]
+  /** Earlier work and the reviewer's verdicts, already rendered. */
+  history: string
   candidateCount: number
   assignedPillars: string[]
 }): Promise<{
@@ -40,7 +41,7 @@ export async function generateIdeas(input: {
     instructions: buildInstructions(input.ctx),
     prompt: buildPrompt({
       corpus: input.corpus,
-      recentHooks: input.recentHooks,
+      history: input.history,
       candidateCount: input.candidateCount,
       assignedPillars: input.assignedPillars,
       hookMaxChars: input.ctx.prefs.constraints.hook_max_chars

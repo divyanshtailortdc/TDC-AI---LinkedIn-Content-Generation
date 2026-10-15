@@ -463,6 +463,27 @@ describe('guardMediaBrief', () => {
     assert.ok(result.issues.some(i => i.toLowerCase().includes('forbes')))
   })
 
+  it('does not count a watermark or logo the prompt asks to leave out', () => {
+    // Regression: "no watermarks", which the brief's own instructions ask for,
+    // failed the brief and paid for a retry.
+    const result = guardMediaBrief(
+      baseBrief,
+      'a clean diagram on an off-white background. No logos, no text watermarks, without any Getty-style stock look.',
+      post
+    )
+    assert.strictEqual(result.issues.length, 0)
+    assert.strictEqual(result.isAcceptable, true)
+  })
+
+  it('still catches a brand requested after a negated clause', () => {
+    const result = guardMediaBrief(
+      baseBrief,
+      'no people. Put the Forbes logo in the corner',
+      post
+    )
+    assert.ok(result.issues.some(i => i.toLowerCase().includes('forbes')))
+  })
+
   it('allows the account to name itself', () => {
     const result = guardMediaBrief(
       baseBrief,

@@ -119,6 +119,8 @@ const LINT_RULE_LABELS: Record<string, string> = {
   engagement_bait: 'Algorithmic engagement',
   grounded_citations: 'Citation grounding coverage',
   citations_coverage: 'Citation grounding coverage',
+  unsupported_figures: 'Figures backed by evidence',
+  generic_cta: 'Call to action fits the post',
   CHAR_LIMIT: 'Character limit',
   HOOK_FOLD: 'LinkedIn hook & fold',
   NO_MARKDOWN_LEAKAGE: 'Plain text formatting',

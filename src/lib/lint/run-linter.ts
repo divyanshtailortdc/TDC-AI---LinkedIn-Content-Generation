@@ -1,3 +1,5 @@
+import { extractNumbers } from '~/lib/ai/skills/ideation/guard'
+
 export interface LintFinding {
   rule: string
   severity: 'error' | 'warning' | 'info'
@@ -22,6 +24,11 @@ export interface LintOptions {
   ctaRequired?: boolean
   citationsCount?: number
   minCitations?: number
+  /**
+   * Text every figure in the post must come from: its evidence and the
+   * author's own details. Absent skips the check.
+   */
+  figureSources?: string | null
 }
 
 /**
@@ -49,6 +56,10 @@ const KNOWN_ACRONYMS = new Set([
 ])
 
 const EMOJI_REGEX = /\p{Extended_Pictographic}/gu
+
+/** A closing line that would fit any post, so it asks the reader nothing. */
+const GENERIC_CTA =
+  /^(?:so,?\s+)?(?:thoughts|agree|what do you think|what are your thoughts|let me know (?:your thoughts|what you think|in the comments)|drop (?:a comment|your thoughts)(?: below)?|comment below)\s*[?.!]*$/i
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -277,6 +288,16 @@ export function runLinter(opts: LintOptions): LintFinding[] {
     )
   }
 
+  // 9b. A CTA that would fit any post
+  if (opts.cta && GENERIC_CTA.test(opts.cta.trim())) {
+    findings.push({
+      rule: 'generic_cta',
+      severity: 'warning',
+      message: `"${opts.cta.trim()}" would close any post. Ask for something that follows from this one.`,
+      passed: false
+    })
+  }
+
   // 10. Engagement bait
   const engagementBait =
     /\b(comment\s+["']?yes["']?|type\s+["']?yes["']?|tag\s+a\s+friend|tag\s+someone\s+who|share\s+if\s+you\s+agree|smash\s+that\s+like)\b/i
@@ -309,6 +330,31 @@ export function runLinter(opts: LintOptions): LintFinding[] {
             rule: 'grounded_citations',
             severity: 'info',
             message: `${numericMatches.length} numeric claim${numericMatches.length === 1 ? '' : 's'} backed by ${citations} citation${citations === 1 ? '' : 's'}.`,
+            passed: true
+          }
+    )
+  }
+
+  // 11b. Every figure must come from the evidence or the author's own details.
+  // The citation count above only shows that some evidence exists.
+  if (opts.figureSources != null) {
+    const sources = opts.figureSources.toLowerCase()
+    const known = new Set(extractNumbers(sources))
+    const invented = extractNumbers(
+      `${fullText}\n${opts.firstComment || ''}`
+    ).filter(n => !known.has(n) && !sources.includes(n))
+    findings.push(
+      invented.length > 0
+        ? {
+            rule: 'unsupported_figures',
+            severity: 'error',
+            message: `${invented.map(n => `"${n}"`).join(', ')} ${invented.length === 1 ? 'does' : 'do'} not appear in this post's evidence or the author's details. Remove ${invented.length === 1 ? 'it' : 'them'} or use a figure from the evidence.`,
+            passed: false
+          }
+        : {
+            rule: 'unsupported_figures',
+            severity: 'info',
+            message: 'Every figure appears in the evidence or the author\'s details.',
             passed: true
           }
     )

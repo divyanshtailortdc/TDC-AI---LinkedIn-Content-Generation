@@ -31,6 +31,8 @@ export interface MediaPlanRequest {
   /** The account's configured house style for generated images. */
   styleGuidance?: string
   accountName?: string
+  /** Who posts and who sees it, from renderMediaContext. */
+  accountContext?: string
 }
 
 export interface MediaPlanResult {
@@ -56,295 +58,83 @@ export interface MediaPlanResult {
   imageAttempts?: number
 }
 
-interface CuratedStockCategory {
-  keywords: string[]
-  images: Array<{
-    url: string
-    altText: string
-  }>
-}
-
-const CURATED_FALLBACK_CATALOG: CuratedStockCategory[] = [
-  {
-    keywords: [
-      'automation',
-      'decision',
-      'rules',
-      'judgment',
-      'predictable',
-      'comparison',
-      'process',
-      'workflow'
-    ],
-    images: [
-      {
-        url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Streamlined technological workflow architecture representing structured automation'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Conceptual network nodes illustrating decision pathways and systemic coordination'
-      }
-    ]
-  },
-  {
-    keywords: [
-      'ai',
-      'tech',
-      'software',
-      'data',
-      'algorithm',
-      'cloud',
-      'developer',
-      'code',
-      'model',
-      'machine learning'
-    ],
-    images: [
-      {
-        url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Modern glowing geometric network visualization representing AI and advanced technology'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'High-tech illuminated circuit board and processor architecture'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Digital data streams and technological matrix visualization'
-      }
-    ]
-  },
-  {
-    keywords: [
-      'leadership',
-      'management',
-      'culture',
-      'team',
-      'executive',
-      'founder',
-      'strategy',
-      'ceo',
-      'people',
-      'hiring'
-    ],
-    images: [
-      {
-        url: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Modern professional corporate workplace and strategic leadership environment'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Team collaboration and cross-functional strategic executive workshop'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Executive focus and modern corporate decision making in a skyline office'
-      }
-    ]
-  },
-  {
-    keywords: [
-      'growth',
-      'marketing',
-      'sales',
-      'revenue',
-      'finance',
-      'business',
-      'scale',
-      'market',
-      'commerce',
-      'customer',
-      'pricing'
-    ],
-    images: [
-      {
-        url: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Financial analytics, market graphs, and business growth trajectory'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Strategic business presentation and market expansion planning'
-      }
-    ]
-  },
-  {
-    keywords: [
-      'product',
-      'design',
-      'ux',
-      'productivity',
-      'habits',
-      'writing',
-      'content',
-      'workflow',
-      'career',
-      'focus'
-    ],
-    images: [
-      {
-        url: 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Clean minimalist creative workspace, journal, and digital workstation'
-      },
-      {
-        url: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80',
-        altText:
-          'Modern architectural skyscraper glass facade symbolizing structural innovation'
-      }
-    ]
-  }
-]
-
 /**
- * Builds a clean, professional prompt suitable for LinkedIn.
- * Maintained for backwards compatibility; preferred approach is buildImagePromptFromBrief.
- */
-export function buildLinkedInImagePrompt(req: MediaPlanRequest): string {
-  if (req.imagePrompt) return req.imagePrompt
-
-  const subject = req.brief || req.topic || 'strategic technology leadership'
-  const argumentHint = req.coreArgument
-    ? ` Conceptually conveying: ${req.coreArgument.slice(0, 100)}.`
-    : ''
-
-  return `Minimalist editorial visual for LinkedIn publication about ${subject}.${argumentHint} Professional aesthetic, cinematic lighting, sleek corporate modernism, crisp architectural lines and conceptual geometric depth. Clean composition, 8k resolution, photorealistic studio lighting. No textual overlay, no text banners, no cluttered typography.`
-}
-
-/**
- * Picks a curated high-res Unsplash image matching topic keywords.
- * When called during regeneration, excludes previous image URLs and shifts offset by attempt.
- */
-export function getCuratedFallbackImage(
-  topicOrBrief: string,
-  options?: { excludeUrls?: string[]; attemptOffset?: number }
-): {
-  imageUrl: string
-  altText: string
-} {
-  const query = (topicOrBrief || '').toLowerCase()
-  const excludeUrls = (options?.excludeUrls || []).map(u => u.split('?')[0])
-  const offset = options?.attemptOffset || 0
-
-  for (const cat of CURATED_FALLBACK_CATALOG) {
-    if (cat.keywords.some(k => query.includes(k))) {
-      const available = cat.images.filter(img => !excludeUrls.includes(img.url.split('?')[0]))
-      const pool = available.length > 0 ? available : cat.images
-      const index = (Math.abs(query.length) + offset) % pool.length
-      const selected = pool[index] || pool[0]!
-      return { imageUrl: selected.url, altText: selected.altText }
-    }
-  }
-
-  // Default fallback: high-end modern business architecture
-  const defaultImages = [
-    {
-      url: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80',
-      altText: 'Modern architectural business innovation visual for professional publication'
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
-      altText: 'Clean modern corporate decision space'
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80',
-      altText: 'Global connected strategic operational network'
-    }
-  ]
-  const availableDefaults = defaultImages.filter(
-    img => !excludeUrls.includes(img.url.split('?')[0])
-  )
-  const pool = availableDefaults.length > 0 ? availableDefaults : defaultImages
-  const selected = pool[offset % pool.length] || pool[0]!
-  return {
-    imageUrl: selected.url,
-    altText: selected.altText
-  }
-}
-
-/**
- * Searches for high-quality stock photography using Serper Google Images API,
- * with graceful fallback to curated stock catalog.
+ * Searches stock photography with the Serper Google Images API.
+ *
+ * When search is unavailable or finds nothing this returns no image and says
+ * why. It used to fall back to a fixed set of technology and corporate photos,
+ * which put a circuit board or a boardroom on posts from every field.
  */
 export async function searchStockImage(
   query: string,
   options?: { excludeUrls?: string[]; attempt?: number }
 ): Promise<MediaPlanResult> {
-  const cleanQuery = query.trim() || 'professional business insight'
-  const altText = `Professional editorial image representing: ${cleanQuery}`
+  const cleanQuery = query.trim()
+  if (!cleanQuery) {
+    return { mode: 'none', error: 'Nothing to search stock images for.' }
+  }
+  const altText = `Stock image for: ${cleanQuery}`
   const attempt = options?.attempt || 0
   const excludeUrls = options?.excludeUrls || []
 
-  if (env.SERPER_API_KEY && env.SERPER_API_KEY.trim().length > 0) {
-    try {
-      const res = await fetch('https://google.serper.dev/images', {
-        method: 'POST',
-        headers: {
-          'X-API-KEY': env.SERPER_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          q: `${cleanQuery} minimal aesthetic high quality professional`,
-          num: 10
-        })
-      })
-
-      if (res.ok) {
-        const data = await res.json()
-        const images = data.images as Array<{
-          imageUrl?: string
-          link?: string
-          domain?: string
-          title?: string
-        }>
-
-        if (Array.isArray(images) && images.length > 0) {
-          const freshImages = images.filter(
-            img => img.imageUrl && !excludeUrls.some(u => img.imageUrl?.includes(u.split('?')[0] || '___'))
-          )
-          const pool = freshImages.length > 0 ? freshImages : images
-          const selectedImage = pool[attempt % pool.length] || pool[0]
-          if (selectedImage?.imageUrl) {
-            const sep = selectedImage.imageUrl.includes('?') ? '&' : '?'
-            const finalUrl = `${selectedImage.imageUrl}${sep}v=${Date.now()}&attempt=${attempt}`
-
-            return {
-              mode: 'stock',
-              imageUrl: finalUrl,
-              sourcePageUrl: selectedImage.link || selectedImage.domain,
-              altText: selectedImage.title || altText,
-              promptOrQuery: cleanQuery
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('Serper images search error, falling back to curated stock:', err)
+  if (!env.SERPER_API_KEY?.trim()) {
+    return {
+      mode: 'none',
+      promptOrQuery: cleanQuery,
+      error: 'Stock image search is not configured. Add SERPER_API_KEY to enable it.'
     }
   }
 
-  // Curated stock fallback with cache buster
-  const curated = getCuratedFallbackImage(cleanQuery, { excludeUrls, attemptOffset: attempt })
-  const sep = curated.imageUrl.includes('?') ? '&' : '?'
-  const finalUrl = `${curated.imageUrl}${sep}v=${Date.now()}&attempt=${attempt}`
+  try {
+    const res = await fetch('https://google.serper.dev/images', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': env.SERPER_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        q: `${cleanQuery} minimal aesthetic high quality professional`,
+        num: 10
+      })
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      const images = data.images as Array<{
+        imageUrl?: string
+        link?: string
+        domain?: string
+        title?: string
+      }>
+
+      if (Array.isArray(images) && images.length > 0) {
+        const freshImages = images.filter(
+          img => img.imageUrl && !excludeUrls.some(u => img.imageUrl?.includes(u.split('?')[0] || '___'))
+        )
+        const pool = freshImages.length > 0 ? freshImages : images
+        const selectedImage = pool[attempt % pool.length] || pool[0]
+        if (selectedImage?.imageUrl) {
+          const sep = selectedImage.imageUrl.includes('?') ? '&' : '?'
+          const finalUrl = `${selectedImage.imageUrl}${sep}v=${Date.now()}&attempt=${attempt}`
+
+          return {
+            mode: 'stock',
+            imageUrl: finalUrl,
+            sourcePageUrl: selectedImage.link || selectedImage.domain,
+            altText: selectedImage.title || altText,
+            promptOrQuery: cleanQuery
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Serper images search error:', err)
+  }
 
   return {
-    mode: 'stock',
-    imageUrl: finalUrl,
-    sourcePageUrl: `https://unsplash.com/s/photos/${encodeURIComponent(cleanQuery.slice(0, 30))}`,
-    altText: curated.altText,
+    mode: 'none',
     promptOrQuery: cleanQuery,
-    fallbackApplied: true
+    error: `No stock image was found for "${cleanQuery}".`
   }
 }
 
@@ -483,9 +273,8 @@ export function readImageDimensions(
 }
 
 /**
- * Generates an image using AI SDK via AI Gateway (Tier 1),
- * with automatic fallback to Serper Stock Search (Tier 2),
- * and Curated High-Res Fallback (Tier 3).
+ * Generates an image from the brief's prompt through the AI Gateway, falling
+ * back to a stock search for the brief's concept when no model delivers.
  */
 export async function generateAIImage(
   req: MediaPlanRequest & {
@@ -494,9 +283,11 @@ export async function generateAIImage(
     seed?: number
   }
 ): Promise<MediaPlanResult> {
-  const prompt = req.imagePrompt || buildLinkedInImagePrompt(req)
-  const query =
-    req.brief || req.topic || req.hook || 'professional business insight'
+  const prompt = req.imagePrompt?.trim()
+  if (!prompt) {
+    return { mode: 'none', error: 'No image prompt was written for this post.' }
+  }
+  const query = req.brief || req.topic || req.hook || ''
   const attempt = req.attempt || 0
   const seed = req.seed ?? Math.floor(Math.random() * 1_000_000)
   const target = sizeForAspectRatio(req.aspectRatio)
@@ -566,6 +357,11 @@ export async function generateAIImage(
     ...stockResult,
     fallbackApplied: true,
     promptOrQuery: prompt,
+    ...(stockResult.imageUrl
+      ? {}
+      : {
+          error: `No image model returned a usable image, and the stock fallback found none: ${stockResult.error}`
+        }),
     usage,
     imageAttempts
   }
@@ -767,7 +563,9 @@ export async function createMediaPlan(
     evidence: req.evidence,
     styleGuidance: req.styleGuidance,
     aspectRatio: req.aspectRatio,
-    accountName: req.accountName
+    accountName: req.accountName,
+    accountContext: req.accountContext,
+    direction: req.brief || undefined
   })
 
   if (!derived.derived || !derived.guard) {
@@ -831,6 +629,12 @@ export interface RegenerateMediaPlanRequest {
   aspectRatio?: '1:1' | '16:9' | '4:5'
   styleGuidance?: string
   accountName?: string
+  /** Who posts and who sees it, from renderMediaContext. */
+  accountContext?: string
+  /** The reviewer's own visual direction for the new concept. */
+  direction?: string
+  /** A stock query the reviewer typed; searched exactly as written. */
+  searchQuery?: string
   mode?: 'ai_generated' | 'stock'
 }
 
@@ -856,6 +660,26 @@ export async function regenerateMediaPlan(
   const seed = Math.floor(Math.random() * 1_000_000)
   const providerRequestId = crypto.randomUUID()
 
+  const excludeUrls = req.previousImageUrl ? [req.previousImageUrl] : []
+
+  // The reviewer said what to search for, so search exactly that. A brief the
+  // model wrote would describe some other image than the one search returns.
+  if (req.mode === 'stock' && req.searchQuery?.trim()) {
+    const stock = await searchStockImage(req.searchQuery, {
+      excludeUrls,
+      attempt
+    })
+    return {
+      ...stock,
+      version,
+      regenerationAttempt: attempt,
+      previousMediaId: req.previousMediaId,
+      rejectionReason: req.rejectionReason,
+      providerRequestId,
+      seed
+    }
+  }
+
   const rejected = [
     ...(req.blockedConcepts || []),
     req.previousConcept || ''
@@ -877,6 +701,8 @@ export async function regenerateMediaPlan(
     evidence: req.evidence,
     aspectRatio: req.aspectRatio,
     accountName: req.accountName,
+    accountContext: req.accountContext,
+    direction: req.direction,
     styleGuidance: [req.styleGuidance, steer].filter(Boolean).join(' ')
   })
 
@@ -896,7 +722,6 @@ export async function regenerateMediaPlan(
 
   const { brief, imagePrompt, altText } = derived.derived
   const guard = derived.guard
-  const excludeUrls = req.previousImageUrl ? [req.previousImageUrl] : []
 
   const imageResult =
     req.mode === 'stock'
