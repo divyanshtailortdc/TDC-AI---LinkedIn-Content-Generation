@@ -165,6 +165,29 @@ export function tidyIndustry(value: string): string | null {
   return isIndustryLabel(lead) ? lead : null
 }
 
+/** Most lines each profile list keeps; past these it stops being a focus. */
+const PROFILE_LIST_LIMITS: Record<string, number> = {
+  targetAudience: 6,
+  offerings: 8
+}
+
+/**
+ * Audience and offerings are one item per line. Bullets are dropped, and a
+ * line that repeats an earlier one (ignoring case and punctuation) is removed.
+ */
+export function tidyProfileList(value: string): string[] {
+  const seen = new Set<string>()
+  return readListValue(value).filter(line => {
+    const key = line
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 /** Why a link does not fit the field it was put in, or null when it fits. */
 function urlTypeProblem(field: string, url: string): string | null {
   const isLinkedin = canonicalLinkedinUrl(url) !== null
@@ -389,6 +412,19 @@ export function sanitizeIdentitySetup(
           warnings.push('Profile → Industry: shortened to a short label.')
         }
         value = label
+      }
+
+      const listLimit =
+        section === 'profile' ? PROFILE_LIST_LIMITS[field] : undefined
+      if (listLimit) {
+        const lines = tidyProfileList(String(value))
+        if (lines.length === 0) continue
+        if (lines.length > listLimit) {
+          warnings.push(
+            `Profile → ${spec.label}: kept the first ${listLimit} of ${lines.length} lines.`
+          )
+        }
+        value = lines.slice(0, listLimit).join('\n')
       }
 
       let kind = asString(entry.kind) === 'fact' ? 'fact' : 'recommendation'

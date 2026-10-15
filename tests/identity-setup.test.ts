@@ -5,6 +5,7 @@ import {
   normalizeWeights,
   sanitizeIdentitySetup,
   tidyIndustry,
+  tidyProfileList,
   type SanitizeContext
 } from '../src/lib/ai/skills/profile-setup/guard'
 import {
@@ -752,5 +753,51 @@ describe('industry is a short label, not a sentence', () => {
     )
     assert.strictEqual(pasted.suggestions.profile.industry, undefined)
     assert.ok(pasted.warnings.some(w => w.includes('left blank')))
+  })
+})
+
+describe('audience and offerings are clean lists', () => {
+  it('drops bullets and lines that repeat another', () => {
+    assert.deepStrictEqual(
+      tidyProfileList(
+        '- Founders at D2C brands\n• founders at D2C brands.\n2) Finance leads\n\n'
+      ),
+      ['Founders at D2C brands', 'Finance leads']
+    )
+  })
+
+  it('keeps at most 6 audiences and 8 offerings, and says so', () => {
+    const lines = [
+      'Founders',
+      'Finance leads',
+      'Controllers',
+      'Investors',
+      'Accountants',
+      'Auditors',
+      'Lenders',
+      'Bankers',
+      'Advisors'
+    ]
+    const { suggestions, warnings } = sanitizeIdentitySetup(
+      {
+        profile: {
+          fields: [
+            entry('targetAudience', lines.slice(0, 7).join('\n')),
+            entry('offerings', lines.join('\n'))
+          ]
+        }
+      },
+      context
+    )
+    assert.deepStrictEqual(
+      suggestions.profile.targetAudience?.value.split('\n'),
+      lines.slice(0, 6)
+    )
+    assert.deepStrictEqual(
+      suggestions.profile.offerings?.value.split('\n'),
+      lines.slice(0, 8)
+    )
+    assert.ok(warnings.some(w => w.includes('kept the first 6 of 7')))
+    assert.ok(warnings.some(w => w.includes('kept the first 8 of 9')))
   })
 })

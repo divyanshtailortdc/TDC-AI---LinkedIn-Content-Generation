@@ -55,6 +55,26 @@ describe('recognizing the entity', () => {
     assert.ok(!mentionsEntity('anything', 'A'))
   })
 
+  it('needs the name together, not its words scattered over a page', () => {
+    // Regression: a different firm's page with "Reyes" and "legal" somewhere
+    // on it was read as being about Reyes Legal.
+    const otherFirm =
+      'The Reyes Law Firm handles family visas. Our legal team is here to help.'
+    assert.ok(!mentionsEntity(otherFirm, 'Reyes Legal', 'company'))
+    assert.ok(
+      mentionsEntity('Call Reyes Legal today', 'Reyes Legal', 'company')
+    )
+    assert.ok(
+      !mentionsEntity(
+        'Maya Angelou wrote it. Years later, Chidi Okafor read it.',
+        'Maya Okafor'
+      )
+    )
+    assert.ok(mentionsEntity('Priya K. Rao, founder', 'Priya Rao'))
+    // A title the page leaves off is not needed.
+    assert.ok(mentionsEntity('Maya Okafor, physiotherapist', 'Dr. Maya Okafor'))
+  })
+
   it('guesses the entity from common phrasings when no model is available', () => {
     assert.deepStrictEqual(guessEntity(DESCRIPTION), {
       name: 'Ledgerly',
@@ -73,6 +93,22 @@ describe('recognizing the entity', () => {
     assert.strictEqual(
       guessEntity("I'm Passionate about design")?.confident,
       false
+    )
+  })
+
+  it('keeps names joined by "&" and ends a name where the sentence ends', () => {
+    // Regression: "Crumb & Co." was looked up as "Co", "I am Sam. I want" as "Sam. I".
+    assert.deepStrictEqual(
+      guessEntity('Crumb & Co. is a family-run sourdough bakery in Leeds.'),
+      { name: 'Crumb & Co', kind: 'company', confident: true }
+    )
+    assert.deepStrictEqual(
+      guessEntity('Hi, I am Sam. I want to post more on LinkedIn.'),
+      { name: 'Sam', kind: 'person', confident: false }
+    )
+    assert.strictEqual(
+      guessEntity("I'm Dr. Maya Okafor, a sports physiotherapist.")?.name,
+      'Dr. Maya Okafor'
     )
   })
 })
@@ -205,6 +241,25 @@ describe('official websites', () => {
       ['https://yourstory.com/ledgerly']
     )
   })
+
+  it('background pages skip lookalike sites named after the entity', () => {
+    const picked = pickBackgroundPages(
+      [
+        hit('https://ledgerly-en.com/', 'Ledgerly Official Website'),
+        hit(
+          'https://yourstory.com/ledgerly',
+          'Ledgerly raises seed',
+          'Ledgerly, a bookkeeping firm'
+        )
+      ],
+      company,
+      ['ledgerly.in']
+    )
+    assert.deepStrictEqual(
+      picked.map(p => p.url),
+      ['https://yourstory.com/ledgerly']
+    )
+  })
 })
 
 describe('telling the right business from a namesake', () => {
@@ -241,6 +296,29 @@ describe('telling the right business from a namesake', () => {
       ['Next.js']
     )
     assert.deepStrictEqual(marketTerms('we make things', company), [])
+  })
+
+  it("does not let the entity's own name pass for its market", () => {
+    // Regression: "North" (from North Philadelphia) matched inside
+    // "Northside", so a namesake food bank in another state was accepted.
+    const pantry: Entity = { name: 'Northside Pantry', kind: 'company' }
+    const description =
+      'Northside Pantry is a volunteer-led food bank serving families in North Philadelphia since 2014.'
+    assert.strictEqual(
+      pageMatchStrength(
+        'Clothing donations went to the Salvation Army and Northside Pantry, a food bank serving families, police said.',
+        pantry,
+        description
+      ),
+      null
+    )
+    assert.ok(
+      pageMatchStrength(
+        'Northside Pantry is a food bank serving families in North Philadelphia.',
+        pantry,
+        description
+      ) !== null
+    )
   })
 
   it('rejects a page that never names the entity', () => {
@@ -447,6 +525,27 @@ describe('researchIdentity', () => {
       deps()
     )
     assert.ok(unnamed.notes[0]?.includes('nothing was searched'))
+  })
+
+  it('does not search for a person known only by a first name', async () => {
+    // Regression: "Sam" verified sam.gov as the website.
+    let searched = false
+    const result = await researchIdentity(
+      {
+        description: 'Hi, I am Sam.',
+        entity: { name: 'Sam', kind: 'person' },
+        provided: {}
+      },
+      deps({
+        search: async () => {
+          searched = true
+          return []
+        }
+      })
+    )
+    assert.strictEqual(searched, false)
+    assert.deepStrictEqual(result.verified, {})
+    assert.ok(result.notes[0]?.includes('Only a first name'))
   })
 })
 

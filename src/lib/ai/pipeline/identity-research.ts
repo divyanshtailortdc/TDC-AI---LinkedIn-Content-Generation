@@ -67,6 +67,13 @@ export async function researchIdentity(
     return result
   }
 
+  if (entity.kind === 'person' && entity.name.trim().split(/\s+/).length < 2) {
+    result.notes.push(
+      `Only a first name (${entity.name}) was given, so nothing was searched. Add your full name or your business name.`
+    )
+    return result
+  }
+
   const needWebsite = !provided.websiteUrl
   const needLinkedin = !provided.linkedinUrl
   const place = entity.location ?? ''

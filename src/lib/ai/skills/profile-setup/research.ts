@@ -34,21 +34,39 @@ export type VerifiedLink = {
 const collapse = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
-/** True when `text` names the entity (all of a person's name parts, or the whole company name). */
-export function mentionsEntity(text: string, entityName: string): boolean {
+const words = (value: string) =>
+  value
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+
+/** Titles that a page may leave off a person's name. */
+const TITLE = new Set(['dr', 'mr', 'mrs', 'ms', 'mx', 'prof'])
+
+/**
+ * True when `text` names the entity. A company's name must appear as written
+ * ("Ledgerly", "Ledger-ly"). A person's name parts may be reordered or have a
+ * middle initial between them ("Rao, Priya", "Priya K. Rao"), but they must
+ * sit together: "Reyes" and "legal" scattered over a law firm's page do not
+ * name "Reyes Legal", and "Maya Angelou ... Chidi Okafor" is not Maya Okafor.
+ */
+export function mentionsEntity(
+  text: string,
+  entityName: string,
+  kind: EntityKind = 'person'
+): boolean {
   const name = entityName.trim()
   if (name.length < 2) return false
   const haystack = text.toLowerCase()
   if (haystack.includes(name.toLowerCase())) return true
-  // "Priya  Rao" or "Rao, Priya": every part present, for short personal names.
-  const parts = name
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(part => part.length > 1)
-  if (parts.length >= 2 && parts.length <= 3) {
-    return parts.every(part =>
-      new RegExp(`\\b${escapeRegExp(part)}\\b`).test(haystack)
-    )
+  const parts = words(name).filter(part => part.length > 1 && !TITLE.has(part))
+  if (kind === 'person' && parts.length >= 2 && parts.length <= 3) {
+    const tokens = words(haystack)
+    const span = parts.length + 1
+    for (let i = 0; i < tokens.length; i++) {
+      const window = tokens.slice(i, i + span)
+      if (parts.every(part => window.includes(part))) return true
+    }
   }
   // "Ledger-ly" and "Ledgerly" are the same name.
   return (
@@ -135,13 +153,19 @@ export function pageMatchStrength(
   entity: Entity,
   description: string
 ): number | null {
-  if (!mentionsEntity(content, entity.name)) return null
+  if (!mentionsEntity(content, entity.name, entity.kind)) return null
   const lower = content.toLowerCase()
 
+  // The entity's own name places nothing: "North" (from "North Philadelphia")
+  // must not match inside "Northside Community Pantry". A term matches at the
+  // start of a word, so "India" still finds "Indian".
   const market = marketTerms(description, entity)
+  const outsideName = lower.split(entity.name.toLowerCase()).join(' ')
   if (
     market.length > 0 &&
-    !market.some(term => lower.includes(term.toLowerCase()))
+    !market.some(term =>
+      new RegExp(`\\b${escapeRegExp(term.toLowerCase())}`).test(outsideName)
+    )
   ) {
     return null
   }
@@ -260,8 +284,8 @@ export function pickLinkedin(hits: SearchHit[], entity: Entity): LinkedinPick {
     if (!canonical || canonical.type !== wantedType) continue
     const title = hit.title.replace(/\s*[|\-–]\s*LinkedIn.*$/i, '').trim()
     const named =
-      mentionsEntity(title, entity.name) ||
-      mentionsEntity(hit.snippet, entity.name)
+      mentionsEntity(title, entity.name, entity.kind) ||
+      mentionsEntity(hit.snippet, entity.name, entity.kind)
     if (!named) continue
     // "Priya Rao - Founder - Ledgerly" and "Ledgerly" begin with the name.
     const titleLeads = title.toLowerCase().startsWith(entity.name.toLowerCase())
@@ -318,13 +342,13 @@ export function pickWebsiteCandidates(
       (label === wanted ||
         label.includes(wanted) ||
         (label.length >= 4 && wanted.includes(label)))
-    const titleMatches = mentionsEntity(hit.title, entity.name)
+    const titleMatches = mentionsEntity(hit.title, entity.name, entity.kind)
     if (!domainMatches && !titleMatches) continue
 
     const score =
       (domainMatches ? 3 : 0) +
       (titleMatches ? 2 : 0) +
-      (mentionsEntity(hit.snippet, entity.name) ? 1 : 0)
+      (mentionsEntity(hit.snippet, entity.name, entity.kind) ? 1 : 0)
     const origin = `https://${host}/`
     const existing = byHost.get(host)
     if (!existing || score > existing.score) {
@@ -341,19 +365,31 @@ export function pickWebsiteCandidates(
   return { candidates, ambiguous }
 }
 
-/** Pages worth reading for background: not social or directory sites, not the site itself. */
+/**
+ * Pages worth reading for background: not social or directory sites, not the
+ * site itself. A site named after the entity is never background either: if
+ * it is not the site being verified it is a copy or a lookalike (such as
+ * "shopify-en.com" calling itself the official site), not an outside view.
+ */
 export function pickBackgroundPages(
   hits: SearchHit[],
   entity: Entity,
   excludeHosts: string[]
 ): SearchHit[] {
   const seen = new Set(excludeHosts)
+  const wanted = collapse(entity.name)
   const picked: SearchHit[] = []
   for (const hit of hits) {
     const host = hostOf(hit.url)
     if (!host || seen.has(host)) continue
     if (NOT_AN_OFFICIAL_SITE.some(domain => hostMatches(host, domain))) continue
-    if (!mentionsEntity(`${hit.title} ${hit.snippet}`, entity.name)) continue
+    if (wanted.length >= 3 && collapse(domainLabel(host)).includes(wanted)) {
+      continue
+    }
+    if (
+      !mentionsEntity(`${hit.title} ${hit.snippet}`, entity.name, entity.kind)
+    )
+      continue
     seen.add(host)
     picked.push(hit)
   }
@@ -366,7 +402,8 @@ export const hostnameOf = hostOf
 // Finding the entity without a model, as a fallback
 // ---------------------------------------------------------------------------
 
-const NAME = "[A-Z][\\w&'.-]*(?:\\s+[A-Z][\\w&'.-]*){0,3}"
+// "&" may join parts, as in "Crumb & Co.".
+const NAME = "[A-Z][\\w&'.-]*(?:\\s+(?:&\\s+)?[A-Z][\\w&'.-]*){0,3}"
 
 /** A guess at the entity, and whether the phrasing leaves little doubt. */
 export type EntityGuess = Entity & { confident: boolean }
@@ -411,7 +448,22 @@ export function guessEntity(
   return null
 }
 
-const clean = (value: string) => value.replace(/[.,;:]+$/, '').trim()
+/** A period after these is part of the name, not the end of a sentence. */
+const ABBREVIATION =
+  /^(?:dr|mr|mrs|ms|mx|prof|st|jr|sr|co|inc|ltd|llc|corp)\.$/i
+
+/** "Sam. I want" names Sam; "Dr. Maya Okafor" and "Crumb & Co." stay whole. */
+function clean(value: string): string {
+  const parts = value.trim().split(/\s+/)
+  const end = parts.findIndex(
+    (part, index) =>
+      index < parts.length - 1 && part.endsWith('.') && !ABBREVIATION.test(part)
+  )
+  return (end === -1 ? parts : parts.slice(0, end + 1))
+    .join(' ')
+    .replace(/[.,;:]+$/, '')
+    .trim()
+}
 
 // ---------------------------------------------------------------------------
 // Numbers: nothing may be stated that was not in the input

@@ -6,7 +6,7 @@ import {
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, Lock, User } from 'lucide-react'
+import { Building2, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
@@ -86,10 +86,7 @@ function AccountTypePicker({
 }) {
   const locked = !onChange || readOnly
   return (
-    <SectionCard
-      title="What kind of identity is this?"
-      required
-    >
+    <SectionCard title="What kind of identity is this?" required>
       <input type="hidden" name="accountType" value={value} />
       <div
         role="radiogroup"
@@ -381,9 +378,7 @@ export function IdentityFields({
         readOnly={readOnly}
       />
 
-      <SectionCard
-        title="Basic information"
-      >
+      <SectionCard title="Basic information">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {field('name')}
           {field('company')}
