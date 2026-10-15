@@ -67,15 +67,21 @@ export function AiSetupCard({
   const [reviewOpen, setReviewOpen] = useState(false)
 
   // A draft made on the create page belongs to the account it just created.
-  // Its profile was saved with the account, so only the other sections remain.
+  // Its profile was saved with the account, so only the other sections remain,
+  // and they are shown for review right away.
   useEffect(() => {
     if (!account) return
     if (!window.location.search.includes('aiSetup=claim')) return
     moveDraft(NEW_IDENTITY_KEY, account.id)
-    updateDraftSuggestions(account.id, s => ({
-      ...s,
-      profile: EMPTY_SUGGESTIONS.profile
-    }))
+    let hasRemaining = false
+    updateDraftSuggestions(account.id, s => {
+      const next = { ...s, profile: EMPTY_SUGGESTIONS.profile }
+      hasRemaining = SETUP_SECTIONS.some(
+        section => getSectionStatus(next, section).state !== 'empty'
+      )
+      return next
+    })
+    if (hasRemaining) queueMicrotask(() => setReviewOpen(true))
     router.replace(pathname)
   }, [account, pathname, router])
 

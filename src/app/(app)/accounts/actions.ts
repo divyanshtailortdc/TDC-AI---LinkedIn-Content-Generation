@@ -202,10 +202,11 @@ export async function createAccount(formData: FormData) {
   revalidatePath('/')
   revalidatePath('/accounts')
   // The create page sets this when AI setup suggestions are waiting to be
-  // reviewed, so the account page can pick them up.
+  // reviewed. They are reviewed on the Profile step, where the AI assistant
+  // lives and opens the review window, so that is where those people land.
   redirect(
     formData.get('claimAiDraft') === '1'
-      ? `/accounts/${account.id}/voice?aiSetup=claim`
+      ? `/accounts/${account.id}?aiSetup=claim`
       : `/accounts/${account.id}/voice`
   )
 }
