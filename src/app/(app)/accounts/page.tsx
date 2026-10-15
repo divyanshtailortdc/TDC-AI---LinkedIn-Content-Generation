@@ -27,8 +27,7 @@ export default async function AccountsPage() {
   const goalAccountIds = new Set(goals.map((g) => g.accountId))
   const prefAccountIds = new Set(prefs.map((p) => p.accountId))
 
-  // One identity per workspace: creating is only offered when none is active.
-  const hasActiveAccount = accounts.some(a => a.isActive)
+  const hasAnyAccounts = accounts.length > 0
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -36,7 +35,7 @@ export default async function AccountsPage() {
         title="Accounts"
         description="Manage your LinkedIn identities and their configurations"
         actions={
-          !hasActiveAccount && accounts.length > 0 ? (
+          hasAnyAccounts ? (
             <Link
               href="/accounts/new"
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors"
