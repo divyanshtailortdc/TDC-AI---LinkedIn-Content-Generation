@@ -600,7 +600,9 @@ export function GoalsClient({
                     key={g.id}
                     className={`space-y-4 rounded-xl border p-5 transition-colors ${
                       g.isActive
-                        ? 'border-border bg-surface'
+                        ? editing
+                          ? 'border-border bg-surface'
+                          : 'border-border/50 bg-transparent'
                         : 'border-border bg-surface/50 opacity-60'
                     }`}
                   >
@@ -617,7 +619,13 @@ export function GoalsClient({
 
                         {/* Key Message Box */}
                         {g.keyMessage && (
-                          <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
+                          <div
+                            className={`mt-3 space-y-1 text-xs ${
+                              editing
+                                ? 'border-accent/20 bg-accent/5 rounded-lg border p-3'
+                                : 'border-accent/40 border-l-2 py-0.5 pl-3'
+                            }`}
+                          >
                             <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
                               Key Message:
                             </span>

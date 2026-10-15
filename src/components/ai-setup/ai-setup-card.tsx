@@ -1,6 +1,5 @@
 'use client'
 
-import { useProfileUrls } from '@/components/account-setup/profile-urls'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import {
   EMPTY_SUGGESTIONS,
@@ -48,8 +47,7 @@ export function AiSetupCard({
 }: {
   /**
    * "rail" is the card beside most steps. "assistant" is the Profile step's
-   * panel on the right, with a Pro Tip beneath it; its Online presence holds
-   * the Profile step's LinkedIn and Website URLs.
+   * panel on the right, with a Pro Tip beneath it.
    */
   variant?: 'rail' | 'assistant'
   account?: ({ id: string; accountType?: string } & Urls) | null
@@ -101,18 +99,6 @@ export function AiSetupCard({
   const showForm = !hasSuggestions || reanalyzing
   const assistant = variant === 'assistant'
 
-  // The assistant's Online presence inputs are the Profile step's own URLs,
-  // shared with the Profile form. The rail card on the create page instead
-  // reads them from that form.
-  const profileUrls = useProfileUrls()
-  const presence =
-    assistant && profileUrls
-      ? {
-          urls: profileUrls.urls,
-          errors: profileUrls.errors,
-          onChange: profileUrls.setUrls
-        }
-      : undefined
   const formUrls: Urls | undefined = !assistant && !account ? urls : undefined
 
   const card = (
@@ -156,7 +142,6 @@ export function AiSetupCard({
             defaultLinkedinUrl={account?.linkedinUrl || urls?.linkedinUrl || ''}
             defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
             urls={formUrls}
-            presence={presence}
             accountType={
               account
                 ? account.accountType === 'company'

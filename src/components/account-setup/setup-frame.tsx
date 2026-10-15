@@ -96,7 +96,7 @@ export function useStepView({
 
 /**
  * Wraps a step's controls. While a saved step is viewed, every input, select
- * and button inside is disabled and drawn as plain read-only text, so nothing
+ * and button inside is disabled and drawn as plain read-only text (no box; unchosen options faded), so nothing
  * on screen invites typing until the person clicks Edit. Anything marked
  * `data-edit-only` (an Add or Remove button) is hidden outright.
  */
@@ -114,7 +114,7 @@ export function StepFields({
       className={`m-0 min-w-0 border-0 p-0 ${
         editing
           ? ''
-          : '[&_:is(input,textarea,select):disabled]:bg-surface-hover/40 [&_:is(input,textarea,select):disabled]:border-border/60 [&_:is(input,textarea,select):disabled]:text-foreground [&_:is(input,textarea,select):disabled]:cursor-default [&_:is(input,textarea,select):disabled]:opacity-100 [&_[data-edit-only]]:hidden [&_button:disabled]:cursor-default [&_button:disabled]:opacity-100'
+          : '[&_:is(input,textarea,select):disabled]:bg-transparent [&_:is(input,textarea,select):disabled]:border-transparent [&_:is(input,textarea,select):disabled]:px-0 [&_:is(input,textarea,select):disabled]:shadow-none [&_:is(input,textarea,select):disabled]:appearance-none [&_:is(input,textarea,select):disabled]:text-foreground [&_:is(input,textarea,select):disabled]:cursor-default [&_:is(input,textarea,select):disabled]:opacity-100 [&_[data-edit-only]]:hidden [&_button:disabled]:cursor-default [&_button:disabled]:opacity-100 [&_button[role=radio][aria-checked=false]:disabled]:opacity-35 [&_[role=radiogroup]]:pointer-events-none'
       } ${className}`}
     >
       {children}

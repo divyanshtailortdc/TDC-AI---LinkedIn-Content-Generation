@@ -3,7 +3,6 @@
 import { AiSetupCard } from '@/components/ai-setup/ai-setup-card'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { ProfileUrlsProvider } from './profile-urls'
 import { SetupFrame, SetupStepper } from './setup-frame'
 import { getStepIndex, SETUP_STEPS } from './steps'
 
@@ -81,16 +80,5 @@ export function SetupShell({
     </SetupFrame>
   )
 
-  return isProfile ? (
-    <ProfileUrlsProvider
-      initial={{
-        linkedinUrl: account.linkedinUrl ?? '',
-        websiteUrl: account.websiteUrl ?? ''
-      }}
-    >
-      {frame}
-    </ProfileUrlsProvider>
-  ) : (
-    frame
-  )
+  return frame
 }

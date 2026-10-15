@@ -5,7 +5,7 @@ import type {
   AnalysisGuidance,
   IdentitySetupAnalysis
 } from '@/lib/ai/skills/profile-setup/schema'
-import { IDENTITY_FIELDS } from '@/lib/identity-profile'
+import { IDENTITY_FIELDS, optionalUrlError } from '@/lib/identity-profile'
 import {
   AlertCircle,
   ChevronRight,
@@ -42,7 +42,6 @@ export function AnalyzeForm({
   defaultLinkedinUrl = '',
   defaultWebsiteUrl = '',
   urls,
-  presence,
   accountType = 'personal',
   accountTypeLocked = false,
   onAccountTypeChosen,
@@ -58,15 +57,6 @@ export function AnalyzeForm({
    * URLs: they are read from there instead of being asked for a second time.
    */
   urls?: { linkedinUrl?: string | null; websiteUrl?: string | null }
-  /**
-   * The Profile step's LinkedIn and Website URLs, shown as inputs in
-   * the assistant. Without it the assistant keeps them in its own state.
-   */
-  presence?: {
-    urls: { linkedinUrl: string; websiteUrl: string }
-    errors: { linkedinUrl?: string; websiteUrl?: string }
-    onChange: (patch: { linkedinUrl?: string; websiteUrl?: string }) => void
-  }
   accountType?: 'personal' | 'company'
   /** True for an existing identity, whose type is changed on the Profile step. */
   accountTypeLocked?: boolean
@@ -91,22 +81,23 @@ export function AnalyzeForm({
 
   const assistant = variant === 'assistant'
   const urlsFromForm = urls !== undefined
-  const linkedin = presence
-    ? presence.urls.linkedinUrl
-    : urlsFromForm
-      ? (urls.linkedinUrl ?? '')
-      : linkedinUrl
-  const website = presence
-    ? presence.urls.websiteUrl
-    : urlsFromForm
-      ? (urls.websiteUrl ?? '')
-      : websiteUrl
-  const setLinkedin = presence
-    ? (value: string) => presence.onChange({ linkedinUrl: value })
-    : setLinkedinUrl
-  const setWebsite = presence
-    ? (value: string) => presence.onChange({ websiteUrl: value })
-    : setWebsiteUrl
+  // Analysis inputs only: kept apart from the Profile form's own URL fields.
+  const linkedin = urlsFromForm ? (urls.linkedinUrl ?? '') : linkedinUrl
+  const website = urlsFromForm ? (urls.websiteUrl ?? '') : websiteUrl
+  const setLinkedin = setLinkedinUrl
+  const setWebsite = setWebsiteUrl
+  const [urlErrors, setUrlErrors] = useState<{
+    linkedinUrl?: string
+    websiteUrl?: string
+  }>({})
+  const changeLinkedin = (value: string) => {
+    setLinkedin(value)
+    setUrlErrors(prev => ({ ...prev, linkedinUrl: undefined }))
+  }
+  const changeWebsite = (value: string) => {
+    setWebsite(value)
+    setUrlErrors(prev => ({ ...prev, websiteUrl: undefined }))
+  }
   // LinkedIn is never fetched, so only the website is actually read.
   const hasReadableLink = Boolean(website.trim())
 
@@ -114,6 +105,15 @@ export function AnalyzeForm({
   const analyze = async (guidance?: AnalysisGuidance) => {
     if (!description.trim()) {
       setValidationError('Describe yourself or your business first.')
+      return
+    }
+    const found = {
+      linkedinUrl: optionalUrlError(linkedin),
+      websiteUrl: optionalUrlError(website)
+    }
+    setUrlErrors(found)
+    if (found.linkedinUrl || found.websiteUrl) {
+      setAdvancedOpen(false)
       return
     }
     setValidationError(null)
@@ -235,10 +235,10 @@ export function AnalyzeForm({
           <OnlinePresence
             disabled={isAnalyzing}
             linkedinUrl={linkedin}
-            onLinkedinUrlChange={setLinkedin}
+            onLinkedinUrlChange={changeLinkedin}
             websiteUrl={website}
-            onWebsiteUrlChange={setWebsite}
-            errors={presence?.errors ?? {}}
+            onWebsiteUrlChange={changeWebsite}
+            errors={urlErrors}
           />
         )}
 
@@ -383,12 +383,12 @@ export function AnalyzeForm({
             setDescription(value)
             if (validationError) setValidationError(null)
           }}
-          // The same links as the Online presence inputs: typing them here
-          // fills the Profile's own LinkedIn and Website fields too.
+          // The same analysis links as the assistant's own inputs; the
+          // Profile form's URL fields are not touched.
           linkedinUrl={linkedin}
-          onLinkedinUrlChange={setLinkedin}
+          onLinkedinUrlChange={changeLinkedin}
           websiteUrl={website}
-          onWebsiteUrlChange={setWebsite}
+          onWebsiteUrlChange={changeWebsite}
           accountType={accountType}
           accountTypeLocked={accountTypeLocked}
           isAnalyzing={isAnalyzing}
@@ -402,8 +402,8 @@ export function AnalyzeForm({
 }
 
 /**
- * The assistant's Online presence block: the profile's own LinkedIn and
- * Website URLs.
+ * The assistant's link inputs: read by the analysis only, never saved to the
+ * profile.
  */
 function OnlinePresence({
   disabled,
