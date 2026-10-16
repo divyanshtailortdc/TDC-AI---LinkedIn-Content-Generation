@@ -4,6 +4,7 @@ import { ConfirmPopover } from '@/components/confirm-popover'
 import {
   EMPTY_SUGGESTIONS,
   getSectionStatus,
+  hasReviewableSuggestions,
   SECTION_LABELS,
   SETUP_SECTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
@@ -84,9 +85,7 @@ export function AiSetupCard({
     let hasRemaining = false
     updateDraftSuggestions(account.id, s => {
       const next = { ...s, profile: EMPTY_SUGGESTIONS.profile }
-      hasRemaining = SETUP_SECTIONS.some(
-        section => getSectionStatus(next, section).state !== 'empty'
-      )
+      hasRemaining = hasReviewableSuggestions(next)
       return next
     })
     if (hasRemaining) queueMicrotask(() => setReviewOpen(true))
@@ -100,6 +99,13 @@ export function AiSetupCard({
       )
     : false
 
+  // Something the review window can apply. Knowledge facts and ideas left over
+  // are acted on in the Knowledge step, so they do not keep this card on
+  // "Apply Suggestions".
+  const hasReviewable = draft
+    ? hasReviewableSuggestions(draft.suggestions)
+    : false
+
   // Everything was applied: nothing left to review. Waits for the review
   // dialog to close so its results stay on screen.
   useEffect(() => {
@@ -108,7 +114,7 @@ export function AiSetupCard({
     }
   }, [account, draft, hasSuggestions, reviewOpen])
 
-  const showForm = !hasSuggestions || reanalyzing
+  const showForm = !hasReviewable || reanalyzing
   const assistant = variant === 'assistant'
 
   const formUrls: Urls | undefined = !assistant && !account ? urls : undefined
@@ -175,7 +181,7 @@ export function AiSetupCard({
               saveDraft(draftKey, analysis, input)
               setReanalyzing(false)
             }}
-            onCancel={hasSuggestions ? () => setReanalyzing(false) : undefined}
+            onCancel={hasReviewable ? () => setReanalyzing(false) : undefined}
           />
         </>
       ) : (

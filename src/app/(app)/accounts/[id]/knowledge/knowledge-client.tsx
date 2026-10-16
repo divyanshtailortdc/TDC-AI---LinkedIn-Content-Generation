@@ -28,7 +28,7 @@ import {
   X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   deleteKnowledgeDocument,
   fetchUrlPreview,
@@ -94,6 +94,89 @@ export function KnowledgeClient({
       .filter((u): u is string => Boolean(u))
       .map(normalizeUrlForCompare)
   )
+  // Facts alone are not an unsaved change: they have their own Save button.
+  const hasPendingAiKnowledge = Boolean(
+    aiKnowledge &&
+      (aiKnowledge.sources.length > 0 ||
+        aiKnowledge.suggestedAdditions.length > 0)
+  )
+
+  // A source that is already in the knowledge base is done: leaving it in the
+  // draft would keep the step marked as having unsaved suggestions.
+  const savedSourceKey = initialDocs
+    .map(d => d.sourceUrl)
+    .filter((u): u is string => Boolean(u))
+    .map(normalizeUrlForCompare)
+    .join('|')
+  useEffect(() => {
+    if (!aiKnowledge?.sources.some(s => s.url && savedUrls.has(normalizeUrlForCompare(s.url)))) return
+    updateDraftSuggestions(accountId, s => ({
+      ...s,
+      knowledge: {
+        ...s.knowledge,
+        sources: s.knowledge.sources.filter(
+          src => !src.url || !savedUrls.has(normalizeUrlForCompare(src.url))
+        )
+      }
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- savedSourceKey stands for savedUrls
+  }, [accountId, aiKnowledge, savedSourceKey])
+
+  // Takes a suggestion off the draft once its document is saved.
+  const clearSavedSuggestion = (saved: { url?: string; title?: string }) =>
+    updateDraftSuggestions(accountId, s => ({
+      ...s,
+      knowledge: {
+        ...s.knowledge,
+        sources: s.knowledge.sources.filter(
+          src =>
+            !saved.url ||
+            !src.url ||
+            normalizeUrlForCompare(src.url) !== normalizeUrlForCompare(saved.url)
+        ),
+        suggestedAdditions: s.knowledge.suggestedAdditions.filter(
+          addition =>
+            !saved.title ||
+            addition.split(':')[0]!.slice(0, 120).trim() !== saved.title.trim()
+        )
+      }
+    }))
+
+  // The facts the AI found, saved as one document so none are lost.
+  const handleSaveFacts = async () => {
+    if (!aiKnowledge || aiKnowledge.facts.length === 0) return
+    setError(null)
+    setIsSaving(true)
+    try {
+      await saveKnowledgeDocument({
+        accountId,
+        title: 'Facts from your AI setup',
+        sourceType: 'artifact',
+        content: aiKnowledge.facts
+          .map(f => `${f.statement}\n"${f.quote}" (${f.source})`)
+          .join('\n\n')
+      })
+      updateDraftSuggestions(accountId, s => ({
+        ...s,
+        knowledge: { ...s.knowledge, facts: [] }
+      }))
+      showToast({
+        type: 'success',
+        title: 'Facts Saved',
+        message: 'The facts were saved to your knowledge base.'
+      })
+      router.refresh()
+    } catch (err: any) {
+      setError(err.message || 'Failed to save facts')
+      showToast({
+        type: 'error',
+        title: 'Save Failed',
+        message: err.message || 'Failed to save facts'
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   const handleFetchUrl = async () => {
     if (!inputUrl.trim()) {
@@ -160,6 +243,7 @@ export function KnowledgeClient({
         title: 'Document Saved',
         message: `"${urlPreview.title}" saved to knowledge base.`
       })
+      clearSavedSuggestion({ url: inputUrl })
       setInputUrl('')
       setUrlPreview(null)
       router.refresh()
@@ -199,6 +283,7 @@ export function KnowledgeClient({
         title: 'Artifact Saved',
         message: `"${artifactTitle.trim()}" saved to knowledge base.`
       })
+      clearSavedSuggestion({ title: artifactTitle })
       setArtifactTitle('')
       setArtifactContent('')
       router.refresh()
@@ -240,7 +325,7 @@ export function KnowledgeClient({
   // A saved knowledge base is read-only until the header's Edit; Cancel clears
   // whatever was typed. Suggestions from the AI setup keep the step open.
   const editing = useStepView({
-    dirty: hasAiKnowledge,
+    dirty: hasPendingAiKnowledge,
     onCancel: () => {
       setInputUrl('')
       setUrlPreview(null)
@@ -326,7 +411,17 @@ export function KnowledgeClient({
 
           {aiKnowledge.facts.length > 0 && (
             <div className="space-y-2">
-              <p className="text-foreground text-xs font-semibold">Facts found</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-foreground text-xs font-semibold">Facts found</p>
+                <button
+                  type="button"
+                  onClick={handleSaveFacts}
+                  disabled={isSaving}
+                  className="text-accent shrink-0 text-xs font-medium hover:underline disabled:opacity-50"
+                >
+                  {isSaving ? 'Saving…' : 'Save facts to knowledge base'}
+                </button>
+              </div>
               {aiKnowledge.facts.map(fact => (
                 <div key={fact.quote} className="bg-surface rounded-lg p-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
