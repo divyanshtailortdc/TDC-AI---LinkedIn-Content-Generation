@@ -541,6 +541,21 @@ export function getSectionStatus(
   }
 }
 
+/**
+ * Whether the review window has anything to apply. Knowledge facts and "worth
+ * adding" ideas are handled on the Knowledge step itself, so on their own they
+ * do not keep the card on "Apply Suggestions".
+ */
+export function hasReviewableSuggestions(
+  suggestions: IdentitySetupSuggestions
+): boolean {
+  return SETUP_SECTIONS.some(section =>
+    section === 'knowledge'
+      ? suggestions.knowledge.sources.length > 0
+      : getSectionStatus(suggestions, section).state !== 'empty'
+  )
+}
+
 export function hasAnySuggestion(
   suggestions: IdentitySetupSuggestions
 ): boolean {
