@@ -1165,6 +1165,11 @@ export function PostsClientInner({
     }
   }
 
+  const cancelPostRejection = () => {
+    setShowPostRejection(false)
+    setPostRejectionReason('')
+  }
+
   const handleReject = async (reason?: string) => {
     if (!activePost) return
     const rejectedId = activePost.id
@@ -1219,7 +1224,7 @@ export function PostsClientInner({
         event.preventDefault()
         void handleCopyPost()
       } else if (event.key === 'Escape' && showPostRejection) {
-        setShowPostRejection(false)
+        cancelPostRejection()
       }
     }
 
@@ -1397,6 +1402,13 @@ export function PostsClientInner({
               e.preventDefault()
               void handleReject(postRejectionReason)
             }}
+            // The review shortcuts listen on window and skip text fields, so
+            // Escape in the reason never reached them; it is handled here, and
+            // keys pressed on the form's buttons must not approve or move on.
+            onKeyDown={e => {
+              e.stopPropagation()
+              if (e.key === 'Escape') cancelPostRejection()
+            }}
             className="flex min-w-0 flex-wrap items-center gap-2"
           >
             <input
@@ -1410,10 +1422,7 @@ export function PostsClientInner({
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setShowPostRejection(false)
-                  setPostRejectionReason('')
-                }}
+                onClick={cancelPostRejection}
                 className="text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-medium"
               >
                 Cancel

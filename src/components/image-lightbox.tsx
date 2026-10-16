@@ -114,15 +114,21 @@ export function ImageLightbox({
     return () => stage.removeEventListener('wheel', onWheel)
   }, [zoomTo])
 
+  // The viewer is modal, so the page behind it must not act on its keys (on
+  // /posts, A approves and J/K change post). Listening on window in the capture
+  // phase runs before every other keydown listener, whatever has focus — after
+  // a click on the image that is <body> — and stopping the event there keeps it
+  // from them. Default actions such as Tab and Enter on a button still happen.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      e.stopPropagation()
       if (e.key === 'Escape') onClose()
       else if (e.key === '+' || e.key === '=') zoomTo((s) => s * ZOOM_STEP)
       else if (e.key === '-' || e.key === '_') zoomTo((s) => s / ZOOM_STEP)
       else if (e.key === '0') setView(RESET_VIEW)
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [onClose, zoomTo])
 
   // Lock page scroll and move focus into the dialog; restore both on close.
