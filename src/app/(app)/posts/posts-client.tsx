@@ -462,6 +462,12 @@ export function PostsClientInner({
   const [postRejectionReason, setPostRejectionReason] = useState('')
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isImageZoomOpen, setIsImageZoomOpen] = useState(false)
+  // A post's image bytes are loaded on demand; see the loader below.
+  const [imageLoadFailure, setImageLoadFailure] = useState<{
+    mediaId: string
+    error: string
+  } | null>(null)
+  const [imageLoadAttempt, setImageLoadAttempt] = useState(0)
 
   // Prompt-driven image generation
   const [imagePrompt, setImagePrompt] = useState('')
@@ -498,6 +504,7 @@ export function PostsClientInner({
     setImagePrompt('')
     setReferenceImage(null)
     setReferenceImageName(null)
+    setImageLoadFailure(null)
   }
   // The file input's own value is DOM state, so it is cleared after render.
   useEffect(() => {
@@ -505,32 +512,52 @@ export function PostsClientInner({
   }, [activePostId])
 
   // The page ships media metadata without the image bytes; load them for the
-  // post being viewed, once per media record.
-  const loadedImageIds = useRef<Set<string>>(new Set())
+  // post being viewed. Only a successful load is kept: a failure is recorded
+  // separately (the media record still exists, so it is not "Text only") and
+  // is retried when the post is reopened or Retry is pressed.
   const activeMediaId = activePost?.media?.id
   const activeMediaHasImage = Boolean(activePost?.media?.imageUrl)
+  const activeImageLoadError =
+    activeMediaId && imageLoadFailure?.mediaId === activeMediaId
+      ? imageLoadFailure.error
+      : null
+  const isActiveImageLoading =
+    Boolean(activeMediaId) && !activeMediaHasImage && !activeImageLoadError
 
   useEffect(() => {
     if (!activeMediaId || activeMediaHasImage) return
-    if (loadedImageIds.current.has(activeMediaId)) return
-    loadedImageIds.current.add(activeMediaId)
 
     let cancelled = false
-    void fetchPostMediaImage(activeMediaId).then(res => {
-      if (cancelled || !res.success) return
-      setPosts(prev =>
-        prev.map(p =>
-          p.media && p.media.id === activeMediaId
-            ? { ...p, media: { ...p.media, imageUrl: res.imageUrl } }
-            : p
-        )
-      )
-    })
+    void fetchPostMediaImage(activeMediaId)
+      .catch((err: any) => ({
+        success: false as const,
+        error: err?.message || 'Failed to load image'
+      }))
+      .then(res => {
+        if (res.success) {
+          // Keyed by media id, so a load that finishes after the reviewer moved
+          // on still fills in the right post, and never a replaced image.
+          setPosts(prev =>
+            prev.map(p =>
+              p.media && p.media.id === activeMediaId && !p.media.imageUrl
+                ? { ...p, media: { ...p.media, imageUrl: res.imageUrl } }
+                : p
+            )
+          )
+        } else if (!cancelled) {
+          setImageLoadFailure({ mediaId: activeMediaId, error: res.error })
+        }
+      })
 
     return () => {
       cancelled = true
     }
-  }, [activeMediaId, activeMediaHasImage])
+  }, [activeMediaId, activeMediaHasImage, imageLoadAttempt])
+
+  const retryImageLoad = () => {
+    setImageLoadFailure(null)
+    setImageLoadAttempt(n => n + 1)
+  }
 
   // Collapsible drawers (all collapsed by default as requested)
   const [showQualityChecks, setShowQualityChecks] = useState(false)
@@ -861,14 +888,24 @@ export function PostsClientInner({
   }
 
   const handleSwapHook = async (newHook: string) => {
+    const previousHook = editedHook
     setEditedHook(newHook)
     if (!activePost) return
     setIsSaving(true)
     try {
-      await updateDraft(activePost.id, { hook: newHook })
+      const res = await updateDraft(activePost.id, { hook: newHook })
+      if (!res.success) throw new Error(res.error)
       setPosts(prev =>
         prev.map(p => (p.id === activePost.id ? { ...p, hook: newHook } : p))
       )
+    } catch (err: any) {
+      // Undo the swap unless another post's buffer has replaced it meanwhile.
+      setEditedHook(current => (current === newHook ? previousHook : current))
+      showToast({
+        type: 'error',
+        title: 'Hook not saved',
+        message: err?.message || 'Failed to update draft'
+      })
     } finally {
       setIsSaving(false)
     }
@@ -878,11 +915,12 @@ export function PostsClientInner({
     if (!activePost) return
     setIsSaving(true)
     try {
-      await updateDraft(activePost.id, {
+      const res = await updateDraft(activePost.id, {
         hook: editedHook,
         body: editedBody,
         firstComment: editedComment
       })
+      if (!res.success) throw new Error(res.error)
       setPosts(prev =>
         prev.map(p =>
           p.id === activePost.id
@@ -897,6 +935,13 @@ export function PostsClientInner({
         )
       )
       setIsEditing(false)
+    } catch (err: any) {
+      // The editor stays open with the edits, so nothing typed is lost.
+      showToast({
+        type: 'error',
+        title: 'Changes not saved',
+        message: err?.message || 'Failed to update draft'
+      })
     } finally {
       setIsSaving(false)
     }
@@ -1101,12 +1146,19 @@ export function PostsClientInner({
     const approvedId = activePost.id
     setIsSaving(true)
     try {
-      await approveDraft(approvedId)
+      const res = await approveDraft(approvedId)
+      if (!res.success) throw new Error(res.error)
       refreshQueueAfterStatusChange(approvedId, 'approved')
       showToast({
         type: 'success',
         title: 'Post approved',
         message: 'Opened the first post in the queue.'
+      })
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Post not approved',
+        message: err?.message || 'Failed to approve draft'
       })
     } finally {
       setIsSaving(false)
@@ -1119,7 +1171,8 @@ export function PostsClientInner({
 
     setIsSaving(true)
     try {
-      await rejectDraft(rejectedId, reason?.trim() || undefined)
+      const res = await rejectDraft(rejectedId, reason?.trim() || undefined)
+      if (!res.success) throw new Error(res.error)
       refreshQueueAfterStatusChange(rejectedId, 'rejected')
       showToast({
         type: 'success',
@@ -1127,6 +1180,12 @@ export function PostsClientInner({
         message: reason?.trim()
           ? 'Your reason was saved to shape future drafts.'
           : undefined
+      })
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Post not rejected',
+        message: err?.message || 'Failed to reject draft'
       })
     } finally {
       setIsSaving(false)
@@ -1805,7 +1864,7 @@ export function PostsClientInner({
                 {/* ============================================================ */}
                 {/* RIGHT COLUMN: COMPACT REVIEW & CONTROL PANEL                 */}
                 {/* ============================================================ */}
-                <div className="space-y-4 lg:col-span-5">
+                <div className="space-y-4 lg:sticky lg:top-4 lg:col-span-5 lg:self-start">
                   {/* Zoom viewer — portals to <body>, so its position here is irrelevant */}
                   {isImageZoomOpen && activePost.media?.imageUrl && (
                     <ImageLightbox
@@ -1927,6 +1986,12 @@ export function PostsClientInner({
                               : 'Editorial visual'}
                           </span>
                         </div>
+                      ) : activePost.media ? (
+                        <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
+                          {activeImageLoadError
+                            ? 'Image not loaded'
+                            : 'Loading image'}
+                        </span>
                       ) : (
                         <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
                           Text Only
@@ -2029,6 +2094,27 @@ export function PostsClientInner({
                             <ZoomIn className="h-3 w-3" />
                             Zoom
                           </span>
+                        </button>
+                      </div>
+                    ) : isActiveImageLoading ? (
+                      <div className="border-border bg-surface-hover/50 text-muted flex items-center justify-center gap-2 rounded-xl border py-6 text-xs">
+                        <Loader2 className="text-accent h-4 w-4 animate-spin" />
+                        <span>Loading image...</span>
+                      </div>
+                    ) : activeImageLoadError ? (
+                      // The image is still attached; only this load failed.
+                      <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                        <span className="flex items-center gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          Couldn&apos;t load this post&apos;s image:{' '}
+                          {activeImageLoadError}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={retryImageLoad}
+                          className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                        >
+                          Retry
                         </button>
                       </div>
                     ):null}
@@ -2305,7 +2391,7 @@ export function PostsClientInner({
                               <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
                               <span>Use custom image URL</span>
                             </button>
-                            {activePost.media?.imageUrl && (
+                            {activePost.media && (
                               <button
                                 type="button"
                                 onClick={() => {

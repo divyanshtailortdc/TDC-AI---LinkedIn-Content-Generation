@@ -132,6 +132,10 @@ function CreateIdentityForm({
   const [errors, setErrors] = useState<IdentityFieldErrors>({})
   // The header and the assistant can both save; only one create may run.
   const creating = useRef(false)
+  // Sent with every attempt from this visit, so the server runs a repeated
+  // submission once. Made on first save rather than in render, where the
+  // server and browser would pick different values.
+  const createKey = useRef<string | null>(null)
 
   const values = fields
   const setValues = (next: Partial<IdentityValues>) =>
@@ -150,7 +154,10 @@ function CreateIdentityForm({
     creating.current = true
     onSavingChange(true)
     try {
-      const { redirectTo } = await createAccount(new FormData(formRef.current))
+      createKey.current ??= `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+      const formData = new FormData(formRef.current)
+      formData.set('createKey', createKey.current)
+      const { redirectTo } = await createAccount(formData)
       // Stays busy until the next page replaces this one.
       router.push(redirectTo)
     } catch (err: any) {

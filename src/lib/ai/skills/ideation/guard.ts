@@ -56,6 +56,15 @@ export interface ValidationResult {
 }
 
 /**
+ * A figure starts where a number starts: not after a letter, a decimal point
+ * or a thousands group, so "25%" never yields "5%" and "1.5 million" never
+ * yields "5 million".
+ */
+const FIGURE_START = String.raw`(?<![\w.]|\d,)`
+/** Digits with any decimal point or thousands separators: 2.5, 1,200, 1,200.50. */
+const FIGURE_NUMBER = String.raw`\d+(?:[.,]\d+)*`
+
+/**
  * Extracts figures a reader would treat as a factual claim: percentages,
  * currency, and qualified thresholds ("around 50 customers").
  *
@@ -66,13 +75,17 @@ export function extractNumbers(text: string): string[] {
   if (!text) return []
   const matches: string[] = []
 
-  const percentages = text.match(/\b\d+(?:\.\d+)?\s*%/g)
+  const percentages = text.match(
+    new RegExp(`${FIGURE_START}${FIGURE_NUMBER}\\s*%`, 'g')
+  )
   if (percentages) matches.push(...percentages.map(m => m.replace(/\s+/g, '')))
 
-  const currency = text.match(/[$£€]\s?\d+(?:[.,]\d+)?\s*[kKmMbB]?/g)
+  const currency = text.match(/[$£€]\s?\d+(?:[.,]\d+)*\s*[kKmMbB]?/g)
   if (currency) matches.push(...currency.map(m => m.replace(/\s+/g, '')))
 
-  const multipliers = text.match(/\b\d+(?:\.\d+)?x\b/gi)
+  const multipliers = text.match(
+    new RegExp(`${FIGURE_START}${FIGURE_NUMBER}x\\b`, 'gi')
+  )
   if (multipliers) matches.push(...multipliers)
 
   // "around 50 customers", "over 100 users" — a stated scale, which reads as fact.
@@ -84,10 +97,39 @@ export function extractNumbers(text: string): string[] {
   }
 
   // Large magnitudes always read as a statistic.
-  const magnitudes = text.match(/\b\d[\d,]*\s*(?:million|billion|thousand)\b/gi)
+  const magnitudes = text.match(
+    new RegExp(
+      `${FIGURE_START}${FIGURE_NUMBER}\\s*(?:million|billion|thousand)\\b`,
+      'gi'
+    )
+  )
   if (magnitudes) matches.push(...magnitudes)
 
   return Array.from(new Set(matches.map(m => m.toLowerCase().trim())))
+}
+
+/**
+ * Whether `text` states `figure` (as returned by extractNumbers) as a whole
+ * number. A plain substring test let "5%" pass on a source that says "25%",
+ * and "2.5%" on one that says "12.5%". The figure may not be preceded by a
+ * letter, digit, decimal point or thousands group, nor run on into more
+ * digits; spacing between its parts is ignored ("40 %", "$ 5").
+ */
+export function mentionsFigure(text: string, figure: string): boolean {
+  const parts = figure.trim().match(/\d+(?:[.,]\d+)*|\p{L}+|\S/gu)
+  if (!text || !parts) return false
+  const body = parts
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s*')
+  const first = parts[0]!
+  const last = parts[parts.length - 1]!
+  const before = /^\d/.test(first) ? FIGURE_START : ''
+  const after = /\d$/.test(last)
+    ? String.raw`(?![.,]?\d)`
+    : /\p{L}$/u.test(last)
+      ? String.raw`(?!\p{L})`
+      : ''
+  return new RegExp(`${before}${body}${after}`, 'iu').test(text)
 }
 
 /**
@@ -310,7 +352,8 @@ export function validateIdea(
     `${idea.hookConcept} ${idea.coreArgument} ${idea.thesis} ${idea.title}`
   )
   for (const num of proseNumbers) {
-    const grounded = knownNumbers.has(num) || allSourceText.includes(num)
+    const grounded =
+      knownNumbers.has(num) || mentionsFigure(allSourceText, num)
     if (!grounded) {
       hasUnsupportedNumbers = true
       issues.push(`The figure "${num}" does not appear in any source.`)
@@ -390,7 +433,7 @@ export function validateIdea(
 
     const evNumbers = extractNumbers(ev.claim)
     const inventedNumbers = evNumbers.some(
-      n => !knownNumbers.has(n) && !allSourceText.includes(n)
+      n => !knownNumbers.has(n) && !mentionsFigure(allSourceText, n)
     )
 
     if (!inventedNumbers && check.support === 'inferred') {

@@ -62,7 +62,7 @@ export async function approveDraft(draftId: string) {
   try {
     const activeAccountId = await requireActiveAccountId()
 
-    await db
+    const [approved] = await db
       .update(postDraftsTable)
       .set({
         status: 'approved',
@@ -70,6 +70,10 @@ export async function approveDraft(draftId: string) {
         updatedAt: new Date()
       })
       .where(and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId)))
+      .returning({ id: postDraftsTable.id })
+
+    // An update that matched nothing is not an approval.
+    if (!approved) throw new Error('Draft not found')
 
     revalidatePath('/posts')
     return { success: true }
@@ -88,24 +92,28 @@ export async function rejectDraft(draftId: string, reason?: string) {
 
     if (!draft) throw new Error('Draft not found')
 
-    await db
-      .update(postDraftsTable)
-      .set({
-        status: 'rejected',
-        updatedAt: new Date()
-      })
-      .where(eq(postDraftsTable.id, draftId))
+    // Together, so a failed feedback insert cannot leave the post rejected
+    // while the client is told the rejection failed.
+    await db.transaction(async tx => {
+      await tx
+        .update(postDraftsTable)
+        .set({
+          status: 'rejected',
+          updatedAt: new Date()
+        })
+        .where(eq(postDraftsTable.id, draftId))
 
-    if (reason) {
-      await db.insert(feedbackTable).values({
-        accountId: draft.accountId,
-        draftId: draft.id,
-        verdict: 'rejected',
-        reasonText: reason,
-        reasonTags: ['draft_rejected'],
-        originalBody: draft.body
-      })
-    }
+      if (reason) {
+        await tx.insert(feedbackTable).values({
+          accountId: draft.accountId,
+          draftId: draft.id,
+          verdict: 'rejected',
+          reasonText: reason,
+          reasonTags: ['draft_rejected'],
+          originalBody: draft.body
+        })
+      }
+    })
 
     revalidatePath('/posts')
     return { success: true }
@@ -515,10 +523,15 @@ export async function regeneratePostMediaAction(
  */
 export async function fetchPostMediaImage(mediaId: string) {
   try {
-    const media = await db.query.postMediaTable.findFirst({
-      where: eq(postMediaTable.id, mediaId),
-      columns: { id: true, imageUrl: true }
-    })
+    const activeAccountId = await requireActiveAccountId()
+
+    // Joined to the draft so one account cannot read another's images by id.
+    const [media] = await db
+      .select({ id: postMediaTable.id, imageUrl: postMediaTable.imageUrl })
+      .from(postMediaTable)
+      .innerJoin(postDraftsTable, eq(postMediaTable.draftId, postDraftsTable.id))
+      .where(and(eq(postMediaTable.id, mediaId), eq(postDraftsTable.accountId, activeAccountId)))
+      .limit(1)
 
     if (!media?.imageUrl) {
       return { success: false as const, error: 'Image not found' }

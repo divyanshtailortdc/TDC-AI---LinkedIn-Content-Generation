@@ -42,6 +42,14 @@ interface RunDetailProps {
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
 
+const POLL_INTERVAL_MS = 2500
+
+/**
+ * A backstop: a run interrupted by a restart is failed server-side once its
+ * heartbeat goes stale, which ends polling well before this.
+ */
+const MAX_POLL_MS = 30 * 60_000
+
 const STAGES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'gathering_context', label: 'Gathering context', icon: BookOpen },
   { key: 'researching', label: 'Researching web & KB', icon: Search },
@@ -156,7 +164,12 @@ export function RunDetailClient({
   useEffect(() => {
     if (!isRunning) return
 
+    const startedAt = Date.now()
     const interval = setInterval(async () => {
+      if (Date.now() - startedAt > MAX_POLL_MS) {
+        clearInterval(interval)
+        return
+      }
       const res = await fetchRunStatus(run.id)
       if (res.success && res.run) {
         setRun(res.run)
@@ -169,7 +182,7 @@ export function RunDetailClient({
           router.refresh()
         }
       }
-    }, 2500)
+    }, POLL_INTERVAL_MS)
 
     return () => clearInterval(interval)
   }, [isRunning, run.id, router])

@@ -90,10 +90,15 @@ export function keepRunAlive(runId: string): () => void {
   return () => clearInterval(timer)
 }
 
-/** Fails in-progress runs whose heartbeat stopped. Returns their ids. */
-export function recoverInterruptedRuns(): Promise<string[]> {
+/**
+ * Fails in-progress runs whose heartbeat stopped, or only `runId` when given,
+ * so a run's page can settle it without waiting for the worker's sweep.
+ * Returns their ids.
+ */
+export function recoverInterruptedRuns(runId?: string): Promise<string[]> {
   return failRunsWhere(
     and(
+      runId ? eq(runsTable.id, runId) : undefined,
       inArray(runsTable.status, IN_PROGRESS),
       lt(runsTable.updatedAt, sql`now() - ${STALE_AFTER}`)
     )!,

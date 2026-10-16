@@ -115,7 +115,7 @@ function NavLink({
       {active && (
         <span
           aria-hidden
-          className="bg-brand absolute top-0 -left-3 h-full w-[3px] rounded-r-full"
+          className="bg-brand absolute top-0 -left-3 h-full w-0.75 rounded-r-full"
         />
       )}
       <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />

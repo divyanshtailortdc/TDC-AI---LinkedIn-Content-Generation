@@ -1,3 +1,4 @@
+import { extractNumbers, mentionsFigure } from '../ideation/guard'
 import type { BriefGuardResult, MediaBrief, TextOverlaySpec } from './schema'
 
 /**
@@ -199,12 +200,12 @@ export function guardMediaBrief(
     .filter(Boolean)
     .join(' ')
 
-  const overlayFigures =
-    overlayText.match(/\d+(?:\.\d+)?\s*%|[$£€]\s?\d/g) || []
-  for (const figure of overlayFigures) {
-    if (!postText.includes(figure.trim())) {
+  // Whole figures only: a substring test let "5%" pass on a post saying "25%".
+  const postFigures = new Set(extractNumbers(postText))
+  for (const figure of extractNumbers(overlayText)) {
+    if (!postFigures.has(figure) && !mentionsFigure(postText, figure)) {
       issues.push(
-        `Renders a figure ("${figure.trim()}") that does not appear in the post.`
+        `Renders a figure ("${figure}") that does not appear in the post.`
       )
     }
   }

@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { ideasTable, feedbackTable } from '@/db/schema'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import { executeDraftingForIdea } from '~/lib/ai/pipeline/drafting-run'
 import { revalidatePath } from 'next/cache'
 import { requireActiveAccountId } from '@/lib/active-account'
@@ -16,6 +16,12 @@ import { requireActiveAccountId } from '@/lib/active-account'
 // would break legitimate actions taken from a run's detail page when that
 // run belongs to an account other than the currently active one.
 
+/**
+ * An idea that is drafted, or being drafted, keeps that status: approving it
+ * again would make it draftable a second time, and so a second post.
+ */
+const NOT_YET_DRAFTED = notInArray(ideasTable.status, ['drafting', 'drafted'])
+
 export async function approveIdea(ideaId: string) {
   try {
     const idea = await db.query.ideasTable.findFirst({
@@ -26,7 +32,7 @@ export async function approveIdea(ideaId: string) {
     await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
-      .where(eq(ideasTable.id, ideaId))
+      .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
 
     // The sidebar's Ideas badge counts these.
     revalidatePath('/', 'layout')
@@ -129,8 +135,13 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
       // The runId path is called from a specific run's own detail page,
       // which may not belong to the currently active account — the run's
       // own account is the correct scope here, not the active-account cookie.
+      // Ideas being drafted are included so a claim left by a crashed request
+      // can be taken over once stale; executeDraftingForIdea decides.
       const approvedIdeas = await db.query.ideasTable.findMany({
-        where: and(eq(ideasTable.runId, options.runId), eq(ideasTable.status, 'approved'))
+        where: and(
+          eq(ideasTable.runId, options.runId),
+          inArray(ideasTable.status, ['approved', 'drafting'])
+        )
       })
       targetIdeaIds = approvedIdeas.map((i) => i.id)
     }
@@ -139,10 +150,13 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
       return { success: false, error: 'No approved ideas found to draft' }
     }
 
+    // Each idea is claimed before it is drafted, so one already drafted or
+    // being drafted by another request (a retry, a double click) is skipped
+    // rather than drafted again.
     const results = []
     for (const id of targetIdeaIds) {
       const res = await executeDraftingForIdea(id)
-      results.push(res)
+      if (res) results.push(res)
     }
 
     revalidatePath('/ideas')
@@ -164,7 +178,13 @@ export async function approveAllIdeas(ideaIds: string[]) {
     await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
-      .where(and(inArray(ideasTable.id, ideaIds), eq(ideasTable.accountId, activeAccountId)))
+      .where(
+        and(
+          inArray(ideasTable.id, ideaIds),
+          eq(ideasTable.accountId, activeAccountId),
+          NOT_YET_DRAFTED
+        )
+      )
 
     // The sidebar's Ideas badge counts these.
     revalidatePath('/', 'layout')

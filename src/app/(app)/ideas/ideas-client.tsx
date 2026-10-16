@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, CheckCheck } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, ListFilter } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { IDEA_STATUS_LABEL, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
@@ -17,8 +18,12 @@ import type { ActiveAccount } from '@/lib/active-account'
 type ClientIdeaData = IdeaCardData & { accountId: string }
 
 const STATUS_TABS = ['proposed', 'approved', 'rejected', 'all'] as const
+type StatusFilter = (typeof STATUS_TABS)[number]
 
-const EMPTY_STATE: Record<(typeof STATUS_TABS)[number], { title: string; body: string }> = {
+const statusLabel = (status: StatusFilter) =>
+  status === 'all' ? 'All statuses' : IDEA_STATUS_LABEL[status]
+
+const EMPTY_STATE: Record<StatusFilter, { title: string; body: string }> = {
   proposed: {
     title: 'Nothing waiting for review',
     body: 'Start a run to generate new grounded ideas.'
@@ -40,13 +45,19 @@ export function IdeasClient({
 }) {
   const router = useRouter()
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
-  const [selectedStatus, setSelectedStatus] =
-    useState<(typeof STATUS_TABS)[number]>('proposed')
+  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('proposed')
   const [isActionBusy, setIsActionBusy] = useState(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
   const [draftError, setDraftError] = useState<string | null>(null)
   const isDrafting = draftStatus === 'processing'
+
+  const statusCounts = Object.fromEntries(
+    STATUS_TABS.map((st) => [
+      st,
+      st === 'all' ? ideas.length : ideas.filter((i) => i.status === st).length
+    ])
+  ) as Record<StatusFilter, number>
 
   // All ideas here already belong to the active account (scoped server-side).
   const filteredIdeas = ideas.filter(
@@ -239,27 +250,11 @@ export function IdeasClient({
           </>
         }
         bottomContent={
-          <div className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1 text-xs sm:w-auto">
-            {STATUS_TABS.map((st) => {
-              const count = st === 'all' ? ideas.length : ideas.filter((i) => i.status === st).length
-
-              return (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setSelectedStatus(st)}
-                  className={cn(
-                    'h-7 shrink-0 cursor-pointer rounded-lg px-2.5 font-medium transition-colors',
-                    selectedStatus === st
-                      ? 'bg-foreground text-background shadow-xs'
-                      : 'text-muted hover:bg-surface-hover hover:text-foreground'
-                  )}
-                >
-                  {st === 'all' ? 'All' : IDEA_STATUS_LABEL[st]} ({count})
-                </button>
-              )
-            })}
-          </div>
+          <StatusFilterMenu
+            value={selectedStatus}
+            counts={statusCounts}
+            onChange={setSelectedStatus}
+          />
         }
       />
 
@@ -310,5 +305,100 @@ export function IdeasClient({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * The status filter: a button that opens a short menu of statuses with their
+ * counts. Picking one applies it straight away. The menu is portalled to the
+ * body so the page header cannot clip it.
+ */
+function StatusFilterMenu({
+  value,
+  counts,
+  onChange
+}: {
+  value: StatusFilter
+  counts: Record<StatusFilter, number>
+  onChange: (next: StatusFilter) => void
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+
+  const openMenu = () => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const width = Math.min(224, window.innerWidth - 32)
+    setPosition({
+      top: rect.bottom + 8,
+      left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+    })
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    window.addEventListener('resize', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('resize', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover"
+      >
+        <ListFilter className="h-3.5 w-3.5 text-muted" />
+        {statusLabel(value)}
+        <span className="text-muted tabular-nums">({counts[value]})</span>
+      </button>
+
+      {open &&
+        createPortal(
+          <>
+            <div aria-hidden className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div
+              role="menu"
+              aria-label="Filter by status"
+              style={{ top: position.top, left: position.left }}
+              className="fixed z-50 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface p-1 shadow-lg"
+            >
+              {STATUS_TABS.map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={value === st}
+                  autoFocus={value === st}
+                  onClick={() => {
+                    onChange(st)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-left text-xs transition-colors hover:bg-surface-hover',
+                    value === st ? 'font-semibold text-foreground' : 'text-muted hover:text-foreground'
+                  )}
+                >
+                  <Check className={cn('h-3.5 w-3.5 shrink-0', value !== st && 'invisible')} />
+                  <span className="flex-1">{statusLabel(st)}</span>
+                  <span className="tabular-nums">{counts[st]}</span>
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body
+        )}
+    </>
   )
 }

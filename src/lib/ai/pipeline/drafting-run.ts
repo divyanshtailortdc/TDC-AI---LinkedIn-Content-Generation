@@ -24,6 +24,11 @@ import {
   resolveLinkPlacement
 } from '../context'
 import { refreshRunTotals } from '../run-accounting'
+import {
+  claimIdeaForDrafting,
+  markIdeaDrafted,
+  releaseDraftingClaim
+} from './drafting-claim'
 import { SkillError } from '../run-skill'
 import { writeDraft, type DraftGenerationResult } from '../skills/post-drafting'
 import { collectFigureSources } from '../skills/post-drafting/guard'
@@ -36,6 +41,9 @@ import { collectFigureSources } from '../skills/post-drafting/guard'
  * Each step is recorded once its work settles, never opened as "running"
  * first, so a crash cannot leave one stuck; its spend reaches the run's totals
  * straight away. The draft and everything hanging off it save in one go.
+ *
+ * An idea is drafted once: it is claimed before any model call and only the
+ * caller holding the claim drafts it (see drafting-claim.ts).
  */
 
 export interface DraftPostResult {
@@ -45,9 +53,28 @@ export interface DraftPostResult {
   status: string
 }
 
+/**
+ * Drafts an approved idea. Returns null, without drafting, when the idea is
+ * not approved: already drafted, being drafted by another request (a retry or
+ * a second click), rejected, or gone.
+ */
 export async function executeDraftingForIdea(
   ideaId: string
-): Promise<DraftPostResult> {
+): Promise<DraftPostResult | null> {
+  if (!(await claimIdeaForDrafting(db, ideaId))) return null
+  try {
+    return await draftClaimedIdea(ideaId)
+  } catch (err) {
+    // Hands the idea back so it can be drafted again. After the post is saved
+    // the idea is drafted and this changes nothing.
+    await releaseDraftingClaim(db, ideaId).catch(releaseErr =>
+      console.error(`Could not release drafting claim on ${ideaId}:`, releaseErr)
+    )
+    throw err
+  }
+}
+
+async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   const idea = await db.query.ideasTable.findFirst({
     where: eq(ideasTable.id, ideaId)
   })
@@ -241,8 +268,11 @@ export async function executeDraftingForIdea(
 
   // One transaction: saved piece by piece, a failure part-way left a draft
   // missing its citations while the idea stayed approved, so drafting it
-  // again produced a second copy.
+  // again produced a second copy. The idea is marked drafted first: that
+  // locks its row, so a second save for the same idea fails and rolls back.
   const saved = await db.transaction(async tx => {
+    await markIdeaDrafted(tx, ideaId)
+
     const [saved] = await tx
       .insert(postDraftsTable)
       .values({
@@ -305,11 +335,6 @@ export async function executeDraftingForIdea(
       })
     }
 
-    await tx
-      .update(ideasTable)
-      .set({ status: 'drafted', updatedAt: new Date() })
-      .where(eq(ideasTable.id, ideaId))
-
     return saved
   })
 
@@ -318,8 +343,10 @@ export async function executeDraftingForIdea(
     const runIdeas = await db.query.ideasTable.findMany({
       where: eq(ideasTable.runId, runId)
     })
-    // A run is finished once nothing is still approved and waiting to be drafted.
-    const pending = runIdeas.some(i => i.status === 'approved')
+    // A run is finished once nothing is still approved or being drafted.
+    const pending = runIdeas.some(
+      i => i.status === 'approved' || i.status === 'drafting'
+    )
 
     await db
       .update(runsTable)

@@ -1,4 +1,7 @@
-import { extractNumbers } from '~/lib/ai/skills/ideation/guard'
+import {
+  extractNumbers,
+  mentionsFigure
+} from '~/lib/ai/skills/ideation/guard'
 
 export interface LintFinding {
   rule: string
@@ -340,9 +343,10 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   if (opts.figureSources != null) {
     const sources = opts.figureSources.toLowerCase()
     const known = new Set(extractNumbers(sources))
+    // Whole figures only: a substring test let "5%" pass on "25%".
     const invented = extractNumbers(
       `${fullText}\n${opts.firstComment || ''}`
-    ).filter(n => !known.has(n) && !sources.includes(n))
+    ).filter(n => !known.has(n) && !mentionsFigure(sources, n))
     findings.push(
       invented.length > 0
         ? {

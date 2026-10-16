@@ -383,7 +383,7 @@ export function PreferencesForm({
             value={complianceNotes}
             onChange={e => setComplianceNotes(e.target.value)}
             placeholder="e.g. Never mention client names without approval."
-            className={`${inputClass} scrollbar-visible h-32 resize-none overflow-y-auto leading-relaxed break-words`}
+            className={`${inputClass} scrollbar-visible h-32 resize-none overflow-y-auto leading-relaxed wrap-break-word`}
           />
         </div>
       </Section>

@@ -77,7 +77,33 @@ function profileFromFormData(formData: FormData) {
   }
 }
 
+/**
+ * Creates in progress or recently done, by the key the create page sends with
+ * each submission. A repeat of the same submission (a second click that got
+ * past the page, a retried request) gets the first one's result instead of a
+ * second identity. Held in memory, so it covers one server process.
+ */
+const recentCreates = new Map<string, Promise<{ redirectTo: string }>>()
+const CREATE_KEY_TTL_MS = 10 * 60 * 1000
+
 export async function createAccount(formData: FormData) {
+  const key = formData.get('createKey')
+  if (typeof key !== 'string' || !key || key.length > 64) {
+    return createAccountOnce(formData)
+  }
+  const existing = recentCreates.get(key)
+  if (existing) return existing
+  const created = createAccountOnce(formData)
+  recentCreates.set(key, created)
+  // A failed create is forgotten straight away so the user can try again.
+  created.then(
+    () => setTimeout(() => recentCreates.delete(key), CREATE_KEY_TTL_MS),
+    () => recentCreates.delete(key)
+  )
+  return created
+}
+
+async function createAccountOnce(formData: FormData) {
   const parsed = IdentityProfileSchema.safeParse(profileFromFormData(formData))
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))

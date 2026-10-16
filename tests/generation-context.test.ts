@@ -607,6 +607,22 @@ describe('runLinter: figures', () => {
     assert.strictEqual(finding?.passed, false)
   })
 
+  it('does not accept a figure that is only part of a longer one in the sources', () => {
+    // Regression: a substring test let "5%" pass on a source saying "25%".
+    const check = (hook: string, figureSources: string) =>
+      runLinter({ hook, body: 'Body.', figureSources }).find(
+        f => f.rule === 'unsupported_figures'
+      )
+    assert.strictEqual(check('Churn fell 5%.', 'Churn fell 25%.')?.passed, false)
+    assert.strictEqual(check('Churn fell 5%.', 'Churn fell 5%.')?.passed, true)
+    assert.strictEqual(check('Churn fell 2.5%.', 'Churn fell 12.5%.')?.passed, false)
+    assert.strictEqual(check('Churn fell 2.5%.', 'Churn fell 2.5 %.')?.passed, true)
+    assert.strictEqual(check('Over 200 clients.', 'Over 1,200 clients.')?.passed, false)
+    assert.strictEqual(check('Over 1,200 clients.', 'We serve 1,200 clients.')?.passed, true)
+    assert.strictEqual(check('5 million users.', '1.5 million users.')?.passed, false)
+    assert.strictEqual(check('A $5 budget.', 'A $50 budget.')?.passed, false)
+  })
+
   it('skips the check when no sources are given', () => {
     const findings = runLinter({ hook: 'Hook 37%.', body: 'Body.' })
     assert.ok(!findings.some(f => f.rule === 'unsupported_figures'))

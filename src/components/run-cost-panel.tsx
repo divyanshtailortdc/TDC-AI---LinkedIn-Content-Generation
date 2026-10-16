@@ -133,7 +133,7 @@ export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelP
 
       {/* Per-stage breakdown */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px] text-xs">
+        <table className="w-full min-w-130 text-xs">
           <thead>
             <tr className="text-muted border-border border-b text-left text-[10px] tracking-wider uppercase">
               <th className="py-2 pr-3 font-semibold">Stage</th>

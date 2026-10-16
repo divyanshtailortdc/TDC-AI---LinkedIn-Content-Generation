@@ -1,4 +1,3 @@
-//todo: can we remove this
 /**
  * Novelty Guard for LinkedIn Content Generation
  *

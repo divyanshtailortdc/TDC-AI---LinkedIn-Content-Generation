@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { notFound, redirect } from 'next/navigation'
 import { getRunDetails } from '~/jobs/queue'
 import { getActiveAccountId } from '@/lib/active-account'
+import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 import { RunDetailClient } from './run-detail-client'
 
 export const dynamic = 'force-dynamic'
@@ -14,6 +15,8 @@ interface RunPageProps {
 
 export default async function SingleRunPage({ params }: RunPageProps) {
   const { id } = await params
+  // A run interrupted by a restart reads as failed, not as still in progress.
+  await recoverInterruptedRuns(id)
   const { run, steps, findings, ideas } = await getRunDetails(id)
 
   if (!run) {

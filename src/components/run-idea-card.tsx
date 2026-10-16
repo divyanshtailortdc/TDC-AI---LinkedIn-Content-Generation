@@ -101,6 +101,7 @@ const STATUS_STYLE: Record<string, string> = {
   proposed: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
   approved: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
   rejected: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
+  drafting: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
   drafted: 'bg-accent/10 text-accent'
 }
 
@@ -109,6 +110,7 @@ export const IDEA_STATUS_LABEL: Record<string, string> = {
   proposed: 'To review',
   approved: 'Approved',
   rejected: 'Rejected',
+  drafting: 'Drafting…',
   drafted: 'Drafted'
 }
 

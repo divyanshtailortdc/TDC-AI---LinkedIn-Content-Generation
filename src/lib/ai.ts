@@ -152,13 +152,4 @@ export const EPHEMERAL_CACHE = {
   anthropic: { cacheControl: { type: 'ephemeral' } }
 } as const
 
-export {
-  addUsage,
-  cacheHitRate,
-  EMPTY_USAGE,
-  estimateCostUsd,
-  readCallUsage,
-  readGatewayCost,
-  readImageCost,
-  type CallUsage
-} from './ai/usage'
+export { EMPTY_USAGE, type CallUsage } from './ai/usage'

@@ -5,6 +5,7 @@ import {
   detectFabricatedAnecdote,
   extractNumbers,
   findUnsupportedAbsolutes,
+  mentionsFigure,
   validateIdea,
   type GroundingCorpus
 } from '../src/lib/ai/skills/ideation/guard'
@@ -82,6 +83,37 @@ describe('extractNumbers', () => {
     assert.ok(extractNumbers('a 3x improvement').includes('3x'))
     assert.ok(extractNumbers('around 50 customers').includes('50'))
     assert.ok(extractNumbers('2 million users').some(n => n.includes('million')))
+  })
+  it('never takes part of a longer number as a figure', () => {
+    assert.deepStrictEqual(extractNumbers('rose 25%'), ['25%'])
+    assert.deepStrictEqual(extractNumbers('rose 12.5%'), ['12.5%'])
+    assert.deepStrictEqual(extractNumbers('rose 1,250%'), ['1,250%'])
+    assert.deepStrictEqual(extractNumbers('1.5 million users'), ['1.5 million'])
+    assert.deepStrictEqual(extractNumbers('a 2.5x lift'), ['2.5x'])
+    assert.deepStrictEqual(extractNumbers('raised $1,200,000'), ['$1,200,000'])
+  })
+})
+
+describe('mentionsFigure', () => {
+  it('matches a figure stated in the text', () => {
+    assert.strictEqual(mentionsFigure('churn fell 5% last year', '5%'), true)
+    assert.strictEqual(mentionsFigure('churn fell 5 % last year', '5%'), true)
+    assert.strictEqual(mentionsFigure('churn fell 2.5%.', '2.5%'), true)
+    assert.strictEqual(mentionsFigure('over 1,200 clients', '1,200'), true)
+    assert.strictEqual(mentionsFigure('costs $ 5k a month', '$5k'), true)
+    assert.strictEqual(mentionsFigure('we have 50.', '50'), true)
+  })
+
+  it('does not match a figure that is only part of a longer number', () => {
+    assert.strictEqual(mentionsFigure('churn fell 25%', '5%'), false)
+    assert.strictEqual(mentionsFigure('churn fell 12.5%', '2.5%'), false)
+    assert.strictEqual(mentionsFigure('churn fell 2.55%', '2.5%'), false)
+    assert.strictEqual(mentionsFigure('over 1,200 clients', '200'), false)
+    assert.strictEqual(mentionsFigure('over 1,2005 clients', '1,200'), false)
+    assert.strictEqual(mentionsFigure('over 120 clients', '12'), false)
+    assert.strictEqual(mentionsFigure('it costs $50', '$5'), false)
+    assert.strictEqual(mentionsFigure('a 13x lift', '3x'), false)
+    assert.strictEqual(mentionsFigure('1.5 million users', '5 million'), false)
   })
 })
 
@@ -502,6 +534,24 @@ describe('guardMediaBrief', () => {
     )
     assert.strictEqual(result.isAcceptable, false)
     assert.ok(result.issues.some(i => i.includes('62%')))
+  })
+
+  it('does not take a figure in the image as part of a longer one in the post', () => {
+    const overlay = (headline: string) => ({
+      ...baseBrief,
+      textOverlay: { headline, supportingPoints: [] }
+    })
+    const withFigure = 'Costs drop 25% once exceptions have an owner.'
+    assert.ok(
+      guardMediaBrief(overlay('Costs drop 5%'), 'a diagram', withFigure).issues.some(i =>
+        i.includes('"5%"')
+      )
+    )
+    assert.ok(
+      !guardMediaBrief(overlay('Costs drop 25%'), 'a diagram', withFigure).issues.some(i =>
+        i.includes('25%')
+      )
+    )
   })
 
   it('rejects a real person the post never mentions', () => {

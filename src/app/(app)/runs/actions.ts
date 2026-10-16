@@ -6,7 +6,8 @@ import { eq } from 'drizzle-orm'
 import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { processRunImmediately } from '~/jobs/worker'
 import { revalidatePath } from 'next/cache'
-import { getActiveAccountId } from '@/lib/active-account'
+import { getActiveAccountId, writeActiveAccountCookie } from '@/lib/active-account'
+import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 
 /**
  * Triggers a run for `explicitAccountId` when given (e.g. the account-scoped
@@ -17,7 +18,8 @@ import { getActiveAccountId } from '@/lib/active-account'
  */
 export async function triggerNewRun(explicitAccountId?: string | null, goalId?: string | null) {
   try {
-    const accountId = explicitAccountId || (await getActiveAccountId())
+    const activeAccountId = await getActiveAccountId()
+    const accountId = explicitAccountId || activeAccountId
 
     if (!accountId) {
       throw new Error('No active identity selected. Add or activate an identity first.')
@@ -45,6 +47,14 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
       console.error(`Background execution error for run ${run.id}:`, err)
     })
 
+    // The run page sends a run of any other identity back to /runs, so a run
+    // started from another identity's own Runs tab makes that identity the
+    // active one; otherwise the caller is bounced off the run it just started.
+    if (accountId !== activeAccountId) {
+      await writeActiveAccountCookie(accountId)
+      revalidatePath('/', 'layout')
+    }
+
     revalidatePath('/runs')
     revalidatePath(`/accounts/${accountId}/runs`)
     return { success: true, runId: run.id }
@@ -59,6 +69,9 @@ export type RunStatusResponse =
 
 export async function fetchRunStatus(runId: string): Promise<RunStatusResponse> {
   try {
+    // Settles a run whose process died, so its page stops polling a run that
+    // will never move again.
+    await recoverInterruptedRuns(runId)
     const details = await getRunDetails(runId)
     return { success: true, ...details }
   } catch (err: any) {
