@@ -5,6 +5,10 @@ import { knowledgeDocumentsTable } from '@/db/schema'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { extractKnowledgeClaims } from '@/lib/ai/skills/knowledge-extraction'
 import { indexKnowledgeDocument } from '@/lib/ai/embeddings'
+import {
+  KnowledgeDocumentSchema,
+  parseSetupPayload
+} from '@/lib/setup-payloads'
 import { eq, and } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -34,13 +38,14 @@ export async function fetchUrlPreview(url: string) {
   }
 }
 
-export async function saveKnowledgeDocument(payload: {
+export async function saveKnowledgeDocument(rawPayload: {
   accountId: string
   title: string
   sourceType: 'url' | 'artifact'
   sourceUrl?: string
   content: string
 }) {
+  const payload = parseSetupPayload(KnowledgeDocumentSchema, rawPayload)
   if (!payload.title.trim() || !payload.content.trim()) {
     throw new Error('Title and content are required')
   }

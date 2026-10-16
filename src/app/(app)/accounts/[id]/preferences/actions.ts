@@ -7,6 +7,11 @@ import {
   type Guardrails,
   type PostConstraints
 } from '@/db/schema'
+import {
+  AccountIdSchema,
+  parseSetupPayload,
+  PreferencesPayloadSchema
+} from '@/lib/setup-payloads'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -69,9 +74,11 @@ function validate(payload: PreferencesPayload) {
 }
 
 export async function savePreferences(
-  accountId: string,
-  payload: PreferencesPayload
+  rawAccountId: string,
+  rawPayload: PreferencesPayload
 ) {
+  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  const payload = parseSetupPayload(PreferencesPayloadSchema, rawPayload)
   validate(payload)
 
   const columns = {

@@ -9,6 +9,11 @@ import {
   suggestGoals,
   type GoalSuggestion
 } from '@/lib/ai/skills/goal-suggestions'
+import {
+  AccountIdSchema,
+  GoalPayloadSchema,
+  parseSetupPayload
+} from '@/lib/setup-payloads'
 import { and, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -61,7 +66,9 @@ function revalidateGoals(accountId: string) {
   revalidatePath('/')
 }
 
-export async function createGoal(accountId: string, payload: GoalPayload) {
+export async function createGoal(rawAccountId: string, rawPayload: GoalPayload) {
+  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
 
   await db.insert(goalsTable).values({
@@ -75,10 +82,13 @@ export async function createGoal(accountId: string, payload: GoalPayload) {
 }
 
 export async function updateGoal(
-  goalId: string,
-  accountId: string,
-  payload: GoalPayload
+  rawGoalId: string,
+  rawAccountId: string,
+  rawPayload: GoalPayload
 ) {
+  const goalId = parseSetupPayload(AccountIdSchema, rawGoalId)
+  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
 
   await db
