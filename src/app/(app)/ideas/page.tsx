@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { db } from '@/db'
 import { ideasTable } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
@@ -46,7 +47,11 @@ export default async function IdeasPage() {
   // Keying on the active account forces a remount on switch, so this client
   // component's local state (which only seeds from initialIdeas once) resets
   // and reflects the newly active account's data instead of stale state.
+  // IdeasClient reads the status filter with useSearchParams, which needs a
+  // Suspense boundary above it (as on the Posts page).
   return (
-    <IdeasClient key={activeAccount.id} initialIdeas={ideasRaw} activeAccount={activeAccount} />
+    <Suspense>
+      <IdeasClient key={activeAccount.id} initialIdeas={ideasRaw} activeAccount={activeAccount} />
+    </Suspense>
   )
 }
