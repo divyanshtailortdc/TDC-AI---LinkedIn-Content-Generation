@@ -1,11 +1,17 @@
 'use client'
 
 import { useStepView } from '@/components/account-setup/setup-frame'
+import {
+  updateDraftSuggestions,
+  useIdentitySetupDraft
+} from '@/components/ai-setup/draft-store'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
+import { EMPTY_SUGGESTIONS } from '@/lib/ai/skills/profile-setup/schema'
+import { hasGoalTitle } from '@/lib/goal-titles'
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
 import {
   Compass,
@@ -20,7 +26,7 @@ import {
   X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   createGoal,
   deleteGoal,
@@ -84,6 +90,14 @@ export function GoalsClient({
   const [suggestions, setSuggestions] = useState<GoalSuggestion[] | null>(null)
   const [isSuggesting, setIsSuggesting] = useState(false)
 
+  const savedTitles = initialGoals.map(g => g.title)
+  // Takes the AI goal off the draft, so it is not offered again.
+  const dropSuggestedGoal = () =>
+    updateDraftSuggestions(accountId, s => ({
+      ...s,
+      goals: EMPTY_SUGGESTIONS.goals
+    }))
+
   // An AI setup goal opens the New Goal form prefilled; saving creates a new
   // goal, so existing goals are never touched.
   const prefill = useSectionPrefill<GoalValues>({
@@ -107,11 +121,28 @@ export function GoalsClient({
       if (next.targetUrl !== undefined) setTargetUrl(next.targetUrl)
       if (next.linkStrategy !== undefined) setLinkStrategy(next.linkStrategy)
     },
-    suggestionValues: s => goalSuggestionValues(s.goals),
+    // A suggested goal that is already saved is not offered again.
+    suggestionValues: s => {
+      const values = goalSuggestionValues(s.goals)
+      return hasGoalTitle(savedTitles, values.title ?? '') ? {} : values
+    },
     // An untouched form's preset choices are just defaults.
     isBlank: key =>
       (key === 'objectiveType' || key === 'linkStrategy') && !title.trim()
   })
+
+  // The AI goal is already saved (here, or on another visit): take it off the
+  // draft so it is not offered, and cannot be saved a second time.
+  const suggestedGoalTitle = useIdentitySetupDraft(accountId)?.suggestions.goals
+    .title?.value
+  const suggestedGoalIsSaved = hasGoalTitle(
+    savedTitles,
+    typeof suggestedGoalTitle === 'string' ? suggestedGoalTitle : ''
+  )
+  useEffect(() => {
+    if (suggestedGoalIsSaved) dropSuggestedGoal()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dropSuggestedGoal only reads accountId
+  }, [accountId, suggestedGoalIsSaved])
 
   const resetForm = () => {
     setTitle('')
@@ -197,6 +228,11 @@ export function GoalsClient({
         })
       }
 
+      // A goal made from the AI suggestion leaves the draft, so the next
+      // visit does not offer it again.
+      if (!editingGoalId && prefill.active && prefill.filled.length > 0) {
+        dropSuggestedGoal()
+      }
       prefill.markSaved()
       resetForm()
       setShowNewGoal(false)
