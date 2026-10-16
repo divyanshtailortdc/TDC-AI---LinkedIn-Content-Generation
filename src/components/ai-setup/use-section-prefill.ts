@@ -7,6 +7,13 @@ import { useIdentitySetupDraft, type IdentitySetupDraft } from './draft-store'
 
 type Values = Record<string, unknown>
 
+/**
+ * Drafts whose suggestions were saved from a form, as "key:section:draftId".
+ * Saving refreshes the page and remounts the form, which would load the same
+ * draft again and show a banner about suggestions that are already saved.
+ */
+const savedDrafts = new Set<string>()
+
 export type SectionPrefill = {
   draft: IdentitySetupDraft | null
   /** Set once suggestions have been loaded into the form. */
@@ -18,6 +25,11 @@ export type SectionPrefill = {
   replaceAll: () => void
   /** Put the form back the way it was before the suggestions. */
   undo: () => void
+  /**
+   * Call after the form is saved: the filled values are now the saved ones, so
+   * they stop counting as unsaved changes and there is nothing to undo.
+   */
+  markSaved: () => void
 }
 
 /**
@@ -29,12 +41,15 @@ export type SectionPrefill = {
  */
 export function useSectionPrefill<T extends Values>({
   draftKey,
+  section,
   getCurrent,
   setValues,
   suggestionValues,
   isBlank
 }: {
   draftKey: string
+  /** Names the form, so saving it stops its own banner from coming back. */
+  section?: string
   getCurrent: () => T
   setValues: (values: Partial<T>) => void
   suggestionValues: (suggestions: IdentitySetupSuggestions) => Partial<T>
@@ -81,6 +96,7 @@ export function useSectionPrefill<T extends Values>({
   useEffect(() => {
     if (!draft || appliedDraftId.current === draft.id) return
     appliedDraftId.current = draft.id
+    if (section && savedDrafts.has(`${draftKey}:${section}:${draft.id}`)) return
     const base = callbacks.current.getCurrent()
     const hasSuggestions = Object.values(
       callbacks.current.suggestionValues(draft.suggestions)
@@ -104,6 +120,13 @@ export function useSectionPrefill<T extends Values>({
     undo: () => {
       if (!snapshot.current) return
       callbacks.current.setValues(snapshot.current)
+      setState(null)
+    },
+    markSaved: () => {
+      if (section && draft) {
+        savedDrafts.add(`${draftKey}:${section}:${draft.id}`)
+      }
+      snapshot.current = null
       setState(null)
     }
   }
