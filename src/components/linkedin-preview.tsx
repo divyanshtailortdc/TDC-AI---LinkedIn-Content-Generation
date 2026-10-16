@@ -1,7 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import { ThumbsUp, MessageSquare, Repeat2, Send, Globe, MoreHorizontal, ZoomIn } from 'lucide-react'
+import {
+  Check,
+  Copy,
+  Globe,
+  MessageSquare,
+  MoreHorizontal,
+  Repeat2,
+  Send,
+  Shuffle,
+  ThumbsUp,
+  ZoomIn
+} from 'lucide-react'
 import Image from 'next/image'
 
 interface LinkedInPreviewProps {
@@ -17,7 +28,21 @@ interface LinkedInPreviewProps {
   foldCharLimit?: number
   /** When set, the attached image becomes clickable (e.g. to open a zoom view). */
   onMediaClick?: () => void
+  /**
+   * Other openings to offer beside the hook. With `onSelectHook` set, a Swap
+   * hook button next to the hook lists them; picking one replaces the hook.
+   */
+  hookOptions?: Array<{ label: string; content: string }>
+  onSelectHook?: (hook: string) => void
+  hookSwapDisabled?: boolean
+  /** Shown under the post as the author's own first comment, as LinkedIn does. */
+  firstComment?: string | null
+  onCopyFirstComment?: () => void
+  firstCommentCopied?: boolean
 }
+
+/** A comment longer than this is folded behind "…see more", as LinkedIn does. */
+const COMMENT_FOLD_CHARS = 180
 
 export function LinkedInPreview({
   authorName,
@@ -30,9 +55,20 @@ export function LinkedInPreview({
   mediaUrl,
   mediaAltText,
   foldCharLimit = 200,
-  onMediaClick
+  onMediaClick,
+  hookOptions = [],
+  onSelectHook,
+  hookSwapDisabled = false,
+  firstComment,
+  onCopyFirstComment,
+  firstCommentCopied = false
 }: LinkedInPreviewProps) {
   const [showFullPost, setShowFullPost] = useState(false)
+  const [showHookOptions, setShowHookOptions] = useState(false)
+  const [showFullComment, setShowFullComment] = useState(false)
+  const canSwapHook = Boolean(onSelectHook) && hookOptions.length > 0
+  const comment = firstComment?.trim() || ''
+  const isCommentLong = comment.length > COMMENT_FOLD_CHARS
 
   const cleanHook = hook.trim()
   const isHookLongerThanFold = cleanHook.length > foldCharLimit
@@ -40,7 +76,7 @@ export function LinkedInPreview({
   const hookOverflowAfterFold = cleanHook.slice(foldCharLimit)
 
   return (
-    <div className="w-full max-w-138.75 rounded-xl border border-[#e0e0e0] dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm font-sans text-neutral-900 dark:text-neutral-100 overflow-hidden text-sm">
+    <div className="w-full  rounded-xl border border-[#e0e0e0] dark:border-border bg-white dark:bg-surface shadow-sm font-sans text-neutral-900 dark:text-neutral-100 overflow-hidden text-sm">
       {/* LinkedIn Post Header */}
       <div className="p-4 pb-2 flex items-start justify-between">
         <div className="flex items-center gap-3">
@@ -66,7 +102,7 @@ export function LinkedInPreview({
         </div>
         <button
           type="button"
-          className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-surface-hover"
         >
           <MoreHorizontal className="w-5 h-5" />
         </button>
@@ -74,8 +110,9 @@ export function LinkedInPreview({
 
       {/* Post Text Area with Fold Line indicator */}
       <div className="px-4 py-2 text-[14px] leading-[1.45] wrap-break-word whitespace-pre-wrap selection:bg-[#0a66c2]/20">
-        {/* Hook preview */}
-        <div className="font-medium text-neutral-950 dark:text-neutral-50">
+        {/* Hook preview, with the swap control beside it */}
+        <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 font-medium text-neutral-950 dark:text-neutral-50">
           <span>{visibleHookBeforeFold}</span>
 
           {isHookLongerThanFold && !showFullPost && (
@@ -100,6 +137,54 @@ export function LinkedInPreview({
             <span>{hookOverflowAfterFold}</span>
           )}
         </div>
+          {canSwapHook && (
+            <button
+              type="button"
+              onClick={() => setShowHookOptions(open => !open)}
+              aria-expanded={showHookOptions}
+              title="Swap hook"
+              className={`mt-0.5 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                showHookOptions
+                  ? 'border-[#0a66c2] bg-[#0a66c2]/10 text-[#0a66c2] dark:text-[#70b5f9]'
+                  : 'border-neutral-300 text-neutral-600 hover:border-[#0a66c2] hover:text-[#0a66c2] dark:border-neutral-700 dark:text-neutral-300'
+              }`}
+            >
+              <Shuffle className="h-3 w-3" />
+              Swap hook
+            </button>
+          )}
+        </div>
+
+        {/* Not part of the post: the openings to choose from */}
+        {canSwapHook && showHookOptions && (
+          <div className="mt-2 space-y-1.5 rounded-lg border border-neutral-200 bg-neutral-50 p-2 whitespace-normal dark:border-border dark:bg-surface-hover/60">
+            {hookOptions.map(option => {
+              const current = option.content.trim() === cleanHook
+              return (
+                <button
+                  key={`${option.label}-${option.content}`}
+                  type="button"
+                  disabled={current || hookSwapDisabled}
+                  onClick={() => {
+                    onSelectHook?.(option.content)
+                    setShowHookOptions(false)
+                  }}
+                  className={`block w-full rounded-md border px-2.5 py-2 text-left text-xs leading-snug transition-colors ${
+                    current
+                      ? 'cursor-default border-[#0a66c2]/40 bg-[#0a66c2]/5 text-neutral-900 dark:text-neutral-100'
+                      : 'cursor-pointer border-transparent bg-white text-neutral-700 hover:border-[#0a66c2]/40 disabled:cursor-wait disabled:opacity-60 dark:bg-surface dark:text-neutral-300'
+                  }`}
+                >
+                  <span className="mb-0.5 block text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">
+                    {option.label}
+                    {current && ' · in use'}
+                  </span>
+                  {option.content}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Post Body & CTA */}
         {(!isHookLongerThanFold || showFullPost) && (
@@ -140,7 +225,7 @@ export function LinkedInPreview({
 
       {/* Media Attachment Preview */}
       {mediaUrl && (
-        <div className="mt-2 border-y border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/40 relative">
+        <div className="mt-2 border-y border-neutral-200 dark:border-border bg-neutral-100 dark:bg-surface-hover/60 relative">
           {onMediaClick ? (
             <button
               type="button"
@@ -175,7 +260,7 @@ export function LinkedInPreview({
       )}
 
       {/* Reaction Counts Bar */}
-      <div className="px-4 py-2.5 flex items-center justify-between text-xs text-neutral-500 border-b border-neutral-100 dark:border-neutral-800/80">
+      <div className="px-4 py-2.5 flex items-center justify-between text-xs text-neutral-500 border-b border-neutral-100 dark:border-border">
         <div className="flex items-center gap-1.5">
           <div className="flex -space-x-1">
             <span className="w-4 h-4 rounded-full bg-[#0a66c2] text-white flex items-center justify-center text-[9px]">
@@ -201,33 +286,93 @@ export function LinkedInPreview({
       <div className="px-2 py-1 flex items-center justify-between text-neutral-600 dark:text-neutral-400">
         <button
           type="button"
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-semibold transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-surface-hover text-xs font-semibold transition-colors"
         >
           <ThumbsUp className="w-4 h-4" />
           <span>Like</span>
         </button>
         <button
           type="button"
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-semibold transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-surface-hover text-xs font-semibold transition-colors"
         >
           <MessageSquare className="w-4 h-4" />
           <span>Comment</span>
         </button>
         <button
           type="button"
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-semibold transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-surface-hover text-xs font-semibold transition-colors"
         >
           <Repeat2 className="w-4 h-4" />
           <span>Repost</span>
         </button>
         <button
           type="button"
-          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-semibold transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-md hover:bg-neutral-100 dark:hover:bg-surface-hover text-xs font-semibold transition-colors"
         >
           <Send className="w-4 h-4" />
           <span>Send</span>
         </button>
       </div>
+
+      {/* First comment, laid out like a LinkedIn comment by the author */}
+      {comment && (
+        <div className="border-t border-neutral-100 px-4 pt-3 pb-3 dark:border-border">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0a66c2] text-[11px] font-bold text-white">
+              {authorInitials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="rounded-lg rounded-tl-none bg-neutral-100 px-3 py-2 dark:bg-surface-hover">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-xs font-semibold">
+                    {authorName}
+                  </span>
+                  <span className="shrink-0 rounded bg-neutral-500/15 px-1 text-[10px] font-semibold text-neutral-600 dark:text-neutral-300">
+                    Author
+                  </span>
+                </div>
+                {authorHeadline && (
+                  <p className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">
+                    {authorHeadline}
+                  </p>
+                )}
+                <p className="mt-1.5 text-[13px] leading-[1.45] wrap-break-word whitespace-pre-wrap text-neutral-800 dark:text-neutral-200">
+                  {isCommentLong && !showFullComment
+                    ? `${comment.slice(0, COMMENT_FOLD_CHARS).trimEnd()}…`
+                    : comment}
+                  {isCommentLong && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFullComment(open => !open)}
+                      className="ml-1 cursor-pointer font-semibold text-neutral-500 hover:text-[#0a66c2] hover:underline"
+                    >
+                      {showFullComment ? 'see less' : 'see more'}
+                    </button>
+                  )}
+                </p>
+              </div>
+              <div className="mt-1 flex items-center gap-3 px-1 text-[11px] font-semibold text-neutral-500">
+                <span>Like</span>
+                <span>Reply</span>
+                {onCopyFirstComment && (
+                  <button
+                    type="button"
+                    onClick={onCopyFirstComment}
+                    className="ml-auto inline-flex cursor-pointer items-center gap-1 text-[#0a66c2] hover:underline dark:text-[#70b5f9]"
+                  >
+                    {firstCommentCopied ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                    {firstCommentCopied ? 'Copied' : 'Copy comment'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

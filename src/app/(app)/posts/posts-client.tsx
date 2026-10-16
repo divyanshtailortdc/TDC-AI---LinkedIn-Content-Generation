@@ -18,8 +18,6 @@ import {
 import { getUserFacingRelevance } from '@/lib/media/relevance-label'
 import {
   AlertTriangle,
-  ArrowUpDown,
-  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -34,6 +32,7 @@ import {
   FileCheck,
   Image as ImageIcon,
   Info,
+  ListFilter,
   Loader2,
   MessageSquare,
   Paperclip,
@@ -53,6 +52,7 @@ import {
   useState,
   useSyncExternalStore
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   approveDraft,
   fetchPostMediaImage,
@@ -70,6 +70,8 @@ export interface PostDetail {
   accountHeadline?: string | null
   runId?: string | null
   hook: string
+  /** The hook the AI wrote, kept so a swap can be undone. */
+  originalHook?: string | null
   body: string
   cta?: string | null
   firstComment?: string | null
@@ -139,16 +141,8 @@ function getHumanRuleLabel(rule: string): string {
     .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-type DateRange = 'all' | 'today' | '7d' | '30d'
 type StatusFilter = 'all' | 'awaiting_review' | 'approved' | 'rejected'
 type SortOrder = 'newest' | 'oldest'
-
-const DATE_RANGE_LABELS: Record<DateRange, string> = {
-  all: 'All time',
-  today: 'Today',
-  '7d': 'Last 7 days',
-  '30d': 'Last 30 days'
-}
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
   all: 'All statuses',
@@ -168,13 +162,74 @@ function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value)
 }
 
-/** Oldest boundary for a range, or null when unbounded. */
-function rangeStart(range: DateRange): Date | null {
-  if (range === 'all') return null
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  if (range === 'today') return start
-  return new Date(start.getTime() - (range === '7d' ? 6 : 29) * DAY_MS)
+/**
+ * Local midnight of a date input's yyyy-mm-dd value, moved by `addDays`, or
+ * null when the input is empty.
+ */
+function dayStart(value: string, addDays = 0): Date | null {
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day + addDays)
+}
+
+/** Whether a date falls in the From–To range; both days count, an empty end is open. */
+function inDateRange(value: Date | string, from: string, to: string): boolean {
+  const time = toDate(value).getTime()
+  const start = dayStart(from)
+  if (start && time < start.getTime()) return false
+  const end = dayStart(to, 1)
+  if (end && time >= end.getTime()) return false
+  return true
+}
+
+const STATUS_FILTERS: StatusFilter[] = [
+  'all',
+  'awaiting_review',
+  'approved',
+  'rejected'
+]
+const DAY_PARAM = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * The filters live in the URL (?status=&from=&to=&sort=&q=) so they survive a
+ * reload and can be shared as a link. Unknown or malformed values fall back
+ * to the defaults, which are left out of the URL.
+ */
+function filtersFromParams(params: URLSearchParams) {
+  const status = params.get('status') as StatusFilter | null
+  const from = params.get('from') ?? ''
+  const to = params.get('to') ?? ''
+  return {
+    status: status && STATUS_FILTERS.includes(status) ? status : 'all',
+    from: DAY_PARAM.test(from) ? from : '',
+    to: DAY_PARAM.test(to) ? to : '',
+    sort: params.get('sort') === 'oldest' ? 'oldest' : 'newest'
+  } satisfies { status: StatusFilter; from: string; to: string; sort: SortOrder }
+}
+
+/**
+ * Writes URL params through the native History API, which Next.js keeps in
+ * sync with useSearchParams without a server round trip. Empty values are
+ * removed. Reads the live URL so back-to-back writes don't undo each other.
+ */
+function writeParams(
+  changes: Record<string, string | null>,
+  mode: 'push' | 'replace'
+) {
+  const params = new URLSearchParams(window.location.search)
+  for (const [key, value] of Object.entries(changes)) {
+    if (value) params.set(key, value)
+    else params.delete(key)
+  }
+  const query = params.toString()
+  const url = query ? `?${query}` : window.location.pathname
+  if (mode === 'push') window.history.pushState(null, '', url)
+  else window.history.replaceState(null, '', url)
+}
+
+/** A date as a date input's yyyy-mm-dd value, in local time. */
+function toDayInput(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 /**
@@ -280,25 +335,37 @@ export function PostsClientInner({
       initialPosts[0]?.id ||
       ''
   )
-  const [dateRange, setDateRange] = useState<DateRange>('all')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
-  // The post just approved or rejected stays in the queue until you move on.
-  // Otherwise filtering to "Awaiting review" and approving a post removed it
-  // instantly and jumped to another one before it could be copied.
-  const [pinnedPostId, setPinnedPostId] = useState<string | null>(null)
+  // yyyy-mm-dd from the date inputs; empty means that end is open.
+  const {
+    status: statusFilter,
+    from: dateFrom,
+    to: dateTo,
+    sort: sortOrder
+  } = filtersFromParams(searchParams)
+  // Typed into on every keystroke, so it is local state that is copied into
+  // the URL (replace, not push: each letter is not a Back step).
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') ?? '')
+  const changeSearch = (value: string) => {
+    setSearchQuery(value)
+    writeParams({ q: value.trim() ? value : null }, 'replace')
+  }
+  // Back and Forward change the URL without typing, so the box follows it.
+  useEffect(() => {
+    const onPopState = () =>
+      setSearchQuery(new URLSearchParams(window.location.search).get('q') ?? '')
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   // Active post editing state
   // Posts matching everything except the status facet, so the status counts can
   // show what switching to another status would actually reveal. All posts
   // here already belong to the active account (scoped server-side), so there
   // is no identity facet to filter on.
-  const scopedPosts = posts.filter(p => {
+  const matchesScope = (p: PostDetail) => {
     if (filterRunId && p.runId !== filterRunId) return false
 
-    const start = rangeStart(dateRange)
-    if (start && toDate(p.createdAt) < start) return false
+    if (!inDateRange(p.createdAt, dateFrom, dateTo)) return false
 
     const query = searchQuery.trim().toLowerCase()
     if (query) {
@@ -308,7 +375,8 @@ export function PostsClientInner({
     }
 
     return true
-  })
+  }
+  const scopedPosts = posts.filter(matchesScope)
 
   const statusCounts = {
     all: scopedPosts.length,
@@ -318,27 +386,51 @@ export function PostsClientInner({
     rejected: scopedPosts.filter(p => p.status === 'rejected').length
   }
 
-  const filteredPosts = scopedPosts
-    .filter(
-      p =>
-        statusFilter === 'all' ||
-        p.status === statusFilter ||
-        p.id === pinnedPostId
-    )
-    .sort((a, b) => {
-      const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
-      return sortOrder === 'newest' ? diff : -diff
-    })
+  // The queue as shown: every filter applied, in the chosen order.
+  const queueOf = (list: PostDetail[]) =>
+    list
+      .filter(
+        p =>
+          matchesScope(p) &&
+          (statusFilter === 'all' || p.status === statusFilter)
+      )
+      .sort((a, b) => {
+        const diff =
+          toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+        return sortOrder === 'newest' ? diff : -diff
+      })
+  const filteredPosts = queueOf(posts)
 
   const hasActiveFilters =
-    dateRange !== 'all' ||
+    Boolean(dateFrom || dateTo) ||
+    sortOrder !== 'newest' ||
     statusFilter !== 'all' ||
     searchQuery.trim().length > 0
 
+  // Also leaves a run's posts (?runId=), back to every post.
   const clearFilters = () => {
-    setDateRange('all')
-    setStatusFilter('all')
     setSearchQuery('')
+    writeParams(
+      { runId: null, status: null, from: null, to: null, sort: null, q: null },
+      'push'
+    )
+  }
+
+  // Any change to the filters, search or order opens the first post of the
+  // new queue, so the post on screen always matches the list beside it.
+  // Adjusted during render (not in an effect) so the old post never paints.
+  const filterKey = [
+    filterRunId,
+    dateFrom,
+    dateTo,
+    statusFilter,
+    searchQuery,
+    sortOrder
+  ].join('|')
+  const [shownFilterKey, setShownFilterKey] = useState(filterKey)
+  if (filterKey !== shownFilterKey) {
+    setShownFilterKey(filterKey)
+    setSelectedPostId(filteredPosts[0]?.id ?? '')
   }
 
   // The open post always comes from the filtered queue, so changing a filter
@@ -385,6 +477,33 @@ export function PostsClientInner({
   // Leaving the page must not leave a generation running that would still save.
   useEffect(() => () => generationAbortRef.current?.abort(), [])
 
+  // The editor, preview and Copy read the edit buffer, so it is reset (with
+  // the per-post panels) whenever a different post opens, however that
+  // happens: a click, J/K, a filter change or a status change.
+  const activePostId = activePost?.id
+  const [bufferPostId, setBufferPostId] = useState(activePostId)
+  if (activePostId !== bufferPostId) {
+    setBufferPostId(activePostId)
+    setEditedHook(activePost?.hook || '')
+    setEditedBody(activePost?.body || '')
+    setEditedComment(activePost?.firstComment || '')
+    setIsEditing(false)
+    setShowStockInput(false)
+    setShowCustomUrlInput(false)
+    setShowPostRejection(false)
+    setPostRejectionReason('')
+    setMediaMenuOpen(false)
+    setMediaError(null)
+    setMediaNotice(null)
+    setImagePrompt('')
+    setReferenceImage(null)
+    setReferenceImageName(null)
+  }
+  // The file input's own value is DOM state, so it is cleared after render.
+  useEffect(() => {
+    if (referenceInputRef.current) referenceInputRef.current.value = ''
+  }, [activePostId])
+
   // The page ships media metadata without the image bytes; load them for the
   // post being viewed, once per media record.
   const loadedImageIds = useRef<Set<string>>(new Set())
@@ -414,11 +533,9 @@ export function PostsClientInner({
   }, [activeMediaId, activeMediaHasImage])
 
   // Collapsible drawers (all collapsed by default as requested)
-  const [showAlternateHooks, setShowAlternateHooks] = useState(false)
   const [showQualityChecks, setShowQualityChecks] = useState(false)
   const [showCitations, setShowCitations] = useState(false)
   const [showAdvancedMedia, setShowAdvancedMedia] = useState(false)
-  const [showFirstCommentDetail, setShowFirstCommentDetail] = useState(false)
 
   const currentIndex = filteredPosts.findIndex(p => p.id === activePost?.id)
   const totalPosts = filteredPosts.length
@@ -429,22 +546,9 @@ export function PostsClientInner({
     if (referenceInputRef.current) referenceInputRef.current.value = ''
   }
 
+  // Opening a post is all it takes: the buffer resets above.
   const handleSelectPost = (post: PostDetail) => {
     setSelectedPostId(post.id)
-    setPinnedPostId(null)
-    setEditedHook(post.hook)
-    setEditedBody(post.body)
-    setEditedComment(post.firstComment || '')
-    setIsEditing(false)
-    setShowStockInput(false)
-    setShowCustomUrlInput(false)
-    setShowPostRejection(false)
-    setPostRejectionReason('')
-    setMediaMenuOpen(false)
-    setMediaError(null)
-    setMediaNotice(null)
-    setImagePrompt('')
-    clearReferenceImage()
   }
 
   const handlePrevPost = () => {
@@ -978,18 +1082,32 @@ export function PostsClientInner({
     }
   }
 
+  /**
+   * A status change refreshes the queue: it is filtered again, so a post that
+   * no longer matches the status filter leaves the list, and the first post in
+   * it opens.
+   */
+  const refreshQueueAfterStatusChange = (id: string, status: string) => {
+    const withStatus = (list: PostDetail[]) =>
+      list.map(p => (p.id === id ? { ...p, status } : p))
+    setPosts(withStatus)
+    const first = queueOf(withStatus(posts))[0]
+    if (first) handleSelectPost(first)
+    else setSelectedPostId('')
+  }
+
   const handleApprove = async () => {
     if (!activePost || activePost.status === 'approved') return
+    const approvedId = activePost.id
     setIsSaving(true)
     try {
-      await approveDraft(activePost.id)
-      // Stay on it: approving is followed by copying, not by the next post.
-      setPinnedPostId(activePost.id)
-      setPosts(prev =>
-        prev.map(p =>
-          p.id === activePost.id ? { ...p, status: 'approved' } : p
-        )
-      )
+      await approveDraft(approvedId)
+      refreshQueueAfterStatusChange(approvedId, 'approved')
+      showToast({
+        type: 'success',
+        title: 'Post approved',
+        message: 'Opened the first post in the queue.'
+      })
     } finally {
       setIsSaving(false)
     }
@@ -997,33 +1115,19 @@ export function PostsClientInner({
 
   const handleReject = async (reason?: string) => {
     if (!activePost) return
-    // Chosen before the status changes, while the queue order is still intact.
-    const nextPost =
-      filteredPosts[currentIndex + 1] || filteredPosts[currentIndex - 1] || null
     const rejectedId = activePost.id
 
     setIsSaving(true)
     try {
       await rejectDraft(rejectedId, reason?.trim() || undefined)
-      setPosts(prev =>
-        prev.map(p => (p.id === rejectedId ? { ...p, status: 'rejected' } : p))
-      )
-      setShowPostRejection(false)
-      setPostRejectionReason('')
-
-      // A rejected post needs nothing further, so move straight on.
-      if (nextPost) {
-        handleSelectPost(nextPost)
-        showToast({
-          type: 'success',
-          title: 'Post rejected',
-          message: reason?.trim()
-            ? 'Your reason was saved to shape future drafts.'
-            : 'Moved to the next post.'
-        })
-      } else {
-        setPinnedPostId(rejectedId)
-      }
+      refreshQueueAfterStatusChange(rejectedId, 'rejected')
+      showToast({
+        type: 'success',
+        title: 'Post rejected',
+        message: reason?.trim()
+          ? 'Your reason was saved to shape future drafts.'
+          : undefined
+      })
     } finally {
       setIsSaving(false)
     }
@@ -1074,8 +1178,19 @@ export function PostsClientInner({
         .toUpperCase()
     : 'IN'
 
-  const alternateHooks =
-    activePost?.variants?.filter(v => v.variantType === 'hook') || []
+  // Offered beside the hook in the preview: the AI's own opening first, so a
+  // swap can always be undone, then the alternates. Duplicates are dropped.
+  const hookOptions = [
+    ...(activePost?.originalHook
+      ? [{ label: 'Original', content: activePost.originalHook }]
+      : []),
+    ...(activePost?.variants || [])
+      .filter(v => v.variantType === 'hook')
+      .map((v, i) => ({ label: `Alternate ${i + 1}`, content: v.content }))
+  ].filter(
+    (option, i, all) =>
+      all.findIndex(o => o.content.trim() === option.content.trim()) === i
+  )
   const citations = activePost?.citations || []
   const lintFindings = activePost?.lintFindings || []
   const passedLintCount = lintFindings.filter(f => f.passed).length
@@ -1108,103 +1223,278 @@ export function PostsClientInner({
     activePost?.media?.altText ||
     'Editorial visual asset'
 
+  // Search and filters sit in the queue card on wide screens; below lg the
+  // queue is hidden, so they are shown above the post instead.
+  const filterControls = (
+    <div className="flex items-center gap-2">
+      <div className="relative min-w-0 flex-1">
+        <Search className="text-muted pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={e => changeSearch(e.target.value)}
+          placeholder="Search posts…"
+          className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border py-1.5 pr-3 pl-8 text-xs outline-none"
+        />
+      </div>
+
+      <PostFiltersMenu
+        value={{
+          status: statusFilter,
+          from: dateFrom,
+          to: dateTo,
+          sort: sortOrder
+        }}
+        statusCounts={statusCounts}
+        today={hasMounted ? toDayInput(new Date()) : undefined}
+        onApply={next =>
+          writeParams(
+            {
+              status: next.status === 'all' ? null : next.status,
+              from: next.from || null,
+              to: next.to || null,
+              sort: next.sort === 'newest' ? null : next.sort
+            },
+            'push'
+          )
+        }
+      />
+    </div>
+  )
+
+  // The decision bar: where you are in the queue, approve / reject, then
+  // previous / next. It sits in the page header's strip, so it is always in
+  // view while the post scrolls.
+  const reviewBar = activePost ? (
+    <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-3">
+      {/* One row: where you are in the queue, the decision, then
+          previous / next. The two wrappers below are `contents`, so
+          their children sit directly in this row. */}
+      <div className="contents">
+        <div className="flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden whitespace-nowrap sm:min-w-fit">
+          <span className="text-foreground text-xs font-semibold tabular-nums">
+            Post {currentIndex + 1} of {totalPosts}
+          </span>
+          <span className="text-muted text-xs">•</span>
+          <span className="text-muted truncate text-xs font-medium">
+            {activePost.accountName}
+          </span>
+          <span className="text-muted text-xs">•</span>
+          <span
+            className="text-muted text-xs"
+            title={formatAbsoluteDateTime(activePost.createdAt)}
+          >
+            Drafted{' '}
+            {hasMounted
+              ? formatRelativeDate(activePost.createdAt)
+              : formatAbsoluteDate(activePost.createdAt)}
+          </span>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+              activePost.status === 'approved'
+                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : activePost.status === 'rejected'
+                  ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                  : 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+            }`}
+          >
+            {activePost.status === 'approved'
+              ? '✓ Approved'
+              : activePost.status === 'rejected'
+                ? 'Rejected'
+                : 'Awaiting review'}
+          </span>
+        </div>
+
+        <div className="order-last flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            disabled={currentIndex <= 0}
+            onClick={handlePrevPost}
+            aria-label="Previous post"
+            title="Previous post (K)"
+            className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            disabled={currentIndex >= totalPosts - 1}
+            onClick={handleNextPost}
+            aria-label="Next post"
+            title="Next post (J)"
+            className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* The one thing to do next, which depends on the post's state */}
+      <div className="contents">
+        {showPostRejection ? (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              void handleReject(postRejectionReason)
+            }}
+            className="flex min-w-0 flex-wrap items-center gap-2"
+          >
+            <input
+              type="text"
+              autoFocus
+              value={postRejectionReason}
+              onChange={e => setPostRejectionReason(e.target.value)}
+              placeholder="Why reject? Optional, helps future drafts"
+              className="border-border bg-surface text-foreground placeholder:text-muted w-72 max-w-full min-w-0 rounded-lg border px-3 py-2 text-xs outline-none focus:border-rose-500"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPostRejection(false)
+                  setPostRejectionReason('')
+                }}
+                className="text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="h-8 cursor-pointer rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
+              >
+                {isSaving ? 'Rejecting…' : 'Reject'}
+              </button>
+            </div>
+          </form>
+        ) : activePost.status === 'approved' ? (
+          <div className="flex shrink-0 items-center gap-3">
+            
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyPost}
+                className="bg-accent text-background flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-opacity hover:opacity-90"
+              >
+                {copiedPost ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {copiedPost ? 'Post copied' : '1. Copy post'}
+                <kbd className="ml-1.5 rounded border border-white/30 px-1 py-px font-mono text-[10px] font-normal opacity-80">
+                  C
+                </kbd>
+              </button>
+              {editedComment ? (
+                <button
+                  type="button"
+                  onClick={handleCopyComment}
+                  className="border-border text-foreground hover:bg-surface-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
+                >
+                  {copiedComment ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  )}
+                  {copiedComment
+                    ? 'Comment copied'
+                    : '2. Copy first comment'}
+                </button>
+              ) : (
+                <span className="text-muted text-[11px]">
+                  No first comment
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowPostRejection(true)}
+                className="text-muted h-8 cursor-pointer px-2 text-[11px] hover:text-rose-600 dark:hover:text-rose-400"
+              >
+                Reject instead
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-3">
+           
+            <div className="flex items-center gap-2">
+              {activePost.status !== 'rejected' && (
+                <button
+                  type="button"
+                  onClick={() => setShowPostRejection(true)}
+                  disabled={isSaving}
+                  className="border-border text-muted flex h-8 cursor-pointer items-center rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
+                >
+                  Reject
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={isSaving}
+                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isSaving
+                  ? 'Saving…'
+                  : activePost.status === 'rejected'
+                    ? 'Approve instead'
+                    : 'Approve'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Review & Ship Posts"
         badge="Daily Surface"
         description={`Reviewing drafts for ${activeAccount.name} · @${activeAccount.handle}`}
-        bottomContent={
-          <div className="flex w-max min-w-full items-center gap-4">
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="relative w-64 shrink-0">
-                <Search className="text-muted pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search hooks, body, hashtags…"
-                  className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border py-1.5 pr-3 pl-8 text-xs outline-none"
-                />
-              </div>
-
-              {/* Status is the primary triage axis, so it keeps its counts. */}
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value as StatusFilter)}
-                aria-label="Filter by status"
-                className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-              >
-                {(
-                  ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
-                ).map(status => (
-                  <option key={status} value={status}>
-                    {STATUS_LABELS[status]} ({statusCounts[status]})
-                  </option>
-                ))}
-              </select>
-
-              <div className="flex items-center gap-1.5">
-                <CalendarDays className="text-muted h-3.5 w-3.5" />
-                <select
-                  value={dateRange}
-                  onChange={e => setDateRange(e.target.value as DateRange)}
-                  className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                >
-                  {(Object.keys(DATE_RANGE_LABELS) as DateRange[]).map(range => (
-                    <option key={range} value={range}>
-                      {DATE_RANGE_LABELS[range]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <ArrowUpDown className="text-muted h-3.5 w-3.5" />
-                <select
-                  value={sortOrder}
-                  onChange={e => setSortOrder(e.target.value as SortOrder)}
-                  className="border-border bg-surface text-foreground focus:border-accent cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                </select>
-              </div>
-
-              {(hasActiveFilters || filterRunId) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearFilters()
-                    if (filterRunId) router.push('/posts')
-                  }}
-                  className="text-muted hover:text-foreground flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors"
-                >
-                  <X className="h-3 w-3" />
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-        }
+        bottomContent={reviewBar}
       />
 
       <div className="flex flex-1 overflow-hidden">
         {/* QUEUE RAIL — replaces a strip of "Post #1…#90" pills that carried no
             information about the posts they pointed at. */}
         <aside className="border-border bg-surface hidden w-[320px] shrink-0 flex-col border-r lg:flex">
-          <div className="border-border text-muted flex items-center justify-between border-b px-4 py-2.5 text-[11px] font-semibold tracking-wider uppercase">
-            <span>Queue</span>
-            <span className="tabular-nums">
-              {totalPosts} post{totalPosts === 1 ? '' : 's'}
-            </span>
+          <div className="border-border space-y-3 border-b px-4 pt-4 pb-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <span className="text-foreground text-sm font-semibold tracking-tight">
+                  Queue
+                </span>
+                <span className="bg-surface-hover text-muted rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums">
+                  {totalPosts}
+                </span>
+              </span>
+              {(hasActiveFilters || filterRunId) && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1 text-[11px] font-medium transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Clear filters
+                </button>
+              )}
+            </div>
+            {filterControls}
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto px-2 pb-3">
             {filteredPosts.length === 0 ? (
-              <p className="text-muted px-4 py-6 text-xs leading-relaxed">
-                No posts match these filters.
-              </p>
+              <div className="flex flex-col items-center px-4 py-10 text-center">
+                <Search className="text-muted/60 mb-2 h-5 w-5" />
+                <p className="text-muted text-xs leading-relaxed">
+                  No posts match these filters.
+                </p>
+              </div>
             ) : (
               filteredPosts.map((post, idx) => {
                 const isActive = post.id === activePost?.id
@@ -1213,39 +1503,63 @@ export function PostsClientInner({
                   dayKey(filteredPosts[idx - 1]!.createdAt) !==
                     dayKey(post.createdAt)
                 const errors = countLintErrors(post.lintFindings)
+                const status =
+                  post.status === 'approved'
+                    ? {
+                        label: 'Approved',
+                        dot: 'bg-emerald-500',
+                        text: 'text-emerald-700 dark:text-emerald-400'
+                      }
+                    : post.status === 'rejected'
+                      ? {
+                          label: 'Rejected',
+                          dot: 'bg-rose-500',
+                          text: 'text-rose-700 dark:text-rose-400'
+                        }
+                      : {
+                          label: 'In review',
+                          dot: 'bg-amber-500',
+                          text: 'text-amber-700 dark:text-amber-400'
+                        }
 
                 return (
                   <div key={post.id}>
                     {showBucket && (
-                      <div className="bg-surface-hover/60 text-muted border-border/60 border-y px-4 py-1.5 text-[10px] font-semibold tracking-wider uppercase">
+                      <div className="bg-surface/95 text-muted sticky top-0 z-10 flex items-center gap-2 px-2 pt-4 pb-2 text-[10px] font-semibold tracking-wider uppercase backdrop-blur">
                         {bucketLabel(post.createdAt, hasMounted)}
+                        <span className="bg-border/70 h-px flex-1" />
                       </div>
                     )}
                     <button
                       type="button"
                       onClick={() => handleSelectPost(post)}
-                      className={`border-border/60 w-full cursor-pointer border-b px-4 py-3 text-left transition-colors ${
+                      aria-current={isActive ? 'true' : undefined}
+                      title={post.accountName}
+                      className={`group relative mb-1 w-full cursor-pointer rounded-xl border px-3.5 py-3 text-left transition-all duration-150 ${
                         isActive
-                          ? 'bg-accent/10 border-l-accent border-l-2'
-                          : 'hover:bg-surface-hover border-l-2 border-l-transparent'
+                          ? 'border-border bg-surface-hover/70 shadow-xs'
+                          : 'hover:bg-surface-hover/50 border-transparent'
                       }`}
                     >
-                      <div className="mb-1.5 flex items-center gap-1.5">
+                      {isActive && (
                         <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                            post.status === 'approved'
-                              ? 'bg-emerald-500'
-                              : post.status === 'rejected'
-                                ? 'bg-rose-500'
-                                : 'bg-amber-500'
-                          }`}
+                          className="bg-accent absolute top-3 bottom-3 left-0 w-0.5 rounded-full"
                           aria-hidden
                         />
-                        <span className="text-muted truncate text-[11px] font-medium">
-                          {post.accountName}
+                      )}
+
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${status.text}`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`}
+                            aria-hidden
+                          />
+                          {status.label}
                         </span>
                         <span
-                          className="text-muted ml-auto shrink-0 text-[10px]"
+                          className="text-muted ml-auto shrink-0 text-[10px] tabular-nums"
                           title={formatAbsoluteDateTime(post.createdAt)}
                         >
                           {hasMounted
@@ -1256,33 +1570,39 @@ export function PostsClientInner({
 
                       {/* The hook is what actually identifies a post. */}
                       <p
-                        className={`line-clamp-2 text-xs leading-relaxed ${
+                        className={`line-clamp-2 text-[13px] leading-snug tracking-tight ${
                           isActive
                             ? 'text-foreground font-medium'
-                            : 'text-foreground/80'
+                            : 'text-foreground/75 group-hover:text-foreground'
                         }`}
                       >
                         {post.hook}
                       </p>
 
-                      <div className="text-muted mt-1.5 flex items-center gap-2.5 text-[10px]">
+                      <div className="text-muted mt-2 flex items-center gap-1.5 text-[10px]">
                         <span className="tabular-nums">
-                          {post.charCount} chars
+                          {post.charCount.toLocaleString()} chars
                         </span>
                         {post.media && (
-                          <span className="flex items-center gap-0.5">
+                          <span className="bg-surface-hover inline-flex items-center gap-1 rounded-md px-1.5 py-0.5">
                             <ImageIcon className="h-2.5 w-2.5" />
                             Media
                           </span>
                         )}
                         {post.citations.length > 0 && (
-                          <span className="flex items-center gap-0.5">
+                          <span
+                            className="bg-surface-hover inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 tabular-nums"
+                            title={`${post.citations.length} source${post.citations.length === 1 ? '' : 's'}`}
+                          >
                             <Quote className="h-2.5 w-2.5" />
                             {post.citations.length}
                           </span>
                         )}
                         {errors > 0 && (
-                          <span className="flex items-center gap-0.5 text-rose-500">
+                          <span
+                            className="inline-flex items-center gap-1 rounded-md bg-rose-500/10 px-1.5 py-0.5 font-medium text-rose-600 tabular-nums dark:text-rose-400"
+                            title={`${errors} lint error${errors === 1 ? '' : 's'}`}
+                          >
                             <AlertTriangle className="h-2.5 w-2.5" />
                             {errors}
                           </span>
@@ -1296,8 +1616,21 @@ export function PostsClientInner({
           </div>
         </aside>
 
-        <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto max-w-6xl space-y-6">
+        <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:py-8 lg:pr-2 lg:pl-8">
+          <div className="mx-auto max-w-6xl space-y-6 lg:mr-0 lg:max-w-none">
+          <div className="space-y-2 lg:hidden">
+            {filterControls}
+            {(hasActiveFilters || filterRunId) && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1 text-xs font-medium"
+              >
+                <X className="h-3 w-3" />
+                Clear filters
+              </button>
+            )}
+          </div>
           {filteredPosts.length === 0 || !activePost ? (
             <div className="border-border bg-surface rounded-2xl border-2 border-dashed p-16 text-center">
               {posts.length === 0 ? (
@@ -1331,7 +1664,6 @@ export function PostsClientInner({
                     type="button"
                     onClick={() => {
                       clearFilters()
-                      if (filterRunId) router.push('/posts')
                     }}
                     className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 h-8 cursor-pointer rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
                   >
@@ -1342,197 +1674,6 @@ export function PostsClientInner({
             </div>
           ) : (
             <>
-              {/* REVIEW HEADER — sticky, so the decision is always one glance away.
-                  It used to sit at the bottom of the right column, beneath the
-                  image tools, floating over the first comment it duplicated. */}
-              <div className="border-border bg-surface sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl border px-5 py-3 shadow-sm">
-                {/* One row: where you are in the queue, the decision, then
-                    previous / next. The two wrappers below are `contents`, so
-                    their children sit directly in this row. */}
-                <div className="contents">
-                  <div className="flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden whitespace-nowrap">
-                    <span className="text-foreground text-xs font-semibold tabular-nums">
-                      Post {currentIndex + 1} of {totalPosts}
-                    </span>
-                    <span className="text-muted text-xs">•</span>
-                    <span className="text-muted truncate text-xs font-medium">
-                      {activePost.accountName}
-                    </span>
-                    <span className="text-muted text-xs">•</span>
-                    <span
-                      className="text-muted text-xs"
-                      title={formatAbsoluteDateTime(activePost.createdAt)}
-                    >
-                      Drafted{' '}
-                      {hasMounted
-                        ? formatRelativeDate(activePost.createdAt)
-                        : formatAbsoluteDate(activePost.createdAt)}
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                        activePost.status === 'approved'
-                          ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : activePost.status === 'rejected'
-                            ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                            : 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                      }`}
-                    >
-                      {activePost.status === 'approved'
-                        ? '✓ Approved'
-                        : activePost.status === 'rejected'
-                          ? 'Rejected'
-                          : 'Awaiting review'}
-                    </span>
-                  </div>
-
-                  <div className="order-last flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={currentIndex <= 0}
-                      onClick={handlePrevPost}
-                      aria-label="Previous post"
-                      title="Previous post (K)"
-                      className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={currentIndex >= totalPosts - 1}
-                      onClick={handleNextPost}
-                      aria-label="Next post"
-                      title="Next post (J)"
-                      className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* The one thing to do next, which depends on the post's state */}
-                <div className="contents">
-                  {showPostRejection ? (
-                    <form
-                      onSubmit={e => {
-                        e.preventDefault()
-                        void handleReject(postRejectionReason)
-                      }}
-                      className="flex min-w-0 flex-[2] flex-col gap-2 sm:flex-row sm:items-center"
-                    >
-                      <input
-                        type="text"
-                        autoFocus
-                        value={postRejectionReason}
-                        onChange={e => setPostRejectionReason(e.target.value)}
-                        placeholder="What's wrong with it? Optional — saved to improve future drafts"
-                        className="border-border bg-surface text-foreground placeholder:text-muted min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs outline-none focus:border-rose-500"
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowPostRejection(false)
-                            setPostRejectionReason('')
-                          }}
-                          className="text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-medium"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={isSaving}
-                          className="h-8 cursor-pointer rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
-                        >
-                          {isSaving ? 'Rejecting…' : 'Reject & next'}
-                        </button>
-                      </div>
-                    </form>
-                  ) : activePost.status === 'approved' ? (
-                    <div className="flex shrink-0 items-center gap-3">
-                      <p className="hidden text-xs text-emerald-600 2xl:block dark:text-emerald-400">
-                        <span className="font-semibold">Approved.</span>{' '}
-                        <span className="text-muted">
-                          Publish it on LinkedIn in this order:
-                        </span>
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handleCopyPost}
-                          className="bg-accent text-background flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-opacity hover:opacity-90"
-                        >
-                          {copiedPost ? (
-                            <Check className="h-3.5 w-3.5" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" />
-                          )}
-                          {copiedPost ? 'Post copied' : '1. Copy post'}
-                          <kbd className="ml-1.5 rounded border border-white/30 px-1 py-px font-mono text-[10px] font-normal opacity-80">
-                            C
-                          </kbd>
-                        </button>
-                        {editedComment ? (
-                          <button
-                            type="button"
-                            onClick={handleCopyComment}
-                            className="border-border text-foreground hover:bg-surface-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
-                          >
-                            {copiedComment ? (
-                              <Check className="h-3.5 w-3.5" />
-                            ) : (
-                              <MessageSquare className="h-3.5 w-3.5" />
-                            )}
-                            {copiedComment
-                              ? 'Comment copied'
-                              : '2. Copy first comment'}
-                          </button>
-                        ) : (
-                          <span className="text-muted text-[11px]">
-                            No first comment
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setShowPostRejection(true)}
-                          className="text-muted h-8 cursor-pointer px-2 text-[11px] hover:text-rose-600"
-                        >
-                          Reject instead
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex shrink-0 items-center gap-3">
-                     
-                      <div className="flex items-center gap-2">
-                        {activePost.status !== 'rejected' && (
-                          <button
-                            type="button"
-                            onClick={() => setShowPostRejection(true)}
-                            disabled={isSaving}
-                            className="border-border text-muted flex h-8 cursor-pointer items-center rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
-                          >
-                            Reject
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={handleApprove}
-                          disabled={isSaving}
-                          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          {isSaving
-                            ? 'Saving…'
-                            : activePost.status === 'rejected'
-                              ? 'Approve instead'
-                              : 'Approve'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {/* TWO-COLUMN REVIEW WORKSPACE (Left: LinkedIn Preview; Right: Compact Review Panel) */}
               <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
                 {/* ============================================================ */}
@@ -1634,6 +1775,7 @@ export function PostsClientInner({
                   ) : (
                     <div className="flex w-full justify-center">
                       <LinkedInPreview
+                        key={activePost.id}
                         authorName={activePost.accountName}
                         authorHeadline={activePost.accountHeadline}
                         authorInitials={authorInitials}
@@ -1649,6 +1791,12 @@ export function PostsClientInner({
                             ? () => setIsImageZoomOpen(true)
                             : undefined
                         }
+                        hookOptions={hookOptions.length > 1 ? hookOptions : []}
+                        onSelectHook={handleSwapHook}
+                        hookSwapDisabled={isSaving}
+                        firstComment={editedComment}
+                        onCopyFirstComment={handleCopyComment}
+                        firstCommentCopied={copiedComment}
                       />
                     </div>
                   )}
@@ -1676,7 +1824,7 @@ export function PostsClientInner({
                       <button
                         type="button"
                         onClick={() => setMediaError(null)}
-                        className="cursor-pointer p-1 hover:text-rose-700"
+                        className="cursor-pointer p-1 hover:text-rose-700 dark:hover:text-rose-300"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1742,7 +1890,7 @@ export function PostsClientInner({
                     )}
 
                   {/* 1. COMPACT MEDIA REVIEW CARD (No duplicate large image) */}
-                  <div className="border-border bg-surface space-y-3 rounded-2xl border p-4 shadow-xs">
+                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-8">
                     <div className="flex items-center justify-between">
                       <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
                         <ImageIcon className="text-accent h-3.5 w-3.5" />
@@ -1883,12 +2031,7 @@ export function PostsClientInner({
                           </span>
                         </button>
                       </div>
-                    ) : (
-                      <div className="border-border bg-surface-hover/20 text-muted rounded-xl border border-dashed p-3.5 text-center text-xs">
-                        No visual media attached. Post will publish as
-                        text-only.
-                      </div>
-                    )}
+                    ):null}
 
                     {/* Stock search input */}
                     {showStockInput && !isMediaLoading && (
@@ -2000,7 +2143,7 @@ export function PostsClientInner({
                           value={imagePrompt}
                           onChange={e => setImagePrompt(e.target.value)}
                           onPaste={handleReferencePaste}
-                          rows={3}
+                          rows={5}
                           placeholder={
                             referenceImage
                               ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
@@ -2181,107 +2324,6 @@ export function PostsClientInner({
                     </div>
                   </div>
 
-                  {/* 2. FIRST COMMENT CARD (Compact with preview & edit) */}
-                  {editedComment && (
-                    <div className="border-border bg-surface space-y-2.5 rounded-2xl border p-4 shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
-                          <MessageSquare className="h-3.5 w-3.5 text-[#0a66c2]" />
-                          First Comment
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setShowFirstCommentDetail(!showFirstCommentDetail)
-                            }
-                            className="text-muted hover:text-foreground cursor-pointer text-[11px]"
-                          >
-                            {showFirstCommentDetail ? 'Collapse' : 'View full'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleCopyComment}
-                            className="text-accent inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:underline"
-                          >
-                            {copiedComment ? (
-                              <>
-                                <Check className="h-3 w-3" />
-                                <span>Copied!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3 w-3" />
-                                <span>Copy</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                      <p
-                        className={`text-muted bg-surface-hover/60 rounded-xl p-3 font-mono text-xs wrap-break-word ${
-                          showFirstCommentDetail ? '' : 'line-clamp-2'
-                        }`}
-                      >
-                        {editedComment}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* ============================================================ */}
-                  {/* COLLAPSIBLE ACCORDION SECTIONS (Hooks, Checks, Citations, Debug) */}
-                  {/* ============================================================ */}
-
-                  {/* A. ALTERNATE HOOKS (Collapsed by default) */}
-                  {alternateHooks.length > 0 && (
-                    <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowAlternateHooks(!showAlternateHooks)
-                        }
-                        className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
-                      >
-                        <span className="flex items-center gap-2">
-                          <Sparkles className="text-accent h-3.5 w-3.5" />
-                          Alternate Hooks ({alternateHooks.length})
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted text-[11px] font-normal">
-                            Click to swap
-                          </span>
-                          {showAlternateHooks ? (
-                            <ChevronUp className="text-muted h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="text-muted h-4 w-4" />
-                          )}
-                        </div>
-                      </button>
-
-                      {showAlternateHooks && (
-                        <div className="border-border/40 space-y-2 border-t p-4 pt-0">
-                          {alternateHooks.map(alt => (
-                            <button
-                              key={alt.id}
-                              type="button"
-                              onClick={() => handleSwapHook(alt.content)}
-                              className={`w-full cursor-pointer rounded-xl border p-2.5 text-left text-xs transition-all ${
-                                editedHook === alt.content
-                                  ? 'border-accent bg-accent/10 text-foreground font-medium'
-                                  : 'border-border hover:bg-surface-hover text-muted'
-                              }`}
-                            >
-                              <span className="text-accent mr-1.5 font-mono text-[10px] font-semibold uppercase">
-                                Swap:
-                              </span>
-                              &quot;{alt.content}&quot;
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {/* B. QUALITY CHECKS (Summary by default: "✓ 6 checks passed") */}
                   <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
                     <button
@@ -2366,6 +2408,272 @@ export function PostsClientInner({
         </div>
       </div>
     </div>
+  )
+}
+
+type PostFilters = {
+  status: StatusFilter
+  /** yyyy-mm-dd; empty means that end is open. */
+  from: string
+  to: string
+  sort: SortOrder
+}
+
+const DEFAULT_FILTERS: PostFilters = {
+  status: 'all',
+  from: '',
+  to: '',
+  sort: 'newest'
+}
+
+const filterFieldClass =
+  'border-border bg-surface text-foreground focus:border-accent w-full cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none'
+
+/**
+ * The Filters button and its panel. Choices are only a draft until Apply, so
+ * the queue does not jump around while they are being set.
+ *
+ * The toolbar scrolls sideways, which would clip an absolutely placed panel,
+ * so the panel is portalled to the body and placed against the window.
+ */
+function PostFiltersMenu({
+  value,
+  statusCounts,
+  today,
+  onApply
+}: {
+  value: PostFilters
+  statusCounts: Record<StatusFilter, number>
+  /** Latest pickable day; unset until mounted, as "today" differs by timezone. */
+  today?: string
+  onApply: (next: PostFilters) => void
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const fromRef = useRef<HTMLInputElement>(null)
+  const toRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<PostFilters>(value)
+  const [dateError, setDateError] = useState<string | null>(null)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+
+  const activeCount =
+    (value.status !== 'all' ? 1 : 0) +
+    (value.from || value.to ? 1 : 0) +
+    (value.sort !== 'newest' ? 1 : 0)
+
+  const place = () => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const width = Math.min(320, window.innerWidth - 32)
+    setPosition({
+      top: rect.bottom + 8,
+      left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+    })
+  }
+
+  const openMenu = () => {
+    setDraft(value)
+    setDateError(null)
+    place()
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('resize', close)
+    return () => window.removeEventListener('resize', close)
+  }, [open])
+
+  const set = (next: Partial<PostFilters>) => {
+    setDraft(prev => ({ ...prev, ...next }))
+    setDateError(null)
+  }
+
+  // The browser's own checks would block Apply silently for a half-typed
+  // date, so the form skips them and explains the problem here instead.
+  const apply = () => {
+    if (fromRef.current?.validity.badInput || toRef.current?.validity.badInput) {
+      setDateError('Finish typing the date, or clear it.')
+      return
+    }
+    if (draft.from && draft.to && draft.from > draft.to) {
+      setDateError('From must be on or before To.')
+      return
+    }
+    if (today && (draft.from > today || draft.to > today)) {
+      setDateError('Dates can’t be in the future.')
+      return
+    }
+    onApply(draft)
+    setOpen(false)
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          activeCount > 0
+            ? 'border-accent bg-accent/10 text-accent'
+            : 'border-border bg-surface text-foreground hover:bg-surface-hover'
+        }`}
+      >
+        <ListFilter className="h-3.5 w-3.5" />
+        Filters
+        {activeCount > 0 && (
+          <span className="bg-accent text-background rounded-full px-1.5 text-[10px] leading-4 font-semibold tabular-nums">
+            {activeCount}
+          </span>
+        )}
+      </button>
+
+      {open &&
+        createPortal(
+          <>
+            <div
+              aria-hidden
+              className="fixed inset-0 z-40"
+              onClick={() => setOpen(false)}
+            />
+            <form
+              role="dialog"
+              aria-label="Filter posts"
+              style={{ top: position.top, left: position.left }}
+              // The page's review shortcuts (A, R, J, K…) listen on window;
+              // keys typed here must not reach them.
+              onKeyDown={e => {
+                e.stopPropagation()
+                if (e.key === 'Escape') setOpen(false)
+              }}
+              noValidate
+              onSubmit={e => {
+                e.preventDefault()
+                apply()
+              }}
+              className="border-border bg-surface fixed z-50 w-[min(20rem,calc(100vw-2rem))] space-y-4 rounded-xl border p-4 shadow-lg"
+            >
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="filter-status"
+                  className="text-foreground block text-xs font-semibold"
+                >
+                  Status
+                </label>
+                <select
+                  id="filter-status"
+                  autoFocus
+                  value={draft.status}
+                  onChange={e => set({ status: e.target.value as StatusFilter })}
+                  className={filterFieldClass}
+                >
+                  {(
+                    ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
+                  ).map(status => (
+                    <option key={status} value={status}>
+                      {STATUS_LABELS[status]} ({statusCounts[status]})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Each end limits the other, so From can never be after To. */}
+              <fieldset className="space-y-1.5">
+                <legend className="text-foreground mb-1.5 text-xs font-semibold">
+                  Date range
+                </legend>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label htmlFor="filter-from" className="text-muted block text-[11px]">
+                      From
+                    </label>
+                    <input
+                      ref={fromRef}
+                      id="filter-from"
+                      type="date"
+                      value={draft.from}
+                      max={draft.to || today}
+                      onChange={e => set({ from: e.target.value })}
+                      className={filterFieldClass}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="filter-to" className="text-muted block text-[11px]">
+                      To
+                    </label>
+                    <input
+                      ref={toRef}
+                      id="filter-to"
+                      type="date"
+                      value={draft.to}
+                      min={draft.from || undefined}
+                      max={today}
+                      onChange={e => set({ to: e.target.value })}
+                      className={filterFieldClass}
+                    />
+                  </div>
+                </div>
+                {dateError && (
+                  <p role="alert" className="text-[11px] text-red-500">
+                    {dateError}
+                  </p>
+                )}
+              </fieldset>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="filter-sort"
+                  className="text-foreground block text-xs font-semibold"
+                >
+                  Sort
+                </label>
+                <select
+                  id="filter-sort"
+                  value={draft.sort}
+                  onChange={e => set({ sort: e.target.value as SortOrder })}
+                  className={filterFieldClass}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </div>
+
+              <div className="border-border flex items-center justify-between gap-2 border-t pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(DEFAULT_FILTERS)
+                    setDateError(null)
+                  }}
+                  className="text-muted hover:text-foreground cursor-pointer text-xs font-medium"
+                >
+                  Reset
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="border-border text-foreground hover:bg-surface-hover cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-accent hover:bg-accent-hover text-background cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold shadow-xs"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </form>
+          </>,
+          document.body
+        )}
+    </>
   )
 }
 

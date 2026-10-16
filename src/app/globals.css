@@ -38,12 +38,12 @@
 .dark {
   --background: #09090b;
   --foreground: #fafafa;
-  --sidebar: #09090b;
-  --sidebar-border: #27272a;
-  --surface: #18181b;
-  --surface-hover: #27272a;
-  --border: #27272a;
-  --muted: #a1a1aa;
+  --sidebar: #0e0e11;
+  --sidebar-border: #2c2c32;
+  --surface: #1b1b1f;
+  --surface-hover: #2a2a30;
+  --border: #3a3a42;
+  --muted: #b0b0b9;
   --accent: #fafafa;
   --accent-hover: #e4e4e7;
   --brand: #22b5cd;
@@ -54,12 +54,12 @@
   :root:not(.light) {
     --background: #09090b;
     --foreground: #fafafa;
-    --sidebar: #09090b;
-    --sidebar-border: #27272a;
-    --surface: #18181b;
-    --surface-hover: #27272a;
-    --border: #27272a;
-    --muted: #a1a1aa;
+    --sidebar: #0e0e11;
+    --sidebar-border: #2c2c32;
+    --surface: #1b1b1f;
+    --surface-hover: #2a2a30;
+    --border: #3a3a42;
+    --muted: #b0b0b9;
     --accent: #fafafa;
     --accent-hover: #e4e4e7;
     --brand: #22b5cd;

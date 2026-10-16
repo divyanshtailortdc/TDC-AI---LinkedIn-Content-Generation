@@ -599,7 +599,7 @@ export function KnowledgeClient({
                           className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${
                             doc.sourceType === 'url'
                               ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
-                              : 'dark:purple-950/40 bg-purple-50 text-purple-600 dark:text-purple-400'
+                              : 'dark:bg-purple-950/40 bg-purple-50 text-purple-600 dark:text-purple-400'
                           }`}
                         >
                           {doc.sourceType}

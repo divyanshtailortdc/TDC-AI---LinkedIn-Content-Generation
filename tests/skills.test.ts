@@ -12,7 +12,10 @@ import {
 } from '../src/lib/ai/skills/goal-suggestions/guard'
 import { buildPrompt as buildGoalPrompt } from '../src/lib/ai/skills/goal-suggestions/prompt'
 import { keepVerifiableClaims } from '../src/lib/ai/skills/knowledge-extraction/guard'
-import { isCompleteDraft } from '../src/lib/ai/skills/post-drafting/guard'
+import {
+  isCompleteDraft,
+  withoutRepeatedHook
+} from '../src/lib/ai/skills/post-drafting/guard'
 import { buildPrompt as buildVoicePrompt } from '../src/lib/ai/skills/voice-analysis/prompt'
 
 describe('parseJsonLoosely', () => {
@@ -165,6 +168,30 @@ describe('post-drafting guard', () => {
     assert.strictEqual(isCompleteDraft(draft), true)
     assert.strictEqual(isCompleteDraft({ ...draft, body: '  ' }), false)
     assert.strictEqual(isCompleteDraft(null), false)
+  })
+
+  it('cuts a hook the body repeats, ignoring spacing and case', () => {
+    const hook =
+      'Standardizing on one platform makes classrooms simpler to run. It also narrows your options.'
+    assert.strictEqual(
+      withoutRepeatedHook({
+        hook,
+        body: `${hook.toUpperCase().replace('. ', '.\n')}\n\nBoth are true.`
+      }).body,
+      'Both are true.'
+    )
+    // A body that only shares a few words, or is nothing but the hook, stays.
+    const partial = { hook, body: 'Standardizing is hard.\n\nMore here.' }
+    assert.strictEqual(withoutRepeatedHook(partial), partial)
+    const midWord = { hook: 'Plan the run', body: 'Plan the running order.' }
+    assert.strictEqual(withoutRepeatedHook(midWord), midWord)
+    const onlyHook = { hook, body: hook }
+    assert.strictEqual(withoutRepeatedHook(onlyHook), onlyHook)
+    // Regex characters in the hook are matched literally.
+    assert.strictEqual(
+      withoutRepeatedHook({ hook: 'Is $5 (really) enough?', body: 'Is $5 (really) enough? Yes.' }).body,
+      'Yes.'
+    )
   })
 })
 
