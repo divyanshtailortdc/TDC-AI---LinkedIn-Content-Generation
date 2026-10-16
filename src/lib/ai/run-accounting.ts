@@ -37,3 +37,25 @@ export async function refreshRunTotals(runId: string): Promise<CallUsage> {
 
   return total
 }
+
+/**
+ * Saves an open step's spend the moment it is billed, along with the run's
+ * totals. Waiting for the step to close lost the spend whenever the stage
+ * failed, or the process died, between the model call and the close.
+ */
+export async function recordStepUsage(
+  runId: string,
+  stepId: string,
+  usage: CallUsage
+) {
+  if (usage.calls === 0) return
+  await db
+    .update(runStepsTable)
+    .set({
+      tokens: usage.totalTokens,
+      costUsd: usage.costUsd.toFixed(4),
+      responseJson: { usage }
+    })
+    .where(eq(runStepsTable.id, stepId))
+  await refreshRunTotals(runId)
+}

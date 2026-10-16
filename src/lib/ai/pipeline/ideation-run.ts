@@ -3,7 +3,8 @@ import {
   ideasTable,
   researchFindingsTable,
   runStepsTable,
-  runsTable
+  runsTable,
+  type Run
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { env } from '~/env'
@@ -14,7 +15,7 @@ import {
   runWebSearch,
   type Finding
 } from '~/lib/research/web-search'
-import { runResearchAgent } from '../agents/research'
+import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
   loadGenerationContext,
   pickWeightedPillars,
@@ -23,7 +24,8 @@ import {
 } from '../context'
 import { retrieveKnowledgePassages } from '../embeddings'
 import { filterDiverseIdeas } from '../idea-diversity'
-import { refreshRunTotals } from '../run-accounting'
+import { recordStepUsage, refreshRunTotals } from '../run-accounting'
+import { failRun, keepRunAlive } from '../run-lifecycle'
 import { SkillError } from '../run-skill'
 import { generateIdeas, type GeneratedIdeaItem } from '../skills/ideation'
 import { buildGroundingCorpus } from './grounding-corpus'
@@ -33,6 +35,10 @@ import { buildGroundingCorpus } from './grounding-corpus'
  * agent), assemble the evidence corpus, run the ideation skill, then keep the
  * ideas that are diverse and new for this account. Every stage is recorded as
  * a run step; ideas wait for human approval before anything is drafted.
+ *
+ * The run ends either awaiting approval with all of its ideas, or failed with
+ * none of them and no step left running. Spend is saved as soon as it is
+ * billed, so neither ending loses it.
  */
 
 export interface ResearchIdeateResult {
@@ -72,6 +78,7 @@ async function researchTheWeb(ctx: GenerationContext): Promise<WebResearch> {
   }
 
   let fallbackReason: string | null = null
+  let agentUsage: CallUsage = EMPTY_USAGE
   if (env.RESEARCH_MODE === 'agent') {
     try {
       const agent = await runResearchAgent(ctx)
@@ -101,11 +108,15 @@ async function researchTheWeb(ctx: GenerationContext): Promise<WebResearch> {
       console.warn('Research agent failed; using fixed search:', err)
       fallbackReason =
         err instanceof Error ? err.message : 'Research agent failed'
+      // The steps it finished before failing were still billed.
+      if (err instanceof ResearchAgentError) agentUsage = err.usage
     }
   }
 
   const fixed = await runFixedSearch(ctx)
-  return fallbackReason ? { ...fixed, details: { fallbackReason } } : fixed
+  return fallbackReason
+    ? { ...fixed, usage: agentUsage, details: { fallbackReason } }
+    : fixed
 }
 
 async function runFixedSearch(ctx: GenerationContext): Promise<WebResearch> {
@@ -122,6 +133,23 @@ export async function executeResearchAndIdeate(
   })
   if (!run) throw new Error(`Run ${runId} not found`)
 
+  // A throw fails the run here; if the process dies instead, the stopped
+  // heartbeat lets the worker fail it (see run-lifecycle).
+  const stopHeartbeat = keepRunAlive(runId)
+  try {
+    return await researchAndIdeate(run)
+  } catch (err) {
+    await failRun(runId, err).catch(cleanupErr =>
+      console.error(`Could not mark run ${runId} failed:`, cleanupErr)
+    )
+    throw err
+  } finally {
+    stopHeartbeat()
+  }
+}
+
+async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
+  const runId = run.id
   const ctx = await loadGenerationContext(run.accountId, { goalId: run.goalId })
 
   let ideationUsage: CallUsage = EMPTY_USAGE
@@ -187,16 +215,19 @@ export async function executeResearchAndIdeate(
 
   const research = await researchTheWeb(ctx)
   const findings = research.findings
+  if (researchStep) await recordStepUsage(runId, researchStep.id, research.usage)
 
-  for (const f of findings) {
-    await db.insert(researchFindingsTable).values({
-      runId,
-      url: f.url,
-      title: f.title,
-      snippet: f.snippet,
-      publishedAt: f.publishedAt ?? null,
-      provider: f.provider
-    })
+  if (findings.length > 0) {
+    await db.insert(researchFindingsTable).values(
+      findings.map(f => ({
+        runId,
+        url: f.url,
+        title: f.title,
+        snippet: f.snippet,
+        publishedAt: f.publishedAt ?? null,
+        provider: f.provider
+      }))
+    )
   }
 
   const passages = await retrieveKnowledgePassages(
@@ -250,19 +281,10 @@ export async function executeResearchAndIdeate(
 
   const handle = getLanguageModel('ideation')
   if (!handle) {
-    const message =
+    // Failing the run also closes the ideation step with this message.
+    throw new Error(
       'No AI provider configured. Add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to generate ideas.'
-    if (ideationStep) {
-      await db
-        .update(runStepsTable)
-        .set({ status: 'failed', completedAt: new Date(), error: message })
-        .where(eq(runStepsTable.id, ideationStep.id))
-    }
-    await db
-      .update(runsTable)
-      .set({ status: 'failed', error: message })
-      .where(eq(runsTable.id, runId))
-    throw new Error(message)
+    )
   }
 
   // Over-generate so grounding and diversity filters have something to cut.
@@ -305,6 +327,7 @@ export async function executeResearchAndIdeate(
     if (err instanceof SkillError) ideationUsage = err.usage
     console.error('Idea generation failed:', err)
   }
+  if (ideationStep) await recordStepUsage(runId, ideationStep.id, ideationUsage)
 
   // ------------------------------------------------------------ diversity
   const diversity = filterDiverseIdeas(validated, targetIdeas)
@@ -329,40 +352,6 @@ export async function executeResearchAndIdeate(
     })
   }
 
-  for (const [index, idea] of selected.entries()) {
-    await db.insert(ideasTable).values({
-      accountId: ctx.account.id,
-      runId,
-      goalId: ctx.primaryGoal?.id ?? null,
-      title: idea.title,
-      thesis: idea.thesis,
-      perspectiveAngle: idea.perspectiveAngle,
-      hook: idea.hookConcept,
-      angle: idea.angle,
-      pillar: idea.pillar || assignedPillars[index]?.name || null,
-      format: idea.format,
-      whyNow: idea.whyNow,
-      hookConcept: idea.hookConcept,
-      coreArgument: idea.coreArgument,
-      audienceTakeaway: idea.audienceTakeaway,
-      supportingEvidence: idea.supportingEvidence,
-      // No image by default; one can be added per post on the review screen.
-      // The brief is kept so that image starts from the idea's direction.
-      suggestedMedia: {
-        mode: 'none',
-        brief: idea.suggestedMedia?.brief
-      },
-      noveltyNote: idea.noveltyNote,
-      score: idea.estimatedStrength,
-      groundingScore: idea.groundingScore ?? 80,
-      originalityScore: idea.originalityScore ?? 80,
-      unsupportedClaims: idea.unsupportedClaims || [],
-      sourceIds: idea.sourceIds || [],
-      risks: idea.risks || [],
-      status: 'proposed'
-    })
-  }
-
   const averageGrounding =
     selected.length > 0
       ? Math.round(
@@ -371,56 +360,98 @@ export async function executeResearchAndIdeate(
         )
       : 0
 
-  if (ideationStep) {
-    await db
-      .update(runStepsTable)
-      .set({
-        status: selected.length > 0 ? 'completed' : 'failed',
-        completedAt: new Date(),
-        durationMs: Date.now() - ideationStart,
-        tokens: ideationUsage.totalTokens,
-        costUsd: ideationUsage.costUsd.toFixed(4),
-        error:
-          selected.length === 0
-            ? modelError || 'No idea survived grounding and novelty checks'
-            : null,
-        responseJson: {
-          generated: candidates.length,
-          survivedGrounding: validated.length,
-          selected: selected.length,
-          discarded,
-          perspectiveAngles: selected.map(i => i.perspectiveAngle),
-          averageGroundingScore: averageGrounding,
-          model: handle.modelId,
-          usage: ideationUsage
-        }
-      })
-      .where(eq(runStepsTable.id, ideationStep.id))
+  const ideationOutcome = {
+    completedAt: new Date(),
+    durationMs: Date.now() - ideationStart,
+    tokens: ideationUsage.totalTokens,
+    costUsd: ideationUsage.costUsd.toFixed(4),
+    responseJson: {
+      generated: candidates.length,
+      survivedGrounding: validated.length,
+      selected: selected.length,
+      discarded,
+      perspectiveAngles: selected.map(i => i.perspectiveAngle),
+      averageGroundingScore: averageGrounding,
+      model: handle.modelId,
+      usage: ideationUsage
+    }
   }
 
   if (selected.length === 0) {
-    const message =
+    if (ideationStep) {
+      await db
+        .update(runStepsTable)
+        .set({
+          ...ideationOutcome,
+          status: 'failed',
+          error:
+            modelError || 'No idea survived grounding and novelty checks'
+        })
+        .where(eq(runStepsTable.id, ideationStep.id))
+    }
+    // The caller fails the run with this message and settles its totals.
+    throw new Error(
       modelError ||
-      'No idea survived grounding and novelty checks. Add knowledge base sources or relax the research policy, then run again.'
-    await db
-      .update(runsTable)
-      .set({ status: 'failed', error: message, model: handle.modelId })
-      .where(eq(runsTable.id, runId))
-    // A failed run still spent money; keep the totals honest.
-    await refreshRunTotals(runId)
-    throw new Error(message)
+        'No idea survived grounding and novelty checks. Add knowledge base sources or relax the research policy, then run again.'
+    )
   }
 
-  await db
-    .update(runsTable)
-    .set({
-      status: 'awaiting_idea_approval',
-      currentStep: 2,
-      totalSteps: 3,
-      model: handle.modelId,
-      error: null
-    })
-    .where(eq(runsTable.id, runId))
+  // One transaction: inserting ideas row by row meant a failure part-way
+  // (a model-written value too long for its column, say) left some ideas
+  // saved on a run that then read as failed.
+  await db.transaction(async tx => {
+    await tx.insert(ideasTable).values(
+      selected.map((idea, index) => ({
+        accountId: ctx.account.id,
+        runId,
+        goalId: ctx.primaryGoal?.id ?? null,
+        title: idea.title,
+        thesis: idea.thesis,
+        perspectiveAngle: idea.perspectiveAngle,
+        hook: idea.hookConcept,
+        angle: idea.angle,
+        pillar: idea.pillar || assignedPillars[index]?.name || null,
+        format: idea.format,
+        whyNow: idea.whyNow,
+        hookConcept: idea.hookConcept,
+        coreArgument: idea.coreArgument,
+        audienceTakeaway: idea.audienceTakeaway,
+        supportingEvidence: idea.supportingEvidence,
+        // No image by default; one can be added per post on the review screen.
+        // The brief is kept so that image starts from the idea's direction.
+        suggestedMedia: {
+          mode: 'none' as const,
+          brief: idea.suggestedMedia?.brief
+        },
+        noveltyNote: idea.noveltyNote,
+        score: idea.estimatedStrength,
+        groundingScore: idea.groundingScore ?? 80,
+        originalityScore: idea.originalityScore ?? 80,
+        unsupportedClaims: idea.unsupportedClaims || [],
+        sourceIds: idea.sourceIds || [],
+        risks: idea.risks || [],
+        status: 'proposed'
+      }))
+    )
+
+    if (ideationStep) {
+      await tx
+        .update(runStepsTable)
+        .set({ ...ideationOutcome, status: 'completed', error: null })
+        .where(eq(runStepsTable.id, ideationStep.id))
+    }
+
+    await tx
+      .update(runsTable)
+      .set({
+        status: 'awaiting_idea_approval',
+        currentStep: 2,
+        totalSteps: 3,
+        model: handle.modelId,
+        error: null
+      })
+      .where(eq(runsTable.id, runId))
+  })
 
   await refreshRunTotals(runId)
 

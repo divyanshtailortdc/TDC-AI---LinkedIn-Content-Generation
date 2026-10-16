@@ -44,6 +44,17 @@ const FindingsSchema = z.object({
     .describe(`Up to ${MAX_FINDINGS} findings.`)
 })
 
+/** The agent failed part-way; `usage` is what its finished steps were billed. */
+export class ResearchAgentError extends Error {
+  constructor(
+    message: string,
+    readonly usage: CallUsage
+  ) {
+    super(message)
+    this.name = 'ResearchAgentError'
+  }
+}
+
 export type ResearchAgentResult = {
   findings: Finding[]
   queries: string[]
@@ -60,7 +71,8 @@ export type ResearchAgentResult = {
  * limits, and returns verbatim quotes. Replaces only the fixed web search; the
  * findings feed the ideation skill exactly as fixed search results do.
  *
- * Throws when it cannot run or fails; the caller falls back to fixed search.
+ * Throws when it cannot run, or a `ResearchAgentError` with the spend so far
+ * when it fails mid-loop; the caller falls back to fixed search.
  */
 export async function runResearchAgent(
   ctx: GenerationContext
@@ -136,10 +148,24 @@ export async function runResearchAgent(
     output: Output.object({ schema: FindingsSchema })
   })
 
-  const result = await agent.generate({
-    prompt: buildPrompt(ctx, freshnessDays),
-    timeout: AGENT_TIMEOUT_MS
-  })
+  // Kept as steps finish, because a timeout or error throws away `result`
+  // and with it the steps that were already billed.
+  let billedSoFar: CallUsage = EMPTY_USAGE
+  let result
+  try {
+    result = await agent.generate({
+      prompt: buildPrompt(ctx, freshnessDays),
+      timeout: AGENT_TIMEOUT_MS,
+      onStepEnd: step => {
+        billedSoFar = addUsage(billedSoFar, readCallUsage(step, handle.modelId))
+      }
+    })
+  } catch (err) {
+    throw new ResearchAgentError(
+      err instanceof Error ? err.message : 'Research agent failed',
+      billedSoFar
+    )
+  }
 
   // Per step, so a gateway-billed cost is read from each call.
   const usage = result.steps.reduce(

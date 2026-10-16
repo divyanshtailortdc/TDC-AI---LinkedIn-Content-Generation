@@ -6,7 +6,8 @@ import {
   postMediaTable,
   postVariantsTable,
   runStepsTable,
-  runsTable
+  runsTable,
+  type NewRunStep
 } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
@@ -31,6 +32,10 @@ import { collectFigureSources } from '../skills/post-drafting/guard'
  * A run's second half, per approved idea: run the post-drafting skill, lint
  * the draft against the platform rules (with one revision pass when a
  * blocking rule fails), plan the image, and save the draft for review.
+ *
+ * Each step is recorded once its work settles, never opened as "running"
+ * first, so a crash cannot leave one stuck; its spend reaches the run's totals
+ * straight away. The draft and everything hanging off it save in one go.
  */
 
 export interface DraftPostResult {
@@ -56,53 +61,41 @@ export async function executeDraftingForIdea(
   const constraints = ctx.prefs.constraints
   const linkPlacement = resolveLinkPlacement(ctx.primaryGoal)
 
-  const draftStart = Date.now()
-  const [draftStep] = runId
-    ? await db
-        .insert(runStepsTable)
-        .values({
-          runId,
-          stage: 'drafting',
-          status: 'running',
-          startedAt: new Date(),
-          requestSummary: `Drafting "${idea.title || idea.hook}"`
-        })
-        .returning()
-    : [null]
+  /** Saves a settled step and brings the run's totals up to date with it. */
+  async function recordStep(step: Omit<NewRunStep, 'runId'>) {
+    if (!runId) return
+    await db.insert(runStepsTable).values({ ...step, runId })
+    await refreshRunTotals(runId)
+  }
 
   const handle = getLanguageModel('drafting')
-  if (!handle) {
-    const message =
-      'No AI provider configured. Add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to draft posts.'
-    if (draftStep) {
-      await db
-        .update(runStepsTable)
-        .set({ status: 'failed', completedAt: new Date(), error: message })
-        .where(eq(runStepsTable.id, draftStep.id))
-    }
-    throw new Error(message)
-  }
+  const draftStart = Date.now()
 
   // Kept apart so each lands on its own run step: the draft, the optional
   // revision pass, and the media plan are separate spend.
   let draftUsage: CallUsage = EMPTY_USAGE
   let revisionUsage: CallUsage = EMPTY_USAGE
 
-  /** A failed draft still spent tokens; record them so run totals stay true. */
-  async function failDraftStep(message: string) {
-    if (!draftStep || !runId) return
-    await db
-      .update(runStepsTable)
-      .set({
-        status: 'failed',
-        completedAt: new Date(),
-        error: message,
-        tokens: draftUsage.totalTokens,
-        costUsd: draftUsage.costUsd.toFixed(4),
-        responseJson: { model: handle!.modelId, usage: draftUsage }
-      })
-      .where(eq(runStepsTable.id, draftStep.id))
-    await refreshRunTotals(runId)
+  /** A failed draft still spent tokens; recording them keeps run totals true. */
+  const recordDraftStep = (error: string | null) =>
+    recordStep({
+      stage: 'drafting',
+      status: error ? 'failed' : 'completed',
+      startedAt: new Date(draftStart),
+      completedAt: new Date(),
+      durationMs: Date.now() - draftStart,
+      requestSummary: `Drafting "${idea.title || idea.hook}"`,
+      error,
+      tokens: draftUsage.totalTokens,
+      costUsd: draftUsage.costUsd.toFixed(4),
+      responseJson: { model: handle?.modelId ?? null, usage: draftUsage }
+    })
+
+  if (!handle) {
+    const message =
+      'No AI provider configured. Add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to draft posts.'
+    await recordDraftStep(message)
+    throw new Error(message)
   }
 
   let draft: DraftGenerationResult
@@ -113,26 +106,10 @@ export async function executeDraftingForIdea(
   } catch (err: any) {
     if (err instanceof SkillError) draftUsage = err.usage
     const message = err?.message || 'Draft generation failed'
-    await failDraftStep(message)
+    await recordDraftStep(message)
     throw new Error(message)
   }
-
-  if (draftStep) {
-    await db
-      .update(runStepsTable)
-      .set({
-        status: 'completed',
-        completedAt: new Date(),
-        durationMs: Date.now() - draftStart,
-        tokens: draftUsage.totalTokens,
-        costUsd: draftUsage.costUsd.toFixed(4),
-        responseJson: {
-          model: handle.modelId,
-          usage: draftUsage
-        }
-      })
-      .where(eq(runStepsTable.id, draftStep.id))
-  }
+  await recordDraftStep(null)
 
   // ------------------------------------------------------------------- lint
   const evidence = idea.supportingEvidence || []
@@ -186,30 +163,27 @@ export async function executeDraftingForIdea(
     }
   }
 
-  if (runId) {
-    await db.insert(runStepsTable).values({
-      runId,
-      stage: 'linting',
-      status: 'completed',
-      startedAt: new Date(lintStart),
-      completedAt: new Date(),
-      durationMs: Date.now() - lintStart,
-      requestSummary: revised
-        ? 'Checked platform rules, then revised once to clear blocking findings'
-        : 'Checked platform rules, character limits, guardrails and citations',
-      tokens: revisionUsage.totalTokens,
-      costUsd: revisionUsage.costUsd.toFixed(4),
-      responseJson: {
-        revised,
-        // The revision pass is a full second draft call; its cost belongs here.
-        revisionAttempted: revisionUsage.calls > 0,
-        failed: lintFindings.filter(f => !f.passed).map(f => f.rule),
-        errors: lintFindings.filter(f => f.severity === 'error' && !f.passed)
-          .length,
-        usage: revisionUsage
-      }
-    })
-  }
+  await recordStep({
+    stage: 'linting',
+    status: 'completed',
+    startedAt: new Date(lintStart),
+    completedAt: new Date(),
+    durationMs: Date.now() - lintStart,
+    requestSummary: revised
+      ? 'Checked platform rules, then revised once to clear blocking findings'
+      : 'Checked platform rules, character limits, guardrails and citations',
+    tokens: revisionUsage.totalTokens,
+    costUsd: revisionUsage.costUsd.toFixed(4),
+    responseJson: {
+      revised,
+      // The revision pass is a full second draft call; its cost belongs here.
+      revisionAttempted: revisionUsage.calls > 0,
+      failed: lintFindings.filter(f => !f.passed).map(f => f.rule),
+      errors: lintFindings.filter(f => f.severity === 'error' && !f.passed)
+        .length,
+      usage: revisionUsage
+    }
+  })
 
   // ------------------------------------------------------------------ media
   const suggested = (idea.suggestedMedia || {}) as {
@@ -237,9 +211,8 @@ export async function executeDraftingForIdea(
     accountContext: renderMediaContext(ctx)
   })
 
-  if (runId && mediaMode !== 'none') {
-    await db.insert(runStepsTable).values({
-      runId,
+  if (mediaMode !== 'none') {
+    await recordStep({
       stage: 'media',
       status: mediaPlan.imageUrl ? 'completed' : 'failed',
       startedAt: new Date(mediaStart),
@@ -263,69 +236,82 @@ export async function executeDraftingForIdea(
   // ----------------------------------------------------------------- persist
   const charCount = fullPostText.length
 
-  const [saved] = await db
-    .insert(postDraftsTable)
-    .values({
-      accountId: ctx.account.id,
-      ideaId,
-      hook: draft.hook,
-      body: draft.body,
-      originalHook: draft.hook,
-      originalBody: draft.body,
-      cta: draft.cta,
-      firstComment: draft.firstComment || null,
-      hashtags: draft.hashtags,
-      format: idea.format || 'thought_leadership',
-      charCount,
-      selfScores: draft.selfScores,
-      selfFlags: draft.selfFlags,
-      lintFindings,
-      status: 'awaiting_review'
-    })
-    .returning()
-
-  if (!saved) throw new Error('Failed to create post draft record')
-
   const variantLimit = Math.max(1, Math.min(constraints.variants_per_post, 5))
-  for (const altHook of (draft.alternateHooks || []).slice(0, variantLimit)) {
-    await db.insert(postVariantsTable).values({
-      draftId: saved.id,
-      variantType: 'hook',
-      content: altHook
-    })
-  }
+  const alternateHooks = (draft.alternateHooks || []).slice(0, variantLimit)
 
-  for (const ev of evidence) {
-    await db.insert(postCitationsTable).values({
-      draftId: saved.id,
-      claim: ev.claim,
-      quote: ev.quote || null,
-      sourceUrl: ev.sourceUrl || null,
-      sourceTitle: ev.sourceTitle || null
-    })
-  }
+  // One transaction: saved piece by piece, a failure part-way left a draft
+  // missing its citations while the idea stayed approved, so drafting it
+  // again produced a second copy.
+  const saved = await db.transaction(async tx => {
+    const [saved] = await tx
+      .insert(postDraftsTable)
+      .values({
+        accountId: ctx.account.id,
+        ideaId,
+        hook: draft.hook,
+        body: draft.body,
+        originalHook: draft.hook,
+        originalBody: draft.body,
+        cta: draft.cta,
+        firstComment: draft.firstComment || null,
+        hashtags: draft.hashtags,
+        format: idea.format || 'thought_leadership',
+        charCount,
+        selfScores: draft.selfScores,
+        selfFlags: draft.selfFlags,
+        lintFindings,
+        status: 'awaiting_review'
+      })
+      .returning()
 
-  if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
-    await db.insert(postMediaTable).values({
-      draftId: saved.id,
-      mode: mediaPlan.mode,
-      imageUrl: mediaPlan.imageUrl,
-      altText: mediaPlan.altText || null,
-      promptOrQuery: mediaPlan.promptOrQuery || null,
-      metadata: {
-        sourcePageUrl: mediaPlan.sourcePageUrl,
-        fallbackApplied: mediaPlan.fallbackApplied || false,
-        relevanceScore: mediaPlan.relevanceScore,
-        relevanceExplanation: mediaPlan.relevanceExplanation,
-        mediaBrief: mediaPlan.mediaBrief
-      }
-    })
-  }
+    if (!saved) throw new Error('Failed to create post draft record')
 
-  await db
-    .update(ideasTable)
-    .set({ status: 'drafted', updatedAt: new Date() })
-    .where(eq(ideasTable.id, ideaId))
+    if (alternateHooks.length > 0) {
+      await tx.insert(postVariantsTable).values(
+        alternateHooks.map(altHook => ({
+          draftId: saved.id,
+          variantType: 'hook',
+          content: altHook
+        }))
+      )
+    }
+
+    if (evidence.length > 0) {
+      await tx.insert(postCitationsTable).values(
+        evidence.map(ev => ({
+          draftId: saved.id,
+          claim: ev.claim,
+          quote: ev.quote || null,
+          sourceUrl: ev.sourceUrl || null,
+          sourceTitle: ev.sourceTitle || null
+        }))
+      )
+    }
+
+    if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
+      await tx.insert(postMediaTable).values({
+        draftId: saved.id,
+        mode: mediaPlan.mode,
+        imageUrl: mediaPlan.imageUrl,
+        altText: mediaPlan.altText || null,
+        promptOrQuery: mediaPlan.promptOrQuery || null,
+        metadata: {
+          sourcePageUrl: mediaPlan.sourcePageUrl,
+          fallbackApplied: mediaPlan.fallbackApplied || false,
+          relevanceScore: mediaPlan.relevanceScore,
+          relevanceExplanation: mediaPlan.relevanceExplanation,
+          mediaBrief: mediaPlan.mediaBrief
+        }
+      })
+    }
+
+    await tx
+      .update(ideasTable)
+      .set({ status: 'drafted', updatedAt: new Date() })
+      .where(eq(ideasTable.id, ideaId))
+
+    return saved
+  })
 
   // ----------------------------------------------------- run bookkeeping
   if (runId) {
@@ -343,8 +329,6 @@ export async function executeDraftingForIdea(
         totalSteps: 3
       })
       .where(eq(runsTable.id, runId))
-
-    await refreshRunTotals(runId)
   }
 
   return {
