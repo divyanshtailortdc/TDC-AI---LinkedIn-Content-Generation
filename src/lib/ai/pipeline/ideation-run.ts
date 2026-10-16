@@ -250,9 +250,10 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
           mode: research.mode,
           queries: research.queries,
           webFindings: findings.length,
-          knowledgeClaims:
-            corpus.verifiedClaims.length - findings.length - passages.length,
+          knowledgeClaims: corpus.sources.knowledgeClaims,
           knowledgePassages: passages.length,
+          documentSummaries: corpus.sources.documentSummaries,
+          offeringFacts: corpus.sources.offeringFacts,
           totalEvidence: corpus.verifiedClaims.length,
           ...research.details,
           usage: research.usage

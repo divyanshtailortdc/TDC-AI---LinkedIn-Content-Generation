@@ -22,12 +22,21 @@ export function interleave<T>(lists: T[][]): T[] {
   return out
 }
 
+
+export interface CorpusSources {
+  offeringFacts: number
+  knowledgePassages: number
+  webFindings: number
+  documentSummaries: number
+  knowledgeClaims: number
+}
+
 /** Everything a run's ideas may cite, with each kind of source represented early. */
 export function buildGroundingCorpus(
   ctx: GenerationContext,
   findings: Finding[],
   passages: KnowledgePassage[] = []
-): GroundingCorpus {
+): GroundingCorpus & { sources: CorpusSources } {
   const docs = ctx.knowledgeDocs
 
   // The account's own verified numbers and offerings: the defense against
@@ -107,6 +116,13 @@ export function buildGroundingCorpus(
 
   return {
     verifiedClaims: interleave([own, retrieved, web, summaries, keyClaims]),
-    hasFreshEvidence: findings.some(f => f.provider === 'serper_search')
+    hasFreshEvidence: findings.some(f => f.provider === 'serper_search'),
+    sources: {
+      offeringFacts: own.length,
+      knowledgePassages: retrieved.length,
+      webFindings: web.length,
+      documentSummaries: summaries.length,
+      knowledgeClaims: keyClaims.length
+    }
   }
 }

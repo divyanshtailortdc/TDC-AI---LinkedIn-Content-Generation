@@ -568,6 +568,21 @@ describe('buildGroundingCorpus', () => {
     assert.strictEqual(corpus.verifiedClaims.length, 67)
   })
 
+  it('counts each kind of source on its own', () => {
+    const corpus = buildGroundingCorpus(ctx, findings, passages)
+    // Subtracting findings and passages from the total also counted the
+    // offerings and summaries as knowledge claims: 65, not 60.
+    assert.deepStrictEqual(corpus.sources, {
+      offeringFacts: 3,
+      knowledgePassages: 1,
+      webFindings: 1,
+      documentSummaries: 2,
+      knowledgeClaims: 60
+    })
+    const counted = Object.values(corpus.sources).reduce((sum, n) => sum + n, 0)
+    assert.strictEqual(counted, corpus.verifiedClaims.length)
+  })
+
   it('interleaves lists of uneven length', () => {
     assert.deepStrictEqual(interleave([[1, 2, 3], [], [10], [20, 21]]), [1, 10, 20, 2, 21, 3])
   })
