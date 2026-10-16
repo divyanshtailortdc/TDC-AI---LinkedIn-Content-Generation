@@ -31,7 +31,7 @@ const primaryButton =
 /**
  * The "AI Suggestions" card beside the setup steps.
  *
- * With an `account` it works on that account's draft: Review & apply opens
+ * With an `account` it works on that account's draft: View AI suggestions opens
  * the review window, where suggestions are edited and applied. Without one
  * (the create page) it works on the new-identity draft: the page's `prefill`
  * lists the profile suggestions to apply to its form, and the page saves.
@@ -219,7 +219,7 @@ export function AiSetupCard({
                 className={`${primaryButton} mt-4`}
               >
                 <ListChecks className="h-3.5 w-3.5" />
-                Review &amp; apply
+                View AI suggestions
               </button>
             </>
           )}

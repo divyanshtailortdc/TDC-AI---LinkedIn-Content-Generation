@@ -59,7 +59,7 @@ const LONG_TEXT_FIELDS = new Set([
   'complianceNotes'
 ])
 
-type Item = {
+export type Item = {
   value: unknown
   kind: 'fact' | 'recommendation'
   source?: string
@@ -119,7 +119,7 @@ function provenanceLabel(item: Item): string {
     : 'From your info'
 }
 
-function itemOf(
+export function itemOf(
   suggestions: IdentitySetupSuggestions,
   section: EntrySection,
   field: string
@@ -201,7 +201,7 @@ function parseEditorText(
   return text.trim()
 }
 
-function validateField(
+export function validateField(
   section: EntrySection,
   field: string,
   value: unknown
@@ -496,7 +496,7 @@ function ValueText({
 }
 
 /** One bordered group of rows, with an optional select-all checkbox. */
-function SectionCard({
+export function SectionCard({
   title,
   note,
   selectAll,
@@ -551,7 +551,7 @@ function SectionCard({
   )
 }
 
-function SuggestionRow({
+export function SuggestionRow({
   section,
   field,
   item,
@@ -560,19 +560,22 @@ function SuggestionRow({
   selectable,
   editing,
   disabled,
+  tag,
   onToggle,
   onCommit
 }: {
   section: EntrySection
   field: string
   item: Item
-  /** What is saved now; undefined when the field is empty. */
+  /** What is there now; undefined when the field is empty. */
   current: unknown
   checked: boolean
   /** Goal fields go in together, so they have no checkbox of their own. */
   selectable: boolean
   editing: boolean
   disabled: boolean
+  /** What applying does to the field; by default New or Replaces current. */
+  tag?: { label: string; tone: 'new' | 'update' | 'replace' }
   onToggle: (checked: boolean) => void
   onCommit: (value: unknown) => string | null
 }) {
@@ -580,6 +583,10 @@ function SuggestionRow({
   const checkboxId = `${id}-pick`
   const editorId = `${id}-edit`
   const hasCurrent = current !== undefined
+  const shownTag = tag ?? {
+    label: hasCurrent ? 'Replaces current' : 'New',
+    tone: hasCurrent ? 'replace' : 'new'
+  }
   const label =
     field === 'pillars' ? 'Content pillars' : fieldLabel(section, field)
 
@@ -631,12 +638,14 @@ function SuggestionRow({
           {selectable && (
             <span
               className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                hasCurrent
+                shownTag.tone === 'replace'
                   ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                  : 'bg-brand/15 text-brand-strong'
+                  : shownTag.tone === 'update'
+                    ? 'border-brand/40 text-brand-strong border'
+                    : 'bg-brand/15 text-brand-strong'
               }`}
             >
-              {hasCurrent ? 'Replaces current' : 'New'}
+              {shownTag.label}
             </span>
           )}
         </div>
@@ -673,6 +682,152 @@ function SuggestionRow({
 // Dialog
 // ---------------------------------------------------------------------------
 
+/**
+ * The review window's frame: overlay, header, a scrolling body and a footer.
+ * Escape and a click outside close it unless `busy`.
+ */
+export function ReviewShell({
+  title,
+  description,
+  busy = false,
+  onClose,
+  footer,
+  children
+}: {
+  title: string
+  description: string
+  busy?: boolean
+  onClose: () => void
+  footer: ReactNode
+  children: ReactNode
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    panel.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="review-ai-title"
+      aria-describedby="review-ai-description"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
+      onClick={e => {
+        if (e.target === e.currentTarget && !busy) onClose()
+      }}
+    >
+      <div
+        ref={panel}
+        tabIndex={-1}
+        className="border-border bg-surface flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border shadow-2xl outline-none"
+      >
+        <div className="border-border flex items-start justify-between gap-4 border-b px-6 py-5">
+          <div>
+            <h2
+              id="review-ai-title"
+              className="text-foreground text-base font-semibold"
+            >
+              {title}
+            </h2>
+            <p id="review-ai-description" className="text-muted mt-1 text-sm">
+              {description}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+            className="text-muted hover:bg-surface-hover hover:text-foreground rounded-lg p-1.5"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 space-y-5 overflow-y-auto px-6 py-5">
+          {children}
+        </div>
+
+        <div className="border-border flex flex-col gap-3 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          {footer}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Cancel, Edit Suggestions and Apply Selected Changes, with a short status. */
+export function ReviewActions({
+  status,
+  editing,
+  editDisabled,
+  onToggleEdit,
+  onCancel,
+  onApply,
+  applyDisabled,
+  applying = false
+}: {
+  status: string
+  editing: boolean
+  editDisabled: boolean
+  onToggleEdit: () => void
+  onCancel: () => void
+  onApply: () => void
+  applyDisabled: boolean
+  applying?: boolean
+}) {
+  return (
+    <>
+      <p className="text-muted text-xs" aria-live="polite">
+        {status}
+      </p>
+      <div className="grid grid-cols-[auto_1fr] gap-2 sm:flex sm:items-center">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={applying}
+          className="text-muted hover:text-foreground hover:bg-surface-hover h-8 rounded-lg px-3.5 text-[13px] font-medium transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onToggleEdit}
+          disabled={applying || editDisabled}
+          aria-pressed={editing}
+          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-60 ${
+            editing
+              ? 'border-brand/50 bg-brand/10 text-brand-strong'
+              : 'border-border text-foreground hover:bg-surface-hover'
+          }`}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          {editing ? 'Done Editing' : 'Edit Suggestions'}
+        </button>
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={applying || applyDisabled}
+          className="bg-accent hover:bg-accent-hover text-background order-first col-span-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:order-last"
+        >
+          {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {applying ? 'Applying…' : 'Apply Selected Changes'}
+        </button>
+      </div>
+    </>
+  )
+}
+
 function pickFields<T extends Record<string, unknown>>(
   data: T,
   fields: string[]
@@ -699,7 +854,6 @@ export function ReviewSuggestionsDialog({
   onClose: () => void
 }) {
   const router = useRouter()
-  const panel = useRef<HTMLDivElement>(null)
   const original = draft.suggestions
   const [edited, setEdited] = useState(original)
   const [baseline, setBaseline] = useState<IdentitySetupBaseline | null>(null)
@@ -751,18 +905,6 @@ export function ReviewSuggestionsDialog({
     // Baseline is loaded once per opening; edits must not refetch it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId])
-
-  useEffect(() => {
-    panel.current?.focus()
-  }, [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !applying) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [applying, onClose])
 
   const loading = !baseline && !baselineError
 
@@ -1162,118 +1304,56 @@ export function ReviewSuggestionsDialog({
   )
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="review-ai-title"
-      aria-describedby="review-ai-description"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
-      onClick={e => {
-        if (e.target === e.currentTarget && !applying) onClose()
-      }}
-    >
-      <div
-        ref={panel}
-        tabIndex={-1}
-        className="border-border bg-surface flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border shadow-2xl outline-none"
-      >
-        <div className="border-border flex items-start justify-between gap-4 border-b px-6 py-5">
-          <div>
-            <h2
-              id="review-ai-title"
-              className="text-foreground text-base font-semibold"
+    <ReviewShell
+      title={
+        results ? 'Some changes were not applied' : 'Review AI suggestions'
+      }
+      description={
+        results
+          ? 'Anything that failed stays in your suggestions, so you can try again.'
+          : 'Choose the changes to apply. Anything you leave unchecked keeps its current value.'
+      }
+      busy={applying}
+      onClose={onClose}
+      footer={
+        results ? (
+          <>
+            <span />
+            <button
+              type="button"
+              onClick={onClose}
+              className="bg-accent hover:bg-accent-hover text-background h-8 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors"
             >
-              {results
-                ? 'Some changes were not applied'
-                : 'Review AI suggestions'}
-            </h2>
-            <p id="review-ai-description" className="text-muted mt-1 text-sm">
-              {results
-                ? 'Anything that failed stays in your suggestions, so you can try again.'
-                : 'Choose the changes to apply. Anything you leave unchecked keeps its current value.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={applying}
-            aria-label="Close"
-            className="text-muted hover:bg-surface-hover hover:text-foreground rounded-lg p-1.5"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 space-y-5 overflow-y-auto px-6 py-5">
-          {body}
-          {applyError && (
-            <p className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-400">
-              <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
-              {applyError}
-            </p>
-          )}
-        </div>
-
-        <div className="border-border flex flex-col gap-3 border-t px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          {results ? (
-            <>
-              <span />
-              <button
-                type="button"
-                onClick={onClose}
-                className="bg-accent hover:bg-accent-hover text-background h-8 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors"
-              >
-                Done
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-muted text-xs" aria-live="polite">
-                {blockingInvalid
-                  ? 'Fix the highlighted values first.'
-                  : loading
-                    ? ''
-                    : `${changeCount} of ${totalCount} change${totalCount === 1 ? '' : 's'} selected`}
-              </p>
-              <div className="grid grid-cols-[auto_1fr] gap-2 sm:flex sm:items-center">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={applying}
-                  className="text-muted hover:text-foreground hover:bg-surface-hover h-8 rounded-lg px-3.5 text-[13px] font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditing(!editing)}
-                  disabled={applying || loading || totalCount === 0}
-                  aria-pressed={editing}
-                  className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-60 ${
-                    editing
-                      ? 'border-brand/50 bg-brand/10 text-brand-strong'
-                      : 'border-border text-foreground hover:bg-surface-hover'
-                  }`}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  {editing ? 'Done Editing' : 'Edit Suggestions'}
-                </button>
-                <button
-                  type="button"
-                  onClick={apply}
-                  disabled={
-                    applying || loading || changeCount === 0 || blockingInvalid
-                  }
-                  className="bg-accent hover:bg-accent-hover text-background order-first col-span-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:order-last"
-                >
-                  {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {applying ? 'Applying…' : 'Apply Selected Changes'}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+              Done
+            </button>
+          </>
+        ) : (
+          <ReviewActions
+            status={
+              blockingInvalid
+                ? 'Fix the highlighted values first.'
+                : loading
+                  ? ''
+                  : `${changeCount} of ${totalCount} change${totalCount === 1 ? '' : 's'} selected`
+            }
+            editing={editing}
+            editDisabled={loading || totalCount === 0}
+            onToggleEdit={() => setEditing(!editing)}
+            onCancel={onClose}
+            onApply={apply}
+            applyDisabled={loading || changeCount === 0 || blockingInvalid}
+            applying={applying}
+          />
+        )
+      }
+    >
+      {body}
+      {applyError && (
+        <p className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-400">
+          <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
+          {applyError}
+        </p>
+      )}
+    </ReviewShell>
   )
 }

@@ -6,39 +6,22 @@ import {
   SECTION_LABELS,
   SETUP_SECTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
-import { Check, CheckCircle2, Loader2, Sparkles, Undo2 } from 'lucide-react'
+import {
+  Check,
+  CheckCircle2,
+  ListChecks,
+  Loader2,
+  Sparkles,
+  Undo2
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type {
-  PendingSuggestion,
-  PrefillChange,
-  SectionPrefill
-} from './use-section-prefill'
+import { FormReviewDialog } from './form-review-dialog'
+import type { PendingSuggestion, SectionPrefill } from './use-section-prefill'
 
 const primaryButton =
   'bg-accent hover:bg-accent-hover text-background flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 const outlineButton =
   'border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-full items-center justify-center rounded-lg border px-3.5 text-[13px] font-medium transition-colors'
-
-const CHANGE_TAGS: Record<
-  PrefillChange,
-  { label: string; title: string; className: string }
-> = {
-  new: {
-    label: 'New',
-    title: 'Fills an empty field.',
-    className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-  },
-  update: {
-    label: 'Updated',
-    title: 'Replaces the earlier AI suggestion in this field.',
-    className: 'bg-accent/10 text-accent'
-  },
-  replace: {
-    label: 'Replaces yours',
-    title: 'Overwrites text you entered. Unchecked unless you choose it.',
-    className: 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-  }
-}
 
 function joinLabels(labels: string[]): string {
   if (labels.length < 2) return labels.join('')
@@ -46,9 +29,9 @@ function joinLabels(labels: string[]): string {
 }
 
 /**
- * The create page's assistant once an analysis is back. Profile suggestions
- * are listed for the user to pick from; the form only changes when they apply
- * them, and the identity is only created when they save.
+ * The create page's assistant once an analysis is back. View AI suggestions
+ * opens the review window; the form only changes when the user applies from
+ * there, and the identity is only created when they save.
  */
 export function ProfileSuggestionsPanel({
   prefill,
@@ -65,6 +48,7 @@ export function ProfileSuggestionsPanel({
   onReviewFields: () => void
 }) {
   const { draft, pending } = prefill
+  const [reviewOpen, setReviewOpen] = useState(false)
   const others = draft
     ? SETUP_SECTIONS.filter(
         section =>
@@ -78,15 +62,7 @@ export function ProfileSuggestionsPanel({
       <FlowSteps current={pending ? 'apply' : 'save'} />
 
       {pending ? (
-        <PendingList
-          // A new analysis starts its own selection.
-          key={draft?.id}
-          pending={pending}
-          onApply={fields => {
-            prefill.applyPending(fields)
-            onApplied()
-          }}
-        />
+        <Ready pending={pending} onView={() => setReviewOpen(true)} />
       ) : prefill.active ? (
         <Applied
           count={prefill.filled.length}
@@ -119,6 +95,16 @@ export function ProfileSuggestionsPanel({
           ? `${prefill.filled.length} field${prefill.filled.length === 1 ? '' : 's'} applied to the profile form.`
           : ''}
       </p>
+
+      {reviewOpen && pending && (
+        <FormReviewDialog
+          // Each analysis opens with its own selection and edits.
+          key={draft?.id}
+          prefill={prefill}
+          onClose={() => setReviewOpen(false)}
+          onApplied={onApplied}
+        />
+      )}
     </>
   )
 }
@@ -172,110 +158,41 @@ function FlowSteps({ current }: { current: 'apply' | 'save' }) {
   )
 }
 
-function PendingList({
+/** Suggestions are in: what they cover, and the way into the review window. */
+function Ready({
   pending,
-  onApply
+  onView
 }: {
   pending: PendingSuggestion[]
-  onApply: (fields: string[]) => void
+  onView: () => void
 }) {
-  // Choices the user made; the rest follow the default, which never
-  // overwrites their own text.
-  const [picked, setPicked] = useState<Record<string, boolean>>({})
-  const isPicked = (p: PendingSuggestion) =>
-    picked[p.field] ?? p.change !== 'replace'
-  const selected = pending.filter(isPicked).map(p => p.field)
-  const allPicked = selected.length === pending.length
+  const labels = pending.map(p => fieldLabel('profile', p.field))
+  const shown = labels.slice(0, 3).join(', ')
+  const more = labels.length - 3
 
   return (
     <>
-      <p className="text-muted mt-3 text-xs leading-relaxed">
-        Choose what to add to your profile. The form won&apos;t change until you
-        apply.
-      </p>
-
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <p className="text-foreground text-xs font-semibold">
-          {pending.length} suggestion{pending.length === 1 ? '' : 's'}
+      <div className="border-brand/30 bg-brand/5 mt-4 rounded-lg border p-3">
+        <p className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+          <Sparkles className="text-brand-strong h-3.5 w-3.5 shrink-0" />
+          {pending.length} suggestion{pending.length === 1 ? '' : 's'} ready for
+          your profile
         </p>
-        <button
-          type="button"
-          onClick={() =>
-            setPicked(
-              Object.fromEntries(pending.map(p => [p.field, !allPicked]))
-            )
-          }
-          className="text-accent text-[11px] font-medium hover:underline"
-        >
-          {allPicked ? 'Clear all' : 'Select all'}
-        </button>
+        <p className="text-muted mt-1 text-[11px] leading-snug">
+          {shown}
+          {more > 0 && ` and ${more} more`}
+        </p>
       </div>
-
-      <ul className="border-border divide-border mt-2 divide-y rounded-lg border">
-        {pending.map(p => {
-          const tag = CHANGE_TAGS[p.change]
-          const checked = isPicked(p)
-          return (
-            <li key={p.field}>
-              <label
-                className={`hover:bg-surface-hover/60 flex cursor-pointer items-start gap-2.5 px-3 py-2.5 transition-colors ${
-                  checked ? '' : 'opacity-70'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={e =>
-                    setPicked(prev => ({
-                      ...prev,
-                      [p.field]: e.target.checked
-                    }))
-                  }
-                  className="accent-accent mt-0.5 h-3.5 w-3.5 shrink-0"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="text-foreground truncate text-xs font-medium">
-                      {fieldLabel('profile', p.field)}
-                    </span>
-                    <span
-                      title={tag.title}
-                      className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold ${tag.className}`}
-                    >
-                      {tag.label}
-                    </span>
-                  </span>
-                  <span className="text-foreground/80 mt-0.5 line-clamp-2 text-[11px] leading-snug wrap-break-word">
-                    {String(p.value)}
-                  </span>
-                  {p.change !== 'new' && (
-                    <span
-                      className="text-muted mt-0.5 block truncate text-[11px]"
-                      title={String(p.current)}
-                    >
-                      Now: {String(p.current)}
-                    </span>
-                  )}
-                </span>
-              </label>
-            </li>
-          )
-        })}
-      </ul>
-
       <button
         type="button"
-        disabled={selected.length === 0}
-        onClick={() => onApply(selected)}
+        onClick={onView}
         className={`${primaryButton} mt-3`}
       >
-        <Sparkles className="h-3.5 w-3.5" />
-        {selected.length === 0
-          ? 'Select fields to apply'
-          : `Apply ${selected.length} field${selected.length === 1 ? '' : 's'} to form`}
+        <ListChecks className="h-3.5 w-3.5" />
+        View AI suggestions
       </button>
       <p className="text-muted mt-1.5 text-center text-[11px] leading-snug">
-        You can edit everything after. Nothing is saved yet.
+        Nothing changes in the form until you apply.
       </p>
     </>
   )

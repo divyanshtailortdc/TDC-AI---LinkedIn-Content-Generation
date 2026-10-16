@@ -44,8 +44,11 @@ export type SectionPrefill = {
    * waiting (none suggested, or already applied).
    */
   pending: PendingSuggestion[] | null
-  /** Writes the chosen pending suggestions into the form. */
-  applyPending: (fields: string[]) => void
+  /**
+   * Writes the chosen pending suggestions into the form; `values` holds any
+   * the user edited before applying.
+   */
+  applyPending: (fields: string[], values?: Record<string, unknown>) => void
   /** Overwrite the kept fields too. */
   replaceAll: () => void
   /** Put the form back the way it was before the suggestions. */
@@ -200,12 +203,12 @@ export function useSectionPrefill<T extends Values>({
     mode: state?.mode ?? 'fill-empty',
     aiFilled,
     pending,
-    applyPending: fields => {
+    applyPending: (fields, values = {}) => {
       if (!draft || !pending) return
       const chosen = pending.filter(p => fields.includes(p.field))
       snapshot.current = { values: current, aiValues }
       const changes = Object.fromEntries(
-        chosen.map(p => [p.field, p.value])
+        chosen.map(p => [p.field, values[p.field] ?? p.value])
       ) as Partial<T>
       if (chosen.length > 0) callbacks.current.setValues(changes)
       setAiValues({ ...aiValues, ...changes })

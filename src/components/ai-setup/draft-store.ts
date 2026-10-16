@@ -2,9 +2,15 @@
 
 import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
+  EMPTY_SUGGESTIONS,
   getSectionStatus,
+  GoalSuggestionsSchema,
   IdentitySetupSuggestionsSchema,
+  KnowledgeSuggestionsSchema,
+  PreferencesSuggestionsSchema,
+  ProfileSuggestionsSchema,
   SETUP_SECTIONS,
+  VoiceSuggestionsSchema,
   type IdentitySetupSuggestions,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
@@ -61,6 +67,44 @@ function subscribe(listener: () => void) {
   }
 }
 
+const FIELD_SCHEMAS = {
+  profile: ProfileSuggestionsSchema,
+  voice: VoiceSuggestionsSchema,
+  goals: GoalSuggestionsSchema,
+  preferences: PreferencesSuggestionsSchema
+} as const
+
+/**
+ * Keeps every stored suggestion that still passes the current rules. When a
+ * rule tightens after a draft was saved (links now need http:// or https://,
+ * for one), only that field is dropped: rejecting the whole draft lost every
+ * suggestion in it, and with it the review window after a reload.
+ */
+function salvageSuggestions(raw: unknown): IdentitySetupSuggestions | null {
+  if (!raw || typeof raw !== 'object') return null
+  const stored = raw as Record<string, unknown>
+  const kept: Record<string, unknown> = { ...EMPTY_SUGGESTIONS }
+  for (const [section, schema] of Object.entries(FIELD_SCHEMAS)) {
+    const data = stored[section]
+    if (!data || typeof data !== 'object') continue
+    const fields: Record<string, unknown> = { missing: [] }
+    for (const [field, value] of Object.entries(data)) {
+      const parsed = (
+        schema.shape as unknown as Record<
+          string,
+          { safeParse: (v: unknown) => { success: boolean; data?: unknown } }
+        >
+      )[field]?.safeParse(value)
+      if (parsed?.success) fields[field] = parsed.data
+    }
+    kept[section] = fields
+  }
+  const knowledge = KnowledgeSuggestionsSchema.safeParse(stored.knowledge)
+  if (knowledge.success) kept.knowledge = knowledge.data
+  const result = IdentitySetupSuggestionsSchema.safeParse(kept)
+  return result.success ? result.data : null
+}
+
 function readDraft(key: string): IdentitySetupDraft | null {
   if (memory.has(key)) return memory.get(key) ?? null
 
@@ -70,13 +114,16 @@ function readDraft(key: string): IdentitySetupDraft | null {
     if (raw) {
       const parsed = JSON.parse(raw) as IdentitySetupDraft
       // Stored data is re-validated like anything else from the browser.
-      const suggestions = IdentitySetupSuggestionsSchema.safeParse(
+      const strict = IdentitySetupSuggestionsSchema.safeParse(
         parsed?.suggestions
       )
-      if (suggestions.success && typeof parsed.id === 'string') {
+      const suggestions = strict.success
+        ? strict.data
+        : salvageSuggestions(parsed?.suggestions)
+      if (suggestions && typeof parsed.id === 'string') {
         draft = {
           ...parsed,
-          suggestions: suggestions.data,
+          suggestions,
           input: isAnalysisInput(parsed.input) ? parsed.input : undefined
         }
       }
