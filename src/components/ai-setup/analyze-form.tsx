@@ -44,6 +44,7 @@ export function AnalyzeForm({
   urls,
   accountType = 'personal',
   accountTypeLocked = false,
+  accountTypeChosen = true,
   onAccountTypeChosen,
   onAnalyzed,
   onCancel
@@ -62,7 +63,15 @@ export function AnalyzeForm({
   accountType?: 'personal' | 'company'
   /** True for an existing identity, whose type is changed on the Profile step. */
   accountTypeLocked?: boolean
-  /** The create page follows the type picked in Advanced analysis. */
+  /**
+   * False while the create page still shows its default type: the user has
+   * not picked one, so the analysis reads it from the description instead.
+   */
+  accountTypeChosen?: boolean
+  /**
+   * The create page follows the type the suggestions were written for: the
+   * one picked in Advanced analysis, or the one the AI read.
+   */
   onAccountTypeChosen?: (value: 'personal' | 'company') => void
   onAnalyzed: (analysis: IdentitySetupAnalysis, input: AnalysisInput) => void
   /** Shown when there are earlier suggestions to go back to. */
@@ -145,8 +154,14 @@ export function AnalyzeForm({
           description,
           linkedinUrl: linkedin.trim() || undefined,
           websiteUrl: website.trim() || undefined,
-          // Quick analysis still tells the AI the type it already knows.
-          guidance: guidance ?? { accountType }
+          // Quick analysis still tells the AI the type it already knows. An
+          // untouched default is not known: sent as a choice, it made the AI
+          // file a business's own name as a person's company.
+          guidance:
+            guidance ??
+            (accountTypeLocked || accountTypeChosen
+              ? { accountType }
+              : undefined)
         })
       })
       const res = (await response.json()) as
@@ -154,9 +169,7 @@ export function AnalyzeForm({
         | { success: false; error: string; retryable?: boolean }
       if (current !== requestId.current) return
       if (res.success) {
-        if (guidance?.accountType && !accountTypeLocked) {
-          onAccountTypeChosen?.(guidance.accountType)
-        }
+        if (!accountTypeLocked) onAccountTypeChosen?.(res.data.accountType)
         setAdvancedOpen(false)
         onAnalyzed(res.data, {
           description,
@@ -425,6 +438,7 @@ export function AnalyzeForm({
           urlErrors={urlErrors}
           accountType={accountType}
           accountTypeLocked={accountTypeLocked}
+          accountTypeChosen={accountTypeChosen}
           isAnalyzing={isAnalyzing}
           failure={failure}
           onRun={guidance => void analyze(guidance)}

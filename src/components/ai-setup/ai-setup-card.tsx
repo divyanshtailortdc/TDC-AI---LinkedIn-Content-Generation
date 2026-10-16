@@ -41,6 +41,7 @@ export function AiSetupCard({
   account,
   urls,
   accountType,
+  accountTypeChosen = true,
   onAccountTypeChange,
   prefill,
   saving = false,
@@ -54,8 +55,12 @@ export function AiSetupCard({
    */
   variant?: 'rail' | 'assistant'
   account?: ({ id: string; accountType?: string } & Urls) | null
-  /** Create page only: the type picked so far, and how Advanced changes it. */
+  /**
+   * Create page only: the type shown so far, whether the user picked it, and
+   * how an analysis changes it to the type its suggestions were written for.
+   */
   accountType?: 'personal' | 'company'
+  accountTypeChosen?: boolean
   onAccountTypeChange?: (value: 'personal' | 'company') => void
   /** Rail card on the create page only: the URLs typed into its form. */
   urls?: Urls
@@ -170,6 +175,7 @@ export function AiSetupCard({
                 : (accountType ?? 'personal')
             }
             accountTypeLocked={Boolean(account)}
+            accountTypeChosen={accountTypeChosen}
             onAccountTypeChosen={onAccountTypeChange}
             onAnalyzed={(analysis, input) => {
               saveDraft(draftKey, analysis, input)
@@ -183,6 +189,8 @@ export function AiSetupCard({
           {prefill && !account ? (
             <ProfileSuggestionsPanel
               prefill={prefill}
+              accountType={accountType ?? 'personal'}
+              onReanalyze={() => setReanalyzing(true)}
               saving={saving}
               onApplied={() => onApplied?.()}
               onSave={() => onSave?.()}

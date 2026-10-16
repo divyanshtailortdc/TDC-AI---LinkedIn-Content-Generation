@@ -165,20 +165,27 @@ export type ApplyIdentitySetupResult =
     }
   | { success: false; error: string }
 
-function labels(section: SetupSection, fields: string[]) {
-  return fields.map(f => fieldLabel(section, f))
+function labels(
+  section: SetupSection,
+  fields: string[],
+  accountType?: 'personal' | 'company'
+) {
+  return fields.map(f => fieldLabel(section, f, accountType))
 }
 
 function describeMerge(
   section: SetupSection,
   filled: string[],
-  kept: string[]
+  kept: string[],
+  accountType?: 'personal' | 'company'
 ): string {
   const parts: string[] = []
   if (filled.length > 0)
-    parts.push(`Updated ${labels(section, filled).join(', ')}.`)
+    parts.push(`Updated ${labels(section, filled, accountType).join(', ')}.`)
   if (kept.length > 0)
-    parts.push(`Kept your saved ${labels(section, kept).join(', ')}.`)
+    parts.push(
+      `Kept your saved ${labels(section, kept, accountType).join(', ')}.`
+    )
   return parts.join(' ') || 'Nothing to change.'
 }
 
@@ -207,6 +214,8 @@ export async function applyIdentitySetupAction(
 
   if (sections.profile) {
     const profileMode = sections.profile.mode
+    const accountType =
+      account.accountType === 'company' ? 'company' : 'personal'
     tasks.push(
       (async () => {
         try {
@@ -220,7 +229,7 @@ export async function applyIdentitySetupAction(
           if (merged.filled.length === 0) {
             results.profile = {
               status: 'skipped',
-              message: describeMerge('profile', [], merged.kept),
+              message: describeMerge('profile', [], merged.kept, accountType),
               kept: merged.kept
             }
           } else {
@@ -231,7 +240,12 @@ export async function applyIdentitySetupAction(
             results.profile = res.success
               ? {
                   status: 'applied',
-                  message: describeMerge('profile', merged.filled, merged.kept),
+                  message: describeMerge(
+                    'profile',
+                    merged.filled,
+                    merged.kept,
+                    accountType
+                  ),
                   filled: merged.filled,
                   kept: merged.kept
                 }

@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ListChecks,
   Loader2,
+  RefreshCw,
   Sparkles,
   Undo2
 } from 'lucide-react'
@@ -22,6 +23,11 @@ const primaryButton =
   'bg-accent hover:bg-accent-hover text-background flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 const outlineButton =
   'border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-full items-center justify-center rounded-lg border px-3.5 text-[13px] font-medium transition-colors'
+
+const TYPE_NAMES = {
+  personal: 'a person',
+  company: 'a company or product'
+} as const
 
 function joinLabels(labels: string[]): string {
   if (labels.length < 2) return labels.join('')
@@ -35,12 +41,17 @@ function joinLabels(labels: string[]): string {
  */
 export function ProfileSuggestionsPanel({
   prefill,
+  accountType,
+  onReanalyze,
   saving,
   onApplied,
   onSave,
   onReviewFields
 }: {
   prefill: SectionPrefill
+  /** The type the form is set to now. */
+  accountType: 'personal' | 'company'
+  onReanalyze: () => void
   saving: boolean
   /** After the form has been filled, so the page can bring it into view. */
   onApplied: () => void
@@ -49,6 +60,10 @@ export function ProfileSuggestionsPanel({
 }) {
   const { draft, pending } = prefill
   const [reviewOpen, setReviewOpen] = useState(false)
+  // The type was changed after the analysis. Name and company mean different
+  // things for a person and a company, so the suggestions no longer fit.
+  const writtenFor = draft?.accountType
+  const typeChanged = Boolean(writtenFor && writtenFor !== accountType)
   const others = draft
     ? SETUP_SECTIONS.filter(
         section =>
@@ -61,8 +76,32 @@ export function ProfileSuggestionsPanel({
     <>
       <FlowSteps current={pending ? 'apply' : 'save'} />
 
+      {typeChanged && writtenFor && (
+        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+          <p className="text-foreground text-xs font-semibold">
+            Identity type changed
+          </p>
+          <p className="text-muted mt-1 text-[11px] leading-snug">
+            These suggestions were written for {TYPE_NAMES[writtenFor]}.
+            Re-analyze to write them for {TYPE_NAMES[accountType]}.
+          </p>
+          <button
+            type="button"
+            onClick={onReanalyze}
+            className="text-foreground mt-2 inline-flex items-center gap-1 text-[11px] font-medium hover:underline"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Re-analyze
+          </button>
+        </div>
+      )}
+
       {pending ? (
-        <Ready pending={pending} onView={() => setReviewOpen(true)} />
+        <Ready
+          pending={pending}
+          accountType={writtenFor}
+          onView={() => setReviewOpen(true)}
+        />
       ) : prefill.active ? (
         <Applied
           count={prefill.filled.length}
@@ -161,12 +200,15 @@ function FlowSteps({ current }: { current: 'apply' | 'save' }) {
 /** Suggestions are in: what they cover, and the way into the review window. */
 function Ready({
   pending,
+  accountType,
   onView
 }: {
   pending: PendingSuggestion[]
+  /** The type the suggestions were written for. */
+  accountType?: 'personal' | 'company'
   onView: () => void
 }) {
-  const labels = pending.map(p => fieldLabel('profile', p.field))
+  const labels = pending.map(p => fieldLabel('profile', p.field, accountType))
   const shown = labels.slice(0, 3).join(', ')
   const more = labels.length - 3
 

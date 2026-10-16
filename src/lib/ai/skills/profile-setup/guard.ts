@@ -49,6 +49,40 @@ export type SanitizeContext = {
   researchNotes?: string[]
   /** Text the user wrote in Advanced analysis; figures in it are theirs. */
   trustedText?: string
+  /** The identity type the user chose; without one, the model's choice holds. */
+  accountType?: 'personal' | 'company'
+}
+
+type AccountType = 'personal' | 'company'
+
+/** "Crumb & Co." and "crumb & co" are the same name. */
+function nameKey(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+/**
+ * `company` names an organisation other than the identity: a person's own
+ * business or employer, or a company's parent. The model has filed the
+ * identity's own name there, either as well as in `name` or instead of it, so
+ * a company profile came back with an empty Display name and its own name
+ * under Parent company / brand. A person's company may be the only name the
+ * input gives, so it stays where it is.
+ */
+function reconcileNames(
+  profile: Record<string, unknown>,
+  accountType: AccountType
+) {
+  const name = profile.name as { value: string } | undefined
+  const company = profile.company as { value: string } | undefined
+  if (!company) return
+  if (!name) {
+    if (accountType === 'company') {
+      profile.name = company
+      delete profile.company
+    }
+    return
+  }
+  if (nameKey(name.value) === nameKey(company.value)) delete profile.company
 }
 
 const EMPTY_VALUE = /^(n\/?a|unknown|not specified|not provided|-+)$/i
@@ -380,15 +414,22 @@ export function normalizeWeights(weights: number[]): number[] {
  *   typed them, either in the form or in the description.
  * - Knowledge facts survive only if their quote appears verbatim in the text
  *   they cite.
+ * - The profile is written for one identity type, the user's or else the
+ *   model's, and its name and company fit that type (see reconcileNames).
  */
 export function sanitizeIdentitySetup(
   raw: unknown,
   context: SanitizeContext
-): { suggestions: IdentitySetupSuggestions; warnings: string[] } {
+): {
+  suggestions: IdentitySetupSuggestions
+  warnings: string[]
+  accountType: AccountType
+} {
   const warnings: string[] = []
   const root = asRecord(raw)
   if (!root) {
     return {
+      accountType: context.accountType ?? 'personal',
       suggestions: structuredClone(EMPTY_SUGGESTIONS),
       warnings: [
         'The AI response was not a JSON object, so nothing could be used.'
@@ -663,6 +704,13 @@ export function sanitizeIdentitySetup(
   }
 
   const profile = readSection('profile', ProfileSuggestionsSchema)
+  // A person unless the model says otherwise, as the Profile form starts out.
+  const accountType: AccountType =
+    context.accountType ??
+    (asString(asRecord(root.profile)?.identityType).toLowerCase() === 'company'
+      ? 'company'
+      : 'personal')
+  reconcileNames(profile, accountType)
   const voice = readSection('voice', VoiceSuggestionsSchema)
   const goals = readSection('goals', GoalSuggestionsSchema)
 
@@ -864,11 +912,16 @@ export function sanitizeIdentitySetup(
   })
   if (!final.success) {
     return {
+      accountType,
       suggestions: structuredClone(EMPTY_SUGGESTIONS),
       warnings: [...warnings, 'The AI response could not be validated.']
     }
   }
-  return { suggestions: final.data, warnings: Array.from(new Set(warnings)) }
+  return {
+    accountType,
+    suggestions: final.data,
+    warnings: Array.from(new Set(warnings))
+  }
 }
 
 // ---------------------------------------------------------------------------

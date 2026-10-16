@@ -38,6 +38,13 @@ export default function NewAccountPage() {
   const formRef = useRef<HTMLFormElement>(null)
   const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
   const [accountType, setAccountType] = useState<AccountType>('personal')
+  // The default above is not a choice: until the user picks a type (or an
+  // analysis sets one), the analysis reads it from their description.
+  const [accountTypeChosen, setAccountTypeChosen] = useState(false)
+  const chooseAccountType = (value: AccountType) => {
+    setAccountType(value)
+    setAccountTypeChosen(true)
+  }
   const [saving, setSaving] = useState(false)
 
   // Suggestions wait in the assistant until the user applies them; only then
@@ -70,7 +77,8 @@ export default function NewAccountPage() {
           <AiSetupCard
             variant="assistant"
             accountType={accountType}
-            onAccountTypeChange={setAccountType}
+            accountTypeChosen={accountTypeChosen}
+            onAccountTypeChange={chooseAccountType}
             prefill={prefill}
             saving={saving}
             // Brings the filled form into view (it sits below on narrow screens).
@@ -99,7 +107,7 @@ export default function NewAccountPage() {
           values={values}
           setValues={setValues}
           accountType={accountType}
-          setAccountType={setAccountType}
+          setAccountType={chooseAccountType}
           prefill={prefill}
           onSavingChange={setSaving}
         />

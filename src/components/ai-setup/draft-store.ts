@@ -36,7 +36,9 @@ export type AnalysisInput = {
   websiteUrl: string
 }
 
-export type IdentitySetupDraft = IdentitySetupAnalysis & {
+export type IdentitySetupDraft = Omit<IdentitySetupAnalysis, 'accountType'> & {
+  /** Missing from drafts saved before analyses recorded it. */
+  accountType?: IdentitySetupAnalysis['accountType']
   /** New for every analysis; forms prefill once per id. */
   id: string
   createdAt: string
@@ -123,6 +125,11 @@ function readDraft(key: string): IdentitySetupDraft | null {
       if (suggestions && typeof parsed.id === 'string') {
         draft = {
           ...parsed,
+          accountType:
+            parsed.accountType === 'personal' ||
+            parsed.accountType === 'company'
+              ? parsed.accountType
+              : undefined,
           suggestions,
           input: isAnalysisInput(parsed.input) ? parsed.input : undefined
         }

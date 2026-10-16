@@ -234,7 +234,8 @@ export type EntrySection = 'profile' | 'voice' | 'goals' | 'preferences'
 export const FIELD_SPECS = {
   profile: {
     name: { type: 'text', label: 'Display name' },
-    company: { type: 'text', label: 'Company name' },
+    // Labelled by identity type where that is known (see fieldLabel).
+    company: { type: 'text', label: 'Company' },
     description: { type: 'text', label: 'Description' },
     targetAudience: { type: 'text', label: 'Target audience' },
     offerings: { type: 'text', label: 'Offerings' },
@@ -290,8 +291,21 @@ export const SECTION_LABELS: Record<SetupSection, string> = {
   preferences: 'Preferences'
 }
 
-export function fieldLabel(section: SetupSection, field: string): string {
+/**
+ * `accountType` names the company field the way the Profile form does: a
+ * person's current company, or a company's parent company or brand.
+ */
+export function fieldLabel(
+  section: SetupSection,
+  field: string,
+  accountType?: 'personal' | 'company'
+): string {
   if (field === 'pillars') return 'Content pillars'
+  if (section === 'profile' && field === 'company' && accountType) {
+    return accountType === 'company'
+      ? 'Parent company / brand'
+      : 'Current company'
+  }
   const specs = (FIELD_SPECS as Record<string, Record<string, FieldSpec>>)[
     section
   ]
@@ -336,6 +350,11 @@ const modelMissing = z
 
 export const IdentitySetupModelSchema = z.object({
   profile: z.object({
+    identityType: z
+      .enum(['person', 'company'])
+      .describe(
+        'The identity every field is written for: the identity type in <choices>, or the one decided from the input.'
+      ),
     fields: z.array(entrySchema('profile')),
     missing: modelMissing
   }),
@@ -531,6 +550,12 @@ export function hasAnySuggestion(
 }
 
 export type IdentitySetupAnalysis = {
+  /**
+   * The identity type the suggestions were written for: the one the user
+   * chose, or, when they had not, the one the AI read from their description.
+   * Name and company only mean the right thing under this type.
+   */
+  accountType: 'personal' | 'company'
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   sources: SourceFetchStatus[]

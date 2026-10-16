@@ -554,6 +554,7 @@ export function SectionCard({
 export function SuggestionRow({
   section,
   field,
+  accountType,
   item,
   current,
   checked,
@@ -566,6 +567,8 @@ export function SuggestionRow({
 }: {
   section: EntrySection
   field: string
+  /** The identity type the suggestion was written for; names the company field. */
+  accountType?: 'personal' | 'company'
   item: Item
   /** What is there now; undefined when the field is empty. */
   current: unknown
@@ -588,7 +591,9 @@ export function SuggestionRow({
     tone: hasCurrent ? 'replace' : 'new'
   }
   const label =
-    field === 'pillars' ? 'Content pillars' : fieldLabel(section, field)
+    field === 'pillars'
+      ? 'Content pillars'
+      : fieldLabel(section, field, accountType)
 
   const suggestion = editing ? (
     field === 'pillars' ? (
@@ -1158,6 +1163,7 @@ export function ReviewSuggestionsDialog({
                 key={`${draft.id}-${section}.${field}`}
                 section={section}
                 field={field}
+                accountType={draft.accountType}
                 item={itemOf(edited, section, field)}
                 current={current}
                 checked={chosen[section].includes(field)}

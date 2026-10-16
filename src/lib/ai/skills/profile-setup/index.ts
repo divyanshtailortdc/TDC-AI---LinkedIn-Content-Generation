@@ -38,6 +38,8 @@ export async function suggestSetup(input: {
   /** Cancels the model call. */
   signal?: AbortSignal
 }): Promise<{
+  /** The identity type the suggestions were written for. */
+  accountType: 'personal' | 'company'
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   usage: CallUsage
@@ -94,7 +96,8 @@ export async function suggestSetup(input: {
     // What the user chose in Advanced analysis is theirs, figures included.
     trustedText: Object.values(input.guidance ?? {})
       .filter((value): value is string => typeof value === 'string')
-      .join('\n')
+      .join('\n'),
+    accountType: input.guidance?.accountType
   })
   // The CTA link and every other Advanced choice are applied after the URL
   // checks, so they hold whatever the model returned.
@@ -103,5 +106,11 @@ export async function suggestSetup(input: {
   const warnings = input.guidance?.ctaUrl
     ? sanitized.warnings.filter(w => !w.startsWith('Goals → CTA link'))
     : sanitized.warnings
-  return { suggestions, warnings, usage, modelUsed }
+  return {
+    accountType: sanitized.accountType,
+    suggestions,
+    warnings,
+    usage,
+    modelUsed
+  }
 }

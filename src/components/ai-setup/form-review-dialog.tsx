@@ -144,6 +144,7 @@ export function FormReviewDialog({
               key={`${draft.id}-${p.field}`}
               section="profile"
               field={p.field}
+              accountType={draft.accountType}
               item={itemFor(p.field)}
               current={p.change === 'new' ? undefined : p.current}
               checked={selected.includes(p.field)}

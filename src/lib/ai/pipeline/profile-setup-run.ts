@@ -219,8 +219,12 @@ export async function analyzeIdentitySetup(
   if (linkedinUrl) requested.push([linkedinUrl, 'linkedin'])
   if (websiteUrl) requested.push([websiteUrl, 'website'])
   // Working out who to look up overlaps with reading the pages the user gave.
+  // With no type chosen, the profile is a person's unless the input is only
+  // about a business, and a requested "personal" settles the lookup the same
+  // way: the person when they write about themselves and their business, the
+  // business when it is all the input describes.
   const entityLookup = isWebSearchConfigured
-    ? findEntity(description, guidance?.accountType)
+    ? findEntity(description, guidance?.accountType ?? 'personal')
     : Promise.resolve(null)
   const providedSources: SetupSource[] = await Promise.all(
     requested.map(([url, kind]) => fetchSource(url, kind))
@@ -272,6 +276,7 @@ export async function analyzeIdentitySetup(
   }
 
   return {
+    accountType: result.accountType,
     suggestions: result.suggestions,
     warnings: result.warnings,
     sources: sources.map(s => s.status),

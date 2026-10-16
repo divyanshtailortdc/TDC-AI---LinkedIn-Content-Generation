@@ -12,6 +12,7 @@ import { buildPrompt } from '../src/lib/ai/skills/profile-setup/prompt'
 import {
   AnalysisGuidanceSchema,
   AnalyzeIdentityInputSchema,
+  fieldLabel,
   getSectionStatus,
   hasAnySuggestion,
   IdentitySetupSuggestionsSchema
@@ -353,6 +354,89 @@ describe('sanitizeIdentitySetup: partial and incorrect output', () => {
       IdentitySetupSuggestionsSchema.safeParse(tampered).success,
       false
     )
+  })
+})
+
+describe('name and company fit the identity type', () => {
+  const ORACLE =
+    'Oracle offers cloud infrastructure, databases and business applications with AI built in.'
+  const bare = { description: ORACLE, providedUrls: [], fetchedSources: [] }
+  const profileOf = (identityType: string | undefined, fields: unknown[]) => ({
+    profile: { ...(identityType ? { identityType } : {}), fields, missing: [] }
+  })
+
+  it("puts a company's own name in Display name, never under Parent company", () => {
+    // Regression: the AI filed "Oracle" as the company and left the name
+    // empty, so the form showed it under Parent Company / Brand.
+    const { suggestions, accountType } = sanitizeIdentitySetup(
+      profileOf('company', [entry('company', 'Oracle', 'fact', 'description')]),
+      { ...bare, accountType: 'company' }
+    )
+    assert.strictEqual(accountType, 'company')
+    assert.strictEqual(suggestions.profile.name?.value, 'Oracle')
+    assert.strictEqual(suggestions.profile.company, undefined)
+  })
+
+  it('drops a company that only repeats the name, and keeps a real parent', () => {
+    const repeated = sanitizeIdentitySetup(
+      profileOf('company', [
+        entry('name', 'Crumb & Co.'),
+        entry('company', 'crumb & co')
+      ]),
+      { ...bare, accountType: 'company' }
+    ).suggestions.profile
+    assert.strictEqual(repeated.name?.value, 'Crumb & Co.')
+    assert.strictEqual(repeated.company, undefined)
+
+    const parent = sanitizeIdentitySetup(
+      profileOf('company', [
+        entry('name', 'Slack'),
+        entry('company', 'Salesforce')
+      ]),
+      { ...bare, accountType: 'company' }
+    ).suggestions.profile
+    assert.strictEqual(parent.name?.value, 'Slack')
+    assert.strictEqual(parent.company?.value, 'Salesforce')
+  })
+
+  it("leaves a person's business as their company when they are not named", () => {
+    const { suggestions, accountType } = sanitizeIdentitySetup(
+      profileOf('person', [entry('company', 'Reyes Legal')]),
+      { ...bare, accountType: 'personal' }
+    )
+    assert.strictEqual(accountType, 'personal')
+    assert.strictEqual(suggestions.profile.name, undefined)
+    assert.strictEqual(suggestions.profile.company?.value, 'Reyes Legal')
+  })
+
+  it("follows the model's identity type only when the user chose none", () => {
+    const output = profileOf('company', [entry('name', 'Oracle')])
+    assert.strictEqual(
+      sanitizeIdentitySetup(output, bare).accountType,
+      'company'
+    )
+    assert.strictEqual(
+      sanitizeIdentitySetup(output, { ...bare, accountType: 'personal' })
+        .accountType,
+      'personal'
+    )
+    // An answer without one is read the way the Profile form starts: a person.
+    assert.strictEqual(
+      sanitizeIdentitySetup(profileOf(undefined, []), bare).accountType,
+      'personal'
+    )
+  })
+
+  it('names the company field the way the Profile form does', () => {
+    assert.strictEqual(
+      fieldLabel('profile', 'company', 'company'),
+      'Parent company / brand'
+    )
+    assert.strictEqual(
+      fieldLabel('profile', 'company', 'personal'),
+      'Current company'
+    )
+    assert.strictEqual(fieldLabel('profile', 'company'), 'Company')
   })
 })
 

@@ -78,8 +78,9 @@ export function PrefillBanner({
   note?: string
 }) {
   if (!prefill.active) return null
-  const filled = prefill.filled.map(f => fieldLabel(section, f))
-  const kept = prefill.kept.map(f => fieldLabel(section, f))
+  const accountType = prefill.draft?.accountType
+  const filled = prefill.filled.map(f => fieldLabel(section, f, accountType))
+  const kept = prefill.kept.map(f => fieldLabel(section, f, accountType))
 
   const summary =
     filled.length > 0

@@ -41,7 +41,6 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
     if (!run) {
       throw new Error('Failed to create run record')
     }
-
     // Trigger processing asynchronously in background
     processRunImmediately(run.id).catch((err) => {
       console.error(`Background execution error for run ${run.id}:`, err)

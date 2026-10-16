@@ -186,7 +186,7 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     const validated = parsed.data
 
     const existing = await db.query.accountsTable.findFirst({
-      where: eq(accountsTable.id, validated.id)
+      where: eq(accountsTable.id, validated.id) 
     })
     if (!existing) {
       return { success: false, error: 'Account identity not found' }

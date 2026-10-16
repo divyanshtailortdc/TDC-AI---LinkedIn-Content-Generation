@@ -181,6 +181,7 @@ export function AdvancedAnalyzeDialog({
   urlErrors,
   accountType,
   accountTypeLocked,
+  accountTypeChosen,
   isAnalyzing,
   failure,
   onRun,
@@ -197,12 +198,17 @@ export function AdvancedAnalyzeDialog({
   accountType: AccountType
   /** True for an existing identity, whose type is fixed. */
   accountTypeLocked: boolean
+  /** False when `accountType` is only the create page's default. */
+  accountTypeChosen: boolean
   isAnalyzing: boolean
   failure: { message: string; retryable: boolean } | null
   onRun: (guidance: AnalysisGuidance) => void
   onClose: () => void
 }) {
-  const [type, setType] = useState<AccountType>(accountType)
+  // Left unset, like every other choice here, the AI decides it.
+  const [type, setType] = useState<AccountType | undefined>(
+    accountTypeLocked || accountTypeChosen ? accountType : undefined
+  )
   const [tone, setTone] = useState<AnalysisGuidance['tone']>()
   const [perspective, setPerspective] =
     useState<AnalysisGuidance['perspective']>()
@@ -313,11 +319,16 @@ export function AdvancedAnalyzeDialog({
                   <span className="text-foreground text-xs font-medium">
                     Identity type
                   </span>
-                  {accountTypeLocked && (
+                  {accountTypeLocked ? (
                     <span className="text-muted inline-flex items-center gap-1 text-[11px]">
                       <Lock className="h-3 w-3" />
                       Change it on the Profile step
                     </span>
+                  ) : (
+                    <LetAiDecide
+                      selected={!type}
+                      onClick={() => setType(undefined)}
+                    />
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
