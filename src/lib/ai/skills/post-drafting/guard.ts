@@ -19,6 +19,29 @@ export function isCompleteDraft(
 }
 
 /**
+ * The hook is shown above the body, so a body that opens by repeating it
+ * reads twice in the preview and is pasted twice into LinkedIn. Models do
+ * this often, so the repeat is cut off here. Spacing and case are ignored
+ * when comparing; a body that would be left empty is kept as it is.
+ */
+export function withoutRepeatedHook<T extends { hook: string; body: string }>(
+  draft: T
+): T {
+  const words = draft.hook.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return draft
+  const escaped = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  // Ends on a whole word, so a hook ending "run" leaves "running" alone.
+  const repeat = new RegExp(
+    `^\\s*${escaped.join('\\s+')}(?![\\p{L}\\p{N}])`,
+    'iu'
+  )
+  const match = draft.body.match(repeat)
+  if (!match) return draft
+  const rest = draft.body.slice(match[0].length).replace(/^\s+/, '')
+  return rest ? { ...draft, body: rest } : draft
+}
+
+/**
  * Everything a draft's figures may come from: the idea's evidence, the idea
  * itself (its figures were checked at ideation, or typed by the reviewer at
  * the approval gate) and what the author saved about themselves. The linter

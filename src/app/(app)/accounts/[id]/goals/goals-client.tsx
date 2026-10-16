@@ -88,6 +88,7 @@ export function GoalsClient({
   // goal, so existing goals are never touched.
   const prefill = useSectionPrefill<GoalValues>({
     draftKey: accountId,
+    section: 'goals',
     getCurrent: () => ({
       title,
       objectiveType,
@@ -196,6 +197,7 @@ export function GoalsClient({
         })
       }
 
+      prefill.markSaved()
       resetForm()
       setShowNewGoal(false)
       router.refresh()

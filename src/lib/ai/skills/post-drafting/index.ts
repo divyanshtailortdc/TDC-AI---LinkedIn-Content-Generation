@@ -4,7 +4,7 @@ import type { Idea } from '@/db/schema'
 import type { GenerationContext } from '../../context'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
-import { isCompleteDraft } from './guard'
+import { isCompleteDraft, withoutRepeatedHook } from './guard'
 import { buildInstructions, buildPrompt, buildRevisionPrompt } from './prompt'
 import { DraftGenerationSchema, type DraftGenerationResult } from './schema'
 
@@ -47,5 +47,5 @@ export async function writeDraft(
       usage
     })
   }
-  return { draft: output, usage, modelId }
+  return { draft: withoutRepeatedHook(output), usage, modelId }
 }

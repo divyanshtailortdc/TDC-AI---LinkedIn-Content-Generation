@@ -210,6 +210,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   // AI setup suggestions fill blank settings only; saving is still manual.
   const prefill = useSectionPrefill<VoiceValues>({
     draftKey: accountId,
+    section: 'voice',
     getCurrent: () => ({
       tone,
       derivedStyleRubric: derivedRubric,
@@ -268,6 +269,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         title: 'Voice Saved',
         message: 'New posts will be written in this voice.'
       })
+      prefill.markSaved()
       router.refresh()
       return true
     }

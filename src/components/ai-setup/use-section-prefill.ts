@@ -8,6 +8,13 @@ import { useIdentitySetupDraft, type IdentitySetupDraft } from './draft-store'
 type Values = Record<string, unknown>
 
 /**
+ * Drafts whose suggestions were saved from a form, as "key:section:draftId".
+ * Saving refreshes the page and remounts the form, which would load the same
+ * draft again and show a banner about suggestions that are already saved.
+ */
+const savedDrafts = new Set<string>()
+
+/**
  * What applying one suggestion would do to its field: fill a blank one, swap
  * out an earlier AI value the user never changed, or overwrite the user's own
  * text.
@@ -43,6 +50,11 @@ export type SectionPrefill = {
   replaceAll: () => void
   /** Put the form back the way it was before the suggestions. */
   undo: () => void
+  /**
+   * Call after the form is saved: the filled values are now the saved ones, so
+   * they stop counting as unsaved changes and there is nothing to undo.
+   */
+  markSaved: () => void
 }
 
 function sameValue(a: unknown, b: unknown): boolean {
@@ -66,6 +78,7 @@ function sameValue(a: unknown, b: unknown): boolean {
  */
 export function useSectionPrefill<T extends Values>({
   draftKey,
+  section,
   autoApply = true,
   getCurrent,
   setValues,
@@ -73,6 +86,8 @@ export function useSectionPrefill<T extends Values>({
   isBlank
 }: {
   draftKey: string
+  /** Names the form, so saving it stops its own banner from coming back. */
+  section?: string
   autoApply?: boolean
   getCurrent: () => T
   setValues: (values: Partial<T>) => void
@@ -128,10 +143,14 @@ export function useSectionPrefill<T extends Values>({
     setState({ draftId, filled: merged.filled, kept: merged.kept, mode })
   }
 
+  const savedKey =
+    section && draft ? `${draftKey}:${section}:${draft.id}` : null
+
   useEffect(() => {
     if (!autoApply) return
     if (!draft || autoAppliedId.current === draft.id) return
     autoAppliedId.current = draft.id
+    if (savedKey && savedDrafts.has(savedKey)) return
     const base = callbacks.current.getCurrent()
     const hasSuggestions = Object.values(
       callbacks.current.suggestionValues(draft.suggestions)
@@ -145,7 +164,12 @@ export function useSectionPrefill<T extends Values>({
   const current = getCurrent()
 
   let pending: PendingSuggestion[] | null = null
-  if (!autoApply && draft && state?.draftId !== draft.id) {
+  if (
+    !autoApply &&
+    draft &&
+    state?.draftId !== draft.id &&
+    !(savedKey && savedDrafts.has(savedKey))
+  ) {
     const suggested = Object.entries(
       suggestionValues(draft.suggestions)
     ) as Array<[keyof T & string, unknown]>
@@ -206,6 +230,11 @@ export function useSectionPrefill<T extends Values>({
       setAiValues(snapshot.current.aiValues)
       snapshot.current = null
       // With autoApply off this puts the suggestions back up for review.
+      setState(null)
+    },
+    markSaved: () => {
+      if (savedKey) savedDrafts.add(savedKey)
+      snapshot.current = null
       setState(null)
     }
   }

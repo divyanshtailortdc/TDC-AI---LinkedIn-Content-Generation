@@ -100,7 +100,7 @@ ${
 
 Produce:
 1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold
-2. body — plain text, about ${constraints.target_chars} characters total including the hook${
+2. body — the rest of the post after the hook; do not repeat the hook. Plain text; hook and body together about ${constraints.target_chars} characters${
     goalLink && linkPlacement === 'body'
       ? `; include this link once, near the call to action: ${goalLink}`
       : ''

@@ -9,7 +9,7 @@ export const DraftGenerationSchema = z.object({
   body: z
     .string()
     .describe(
-      'The full body of the post formatted with clean plain-text line breaks (\\n\\n). Strictly NO markdown syntax (no **, no ##, no raw [text](url)).'
+      'The rest of the post after the hook; never repeat the hook here. Clean plain-text line breaks (\\n\\n). Strictly NO markdown syntax (no **, no ##, no raw [text](url)).'
     ),
   cta: z
     .string()

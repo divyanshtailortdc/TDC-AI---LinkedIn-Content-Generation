@@ -120,7 +120,7 @@ function AccountCard({
               {account.accountType}
             </span>
             {isActive ? (
-              <span className="text-xs font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0">
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0">
                 Active
               </span>
             ) : (
@@ -130,7 +130,7 @@ function AccountCard({
               </span>
             )}
             {allDone ? (
-              <span className="text-xs text-emerald-600 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
                 Ready
               </span>

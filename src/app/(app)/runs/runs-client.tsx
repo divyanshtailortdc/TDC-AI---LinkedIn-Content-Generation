@@ -240,12 +240,12 @@ export function RunsClient({
                     </span>
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
                       run.status === 'completed'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
                         : run.status === 'awaiting_idea_approval'
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
                           : run.status === 'failed'
-                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600'
-                            : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600'
+                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
+                            : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
                     }`}>
                       {run.status.replace(/_/g, ' ')}
                     </span>

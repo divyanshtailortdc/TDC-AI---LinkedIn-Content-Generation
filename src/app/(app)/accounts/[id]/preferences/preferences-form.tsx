@@ -101,6 +101,7 @@ export function PreferencesForm({
   // AI setup suggestions fill blank settings only; saving is still manual.
   const prefill = useSectionPrefill<PreferencesValues>({
     draftKey: accountId,
+    section: 'preferences',
     getCurrent: () => ({
       pillars: pillars.map((p, i) => ({
         ...p,
@@ -174,6 +175,7 @@ export function PreferencesForm({
         title: 'Preferences Saved',
         message: 'Content preferences saved successfully.'
       })
+      prefill.markSaved()
       router.refresh()
       return true
     } catch (err: any) {

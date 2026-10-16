@@ -1,15 +1,14 @@
 'use server'
 
 import { db } from '@/db'
-import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
+import { accountsTable } from '@/db/schema'
 import { writeActiveAccountCookie } from '@/lib/active-account'
 import {
   deriveHeadline,
-  IdentityProfileSchema,
-  offeringNameFromText,
-  type IdentityProfile
+  IdentityProfileSchema
 } from '@/lib/identity-profile'
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { insertIdentity, updateIdentity } from '@/lib/identity-write'
+import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
@@ -64,66 +63,6 @@ async function findAvailableHandle(baseHandle: string, exceptId?: string) {
   }
 }
 
-/**
- * Writes the profile's free-text offerings and audience into the account's
- * primary (oldest) rows, inserting them when missing. Later rows are kept.
- */
-async function upsertPrimaryOfferingAndAudience(
-  accountId: string,
-  profile: Pick<IdentityProfile, 'offerings' | 'targetAudience'>
-) {
-  // Separate tables, so the two writes run side by side.
-  await Promise.all([
-    upsertPrimaryOffering(accountId, profile.offerings),
-    upsertPrimaryAudience(accountId, profile.targetAudience)
-  ])
-}
-
-async function upsertPrimaryOffering(accountId: string, offerings: string) {
-  const [primaryOffering] = await db
-    .select({ id: offeringsTable.id })
-    .from(offeringsTable)
-    .where(eq(offeringsTable.accountId, accountId))
-    .orderBy(asc(offeringsTable.createdAt))
-    .limit(1)
-
-  const offeringValues = {
-    name: offeringNameFromText(offerings),
-    description: offerings
-  }
-  if (primaryOffering) {
-    await db
-      .update(offeringsTable)
-      .set({ ...offeringValues, updatedAt: new Date() })
-      .where(eq(offeringsTable.id, primaryOffering.id))
-  } else {
-    await db
-      .insert(offeringsTable)
-      .values({ accountId, ...offeringValues, isActive: true })
-  }
-}
-
-async function upsertPrimaryAudience(
-  accountId: string,
-  targetAudience: string
-) {
-  const [primaryAudience] = await db
-    .select({ id: audiencesTable.id })
-    .from(audiencesTable)
-    .where(eq(audiencesTable.accountId, accountId))
-    .orderBy(asc(audiencesTable.createdAt))
-    .limit(1)
-
-  if (primaryAudience) {
-    await db
-      .update(audiencesTable)
-      .set({ name: targetAudience, updatedAt: new Date() })
-      .where(eq(audiencesTable.id, primaryAudience.id))
-  } else {
-    await db.insert(audiencesTable).values({ accountId, name: targetAudience })
-  }
-}
-
 function profileFromFormData(formData: FormData) {
   const field = (key: string) => (formData.get(key) as string) || ''
   return {
@@ -167,31 +106,19 @@ export async function createAccount(formData: FormData) {
     websiteUrl: data.websiteUrl || null
   })
 
-  // Insert account with fallback handling for race conditions
-  let account: typeof accountsTable.$inferSelect | undefined
+  // The account and its offering and audience are written together. A
+  // concurrent create can take the handle first; retry once with a unique suffix.
+  let account: typeof accountsTable.$inferSelect
   try {
-    const [inserted] = await db
-      .insert(accountsTable)
-      .values(accountValues(candidateHandle))
-      .returning()
-    account = inserted
+    account = await insertIdentity(db, accountValues(candidateHandle), data)
   } catch (err: any) {
-    // If unique constraint violation occurs concurrently, append a unique suffix
     if (err?.code === '23505' || err?.cause?.code === '23505') {
       const fallbackHandle = `${candidateHandle}-${Date.now().toString(36)}`
-      const [inserted] = await db
-        .insert(accountsTable)
-        .values(accountValues(fallbackHandle))
-        .returning()
-      account = inserted
+      account = await insertIdentity(db, accountValues(fallbackHandle), data)
     } else {
       throw err
     }
   }
-
-  if (!account) throw new Error('Failed to create account')
-
-  await upsertPrimaryOfferingAndAudience(account.id, data)
 
   // The identity just created is the one being set up, so it becomes active
   // straight away. Revalidating the root layout re-renders the sidebar (its
@@ -251,9 +178,10 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       )
     }
 
-    await db
-      .update(accountsTable)
-      .set({
+    await updateIdentity(
+      db,
+      validated.id,
+      {
         name: validated.name,
         ...(validated.accountType
           ? { accountType: validated.accountType }
@@ -267,10 +195,9 @@ export async function updateAccountAction(input: UpdateAccountInput) {
         linkedinUrl: validated.linkedinUrl || null,
         websiteUrl: validated.websiteUrl || null,
         updatedAt: new Date()
-      })
-      .where(eq(accountsTable.id, validated.id))
-
-    await upsertPrimaryOfferingAndAudience(validated.id, validated)
+      },
+      validated
+    )
 
     revalidatePath('/')
     revalidatePath('/accounts')
