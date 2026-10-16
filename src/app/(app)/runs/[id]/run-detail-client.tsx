@@ -275,6 +275,17 @@ export function RunDetailClient({
     }
   }
 
+  // Takes the run and its ideas from the server. After a failed attempt some
+  // ideas may already be drafted, so putting them all back to approved here
+  // would show the wrong thing.
+  const resyncFromServer = async () => {
+    const res = await fetchRunStatus(run.id)
+    if (res.success && res.run) {
+      setRun(res.run)
+      if (res.ideas) setIdeas(res.ideas)
+    }
+  }
+
   const handleDraftApproved = async () => {
     const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
 
@@ -299,9 +310,7 @@ export function RunDetailClient({
         })
         router.push(`/posts?runId=${run.id}`)
       } else {
-        setIdeas((prev) =>
-          prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
-        )
+        await resyncFromServer()
         setDraftStatus('error')
         setDraftError(res.error || 'Drafting failed. Please try again.')
         showToast({
@@ -311,9 +320,11 @@ export function RunDetailClient({
         })
       }
     } catch (err: any) {
-      setIdeas((prev) =>
-        prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
-      )
+      await resyncFromServer().catch(() => {
+        setIdeas((prev) =>
+          prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+        )
+      })
       setDraftStatus('error')
       setDraftError(err?.message || 'Something went wrong while drafting posts.')
       showToast({
@@ -327,6 +338,13 @@ export function RunDetailClient({
   }
 
   const awaitingApproval = run.status === 'awaiting_idea_approval'
+  // Ideas can still be waiting after a first batch is drafted, or after a
+  // drafting attempt failed part-way, so the run may read "drafting" or
+  // "completed" while Approve all and Create posts are still needed.
+  const canDecide =
+    awaitingApproval ||
+    run.status === 'drafting' ||
+    run.status === 'completed'
   const statusCount = (status: string) => ideas.filter((i) => i.status === status).length
   const approvedCount = statusCount('approved')
   const proposedCount = statusCount('proposed')
@@ -376,7 +394,7 @@ export function RunDetailClient({
           </Link>
         }
         actions={
-          awaitingApproval && (proposedCount > 0 || approvedCount > 0 || isDrafting) ? (
+          canDecide && (proposedCount > 0 || approvedCount > 0 || isDrafting) ? (
             <>
               {proposedCount > 0 && (
                 <ConfirmPopover
