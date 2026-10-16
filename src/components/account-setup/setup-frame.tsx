@@ -337,7 +337,7 @@ export function SetupFrame({
 
   return (
     <StepSaveContext.Provider value={ctx}>
-      <div className="bg-surface-hover/40 flex h-dvh min-h-0 flex-col">
+      <div className="bg-surface-hover/40 flex min-h-0 flex-1 flex-col">
         <div className="shrink-0">
           {/* Sized by its own width, not the screen's: the app sidebar takes
               part of the screen, so a "wide" screen can still be a narrow header. */}
@@ -425,8 +425,11 @@ export function SetupFrame({
             inside the main card, it never makes the frame or the card taller.
             On wide screens the cards sit side by side; on narrower ones the
             assistant stacks above, and the main card keeps a fixed share of
-            the screen while the body scrolls between the two. */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5 xl:overflow-hidden">
+            the screen while the body scrolls between the two.
+            Every scroll box here is `relative`, so absolutely positioned
+            content inside it (screen-reader-only text, for one) is clipped
+            and scrolled by that box instead of stretching <main>. */}
+        <div className="relative min-h-0 flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5 xl:overflow-hidden">
           <div
             className={`mx-auto grid h-full gap-5 ${
               aside
@@ -437,7 +440,7 @@ export function SetupFrame({
             {/* It still comes first when the cards stack, since the assistant
                 is the quickest way to fill the form. */}
             {aside && (
-              <aside className="order-first min-h-0 xl:order-last xl:h-full xl:overflow-y-auto">
+              <aside className="relative order-first xl:order-last xl:h-full xl:min-h-0 xl:overflow-y-auto">
                 {aside}
               </aside>
             )}
@@ -456,7 +459,7 @@ export function SetupFrame({
                   Step {stepIndex + 1} of {SETUP_STEPS.length}
                 </span>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-5">
+              <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-5">
                 <StepViewContext.Provider value={viewCtx}>
                   {children}
                 </StepViewContext.Provider>

@@ -105,11 +105,11 @@ export default async function AccountPage({
       )}
 
       {/* Edit LinkedIn Identity & Core Identity */}
-      {/* key={account.id}: the form seeds its fields into local useState,
-              which only runs on mount, so switching to a different account's
-              settings must remount it rather than reuse stale field values. */}
+      {/* The form seeds its fields into local useState, which only runs on
+              mount, so it remounts for another account and whenever the saved
+              profile changes (for example AI suggestions applied in review). */}
       <EditIdentityForm
-        key={account.id}
+        key={`${account.id}:${account.updatedAt.getTime()}`}
         account={account}
         initialOfferings={offerings}
         initialAudiences={audiences}

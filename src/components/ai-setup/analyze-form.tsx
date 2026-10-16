@@ -9,7 +9,6 @@ import {
   AlertCircle,
   ChevronRight,
   Globe,
-  Info,
   Link2,
   Loader2,
   RotateCcw,
@@ -19,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { AdvancedAnalyzeDialog } from './advanced-analyze-dialog'
+import type { AnalysisInput } from './draft-store'
 
 const EXAMPLE_DESCRIPTION = `I'm Priya Rao, founder of Ledgerly, a bookkeeping and month-end close service for direct-to-consumer brands in India. We work with founders doing ₹5–50 Cr in revenue who are tired of waiting three weeks for their numbers.
 
@@ -38,6 +38,7 @@ const inputClass =
 export function AnalyzeForm({
   variant = 'rail',
   accountId,
+  defaultDescription = '',
   defaultLinkedinUrl = '',
   defaultWebsiteUrl = '',
   urls,
@@ -49,6 +50,8 @@ export function AnalyzeForm({
 }: {
   variant?: 'rail' | 'assistant'
   accountId?: string
+  /** The text behind the current suggestions, when re-analyzing. */
+  defaultDescription?: string
   defaultLinkedinUrl?: string
   defaultWebsiteUrl?: string
   /**
@@ -61,11 +64,11 @@ export function AnalyzeForm({
   accountTypeLocked?: boolean
   /** The create page follows the type picked in Advanced analysis. */
   onAccountTypeChosen?: (value: 'personal' | 'company') => void
-  onAnalyzed: (analysis: IdentitySetupAnalysis) => void
+  onAnalyzed: (analysis: IdentitySetupAnalysis, input: AnalysisInput) => void
   /** Shown when there are earlier suggestions to go back to. */
   onCancel?: () => void
 }) {
-  const [description, setDescription] = useState('')
+  const [description, setDescription] = useState(defaultDescription)
   const [linkedinUrl, setLinkedinUrl] = useState(defaultLinkedinUrl)
   const [websiteUrl, setWebsiteUrl] = useState(defaultWebsiteUrl)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -156,7 +159,11 @@ export function AnalyzeForm({
           onAccountTypeChosen?.(guidance.accountType)
         }
         setAdvancedOpen(false)
-        onAnalyzed(res.data)
+        onAnalyzed(res.data, {
+          description,
+          linkedinUrl: linkedin.trim(),
+          websiteUrl: website.trim()
+        })
       } else {
         setFailure({ message: res.error, retryable: res.retryable ?? true })
       }
@@ -377,7 +384,6 @@ export function AnalyzeForm({
                 Advanced analysis options
                 <ChevronRight className="ml-auto h-3.5 w-3.5" />
               </button>
-
             </>
           ) : (
             <p

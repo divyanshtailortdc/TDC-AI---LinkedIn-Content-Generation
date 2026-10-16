@@ -8,7 +8,10 @@ import {
 import { AiSetupCard } from '@/components/ai-setup/ai-setup-card'
 import { NEW_IDENTITY_KEY, resetDraft } from '@/components/ai-setup/draft-store'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
-import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
+import {
+  useSectionPrefill,
+  type SectionPrefill
+} from '@/components/ai-setup/use-section-prefill'
 import {
   IdentityFields,
   validateIdentityValues,
@@ -35,6 +38,17 @@ export default function NewAccountPage() {
   const formRef = useRef<HTMLFormElement>(null)
   const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
   const [accountType, setAccountType] = useState<AccountType>('personal')
+  const [saving, setSaving] = useState(false)
+
+  // Suggestions wait in the assistant until the user applies them; only then
+  // does the form change.
+  const prefill = useSectionPrefill({
+    draftKey: NEW_IDENTITY_KEY,
+    autoApply: false,
+    getCurrent: () => values,
+    setValues: next => setValues(prev => ({ ...prev, ...next })),
+    suggestionValues: s => profileSuggestionValues(s.profile)
+  })
 
   return (
     <>
@@ -57,11 +71,26 @@ export default function NewAccountPage() {
             variant="assistant"
             accountType={accountType}
             onAccountTypeChange={setAccountType}
-            // Apply saves the identity; the other sections are reviewed after.
-            onApply={() => formRef.current?.requestSubmit()}
-            onEdit={() =>
-              formRef.current?.querySelector<HTMLElement>('#name')?.focus()
+            prefill={prefill}
+            saving={saving}
+            // Brings the filled form into view (it sits below on narrow screens).
+            onApplied={() =>
+              requestAnimationFrame(() =>
+                document
+                  .getElementById(PREFILL_BANNER_ID)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              )
             }
+            // Saving creates the identity; the other sections are reviewed after.
+            onSave={() => formRef.current?.requestSubmit()}
+            onReviewFields={() => {
+              const first = prefill.aiFilled[0] ?? 'name'
+              const field = formRef.current?.querySelector<HTMLElement>(
+                `#${first}`
+              )
+              field?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              field?.focus({ preventScroll: true })
+            }}
           />
         }
       >
@@ -71,11 +100,15 @@ export default function NewAccountPage() {
           setValues={setValues}
           accountType={accountType}
           setAccountType={setAccountType}
+          prefill={prefill}
+          onSavingChange={setSaving}
         />
       </SetupFrame>
     </>
   )
 }
+
+const PREFILL_BANNER_ID = 'ai-prefill-banner'
 
 /** Inside the frame so it can take over the header's Save. */
 function CreateIdentityForm({
@@ -83,41 +116,46 @@ function CreateIdentityForm({
   values: fields,
   setValues: setFields,
   accountType,
-  setAccountType
+  setAccountType,
+  prefill,
+  onSavingChange
 }: {
   formRef: React.RefObject<HTMLFormElement | null>
   values: IdentityValues
   setValues: React.Dispatch<React.SetStateAction<IdentityValues>>
   accountType: AccountType
   setAccountType: (value: AccountType) => void
+  prefill: SectionPrefill
+  onSavingChange: (saving: boolean) => void
 }) {
   const router = useRouter()
   const [errors, setErrors] = useState<IdentityFieldErrors>({})
+  // The header and the assistant can both save; only one create may run.
+  const creating = useRef(false)
 
   const values = fields
   const setValues = (next: Partial<IdentityValues>) =>
     setFields(prev => ({ ...prev, ...next }))
 
-  const prefill = useSectionPrefill({
-    draftKey: NEW_IDENTITY_KEY,
-    getCurrent: () => values,
-    setValues,
-    suggestionValues: s => profileSuggestionValues(s.profile)
-  })
-
   // Creates the identity, then goes to the page the action names (the Voice
   // step, or Profile when AI suggestions are waiting). The frame is never
   // asked to navigate.
   const save = async (): Promise<boolean> => {
+    if (creating.current) return false
     // Chips and bullet lists have no native required check.
     const found = validateIdentityValues(values)
     setErrors(found)
     if (Object.keys(found).length > 0 || !formRef.current) return false
 
+    creating.current = true
+    onSavingChange(true)
     try {
       const { redirectTo } = await createAccount(new FormData(formRef.current))
+      // Stays busy until the next page replaces this one.
       router.push(redirectTo)
     } catch (err: any) {
+      creating.current = false
+      onSavingChange(false)
       showToast({
         type: 'error',
         title: 'Could not create identity',
@@ -141,11 +179,12 @@ function CreateIdentityForm({
       {prefill.draft && <input type="hidden" name="claimAiDraft" value="1" />}
 
       <PrefillBanner
+        id={PREFILL_BANNER_ID}
         section="profile"
         prefill={prefill}
         note={
           prefill.draft
-            ? 'Other sections are reviewed after you save.'
+            ? 'Nothing is saved until you save. Other sections are reviewed after.'
             : undefined
         }
       />
@@ -153,6 +192,7 @@ function CreateIdentityForm({
       <IdentityFields
         values={values}
         errors={errors}
+        aiFilled={new Set(prefill.aiFilled)}
         accountType={accountType}
         onAccountTypeChange={setAccountType}
         onChange={(field, value) => {

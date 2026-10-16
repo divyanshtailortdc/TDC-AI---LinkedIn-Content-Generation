@@ -4,8 +4,6 @@ import {
   useStepSave,
   useStepView
 } from '@/components/account-setup/setup-frame'
-import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
-import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import {
   IdentityFields,
   validateIdentityValues,
@@ -15,7 +13,6 @@ import {
 } from '@/components/identity-fields'
 import { showToast } from '@/components/toast-notification'
 import { profileFromRecords } from '@/lib/identity-profile'
-import { profileSuggestionValues } from '@/lib/settings-merge'
 import { AlertCircle, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -78,20 +75,12 @@ export function EditIdentityForm({
   const setValues = (next: Partial<IdentityValues>) =>
     setFields(prev => ({ ...prev, ...next }))
 
-  const prefill = useSectionPrefill({
-    draftKey: account.id,
-    getCurrent: () => values,
-    setValues,
-    suggestionValues: s => profileSuggestionValues(s.profile)
-  })
-
   const extraRows =
     Math.max(0, initialOfferings.length - 1) +
     Math.max(0, initialAudiences.length - 1)
 
   /** Back to the saved profile, as plain text. */
   const cancelEditing = () => {
-    prefill.undo()
     setFields(saved.values)
     setAccountType(saved.accountType)
     setFieldErrors({})
@@ -173,8 +162,6 @@ export function EditIdentityForm({
           them.
         </p>
       )}
-
-      <PrefillBanner section="profile" prefill={prefill} />
 
       <div>
         <IdentityFields

@@ -23,10 +23,28 @@ import { useSyncExternalStore } from 'react'
 export const NEW_IDENTITY_KEY = 'new'
 const STORAGE_PREFIX = 'identity-setup-draft:'
 
+/** What the user typed into the analysis, so Re-analyze starts from it. */
+export type AnalysisInput = {
+  description: string
+  linkedinUrl: string
+  websiteUrl: string
+}
+
 export type IdentitySetupDraft = IdentitySetupAnalysis & {
   /** New for every analysis; forms prefill once per id. */
   id: string
   createdAt: string
+  input?: AnalysisInput
+}
+
+function isAnalysisInput(value: unknown): value is AnalysisInput {
+  if (!value || typeof value !== 'object') return false
+  const input = value as Record<string, unknown>
+  return (
+    typeof input.description === 'string' &&
+    typeof input.linkedinUrl === 'string' &&
+    typeof input.websiteUrl === 'string'
+  )
 }
 
 const memory = new Map<string, IdentitySetupDraft | null>()
@@ -56,7 +74,11 @@ function readDraft(key: string): IdentitySetupDraft | null {
         parsed?.suggestions
       )
       if (suggestions.success && typeof parsed.id === 'string') {
-        draft = { ...parsed, suggestions: suggestions.data }
+        draft = {
+          ...parsed,
+          suggestions: suggestions.data,
+          input: isAnalysisInput(parsed.input) ? parsed.input : undefined
+        }
       }
     }
   } catch {
@@ -80,9 +102,14 @@ function writeDraft(key: string, draft: IdentitySetupDraft | null) {
   emit()
 }
 
-export function saveDraft(key: string, analysis: IdentitySetupAnalysis) {
+export function saveDraft(
+  key: string,
+  analysis: IdentitySetupAnalysis,
+  input?: AnalysisInput
+) {
   writeDraft(key, {
     ...analysis,
+    input,
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString()
   })

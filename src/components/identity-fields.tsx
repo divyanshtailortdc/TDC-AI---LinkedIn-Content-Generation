@@ -6,7 +6,7 @@ import {
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, Globe, Link2, User } from 'lucide-react'
+import { Building2, Globe, Link2, Sparkles, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
@@ -167,11 +167,14 @@ const baseInputClass =
 
 function FieldLabel({
   def,
-  rightHint
+  rightHint,
+  aiFilled = false
 }: {
   def: IdentityFieldDefinition
   /** Short guidance at the far end of the label row. */
   rightHint?: string
+  /** The value is still the one the AI assistant put there. */
+  aiFilled?: boolean
 }) {
   return (
     <div className="mb-1.5 flex items-baseline justify-between gap-3">
@@ -184,6 +187,16 @@ function FieldLabel({
         {!def.required && def.hint && (
           <span className="text-muted ml-1.5 text-xs font-normal">
             {def.hint}
+          </span>
+        )}
+        {aiFilled && (
+          <span
+            title="Filled from an AI suggestion. Edit it freely."
+            className="bg-accent/10 text-accent ml-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-px align-middle text-[10px] font-semibold"
+          >
+            <Sparkles aria-hidden className="h-2.5 w-2.5" />
+            <span aria-hidden>AI</span>
+            <span className="sr-only">(filled from an AI suggestion)</span>
           </span>
         )}
       </label>
@@ -216,12 +229,14 @@ function IdentityField({
   icon,
   textareaClass = 'h-24',
   readOnly = false,
+  aiFilled = false,
   onChange
 }: {
   def: IdentityFieldDefinition
   value: string
   error?: string
   rightHint?: string
+  aiFilled?: boolean
   /** Shown inside the input, before the text. */
   icon?: ReactNode
   /** Starting height of the box when the field is a textarea. */
@@ -262,12 +277,16 @@ function IdentityField({
   }
 
   const className = `${baseInputClass} ${
-    error ? 'border-red-500/60 ring-1 ring-red-500/30' : 'border-border'
+    error
+      ? 'border-red-500/60 ring-1 ring-red-500/30'
+      : aiFilled
+        ? 'border-accent/40'
+        : 'border-border'
   }`
 
   return (
     <div>
-      <FieldLabel def={def} rightHint={rightHint} />
+      <FieldLabel def={def} rightHint={rightHint} aiFilled={aiFilled} />
       {def.type === 'textarea' ? (
         <textarea
           id={def.name}
@@ -310,10 +329,13 @@ export function IdentityFields({
   accountType,
   onAccountTypeChange,
   readOnly = false,
+  aiFilled,
   onChange
 }: {
   values: IdentityValues
   errors?: IdentityFieldErrors
+  /** Fields still holding an AI suggestion, marked until the user edits them. */
+  aiFilled?: ReadonlySet<string>
   accountType: AccountType
   /** Leave out to show the identity type read-only (edit page). */
   onAccountTypeChange?: (value: AccountType) => void
@@ -369,6 +391,7 @@ export function IdentityFields({
         rightHint={extras.rightHint}
         textareaClass={extras.textareaClass}
         readOnly={readOnly}
+        aiFilled={aiFilled?.has(name)}
         onChange={value => onChange(name, value)}
       />
     )
@@ -413,6 +436,7 @@ export function IdentityFields({
             error={errors.linkedinUrl}
             icon={<Link2 className="h-4 w-4" />}
             readOnly={readOnly}
+            aiFilled={aiFilled?.has('linkedinUrl')}
             onChange={value => onChange('linkedinUrl', value)}
           />
           <IdentityField
@@ -421,6 +445,7 @@ export function IdentityFields({
             error={errors.websiteUrl}
             icon={<Globe className="h-4 w-4" />}
             readOnly={readOnly}
+            aiFilled={aiFilled?.has('websiteUrl')}
             onChange={value => onChange('websiteUrl', value)}
           />
         </div>

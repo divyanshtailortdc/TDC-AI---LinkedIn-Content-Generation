@@ -4,10 +4,10 @@ import { ConfirmPopover } from '@/components/confirm-popover'
 import {
   EMPTY_SUGGESTIONS,
   getSectionStatus,
+  SECTION_LABELS,
   SETUP_SECTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
-import { Lightbulb, RefreshCw, Sparkles, X } from 'lucide-react'
-import Link from 'next/link'
+import { Lightbulb, ListChecks, RefreshCw, Sparkles, X } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { AnalyzeForm } from './analyze-form'
@@ -19,22 +19,22 @@ import {
   updateDraftSuggestions,
   useIdentitySetupDraft
 } from './draft-store'
-import { ReviewSuggestionsDialog } from './review-dialog'
+import { ProfileSuggestionsPanel } from './profile-suggestions-panel'
+import { ReviewSuggestionsDialog, StatusChip } from './review-dialog'
+import type { SectionPrefill } from './use-section-prefill'
 
 type Urls = { linkedinUrl?: string | null; websiteUrl?: string | null }
 
 const primaryButton =
   'bg-accent hover:bg-accent-hover text-background flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors'
-const outlineButton =
-  'border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-full items-center justify-center rounded-lg border px-3.5 text-[13px] font-medium transition-colors'
 
 /**
  * The "AI Suggestions" card beside the setup steps.
  *
- * With an `account` it works on that account's draft: Apply Suggestions opens
- * the review window and Edit Details goes to the Profile step. Without one
- * (the create page) it works on the new-identity draft, and the page decides
- * what Apply and Edit do.
+ * With an `account` it works on that account's draft: Review & apply opens
+ * the review window, where suggestions are edited and applied. Without one
+ * (the create page) it works on the new-identity draft: the page's `prefill`
+ * lists the profile suggestions to apply to its form, and the page saves.
  */
 export function AiSetupCard({
   variant = 'rail',
@@ -42,8 +42,11 @@ export function AiSetupCard({
   urls,
   accountType,
   onAccountTypeChange,
-  onApply,
-  onEdit
+  prefill,
+  saving = false,
+  onApplied,
+  onSave,
+  onReviewFields
 }: {
   /**
    * "rail" is the card beside most steps. "assistant" is the Profile step's
@@ -56,8 +59,13 @@ export function AiSetupCard({
   onAccountTypeChange?: (value: 'personal' | 'company') => void
   /** Rail card on the create page only: the URLs typed into its form. */
   urls?: Urls
-  onApply?: () => void
-  onEdit?: () => void
+  /** Create page only: its form's profile suggestions, applied on confirm. */
+  prefill?: SectionPrefill
+  /** Create page only: the identity is being created. */
+  saving?: boolean
+  onApplied?: () => void
+  onSave?: () => void
+  onReviewFields?: () => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -100,8 +108,6 @@ export function AiSetupCard({
     }
   }, [account, draft, hasSuggestions, reviewOpen])
 
-  const base = account ? `/accounts/${account.id}` : null
-
   const showForm = !hasSuggestions || reanalyzing
   const assistant = variant === 'assistant'
 
@@ -136,17 +142,25 @@ export function AiSetupCard({
               assistant ? 'mt-3' : 'mt-1.5 mb-4'
             }`}
           >
-           {reanalyzing
-  ? 'Update your details and generate new suggestions.'
-  : assistant
-    ? 'Add your profile details and links. AI will suggest fields for you to review.'
-    : 'Add your company details. AI will suggest updates for you to review.'}
+            {reanalyzing
+              ? 'Update your details and generate new suggestions.'
+              : assistant
+                ? 'Add your profile details and links. AI will suggest fields for you to review.'
+                : 'Add your company details. AI will suggest updates for you to review.'}
           </p>
           <AnalyzeForm
             variant={variant}
             accountId={account?.id}
-            defaultLinkedinUrl={account?.linkedinUrl || urls?.linkedinUrl || ''}
-            defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
+            // Re-analyze starts from what was analyzed last time.
+            defaultDescription={draft?.input?.description}
+            defaultLinkedinUrl={
+              draft?.input?.linkedinUrl ??
+              (account?.linkedinUrl || urls?.linkedinUrl || '')
+            }
+            defaultWebsiteUrl={
+              draft?.input?.websiteUrl ??
+              (account?.websiteUrl || urls?.websiteUrl || '')
+            }
             urls={formUrls}
             accountType={
               account
@@ -157,8 +171,8 @@ export function AiSetupCard({
             }
             accountTypeLocked={Boolean(account)}
             onAccountTypeChosen={onAccountTypeChange}
-            onAnalyzed={analysis => {
-              saveDraft(draftKey, analysis)
+            onAnalyzed={(analysis, input) => {
+              saveDraft(draftKey, analysis, input)
               setReanalyzing(false)
             }}
             onCancel={hasSuggestions ? () => setReanalyzing(false) : undefined}
@@ -166,29 +180,50 @@ export function AiSetupCard({
         </>
       ) : (
         <>
-          <p className="text-muted mt-2.5 text-xs leading-relaxed">
-            Based on your description, we&apos;ve generated suggestions across
-            all sections. Nothing is saved until you apply it.
-          </p>
-          <div className="mt-4 space-y-2">
-            <button
-              type="button"
-              onClick={() => (account ? setReviewOpen(true) : onApply?.())}
-              className={primaryButton}
-            >
-              Apply Suggestions
-            </button>
-            {base ? (
-              <Link href={base} className={outlineButton}>
-                Edit Details
-              </Link>
-            ) : (
-              <button type="button" onClick={onEdit} className={outlineButton}>
-                Edit Details
+          {prefill && !account ? (
+            <ProfileSuggestionsPanel
+              prefill={prefill}
+              saving={saving}
+              onApplied={() => onApplied?.()}
+              onSave={() => onSave?.()}
+              onReviewFields={() => onReviewFields?.()}
+            />
+          ) : (
+            <>
+              <p className="text-muted mt-2.5 text-xs leading-relaxed">
+                Suggestions are ready. Review them, choose what to keep, then
+                apply. Nothing is saved until you do.
+              </p>
+              {draft && (
+                <ul className="border-border divide-border mt-3 divide-y rounded-lg border">
+                  {SETUP_SECTIONS.map(section => {
+                    const status = getSectionStatus(draft.suggestions, section)
+                    if (status.state === 'empty') return null
+                    return (
+                      <li
+                        key={section}
+                        className="flex items-center justify-between gap-2 px-3 py-2"
+                      >
+                        <span className="text-foreground text-xs font-medium">
+                          {SECTION_LABELS[section]}
+                        </span>
+                        <StatusChip status={status} />
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              <button
+                type="button"
+                onClick={() => setReviewOpen(true)}
+                className={`${primaryButton} mt-4`}
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+                Review &amp; apply
               </button>
-            )}
-          </div>
-          <div className="mt-3 flex items-center justify-between">
+            </>
+          )}
+          <div className="border-border mt-4 flex items-center justify-between border-t pt-3">
             <button
               type="button"
               onClick={() => setReanalyzing(true)}
@@ -199,7 +234,11 @@ export function AiSetupCard({
             </button>
             <ConfirmPopover
               title="Discard these AI suggestions?"
-              description="Your saved settings are not affected."
+              description={
+                account
+                  ? 'Your saved settings are not affected.'
+                  : 'Anything already applied stays in the form.'
+              }
               confirmLabel="Discard"
               onConfirm={() => clearDraft(draftKey)}
             >
@@ -230,13 +269,11 @@ export function AiSetupCard({
 
       {account && reviewOpen && draft && (
         <ReviewSuggestionsDialog
+          // Each analysis opens with its own selection and edits.
+          key={draft.id}
           accountId={account.id}
           draft={draft}
           onClose={() => setReviewOpen(false)}
-          onEditDetails={() => {
-            setReviewOpen(false)
-            router.push(`/accounts/${account.id}`)
-          }}
         />
       )}
     </>
