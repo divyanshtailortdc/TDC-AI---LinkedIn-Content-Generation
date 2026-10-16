@@ -55,16 +55,28 @@ export function RunsClient({
   const [runs, setRuns] = useState<RunSummary[]>(initialRuns)
   const [isTriggering, setIsTriggering] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [triggerError, setTriggerError] = useState<string | null>(null)
+
+  const openModal = () => {
+    setTriggerError(null)
+    setShowModal(true)
+  }
 
   const handleGenerateNow = async () => {
     if (!activeAccount) return
     setIsTriggering(true)
+    setTriggerError(null)
     try {
       const res = await triggerNewRun(activeAccount.id)
       if (res.success && res.runId) {
         setShowModal(false)
         router.push(`/runs/${res.runId}`)
+      } else {
+        setTriggerError(res.error || 'Failed to trigger run')
       }
+    } catch (err) {
+      // The action catches its own errors, so this is the request itself failing.
+      setTriggerError(err instanceof Error ? err.message : 'Failed to trigger run')
     } finally {
       setIsTriggering(false)
     }
@@ -142,6 +154,16 @@ export function RunsClient({
               </div>
             </div>
 
+            {triggerError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400"
+              >
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{triggerError}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
@@ -170,7 +192,7 @@ export function RunsClient({
           <h2 className="text-sm font-semibold text-foreground">Pipeline Runs</h2>
           <button
             type="button"
-            onClick={() => setShowModal(true)}
+            onClick={openModal}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-background text-xs font-semibold shadow-xs hover:bg-accent-hover transition-colors"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
@@ -269,7 +291,7 @@ export function RunsClient({
         actions={
           <button
             type="button"
-            onClick={() => setShowModal(true)}
+            onClick={openModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold shadow-xs transition-colors cursor-pointer"
           >
             <Play className="w-4 h-4 fill-current" />
