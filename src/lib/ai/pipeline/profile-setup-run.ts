@@ -195,7 +195,8 @@ async function researchOnline(
 }
 
 export async function analyzeIdentitySetup(
-  input: AnalyzeIdentityInput
+  input: AnalyzeIdentityInput,
+  signal?: AbortSignal
 ): Promise<IdentitySetupAnalysis> {
   const parsed = AnalyzeIdentityInputSchema.safeParse(input)
   if (!parsed.success) {
@@ -231,6 +232,10 @@ export async function analyzeIdentitySetup(
   })
   // Pages found by search come after the user's own, and are labelled as such.
   const sources: SetupSource[] = [...providedSources, ...research.sources]
+  // Cancelled while reading pages: skip the model call and its cost.
+  if (signal?.aborted) {
+    throw new IdentitySetupError('The analysis was cancelled.', true)
+  }
 
   let result: Awaited<ReturnType<typeof suggestSetup>>
   try {
@@ -239,7 +244,8 @@ export async function analyzeIdentitySetup(
       sources,
       providedUrls: requested.map(([url]) => url),
       guidance,
-      research: { verified: research.verified, notes: research.notes }
+      research: { verified: research.verified, notes: research.notes },
+      signal
     })
   } catch (error) {
     console.error('Identity setup analysis failed:', error)

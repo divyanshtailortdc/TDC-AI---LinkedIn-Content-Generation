@@ -35,6 +35,8 @@ export async function suggestSetup(input: {
   guidance?: AnalysisGuidance
   /** What web research verified, and what it could not. */
   research?: ResearchFindings
+  /** Cancels the model call. */
+  signal?: AbortSignal
 }): Promise<{
   suggestions: IdentitySetupSuggestions
   warnings: string[]
@@ -57,7 +59,8 @@ export async function suggestSetup(input: {
       schema: IdentitySetupModelSchema,
       timeoutMs: MODEL_TIMEOUT_MS,
       // One retry for a transient failure; more would multiply the wait.
-      maxRetries: 1
+      maxRetries: 1,
+      abortSignal: input.signal
     })
     raw = result.output
     usage = result.usage

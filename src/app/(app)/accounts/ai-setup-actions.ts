@@ -10,10 +10,6 @@ import {
   preferencesTable,
   voiceConfigsTable
 } from '@/db/schema'
-import {
-  analyzeIdentitySetup,
-  IdentitySetupError
-} from '@/lib/ai/pipeline/profile-setup-run'
 import { type IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
   buildGoalPayload,
@@ -30,10 +26,8 @@ import {
   type VoiceValues
 } from '@/lib/settings-merge'
 import {
-  AnalyzeIdentityInputSchema,
   fieldLabel,
   IdentitySetupSuggestionsSchema,
-  type AnalyzeIdentityInput,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { normalizeUrlForCompare } from '@/lib/urls'
@@ -72,52 +66,6 @@ async function loadPrimaryRows(accountId: string) {
       .limit(1)
   ])
   return { offering, audience }
-}
-
-// ---------------------------------------------------------------------------
-// Analyze: read-only, nothing is written to the database.
-// ---------------------------------------------------------------------------
-
-export type AnalyzeIdentityResult =
-  | { success: true; data: IdentitySetupAnalysis }
-  | { success: false; error: string; retryable: boolean }
-
-export async function analyzeIdentitySetupAction(
-  input: AnalyzeIdentityInput
-): Promise<AnalyzeIdentityResult> {
-  const parsed = AnalyzeIdentityInputSchema.safeParse(input)
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: parsed.error.issues.map(i => i.message).join(' '),
-      retryable: false
-    }
-  }
-  if (parsed.data.accountId && !(await findAccount(parsed.data.accountId))) {
-    return {
-      success: false,
-      error: 'Account identity not found',
-      retryable: false
-    }
-  }
-
-  try {
-    return { success: true, data: await analyzeIdentitySetup(parsed.data) }
-  } catch (error) {
-    if (error instanceof IdentitySetupError) {
-      return {
-        success: false,
-        error: error.message,
-        retryable: error.retryable
-      }
-    }
-    console.error('Identity setup analysis failed:', error)
-    return {
-      success: false,
-      error: 'Something went wrong while analyzing. Please try again.',
-      retryable: true
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------

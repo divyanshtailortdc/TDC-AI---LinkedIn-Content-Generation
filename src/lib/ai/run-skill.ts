@@ -82,6 +82,8 @@ export async function runSkill<S extends z.ZodType>(opts: {
   timeoutMs?: number
   /** Omit for the SDK default. */
   maxRetries?: number
+  /** Stops the call early, e.g. when the user cancels. */
+  abortSignal?: AbortSignal
 }): Promise<SkillResult<z.infer<S>>> {
   const handle = getLanguageModel(opts.stage)
   if (!handle) {
@@ -108,8 +110,15 @@ export async function runSkill<S extends z.ZodType>(opts: {
         : opts.instructions,
       prompt: opts.prompt,
       output: Output.object({ schema: opts.schema }),
-      ...(opts.timeoutMs
-        ? { abortSignal: AbortSignal.timeout(opts.timeoutMs) }
+      ...(opts.timeoutMs || opts.abortSignal
+        ? {
+            abortSignal: AbortSignal.any(
+              [
+                opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : null,
+                opts.abortSignal ?? null
+              ].filter((x): x is AbortSignal => x !== null)
+            )
+          }
         : {}),
       ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {})
     })

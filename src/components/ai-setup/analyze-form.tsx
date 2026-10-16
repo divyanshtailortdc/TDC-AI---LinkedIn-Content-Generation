@@ -1,6 +1,5 @@
 'use client'
 
-import { analyzeIdentitySetupAction } from '@/app/(app)/accounts/ai-setup-actions'
 import type {
   AnalysisGuidance,
   IdentitySetupAnalysis
@@ -76,8 +75,10 @@ export function AnalyzeForm({
     retryable: boolean
   } | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  // A request that finishes after Cancel is ignored rather than applied.
+  // Cancel aborts the request, which also stops the analysis on the server. A
+  // request that finishes anyway after Cancel is ignored rather than applied.
   const requestId = useRef(0)
+  const controller = useRef<AbortController | null>(null)
 
   const assistant = variant === 'assistant'
   const urlsFromForm = urls !== undefined
@@ -97,6 +98,12 @@ export function AnalyzeForm({
   const changeWebsite = (value: string) => {
     setWebsite(value)
     setUrlErrors(prev => ({ ...prev, websiteUrl: undefined }))
+  }
+  // Stops the running analysis; its result is ignored if it still arrives.
+  const cancelAnalysis = () => {
+    requestId.current++
+    controller.current?.abort()
+    setIsAnalyzing(false)
   }
   // LinkedIn is never fetched, so only the website is actually read.
   const hasReadableLink = Boolean(website.trim())
@@ -120,16 +127,29 @@ export function AnalyzeForm({
     setFailure(null)
     setIsAnalyzing(true)
     const current = ++requestId.current
+    controller.current?.abort()
+    const abort = new AbortController()
+    controller.current = abort
 
     try {
-      const res = await analyzeIdentitySetupAction({
-        accountId,
-        description,
-        linkedinUrl: linkedin.trim() || undefined,
-        websiteUrl: website.trim() || undefined,
-        // Quick analysis still tells the AI the type it already knows.
-        guidance: guidance ?? { accountType }
+      // A plain fetch, not a server action: those queue behind each other, so
+      // a minute-long analysis would hold up Save and could not be cancelled.
+      const response = await fetch('/api/ai-setup/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: abort.signal,
+        body: JSON.stringify({
+          accountId,
+          description,
+          linkedinUrl: linkedin.trim() || undefined,
+          websiteUrl: website.trim() || undefined,
+          // Quick analysis still tells the AI the type it already knows.
+          guidance: guidance ?? { accountType }
+        })
       })
+      const res = (await response.json()) as
+        | { success: true; data: IdentitySetupAnalysis }
+        | { success: false; error: string; retryable?: boolean }
       if (current !== requestId.current) return
       if (res.success) {
         if (guidance?.accountType && !accountTypeLocked) {
@@ -138,7 +158,7 @@ export function AnalyzeForm({
         setAdvancedOpen(false)
         onAnalyzed(res.data)
       } else {
-        setFailure({ message: res.error, retryable: res.retryable })
+        setFailure({ message: res.error, retryable: res.retryable ?? true })
       }
     } catch {
       if (current !== requestId.current) return
@@ -321,6 +341,15 @@ export function AnalyzeForm({
                 </>
               )}
             </button>
+            {isAnalyzing && (
+              <button
+                type="button"
+                onClick={cancelAnalysis}
+                className="border-border text-foreground hover:bg-surface-hover flex w-full items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors"
+              >
+                Cancel analysis
+              </button>
+            )}
             {!assistant && (
               <button
                 type="button"
@@ -364,8 +393,7 @@ export function AnalyzeForm({
             <button
               type="button"
               onClick={() => {
-                requestId.current++
-                setIsAnalyzing(false)
+                cancelAnalysis()
                 onCancel()
               }}
               className="text-muted hover:text-foreground w-full text-center text-xs"
