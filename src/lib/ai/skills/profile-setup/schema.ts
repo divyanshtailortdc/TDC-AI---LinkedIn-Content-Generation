@@ -1,3 +1,4 @@
+import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
 import { z } from 'zod'
 import { VoiceAnalysisSchema, WRITING_STYLES } from '../voice-analysis/schema'
 
@@ -63,6 +64,8 @@ function suggested<T extends z.ZodType>(value: T) {
 }
 
 const text = (max = 2000) => z.string().trim().min(1).max(max)
+/** A link a person can edit in the review window: the same rule the save applies. */
+const urlText = text(500).refine(value => !optionalUrlError(value), URL_MESSAGE)
 const list = z.array(z.string().trim().min(1).max(300)).min(1).max(15)
 const scale = z.number().int().min(1).max(5)
 const missing = z.array(z.string().trim().min(1).max(300)).max(15).default([])
@@ -101,8 +104,8 @@ export const ProfileSuggestionsSchema = z.object({
   targetAudience: suggestedLines(2000).optional(),
   offerings: suggestedLines(3000).optional(),
   industry: suggested(text(200)).optional(),
-  linkedinUrl: suggested(text(500)).optional(),
-  websiteUrl: suggested(text(500)).optional(),
+  linkedinUrl: suggested(urlText).optional(),
+  websiteUrl: suggested(urlText).optional(),
   missing
 })
 
@@ -125,7 +128,7 @@ export const GoalSuggestionsSchema = z.object({
   objectiveType: suggested(z.enum(GOAL_OBJECTIVES)).optional(),
   keyMessage: suggested(text(1000)).optional(),
   desiredAction: suggested(text(500)).optional(),
-  targetUrl: suggested(text(500)).optional(),
+  targetUrl: suggested(urlText).optional(),
   linkStrategy: suggested(z.enum(LINK_PLACEMENTS)).optional(),
   missing
 })
@@ -390,6 +393,7 @@ const optionalUrlInput = z
   .trim()
   .max(500)
   .optional()
+  .refine(value => !optionalUrlError(value ?? ''), URL_MESSAGE)
   .transform(value => value || undefined)
 
 const optionalText = (max: number) =>

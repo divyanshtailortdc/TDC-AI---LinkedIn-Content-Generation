@@ -5,6 +5,7 @@ import type {
   GOAL_OBJECTIVES
 } from '@/lib/ai/skills/profile-setup/schema'
 import { WRITING_STYLES } from '@/lib/ai/skills/voice-analysis/schema'
+import { optionalUrlError } from '@/lib/identity-profile'
 import {
   AlertCircle,
   Building2,
@@ -177,6 +178,7 @@ export function AdvancedAnalyzeDialog({
   onLinkedinUrlChange,
   websiteUrl,
   onWebsiteUrlChange,
+  urlErrors,
   accountType,
   accountTypeLocked,
   isAnalyzing,
@@ -190,6 +192,8 @@ export function AdvancedAnalyzeDialog({
   onLinkedinUrlChange: (value: string) => void
   websiteUrl: string
   onWebsiteUrlChange: (value: string) => void
+  /** Problems with the two links, found when the analysis was started. */
+  urlErrors: { linkedinUrl?: string; websiteUrl?: string }
   accountType: AccountType
   /** True for an existing identity, whose type is fixed. */
   accountTypeLocked: boolean
@@ -209,6 +213,17 @@ export function AdvancedAnalyzeDialog({
   const [goal, setGoal] = useState('')
   const [callToAction, setCallToAction] = useState('')
   const [ctaUrl, setCtaUrl] = useState('')
+  // Link problems found when Run was pressed; they clear as the field changes.
+  const [linkErrors, setLinkErrors] = useState<{
+    linkedinUrl?: string
+    websiteUrl?: string
+    ctaUrl?: string
+  }>({})
+  const clearLinkError = (field: keyof typeof linkErrors) =>
+    setLinkErrors(prev => ({ ...prev, [field]: undefined }))
+  const linkedinError = linkErrors.linkedinUrl ?? urlErrors.linkedinUrl
+  const websiteError = linkErrors.websiteUrl ?? urlErrors.websiteUrl
+  const ctaUrlError = linkErrors.ctaUrl
   const [targetAudience, setTargetAudience] = useState('')
   const [focusTopics, setFocusTopics] = useState('')
   const [avoidTopics, setAvoidTopics] = useState('')
@@ -219,6 +234,15 @@ export function AdvancedAnalyzeDialog({
       setDescriptionError('Describe yourself or your business first.')
       return
     }
+    // A bad link is shown here, beside its field: the dialog stays open so
+    // none of the other choices are lost.
+    const found = {
+      linkedinUrl: optionalUrlError(linkedinUrl),
+      websiteUrl: optionalUrlError(websiteUrl),
+      ctaUrl: optionalUrlError(ctaUrl)
+    }
+    setLinkErrors(found)
+    if (found.linkedinUrl || found.websiteUrl || found.ctaUrl) return
     onRun({
       accountType: type,
       tone,
@@ -367,10 +391,19 @@ export function AdvancedAnalyzeDialog({
                     id="adv-linkedin"
                     type="url"
                     value={linkedinUrl}
-                    onChange={e => onLinkedinUrlChange(e.target.value)}
+                    onChange={e => {
+                      onLinkedinUrlChange(e.target.value)
+                      clearLinkError('linkedinUrl')
+                    }}
                     placeholder="linkedin.com/in/your-name"
+                    aria-invalid={linkedinError ? true : undefined}
                     className={inputClass}
                   />
+                  {linkedinError && (
+                    <p className="mt-1 text-[11px] text-red-500">
+                      {linkedinError}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="adv-website">
@@ -381,10 +414,19 @@ export function AdvancedAnalyzeDialog({
                     id="adv-website"
                     type="url"
                     value={websiteUrl}
-                    onChange={e => onWebsiteUrlChange(e.target.value)}
+                    onChange={e => {
+                      onWebsiteUrlChange(e.target.value)
+                      clearLinkError('websiteUrl')
+                    }}
                     placeholder="example.com"
+                    aria-invalid={websiteError ? true : undefined}
                     className={inputClass}
                   />
+                  {websiteError && (
+                    <p className="mt-1 text-[11px] text-red-500">
+                      {websiteError}
+                    </p>
+                  )}
                 </div>
               </div>
             </Section>
@@ -508,10 +550,17 @@ export function AdvancedAnalyzeDialog({
                   id="adv-cta-url"
                   type="url"
                   value={ctaUrl}
-                  onChange={e => setCtaUrl(e.target.value)}
+                  onChange={e => {
+                    setCtaUrl(e.target.value)
+                    clearLinkError('ctaUrl')
+                  }}
                   placeholder="https://example.com/book-a-demo"
+                  aria-invalid={ctaUrlError ? true : undefined}
                   className={inputClass}
                 />
+                {ctaUrlError && (
+                  <p className="mt-1 text-[11px] text-red-500">{ctaUrlError}</p>
+                )}
               </div>
             </Section>
 

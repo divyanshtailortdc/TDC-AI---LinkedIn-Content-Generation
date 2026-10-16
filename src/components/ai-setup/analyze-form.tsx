@@ -119,10 +119,9 @@ export function AnalyzeForm({
       websiteUrl: optionalUrlError(website)
     }
     setUrlErrors(found)
-    if (found.linkedinUrl || found.websiteUrl) {
-      setAdvancedOpen(false)
-      return
-    }
+    // Advanced analysis stays open and shows the problem beside the field, so
+    // the choices made in it are not lost.
+    if (found.linkedinUrl || found.websiteUrl) return
     setValidationError(null)
     setFailure(null)
     setIsAnalyzing(true)
@@ -417,6 +416,7 @@ export function AnalyzeForm({
           onLinkedinUrlChange={changeLinkedin}
           websiteUrl={website}
           onWebsiteUrlChange={changeWebsite}
+          urlErrors={urlErrors}
           accountType={accountType}
           accountTypeLocked={accountTypeLocked}
           isAnalyzing={isAnalyzing}

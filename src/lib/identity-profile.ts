@@ -5,7 +5,7 @@ import { z } from 'zod'
  * apply step, so all three validate the same way.
  */
 
-const URL_MESSAGE = 'URLs must start with http:// or https://'
+export const URL_MESSAGE = 'URLs must start with http:// or https://'
 
 /** The message for an invalid optional URL, or undefined when it is fine. */
 export function optionalUrlError(value: string): string | undefined {
