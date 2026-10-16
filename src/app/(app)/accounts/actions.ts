@@ -11,7 +11,6 @@ import {
 } from '@/lib/identity-profile'
 import { and, asc, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { z } from 'zod'
 
 function extractAndSanitizeHandle(
@@ -204,11 +203,14 @@ export async function createAccount(formData: FormData) {
   // The create page sets this when AI setup suggestions are waiting to be
   // reviewed. They are reviewed on the Profile step, where the AI assistant
   // lives and opens the review window, so that is where those people land.
-  redirect(
-    formData.get('claimAiDraft') === '1'
-      ? `/accounts/${account.id}?aiSetup=claim`
-      : `/accounts/${account.id}/voice`
-  )
+  // Returned rather than thrown with `redirect()`: the create page calls this
+  // from an event handler, where the redirect error surfaced as a failure.
+  return {
+    redirectTo:
+      formData.get('claimAiDraft') === '1'
+        ? `/accounts/${account.id}?aiSetup=claim`
+        : `/accounts/${account.id}/voice`
+  }
 }
 
 const updateAccountSchema = IdentityProfileSchema.extend({

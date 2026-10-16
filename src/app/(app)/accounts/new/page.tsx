@@ -21,6 +21,7 @@ import { EMPTY_PROFILE } from '@/lib/identity-profile'
 import { profileSuggestionValues } from '@/lib/settings-merge'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import { createAccount } from '../actions'
 
@@ -90,6 +91,7 @@ function CreateIdentityForm({
   accountType: AccountType
   setAccountType: (value: AccountType) => void
 }) {
+  const router = useRouter()
   const [errors, setErrors] = useState<IdentityFieldErrors>({})
 
   const values = fields
@@ -103,8 +105,9 @@ function CreateIdentityForm({
     suggestionValues: s => profileSuggestionValues(s.profile)
   })
 
-  // Creates the identity; the action then redirects to the Voice step, so
-  // this never asks the frame to navigate.
+  // Creates the identity, then goes to the page the action names (the Voice
+  // step, or Profile when AI suggestions are waiting). The frame is never
+  // asked to navigate.
   const save = async (): Promise<boolean> => {
     // Chips and bullet lists have no native required check.
     const found = validateIdentityValues(values)
@@ -112,7 +115,8 @@ function CreateIdentityForm({
     if (Object.keys(found).length > 0 || !formRef.current) return false
 
     try {
-      await createAccount(new FormData(formRef.current))
+      const { redirectTo } = await createAccount(new FormData(formRef.current))
+      router.push(redirectTo)
     } catch (err: any) {
       showToast({
         type: 'error',
