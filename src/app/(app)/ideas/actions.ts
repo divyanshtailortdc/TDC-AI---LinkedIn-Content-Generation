@@ -3,7 +3,10 @@
 import { db } from '@/db'
 import { ideasTable, feedbackTable } from '@/db/schema'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
-import { executeDraftingForIdea } from '~/lib/ai/pipeline/drafting-run'
+import {
+  executeDraftingForIdea,
+  settleRunAfterDrafting
+} from '~/lib/ai/pipeline/drafting-run'
 import { revalidatePath } from 'next/cache'
 import { requireActiveAccountId } from '@/lib/active-account'
 
@@ -57,6 +60,14 @@ export async function rejectIdea(ideaId: string, reason?: string) {
         .update(ideasTable)
         .set({ status: 'rejected', updatedAt: new Date() })
         .where(eq(ideasTable.id, ideaId))
+
+      // Rejecting the last idea waiting on a decision finishes the run; left
+      // alone it would read "awaiting idea approval" with nothing to approve.
+      if (idea.runId) {
+        await settleRunAfterDrafting(idea.runId).catch(err =>
+          console.error(`Could not settle run ${idea.runId}:`, err)
+        )
+      }
 
       if (reason) {
         await db.insert(feedbackTable).values({
@@ -156,9 +167,26 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
     // being drafted by another request (a retry, a double click) is skipped
     // rather than drafted again.
     const results = []
-    for (const id of targetIdeaIds) {
-      const res = await executeDraftingForIdea(id)
-      if (res) results.push(res)
+    try {
+      for (const id of targetIdeaIds) {
+        const res = await executeDraftingForIdea(id)
+        if (res) results.push(res)
+      }
+    } finally {
+      // Whether it finished or failed part-way, each run it touched is put
+      // back to a status that matches its ideas.
+      const touched = await db
+        .select({ runId: ideasTable.runId })
+        .from(ideasTable)
+        .where(inArray(ideasTable.id, targetIdeaIds))
+      const runIds = new Set(touched.map(t => t.runId).filter((r): r is string => Boolean(r)))
+      await Promise.all(
+        [...runIds].map(runId =>
+          settleRunAfterDrafting(runId).catch(err =>
+            console.error(`Could not settle run ${runId}:`, err)
+          )
+        )
+      )
     }
 
     revalidatePath('/ideas')

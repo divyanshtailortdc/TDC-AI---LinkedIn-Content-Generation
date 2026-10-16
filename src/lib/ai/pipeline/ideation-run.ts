@@ -9,7 +9,6 @@ import {
 import { eq } from 'drizzle-orm'
 import { env } from '~/env'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
-import { checkNovelty } from '~/lib/novelty'
 import {
   isWebSearchConfigured,
   runWebSearch,
@@ -23,7 +22,7 @@ import {
   type GenerationContext
 } from '../context'
 import { retrieveKnowledgePassages } from '../embeddings'
-import { filterDiverseIdeas } from '../idea-diversity'
+import { selectIdeas } from '../idea-selection'
 import { recordStepUsage, refreshRunTotals } from '../run-accounting'
 import { failRun, keepRunAlive } from '../run-lifecycle'
 import { SkillError } from '../run-skill'
@@ -330,28 +329,12 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   }
   if (ideationStep) await recordStepUsage(runId, ideationStep.id, ideationUsage)
 
-  // ------------------------------------------------------------ diversity
-  const diversity = filterDiverseIdeas(validated, targetIdeas)
-  let selected = diversity.selected
-
-  // Novelty against what this account has already drafted or been shown.
-  if (pastWork.length > 0) {
-    selected = selected.filter(idea => {
-      const novelty = checkNovelty(
-        idea.hookConcept,
-        `${idea.title} ${idea.thesis} ${idea.coreArgument}`,
-        pastWork
-      )
-      if (!novelty.isNovel) {
-        discarded.push({
-          title: idea.title,
-          reason: novelty.reason || 'Too similar to a recent post'
-        })
-        return false
-      }
-      return true
-    })
-  }
+  // ------------------------------------------------------------ selection
+  // Repeats of earlier work go first, so they cannot take a place from a
+  // fresh idea; then the most varied set up to the target is kept.
+  const picked = selectIdeas(validated, pastWork, targetIdeas)
+  const selected = picked.selected
+  discarded.push(...picked.discarded)
 
   const averageGrounding =
     selected.length > 0

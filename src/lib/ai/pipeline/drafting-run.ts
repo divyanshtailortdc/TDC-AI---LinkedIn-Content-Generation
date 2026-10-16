@@ -9,7 +9,8 @@ import {
   runsTable,
   type NewRunStep
 } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { runStatusAfterDrafting } from '@/lib/run-status'
+import { and, eq, inArray } from 'drizzle-orm'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import {
   runLinter,
@@ -72,6 +73,56 @@ export async function executeDraftingForIdea(
     )
     throw err
   }
+}
+
+const STEP_FOR_STATUS = {
+  awaiting_idea_approval: 2,
+  drafting: 2,
+  completed: 3
+} as const
+
+/**
+ * Sets the run's status from where its ideas now stand. A failed run keeps
+ * its status: only the drafting-time statuses are moved.
+ */
+async function updateRunAfterDrafting(
+  runId: string,
+  options: { batchRunning: boolean }
+) {
+  const runIdeas = await db
+    .select({ status: ideasTable.status })
+    .from(ideasTable)
+    .where(eq(ideasTable.runId, runId))
+  const status = runStatusAfterDrafting(
+    runIdeas.map(i => i.status),
+    options
+  )
+  await db
+    .update(runsTable)
+    .set({
+      status,
+      currentStep: STEP_FOR_STATUS[status],
+      totalSteps: 3
+    })
+    .where(
+      and(
+        eq(runsTable.id, runId),
+        inArray(runsTable.status, [
+          'drafting',
+          'awaiting_idea_approval',
+          'completed'
+        ])
+      )
+    )
+}
+
+/**
+ * Called when a drafting request ends, successfully or not. Ideas it did not
+ * get to (a failure part-way, or a claim it released) are back to approved, so
+ * the run returns to awaiting approval instead of staying on "drafting".
+ */
+export async function settleRunAfterDrafting(runId: string) {
+  await updateRunAfterDrafting(runId, { batchRunning: false })
 }
 
 async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
@@ -339,24 +390,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   })
 
   // ----------------------------------------------------- run bookkeeping
-  if (runId) {
-    const runIdeas = await db.query.ideasTable.findMany({
-      where: eq(ideasTable.runId, runId)
-    })
-    // A run is finished once nothing is still approved or being drafted.
-    const pending = runIdeas.some(
-      i => i.status === 'approved' || i.status === 'drafting'
-    )
-
-    await db
-      .update(runsTable)
-      .set({
-        status: pending ? 'drafting' : 'completed',
-        currentStep: pending ? 2 : 3,
-        totalSteps: 3
-      })
-      .where(eq(runsTable.id, runId))
-  }
+  if (runId) await updateRunAfterDrafting(runId, { batchRunning: true })
 
   return {
     draftId: saved.id,
