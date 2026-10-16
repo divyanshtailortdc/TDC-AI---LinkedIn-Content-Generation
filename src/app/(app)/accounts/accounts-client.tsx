@@ -29,9 +29,9 @@ function EmptyState() {
       </p>
       <Link
         href="/accounts/new"
-        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-sm font-medium transition-colors"
+        className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-medium transition-colors"
       >
-        <Plus className="w-4 h-4" />
+        <Plus className="w-3.5 h-3.5" />
         Add your first identity
       </Link>
     </div>
@@ -156,7 +156,7 @@ function AccountCard({
           {isActive && allDone && (
             <Link
               href={`/accounts/${account.id}/runs`}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+              className="inline-flex h-7 items-center gap-1.5 text-xs font-semibold px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
             >
               <Play className="w-3 h-3 fill-current" />
               Generate

@@ -183,7 +183,7 @@ export function RunsClient({
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 text-xs text-muted hover:text-foreground"
+                className="h-8 rounded-lg px-3.5 text-[13px] font-medium text-muted hover:text-foreground"
               >
                 Cancel
               </button>
@@ -191,7 +191,7 @@ export function RunsClient({
                 type="button"
                 onClick={handleGenerateNow}
                 disabled={isTriggering || !activeAccount}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-background text-xs font-semibold shadow-xs disabled:opacity-60"
+                className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-xs transition-colors disabled:opacity-60"
               >
                 {isTriggering && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Launch Run</span>
@@ -208,7 +208,7 @@ export function RunsClient({
           <button
             type="button"
             onClick={openModal}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-background text-xs font-semibold shadow-xs hover:bg-accent-hover transition-colors"
+            className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent text-background text-[13px] font-semibold shadow-xs hover:bg-accent-hover transition-colors"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>Generate Now</span>
@@ -280,7 +280,7 @@ export function RunsClient({
 
                   <Link
                     href={`/runs/${run.id}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-surface text-xs font-medium text-foreground transition-colors"
+                    className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg border border-border hover:bg-surface text-xs font-medium text-foreground transition-colors"
                   >
                     <span>View Run</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -307,9 +307,9 @@ export function RunsClient({
           <button
             type="button"
             onClick={openModal}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-background text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-xs transition-colors cursor-pointer"
           >
-            <Play className="w-4 h-4 fill-current" />
+            <Play className="w-3.5 h-3.5 fill-current" />
             <span>Generate Now</span>
           </button>
         }

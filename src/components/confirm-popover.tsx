@@ -126,7 +126,7 @@ export function ConfirmPopover({
                 type="button"
                 disabled={isBusy}
                 onClick={() => setOpen(false)}
-                className="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground disabled:opacity-60"
+                className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-muted transition-colors hover:text-foreground disabled:opacity-60"
               >
                 {cancelLabel}
               </button>
@@ -135,7 +135,7 @@ export function ConfirmPopover({
                 disabled={isBusy}
                 onClick={handleConfirm}
                 className={cn(
-                  'inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors disabled:opacity-60',
+                  'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold shadow-xs transition-colors disabled:opacity-60',
                   TONE_STYLE[tone]
                 )}
               >

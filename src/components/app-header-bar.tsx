@@ -42,20 +42,11 @@ export function AppHeaderBar({
       >
         <MobileNavButton />
         {children}
-        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {actions}
-          <HeaderThemeToggle />
+          <ThemeToggle />
         </div>
       </div>
     </header>
-  )
-}
-
-/** The theme switch, sized to sit beside the bar's buttons. */
-function HeaderThemeToggle() {
-  return (
-    <div className="border-border rounded-xl border sm:[&_button]:h-11 sm:[&_button]:w-11">
-      <ThemeToggle />
-    </div>
   )
 }

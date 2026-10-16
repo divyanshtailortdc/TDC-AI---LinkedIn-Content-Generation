@@ -161,7 +161,7 @@ export function ScheduleForm({
                   key={day.id}
                   type="button"
                   onClick={() => toggleDay(day.id)}
-                  className={`h-10 w-12 cursor-pointer rounded-xl border text-xs font-semibold transition-all ${
+                  className={`h-8 w-11 cursor-pointer rounded-lg border text-xs font-semibold transition-all ${
                     isSelected
                       ? 'bg-accent text-background border-accent shadow-xs'
                       : 'bg-surface-hover border-border text-muted hover:text-foreground'

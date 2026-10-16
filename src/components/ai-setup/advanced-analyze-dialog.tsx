@@ -316,13 +316,13 @@ export function AdvancedAnalyzeDialog({
                         aria-pressed={selected}
                         disabled={accountTypeLocked}
                         onClick={() => setType(option.value)}
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                        className={`flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition-colors ${
                           selected
                             ? 'border-accent bg-accent/5 text-foreground ring-accent/20 ring-1'
                             : 'border-border text-muted hover:text-foreground'
                         } ${accountTypeLocked && !selected ? 'opacity-50' : ''}`}
                       >
-                        <Icon className="h-4 w-4" />
+                        <Icon className="h-3.5 w-3.5" />
                         {option.label}
                       </button>
                     )
@@ -578,7 +578,7 @@ export function AdvancedAnalyzeDialog({
               type="button"
               onClick={onClose}
               disabled={isAnalyzing}
-              className="text-muted hover:text-foreground rounded-lg px-4 py-2 text-sm font-medium"
+              className="text-muted hover:text-foreground h-8 rounded-lg px-3.5 text-[13px] font-medium"
             >
               Cancel
             </button>
@@ -586,12 +586,12 @@ export function AdvancedAnalyzeDialog({
               type="button"
               onClick={run}
               disabled={isAnalyzing}
-              className="bg-accent hover:bg-accent-hover text-background inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+              className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isAnalyzing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Sparkles className="h-4 w-4" />
+                <Sparkles className="h-3.5 w-3.5" />
               )}
               {isAnalyzing
                 ? 'Analyzing…'

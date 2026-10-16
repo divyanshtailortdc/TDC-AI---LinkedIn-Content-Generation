@@ -215,9 +215,9 @@ export function IdeasClient({
                 <button
                   type="button"
                   disabled={isActionBusy}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                 >
-                  <CheckCheck className="h-4 w-4" />
+                  <CheckCheck className="h-3.5 w-3.5" />
                   <span>Approve all ({allProposedIds.length})</span>
                 </button>
               </ConfirmPopover>
@@ -229,17 +229,17 @@ export function IdeasClient({
                 onClick={handleDraftApproved}
                 disabled={isActionBusy}
                 aria-busy={isDrafting}
-                className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-75"
+                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-75"
               >
-                <Sparkles className={cn('h-4 w-4', isDrafting && 'animate-pulse')} />
+                <Sparkles className={cn('h-3.5 w-3.5', isDrafting && 'animate-pulse')} />
                 <span>{isDrafting ? 'Generating posts…' : `Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>
-                {!isDrafting && <ArrowRight className="h-4 w-4" />}
+                {!isDrafting && <ArrowRight className="h-3.5 w-3.5" />}
               </button>
             )}
           </>
         }
         bottomContent={
-          <div className="flex w-full items-center gap-1.5 overflow-x-auto rounded-xl border border-border bg-surface p-1 text-xs sm:w-auto">
+          <div className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1 text-xs sm:w-auto">
             {STATUS_TABS.map((st) => {
               const count = st === 'all' ? ideas.length : ideas.filter((i) => i.status === st).length
 
@@ -249,7 +249,7 @@ export function IdeasClient({
                   type="button"
                   onClick={() => setSelectedStatus(st)}
                   className={cn(
-                    'shrink-0 cursor-pointer rounded-lg px-3 py-1.5 font-medium transition-colors',
+                    'h-7 shrink-0 cursor-pointer rounded-lg px-2.5 font-medium transition-colors',
                     selectedStatus === st
                       ? 'bg-foreground text-background shadow-xs'
                       : 'text-muted hover:bg-surface-hover hover:text-foreground'
@@ -285,7 +285,7 @@ export function IdeasClient({
               </p>
               <Link
                 href="/runs"
-                className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-xs font-semibold text-background transition-colors"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background transition-colors hover:bg-accent-hover"
               >
                 View Runs
                 <ArrowRight className="h-3.5 w-3.5" />

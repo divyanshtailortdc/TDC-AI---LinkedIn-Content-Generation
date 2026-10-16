@@ -7,7 +7,6 @@ import { ArrowRight, Loader2, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import {
   createContext,
-  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -144,7 +143,16 @@ export function SetupStepper({
 
   return (
     <nav aria-label="Setup steps">
-      <ol className="flex items-start">
+      {/* Equal columns, so the circles are evenly spaced whatever the label
+          lengths. Each step after the first draws the line back to the one
+          before it, at the circles' centre and stopping 6px short of both
+          (half a column plus the 14px radius and the gap, either side). */}
+      <ol
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${SETUP_STEPS.length}, minmax(0, 1fr))`
+        }}
+      >
         {SETUP_STEPS.map((step, index) => {
           const active = index === activeIndex
           const Icon = step.icon
@@ -153,24 +161,24 @@ export function SetupStepper({
           const content = (
             <>
               <span
-                className={`relative flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition-colors sm:h-10 sm:w-10 sm:text-base ${
+                className={`relative flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums transition-colors ${
                   active
-                    ? 'bg-accent text-background shadow-sm'
+                    ? 'bg-accent text-background ring-accent/10 shadow-xs ring-[3px]'
                     : step.optional
                       ? 'border-border bg-surface text-muted group-hover:text-foreground border border-dashed'
                       : 'border-border bg-surface text-muted group-hover:border-accent/40 group-hover:text-foreground border'
                 }`}
               >
-                {active ? index + 1 : <Icon className="h-4 w-4" />}
+                {active ? index + 1 : <Icon className="h-3.5 w-3.5" />}
                 {hasSuggestions && (
                   <span
                     title="AI suggestions ready"
-                    className="border-surface absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 bg-indigo-500"
+                    className="ring-surface absolute -top-px -right-px h-2 w-2 rounded-full bg-indigo-500 ring-2"
                   />
                 )}
               </span>
               <span
-                className={`flex items-center gap-1 text-sm whitespace-nowrap transition-colors ${
+                className={`flex items-center gap-1 text-xs leading-4 whitespace-nowrap transition-colors ${
                   active
                     ? 'text-foreground font-semibold'
                     : 'text-muted group-hover:text-foreground hidden font-medium @min-[60rem]:flex'
@@ -187,32 +195,31 @@ export function SetupStepper({
           )
 
           return (
-            <Fragment key={step.key}>
-              {index > 0 && (
-                <li
-                  aria-hidden
-                  className="bg-border mx-1.5 mt-4 h-px min-w-3 flex-1 sm:mx-2.5 sm:mt-5"
-                />
+            <li
+              key={step.key}
+              className={`relative flex flex-col items-center ${
+                index > 0
+                  ? 'before:bg-border before:absolute before:top-3.5 before:right-[calc(50%+20px)] before:left-[calc(-50%+20px)] before:h-px'
+                  : ''
+              }`}
+            >
+              {accountId ? (
+                <Link
+                  href={`/accounts/${accountId}${step.path}`}
+                  aria-current={active ? 'step' : undefined}
+                  className="group flex flex-col items-center gap-1"
+                >
+                  {content}
+                </Link>
+              ) : (
+                <span
+                  aria-current={active ? 'step' : undefined}
+                  className="group flex cursor-default flex-col items-center gap-1"
+                >
+                  {content}
+                </span>
               )}
-              <li className="flex shrink-0 flex-col items-center">
-                {accountId ? (
-                  <Link
-                    href={`/accounts/${accountId}${step.path}`}
-                    aria-current={active ? 'step' : undefined}
-                    className="group flex flex-col items-center gap-1.5"
-                  >
-                    {content}
-                  </Link>
-                ) : (
-                  <span
-                    aria-current={active ? 'step' : undefined}
-                    className="group flex cursor-default flex-col items-center gap-1.5"
-                  >
-                    {content}
-                  </span>
-                )}
-              </li>
-            </Fragment>
+            </li>
           )
         })}
       </ol>
@@ -344,7 +351,7 @@ export function SetupFrame({
                       type="button"
                       onClick={cancelEditing}
                       disabled={saving}
-                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-10 items-center rounded-lg border px-5 text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-60 sm:h-11"
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 items-center rounded-lg border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-60"
                     >
                       Cancel
                     </button>
@@ -364,19 +371,19 @@ export function SetupFrame({
                           e.preventDefault()
                         }
                       }}
-                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-10 items-center gap-2 rounded-lg border px-5 text-sm font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60 sm:h-11"
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60"
                     >
                       Next
-                      <ArrowRight className="h-4 w-4" />
+                      <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   )}
                   {viewable && !editing ? (
                     <button
                       type="button"
                       onClick={() => setEdit(true)}
-                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-11"
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold whitespace-nowrap shadow-sm transition-colors"
                     >
-                      <Pencil className="h-4 w-4" />
+                      <Pencil className="h-3.5 w-3.5" />
                       Edit
                     </button>
                   ) : saveCount > 0 ? (
@@ -384,9 +391,9 @@ export function SetupFrame({
                       type="button"
                       onClick={saveStep}
                       disabled={saving}
-                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-11"
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold whitespace-nowrap shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                       {saving ? 'Saving…' : 'Save'}
                     </button>
                   ) : viewable && !hasUnsaved ? (
@@ -395,7 +402,7 @@ export function SetupFrame({
                     <button
                       type="button"
                       onClick={() => setEdit(false)}
-                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold whitespace-nowrap shadow-sm transition-colors sm:h-11"
+                      className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold whitespace-nowrap shadow-sm transition-colors"
                     >
                       Done
                     </button>

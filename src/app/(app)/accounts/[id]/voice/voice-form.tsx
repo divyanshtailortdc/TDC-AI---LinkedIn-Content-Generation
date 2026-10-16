@@ -170,7 +170,7 @@ function SegmentedControl({
             aria-checked={option.selected}
             title={option.title}
             onClick={option.onSelect}
-            className={`rounded-lg px-2 py-2 text-sm transition-colors ${
+            className={`h-8 rounded-lg px-2 text-[13px] transition-colors ${
               option.selected
                 ? 'bg-surface text-foreground font-semibold shadow-xs'
                 : 'text-muted hover:text-foreground'

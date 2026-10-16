@@ -24,9 +24,9 @@ import { ReviewSuggestionsDialog } from './review-dialog'
 type Urls = { linkedinUrl?: string | null; websiteUrl?: string | null }
 
 const primaryButton =
-  'bg-accent hover:bg-accent-hover text-background flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors'
+  'bg-accent hover:bg-accent-hover text-background flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors'
 const outlineButton =
-  'border-border bg-surface text-foreground hover:bg-surface-hover flex w-full items-center justify-center rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors'
+  'border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-full items-center justify-center rounded-lg border px-3.5 text-[13px] font-medium transition-colors'
 
 /**
  * The "AI Suggestions" card beside the setup steps.

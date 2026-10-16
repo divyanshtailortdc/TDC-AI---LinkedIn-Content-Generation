@@ -83,7 +83,7 @@ export function DeleteIdentityDialog({
             setError(null)
             setIsOpen(true)
           }}
-          className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 text-[13px] font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
         >
           <PowerOff className="h-3.5 w-3.5" />
           <span>Deactivate this Identity</span>
@@ -95,7 +95,7 @@ export function DeleteIdentityDialog({
             setError(null)
             setIsOpen(true)
           }}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
+          className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-muted transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
         >
           <PowerOff className="h-3.5 w-3.5" />
           <span>Deactivate</span>
@@ -164,12 +164,12 @@ export function DeleteIdentityDialog({
             )}
 
             {/* Modal Actions */}
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="mt-6 flex items-center justify-end gap-2">
               <button
                 type="button"
                 disabled={isPending}
                 onClick={() => setIsOpen(false)}
-                className="cursor-pointer rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-50"
+                className="h-8 cursor-pointer rounded-lg border border-border px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -177,7 +177,7 @@ export function DeleteIdentityDialog({
                 type="button"
                 disabled={isPending}
                 onClick={handleDelete}
-                className="flex cursor-pointer items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-700 disabled:opacity-50"
+                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-all hover:bg-amber-700 disabled:opacity-50"
               >
                 {isPending ? (
                   <>

@@ -322,21 +322,21 @@ export function AnalyzeForm({
             <button
               type="submit"
               disabled={isAnalyzing}
-              className="bg-accent hover:bg-accent-hover text-background flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              className="bg-accent hover:bg-accent-hover text-background flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isAnalyzing ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Analyzing…
                 </>
               ) : failure?.retryable ? (
                 <>
-                  <RotateCcw className="h-4 w-4" />
+                  <RotateCcw className="h-3.5 w-3.5" />
                   Try again
                 </>
               ) : (
                 <>
-                  <Sparkles className="h-4 w-4" />
+                  <Sparkles className="h-3.5 w-3.5" />
                   Analyze with AI
                 </>
               )}
@@ -356,7 +356,7 @@ export function AnalyzeForm({
                 disabled={isAnalyzing}
                 onClick={() => setAdvancedOpen(true)}
                 title="Advanced analysis: set identity type, voice, goal and topics for more accurate results"
-                className="border-border text-foreground hover:bg-surface-hover flex w-full items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
+                className="border-border text-foreground hover:bg-surface-hover flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors disabled:opacity-60"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Advanced analysis

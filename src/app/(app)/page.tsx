@@ -74,9 +74,9 @@ export default async function DashboardPage() {
         actions={
           <Link
             href="/accounts/new"
-            className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-hover sm:h-11 sm:px-5"
+            className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-surface-hover"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Add identity
           </Link>
         }
@@ -166,9 +166,9 @@ function EmptyState() {
       </p>
       <Link
         href="/accounts/new"
-        className="flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent-hover"
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-medium text-background transition-colors hover:bg-accent-hover"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-3.5 w-3.5" />
         Add your first identity
       </Link>
     </div>
@@ -238,7 +238,7 @@ function AccountCard({
         <div className="flex shrink-0 items-center gap-2">
           <Link
             href={`/accounts/${account.id}`}
-            className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+            className="inline-flex h-7 cursor-pointer items-center rounded-lg px-2.5 text-xs font-semibold text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
           >
             Edit
           </Link>

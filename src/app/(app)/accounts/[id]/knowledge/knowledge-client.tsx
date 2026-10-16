@@ -313,7 +313,7 @@ export function KnowledgeClient({
                           setInputUrl(source.url!)
                           setUrlPreview(null)
                         }}
-                        className="border-border text-foreground hover:bg-surface-hover shrink-0 rounded-lg border px-3 py-1.5 font-medium disabled:opacity-50"
+                        className="border-border text-foreground hover:bg-surface-hover h-7 shrink-0 rounded-lg border px-2.5 font-medium disabled:opacity-50"
                       >
                         {already ? 'Already added' : 'Use this URL'}
                       </button>
@@ -375,11 +375,11 @@ export function KnowledgeClient({
           editing ? '' : 'hidden'
         }`}
       >
-        <div className="bg-surface-hover border-border flex w-fit items-center gap-2 rounded-lg border p-1">
+        <div className="bg-surface-hover border-border flex w-fit items-center gap-1 rounded-lg border p-1">
           <button
             type="button"
             onClick={() => setTab('url')}
-            className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-xs font-semibold transition-colors ${
+            className={`flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors ${
               tab === 'url'
                 ? 'bg-surface text-foreground shadow-sm'
                 : 'text-muted hover:text-foreground'
@@ -391,7 +391,7 @@ export function KnowledgeClient({
           <button
             type="button"
             onClick={() => setTab('artifact')}
-            className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-xs font-semibold transition-colors ${
+            className={`flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors ${
               tab === 'artifact'
                 ? 'bg-surface text-foreground shadow-sm'
                 : 'text-muted hover:text-foreground'
@@ -416,11 +416,11 @@ export function KnowledgeClient({
                 type="button"
                 onClick={handleFetchUrl}
                 disabled={isFetchingUrl || !inputUrl.trim()}
-                className="bg-accent hover:bg-accent-hover text-background flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
+                className="bg-accent hover:bg-accent-hover text-background flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors disabled:opacity-50"
               >
                 {isFetchingUrl ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Fetching &amp; Extracting…
                   </>
                 ) : (
@@ -475,11 +475,11 @@ export function KnowledgeClient({
                     type="button"
                     onClick={handleSaveUrlDoc}
                     disabled={isSaving}
-                    className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+                    className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium transition-colors disabled:opacity-50"
                   >
                     {isSaving ? (
                       <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         Extracting Claims &amp; Saving…
                       </>
                     ) : (
@@ -528,11 +528,11 @@ export function KnowledgeClient({
                 disabled={
                   isSaving || !artifactTitle.trim() || !artifactContent.trim()
                 }
-                className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
+                className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors disabled:opacity-50"
               >
                 {isSaving ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Analyzing Claims &amp; Saving…
                   </>
                 ) : (

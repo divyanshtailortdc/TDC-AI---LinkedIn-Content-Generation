@@ -53,9 +53,9 @@ export function MobileNavButton() {
       type="button"
       onClick={() => setOpen(true)}
       aria-label="Open navigation"
-      className="border-border text-foreground hover:bg-surface-hover -ml-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border transition-colors sm:h-11 sm:w-11 lg:hidden"
+      className="border-border text-foreground hover:bg-surface-hover -ml-1 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border transition-colors lg:hidden"
     >
-      <Menu className="h-5 w-5" />
+      <Menu className="h-4 w-4" />
     </button>
   )
 }

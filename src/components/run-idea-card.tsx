@@ -292,7 +292,7 @@ export function RunIdeaCard({
                 type="button"
                 disabled={isBusy}
                 onClick={handleCancelEdit}
-                className="text-muted hover:text-foreground rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
+                className="text-muted hover:text-foreground h-7 rounded-lg px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -300,7 +300,7 @@ export function RunIdeaCard({
                 type="button"
                 disabled={isBusy}
                 onClick={handleSaveEdit}
-                className="bg-accent text-background hover:bg-accent-hover inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60"
+                className="bg-accent text-background hover:bg-accent-hover inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
               >
                 {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Save changes
@@ -415,7 +415,7 @@ export function RunIdeaCard({
                       type="button"
                       disabled={isBusy}
                       onClick={() => setMode('edit')}
-                      className="border-border text-foreground hover:bg-surface-hover ml-auto inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
+                      className="border-border text-foreground hover:bg-surface-hover ml-auto inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
                     >
                       <Edit3 className="h-3.5 w-3.5" />
                       Edit hook &amp; angle
@@ -439,7 +439,7 @@ export function RunIdeaCard({
                     type="button"
                     aria-expanded={showDetails}
                     onClick={() => setShowDetails(v => !v)}
-                    className="text-muted hover:text-foreground hover:bg-surface-hover -ml-2 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors"
+                    className="text-muted hover:text-foreground hover:bg-surface-hover -ml-2 inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors"
                   >
                     {showDetails ? 'Hide details' : 'Details'}
                     <ChevronDown
@@ -463,7 +463,7 @@ export function RunIdeaCard({
                       <button
                         type="button"
                         disabled={isBusy}
-                        className="text-muted inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
+                        className="text-muted inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-medium transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
                       >
                         <X className="h-3.5 w-3.5" />
                         Reject
@@ -477,7 +477,7 @@ export function RunIdeaCard({
                       disabled={isBusy}
                       onClick={() => onApprove(idea.id)}
                       className={cn(
-                        'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60',
+                        'inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60',
                         // A rejected idea is rarely brought back, so it stays quiet.
                         idea.status === 'rejected'
                           ? 'border-border text-foreground hover:bg-surface-hover border'
@@ -497,7 +497,7 @@ export function RunIdeaCard({
                       type="button"
                       disabled={isBusy}
                       onClick={() => onDraft?.(idea.id)}
-                      className="bg-accent text-background hover:bg-accent-hover inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60"
+                      className="bg-accent text-background hover:bg-accent-hover inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
                     >
                       {isBusy ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />

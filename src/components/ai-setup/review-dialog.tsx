@@ -1020,14 +1020,14 @@ export function ReviewSuggestionsDialog({
                     clearDraft(accountId)
                     onClose()
                   }}
-                  className="text-muted hover:text-foreground rounded-lg px-4 py-2 text-sm font-medium"
+                  className="text-muted hover:text-foreground h-8 rounded-lg px-3.5 text-[13px] font-medium"
                 >
                   Discard the rest
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="bg-accent hover:bg-accent-hover text-background rounded-lg px-5 py-2 text-sm font-semibold"
+                  className="bg-accent hover:bg-accent-hover text-background h-8 rounded-lg px-3.5 text-[13px] font-semibold"
                 >
                   Done
                 </button>
@@ -1038,7 +1038,7 @@ export function ReviewSuggestionsDialog({
                   type="button"
                   onClick={onClose}
                   disabled={applying}
-                  className="text-muted hover:text-foreground rounded-lg px-4 py-2 text-sm font-medium"
+                  className="text-muted hover:text-foreground h-8 rounded-lg px-3.5 text-[13px] font-medium"
                 >
                   Cancel
                 </button>
@@ -1046,7 +1046,7 @@ export function ReviewSuggestionsDialog({
                   type="button"
                   onClick={onEditDetails}
                   disabled={applying}
-                  className="border-border text-foreground hover:bg-surface-hover rounded-lg border px-4 py-2 text-sm font-medium"
+                  className="border-border text-foreground hover:bg-surface-hover h-8 rounded-lg border px-3.5 text-[13px] font-medium"
                 >
                   Edit Details
                 </button>
@@ -1054,9 +1054,9 @@ export function ReviewSuggestionsDialog({
                   type="button"
                   onClick={apply}
                   disabled={applying || selectedCount === 0 || blockingInvalid}
-                  className="bg-accent hover:bg-accent-hover text-background inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {applying && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {applying ? 'Applying…' : 'Apply Suggestions'}
                 </button>
               </>

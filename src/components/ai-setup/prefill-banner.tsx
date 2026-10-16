@@ -106,7 +106,7 @@ export function PrefillBanner({
           <button
             type="button"
             onClick={prefill.replaceAll}
-            className="border-border hover:bg-surface-hover text-foreground rounded-md border px-2.5 py-1 font-medium transition-colors"
+            className="border-border hover:bg-surface-hover text-foreground h-7 rounded-lg border px-2.5 font-medium transition-colors"
           >
             Use AI values for all
           </button>
@@ -114,7 +114,7 @@ export function PrefillBanner({
         <button
           type="button"
           onClick={prefill.undo}
-          className="text-muted hover:text-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors"
+          className="text-muted hover:text-foreground inline-flex h-7 items-center gap-1 rounded-lg px-2 font-medium transition-colors"
         >
           <Undo2 className="h-3.5 w-3.5" />
           Undo

@@ -322,12 +322,12 @@ export function GoalsClient({
             type="button"
             onClick={handleSuggest}
             disabled={isSuggesting}
-            className="border-border bg-surface text-foreground hover:bg-surface-hover flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+            className="border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors disabled:opacity-50"
           >
             {isSuggesting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Sparkles className="text-accent h-4 w-4" />
+              <Sparkles className="text-accent h-3.5 w-3.5" />
             )}
             {isSuggesting ? 'Suggesting…' : 'Suggest Goals'}
           </button>
@@ -339,9 +339,9 @@ export function GoalsClient({
               resetForm()
               setShowNewGoal(true)
             }}
-            className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors"
+            className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             New Goal
           </button>
         )}
@@ -413,7 +413,7 @@ export function GoalsClient({
                 <button
                   type="button"
                   onClick={() => handleUseSuggestion(s)}
-                  className="border-border text-foreground hover:bg-surface-hover mt-auto rounded-lg border px-3 py-1.5 text-xs font-medium"
+                  className="border-border text-foreground hover:bg-surface-hover mt-auto h-7 rounded-lg border px-2.5 text-xs font-medium"
                 >
                   Use This Goal
                 </button>
@@ -553,15 +553,15 @@ export function GoalsClient({
             </div>
           </div>
 
-          <div className="border-border flex justify-end gap-3 border-t pt-3">
+          <div className="border-border flex justify-end gap-2 border-t pt-3">
             <button
               type="submit"
               disabled={isSubmitting}
-              className="bg-accent hover:bg-accent-hover text-background flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
+              className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Saving goal…
                 </>
               ) : editingGoalId ? (

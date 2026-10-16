@@ -91,7 +91,7 @@ export function AccountSwitcher({
         title={collapsed ? 'Add your first identity' : undefined}
         className={cn(
           'flex items-center rounded-lg border border-dashed border-border text-xs font-medium text-muted transition-colors hover:border-accent hover:text-foreground',
-          collapsed ? 'justify-center p-2.5' : 'gap-2 px-3 py-2.5'
+          collapsed ? 'h-8 justify-center' : 'h-8 gap-2 px-3'
         )}
       >
         <Plus className="h-3.5 w-3.5 shrink-0" />

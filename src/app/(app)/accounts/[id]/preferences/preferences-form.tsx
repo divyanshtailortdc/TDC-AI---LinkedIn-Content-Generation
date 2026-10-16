@@ -227,7 +227,7 @@ export function PreferencesForm({
             type="button"
             data-edit-only
             onClick={addPillar}
-            className="text-accent hover:bg-accent/10 flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+            className="text-accent hover:bg-accent/10 flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
             Add Pillar

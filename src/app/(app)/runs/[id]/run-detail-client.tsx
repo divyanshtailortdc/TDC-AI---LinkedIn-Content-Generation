@@ -377,12 +377,12 @@ export function RunDetailClient({
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                   >
                     {isApprovingAll ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <CheckCheck className="h-4 w-4" />
+                      <CheckCheck className="h-3.5 w-3.5" />
                     )}
                     <span>Approve all ({proposedCount})</span>
                   </button>
@@ -394,11 +394,11 @@ export function RunDetailClient({
                   onClick={handleDraftApproved}
                   disabled={isBusy}
                   aria-busy={isDrafting}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
+                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
                 >
-                  <Sparkles className={cn('w-4 h-4', isDrafting && 'animate-pulse')} />
+                  <Sparkles className={cn('w-3.5 h-3.5', isDrafting && 'animate-pulse')} />
                   <span>{isDrafting ? 'Generating posts…' : `Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>
-                  {!isDrafting && <ArrowRight className="w-4 h-4" />}
+                  {!isDrafting && <ArrowRight className="w-3.5 h-3.5" />}
                 </button>
               )}
             </>

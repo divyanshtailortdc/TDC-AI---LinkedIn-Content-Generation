@@ -55,12 +55,12 @@ export function ReactivateIdentityButton({
       type="button"
       disabled={isPending}
       onClick={handleReactivate}
-      className={`flex cursor-pointer items-center gap-1.5 rounded-lg text-xs transition-colors disabled:opacity-50 ${
+      className={`flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors disabled:opacity-50 ${
         variant === 'solid'
-          ? 'bg-emerald-600 px-3 py-1.5 font-semibold text-white shadow-xs hover:bg-emerald-700'
+          ? 'bg-emerald-600 font-semibold text-white shadow-xs hover:bg-emerald-700'
           : variant === 'ghost'
-            ? 'px-2.5 py-1 font-medium text-muted hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400'
-            : 'border-border bg-surface border px-2.5 py-1 font-medium text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
+            ? 'font-medium text-muted hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400'
+            : 'border-border bg-surface border font-medium text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
       }`}
       title={`${label} ${accountName}`}
     >

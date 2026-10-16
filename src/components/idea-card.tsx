@@ -165,12 +165,12 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
               className="w-full rounded-xl border border-border bg-surface-hover p-3 text-sm text-foreground outline-none focus:border-accent"
             />
           </div>
-          <div className="flex items-center justify-end gap-3 pt-1">
+          <div className="flex items-center justify-end gap-2 pt-1">
             <button
               type="button"
               disabled={isBusy}
               onClick={handleCancelEdit}
-              className="cursor-pointer px-4 py-2 text-xs font-medium text-muted transition-colors hover:text-foreground"
+              className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-muted transition-colors hover:text-foreground"
             >
               Cancel
             </button>
@@ -178,7 +178,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
               type="button"
               disabled={isBusy}
               onClick={handleSaveEdit}
-              className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-background transition-colors hover:bg-accent-hover disabled:opacity-60"
+              className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-2.5 text-xs font-semibold text-background transition-colors hover:bg-accent-hover disabled:opacity-60"
             >
               {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save Changes
@@ -356,7 +356,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium text-muted transition-colors hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-muted transition-colors hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
                   >
                     <X className="h-3.5 w-3.5" />
                     Reject
@@ -368,7 +368,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                   type="button"
                   disabled={isBusy}
                   onClick={() => setMode('edit')}
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-60"
+                  className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-60"
                 >
                   <Edit3 className="h-3.5 w-3.5" />
                   Edit
@@ -386,7 +386,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-emerald-600 px-5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
                   >
                     {isBusy ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -1178,7 +1178,7 @@ export function PostsClientInner({
                     clearFilters()
                     if (filterRunId) router.push('/posts')
                   }}
-                  className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors"
+                  className="text-muted hover:text-foreground flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors"
                 >
                   <X className="h-3 w-3" />
                   Clear
@@ -1312,7 +1312,7 @@ export function PostsClientInner({
                   <button
                     type="button"
                     onClick={() => router.push('/ideas')}
-                    className="bg-accent text-background mt-4 cursor-pointer rounded-lg px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90"
+                    className="bg-accent text-background mt-4 h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
                   >
                     Go to Ideas
                   </button>
@@ -1333,7 +1333,7 @@ export function PostsClientInner({
                       clearFilters()
                       if (filterRunId) router.push('/posts')
                     }}
-                    className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 cursor-pointer rounded-lg border px-4 py-2 text-xs font-semibold transition-colors"
+                    className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 h-8 cursor-pointer rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
                   >
                     Clear all filters
                   </button>
@@ -1392,7 +1392,7 @@ export function PostsClientInner({
                       onClick={handlePrevPost}
                       aria-label="Previous post"
                       title="Previous post (K)"
-                      className="border-border text-foreground hover:bg-surface-hover flex cursor-pointer items-center rounded-lg border p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </button>
@@ -1402,7 +1402,7 @@ export function PostsClientInner({
                       onClick={handleNextPost}
                       aria-label="Next post"
                       title="Next post (J)"
-                      className="border-border text-foreground hover:bg-surface-hover flex cursor-pointer items-center rounded-lg border p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronRight className="h-4 w-4" />
                     </button>
@@ -1434,14 +1434,14 @@ export function PostsClientInner({
                             setShowPostRejection(false)
                             setPostRejectionReason('')
                           }}
-                          className="text-muted hover:text-foreground cursor-pointer px-3 py-2 text-xs"
+                          className="text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-medium"
                         >
                           Cancel
                         </button>
                         <button
                           type="submit"
                           disabled={isSaving}
-                          className="cursor-pointer rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
+                          className="h-8 cursor-pointer rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
                         >
                           {isSaving ? 'Rejecting…' : 'Reject & next'}
                         </button>
@@ -1459,7 +1459,7 @@ export function PostsClientInner({
                         <button
                           type="button"
                           onClick={handleCopyPost}
-                          className="bg-accent text-background flex cursor-pointer items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-xs transition-opacity hover:opacity-90"
+                          className="bg-accent text-background flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-opacity hover:opacity-90"
                         >
                           {copiedPost ? (
                             <Check className="h-3.5 w-3.5" />
@@ -1475,7 +1475,7 @@ export function PostsClientInner({
                           <button
                             type="button"
                             onClick={handleCopyComment}
-                            className="border-border text-foreground hover:bg-surface-hover flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors"
+                            className="border-border text-foreground hover:bg-surface-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
                           >
                             {copiedComment ? (
                               <Check className="h-3.5 w-3.5" />
@@ -1494,7 +1494,7 @@ export function PostsClientInner({
                         <button
                           type="button"
                           onClick={() => setShowPostRejection(true)}
-                          className="text-muted cursor-pointer px-2 py-2 text-[11px] hover:text-rose-600"
+                          className="text-muted h-8 cursor-pointer px-2 text-[11px] hover:text-rose-600"
                         >
                           Reject instead
                         </button>
@@ -1509,7 +1509,7 @@ export function PostsClientInner({
                             type="button"
                             onClick={() => setShowPostRejection(true)}
                             disabled={isSaving}
-                            className="border-border text-muted flex cursor-pointer items-center rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
+                            className="border-border text-muted flex h-8 cursor-pointer items-center rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50"
                           >
                             Reject
                           </button>
@@ -1518,9 +1518,9 @@ export function PostsClientInner({
                           type="button"
                           onClick={handleApprove}
                           disabled={isSaving}
-                          className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
                         >
-                          <CheckCircle2 className="h-4 w-4" />
+                          <CheckCircle2 className="h-3.5 w-3.5" />
                           {isSaving
                             ? 'Saving…'
                             : activePost.status === 'rejected'
@@ -1617,7 +1617,7 @@ export function PostsClientInner({
                         <button
                           type="button"
                           onClick={() => setIsEditing(false)}
-                          className="text-muted hover:text-foreground cursor-pointer px-3 py-1.5 text-xs"
+                          className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
                         >
                           Cancel
                         </button>
@@ -1625,7 +1625,7 @@ export function PostsClientInner({
                           type="button"
                           onClick={handleSaveEdits}
                           disabled={isSaving}
-                          className="bg-accent text-background cursor-pointer rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                          className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
                         >
                           Save Changes
                         </button>
@@ -1725,7 +1725,7 @@ export function PostsClientInner({
                               setShowStockInput(true)
                               setShowCustomUrlInput(false)
                             }}
-                            className="border-border bg-surface hover:bg-surface-hover cursor-pointer rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                            className="border-border bg-surface hover:bg-surface-hover h-7 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
                           >
                             Change media
                           </button>
@@ -1733,7 +1733,7 @@ export function PostsClientInner({
                             type="button"
                             disabled={isMediaLoading}
                             onClick={handleRemoveMedia}
-                            className="cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
+                            className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
                           >
                             Use text only
                           </button>
@@ -2100,7 +2100,7 @@ export function PostsClientInner({
                         <button
                           type="button"
                           onClick={handleStopGeneration}
-                          className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
+                          className="flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
                         >
                           <CircleStop className="h-3.5 w-3.5" />
                           <span>Stop generating</span>
@@ -2110,7 +2110,7 @@ export function PostsClientInner({
                           type="button"
                           disabled={isMediaLoading || promptError !== null}
                           onClick={handleGenerateFromPrompt}
-                          className="bg-accent hover:bg-accent-hover text-background flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          className="bg-accent hover:bg-accent-hover text-background flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {isMediaLoading ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2130,7 +2130,7 @@ export function PostsClientInner({
                           type="button"
                           disabled={isMediaLoading}
                           onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
-                          className="border-border hover:bg-surface-hover text-foreground flex cursor-pointer items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors"
+                          className="border-border hover:bg-surface-hover text-foreground flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors"
                         >
                           <span>Change media</span>
                           <ChevronDown className="text-muted h-3.5 w-3.5" />
