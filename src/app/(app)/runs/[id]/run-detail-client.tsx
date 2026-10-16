@@ -27,6 +27,7 @@ import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
 import { fetchRunStatus } from '../actions'
+import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas } from '../../ideas/actions'
 import { AiDraftingStatus, DraftingStatus } from '~/components/ai-drafting-status'
 import { RunIdeaCard } from '~/components/run-idea-card'
@@ -39,7 +40,7 @@ interface RunDetailProps {
   account: any
 }
 
-const ACTIVE_STATUSES = ['queued', 'running', 'researching', 'ideating']
+const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
 
 const STAGES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'gathering_context', label: 'Gathering context', icon: BookOpen },

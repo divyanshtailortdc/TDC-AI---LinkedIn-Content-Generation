@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -17,6 +17,7 @@ import {
 import { triggerNewRun } from './actions'
 import { PageHeader } from '@/components/page-header'
 import type { RunSpendSummary } from '@/lib/run-spend'
+import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 
 interface RunSummary {
   id: string
@@ -52,7 +53,8 @@ export function RunsClient({
   spend?: RunSpendSummary
 }) {
   const router = useRouter()
-  const [runs, setRuns] = useState<RunSummary[]>(initialRuns)
+  // Rendered straight from props so router.refresh() below shows fresh rows.
+  const runs = initialRuns
   const [isTriggering, setIsTriggering] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [triggerError, setTriggerError] = useState<string | null>(null)
@@ -61,6 +63,19 @@ export function RunsClient({
     setTriggerError(null)
     setShowModal(true)
   }
+
+  // Re-fetch the server data (runs + spend) so progress and newly scheduled
+  // runs show up without a reload: fast while a run is moving, slow otherwise.
+  const hasActiveRun = runs.some(run => ACTIVE_RUN_STATUSES.includes(run.status))
+  useEffect(() => {
+    const interval = setInterval(
+      () => {
+        if (document.visibilityState === 'visible') router.refresh()
+      },
+      hasActiveRun ? 3000 : 30000
+    )
+    return () => clearInterval(interval)
+  }, [hasActiveRun, router])
 
   const handleGenerateNow = async () => {
     if (!activeAccount) return
