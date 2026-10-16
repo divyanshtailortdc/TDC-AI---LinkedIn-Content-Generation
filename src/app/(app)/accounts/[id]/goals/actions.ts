@@ -2,6 +2,7 @@
 
 import { db } from '@/db'
 import { goalsTable } from '@/db/schema'
+import { hasGoalTitle } from '@/lib/goal-titles'
 import { loadGenerationContext } from '@/lib/ai/context'
 import { SkillError } from '@/lib/ai/run-skill'
 import {
@@ -14,7 +15,7 @@ import {
   GoalPayloadSchema,
   parseSetupPayload
 } from '@/lib/setup-payloads'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 /** Only what a user needs to steer a run: what to achieve and what to land. */
@@ -59,6 +60,25 @@ function validate(payload: GoalPayload) {
   }
 }
 
+/** Two goals with the same title would be indistinguishable in a run. */
+async function assertTitleIsNew(
+  accountId: string,
+  title: string,
+  exceptGoalId?: string
+) {
+  const rows = await db
+    .select({ title: goalsTable.title })
+    .from(goalsTable)
+    .where(
+      exceptGoalId
+        ? and(eq(goalsTable.accountId, accountId), ne(goalsTable.id, exceptGoalId))
+        : eq(goalsTable.accountId, accountId)
+    )
+  if (hasGoalTitle(rows.map(r => r.title), title)) {
+    throw new Error(`A goal named "${title.trim()}" already exists.`)
+  }
+}
+
 function revalidateGoals(accountId: string) {
   revalidatePath(`/accounts/${accountId}/goals`)
   revalidatePath(`/accounts/${accountId}`)
@@ -70,6 +90,7 @@ export async function createGoal(rawAccountId: string, rawPayload: GoalPayload) 
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
+  await assertTitleIsNew(accountId, payload.title)
 
   await db.insert(goalsTable).values({
     accountId,
@@ -90,6 +111,7 @@ export async function updateGoal(
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
+  await assertTitleIsNew(accountId, payload.title, goalId)
 
   await db
     .update(goalsTable)

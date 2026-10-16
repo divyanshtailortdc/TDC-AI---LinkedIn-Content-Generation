@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Sparkles, ArrowRight, Check, CheckCheck, ListFilter } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
@@ -19,6 +19,25 @@ type ClientIdeaData = IdeaCardData & { accountId: string }
 
 const STATUS_TABS = ['proposed', 'approved', 'rejected', 'all'] as const
 type StatusFilter = (typeof STATUS_TABS)[number]
+
+/** The status filter lives in the URL (?status=) so it survives a reload and can be shared. */
+function statusFromParams(params: URLSearchParams): StatusFilter {
+  const status = params.get('status') as StatusFilter | null
+  return status && STATUS_TABS.includes(status) ? status : 'all'
+}
+
+/**
+ * Writes the status through the native History API, which Next.js keeps in
+ * sync with useSearchParams without a server round trip — the same approach
+ * as the Posts page. The default ('all') is left out of the URL.
+ */
+function writeStatusParam(status: StatusFilter) {
+  const params = new URLSearchParams(window.location.search)
+  if (status === 'all') params.delete('status')
+  else params.set('status', status)
+  const query = params.toString()
+  window.history.pushState(null, '', query ? `?${query}` : window.location.pathname)
+}
 
 const statusLabel = (status: StatusFilter) =>
   status === 'all' ? 'All statuses' : IDEA_STATUS_LABEL[status]
@@ -45,12 +64,18 @@ export function IdeasClient({
 }) {
   const router = useRouter()
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
-  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('proposed')
+  const searchParams = useSearchParams()
+  const selectedStatus = statusFromParams(searchParams)
   const [isActionBusy, setIsActionBusy] = useState(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
   const [draftError, setDraftError] = useState<string | null>(null)
+  // The ideas behind the latest drafting attempt, so Try again retries exactly those.
+  const [draftTargetIds, setDraftTargetIds] = useState<string[]>([])
   const isDrafting = draftStatus === 'processing'
+  // While posts are being generated (and until we navigate to them), only the
+  // progress panel is shown — the ideas list would just be noise.
+  const showGeneratingOnly = draftStatus === 'processing' || draftStatus === 'success'
 
   const statusCounts = Object.fromEntries(
     STATUS_TABS.map((st) => [
@@ -163,6 +188,7 @@ export function IdeasClient({
     setIsActionBusy(true)
     setDraftStatus('processing')
     setDraftError(null)
+    setDraftTargetIds(targetIds)
     setIdeas((prev) => prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'drafted' } : i)))
 
     try {
@@ -210,6 +236,44 @@ export function IdeasClient({
     await draftIdeas(approvedIds)
   }
 
+  // One click: approve every idea still waiting for review, then draft posts
+  // for all approved ideas (the ones just approved plus any approved before).
+  const handleApproveAllAndDraft = async () => {
+    const proposedIds = allProposedIds
+    const alreadyApprovedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+    if (proposedIds.length === 0) return
+
+    setIsActionBusy(true)
+    setDraftStatus('processing')
+    setDraftError(null)
+    let approved = false
+    try {
+      const res = await approveAllIdeas(proposedIds)
+      if (res.success) {
+        approved = true
+        setIdeas((prev) =>
+          prev.map((i) => (proposedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+        )
+      } else {
+        showToast({ title: 'Approve all failed', message: res.error, type: 'error' })
+      }
+    } catch (err: any) {
+      showToast({
+        title: 'Approve all failed',
+        message: err?.message || 'Something went wrong while approving ideas.',
+        type: 'error'
+      })
+    } finally {
+      setIsActionBusy(false)
+    }
+
+    if (!approved) {
+      setDraftStatus('idle')
+      return
+    }
+    await draftIdeas([...alreadyApprovedIds, ...proposedIds])
+  }
+
   const handleDraftSingle = async (id: string) => {
     setIdeaActionBusyId(id)
     try {
@@ -225,48 +289,87 @@ export function IdeasClient({
         title="Idea Approval Gate"
         description={`Review post ideas for ${activeAccount.name}`}
         actions={
-          <>
-            {allProposedIds.length > 0 && (
-              <ConfirmPopover
-                title={`Approve all ${allProposedIds.length} ideas?`}
-                description="Every idea waiting for review moves to Approved."
-                confirmLabel="Approve all"
-                tone="success"
-                onConfirm={handleApproveAll}
-                disabled={isActionBusy}
-              >
+          isDrafting ? (
+            <span
+              aria-busy
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white opacity-75 shadow-sm"
+            >
+              <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+              Generating posts…
+            </span>
+          ) : showGeneratingOnly ? null : (
+            <>
+              {allProposedIds.length > 0 && (
+                <ConfirmPopover
+                  title={`Approve all ${allProposedIds.length} ideas?`}
+                  description="Every idea waiting for review moves to Approved."
+                  confirmLabel="Approve all"
+                  tone="success"
+                  onConfirm={handleApproveAll}
+                  disabled={isActionBusy}
+                >
+                  <button
+                    type="button"
+                    disabled={isActionBusy}
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" />
+                    <span>Approve all ({allProposedIds.length})</span>
+                  </button>
+                </ConfirmPopover>
+              )}
+
+              {approvedCount > 0 && (
                 <button
                   type="button"
+                  onClick={handleDraftApproved}
                   disabled={isActionBusy}
-                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                  className={cn(
+                    'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                    allProposedIds.length > 0
+                      ? 'border border-border text-foreground hover:bg-surface-hover'
+                      : 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700'
+                  )}
                 >
-                  <CheckCheck className="h-3.5 w-3.5" />
-                  <span>Approve all ({allProposedIds.length})</span>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>{`Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>
+                  {allProposedIds.length === 0 && <ArrowRight className="h-3.5 w-3.5" />}
                 </button>
-              </ConfirmPopover>
-            )}
+              )}
 
-            {(approvedCount > 0 || isDrafting) && (
-              <button
-                type="button"
-                onClick={handleDraftApproved}
-                disabled={isActionBusy}
-                aria-busy={isDrafting}
-                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-75"
-              >
-                <Sparkles className={cn('h-3.5 w-3.5', isDrafting && 'animate-pulse')} />
-                <span>{isDrafting ? 'Generating posts…' : `Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>
-                {!isDrafting && <ArrowRight className="h-3.5 w-3.5" />}
-              </button>
-            )}
-          </>
+              {allProposedIds.length > 0 && (
+                <ConfirmPopover
+                  title={`Approve all and create ${allProposedIds.length + approvedCount} posts?`}
+                  description="Every idea waiting for review is approved, then a post is drafted for every approved idea."
+                  confirmLabel="Approve & create"
+                  tone="success"
+                  align="end"
+                  // Don't await: the popover would otherwise stay open for the whole drafting run.
+                  onConfirm={() => void handleApproveAllAndDraft()}
+                  disabled={isActionBusy}
+                >
+                  <button
+                    type="button"
+                    disabled={isActionBusy}
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Approve all &amp; create posts</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </ConfirmPopover>
+              )}
+            </>
+          )
         }
         bottomContent={
-          <StatusFilterMenu
-            value={selectedStatus}
-            counts={statusCounts}
-            onChange={setSelectedStatus}
-          />
+          showGeneratingOnly ? undefined : (
+            <StatusFilterMenu
+              value={selectedStatus}
+              counts={statusCounts}
+              onChange={writeStatusParam}
+            />
+          )
         }
       />
 
@@ -275,13 +378,17 @@ export function IdeasClient({
         <div className="mx-auto max-w-7xl space-y-4">
           <AiDraftingStatus
             status={draftStatus}
-            subject="your approved ideas"
+            subject={
+              draftTargetIds.length > 0
+                ? `${draftTargetIds.length} approved idea${draftTargetIds.length === 1 ? '' : 's'}`
+                : 'your ideas'
+            }
             errorMessage={draftError}
-            onRetry={handleDraftApproved}
+            onRetry={() => void draftIdeas(draftTargetIds)}
             retryDisabled={isActionBusy}
           />
 
-          {filteredIdeas.length === 0 ? (
+          {showGeneratingOnly ? null : filteredIdeas.length === 0 ? (
             <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-12 text-center">
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted" />
               <h3 className="text-sm font-semibold text-foreground">
