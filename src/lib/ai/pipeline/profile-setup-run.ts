@@ -243,6 +243,13 @@ export async function analyzeIdentitySetup(
     })
   } catch (error) {
     console.error('Identity setup analysis failed:', error)
+    if (error instanceof SkillError && error.reason === 'quota_exceeded') {
+      // Retrying cannot help until the key's budget is raised or replaced.
+      throw new IdentitySetupError(
+        'The AI usage limit for this app has been reached (AI Gateway budget exhausted). Please ask an admin to raise the limit or replace the AI_GATEWAY_API_KEY, then try again.',
+        false
+      )
+    }
     throw new IdentitySetupError(
       error instanceof SkillError && error.reason === 'timeout'
         ? 'The analysis took too long. Please try again.'

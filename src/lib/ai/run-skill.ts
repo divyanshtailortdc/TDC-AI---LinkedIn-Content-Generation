@@ -1,7 +1,12 @@
 import 'server-only'
 
 import { EPHEMERAL_CACHE, getLanguageModel, type AIStage } from '@/lib/ai'
-import { generateText, NoObjectGeneratedError, Output } from 'ai'
+import {
+  generateText,
+  NoObjectGeneratedError,
+  Output,
+  RetryError
+} from 'ai'
 import type { z } from 'zod'
 import { parseJsonLoosely } from './parse-json'
 import { EMPTY_USAGE, readCallUsage, type CallUsage } from './usage'
@@ -23,7 +28,11 @@ export type SkillResult<T> = {
   providerName: string
 }
 
-export type SkillFailure = 'not_configured' | 'timeout' | 'failed'
+export type SkillFailure =
+  | 'not_configured'
+  | 'timeout'
+  | 'quota_exceeded'
+  | 'failed'
 
 export class SkillError extends Error {
   /** Tokens billed before the failure, so run totals stay true. */
@@ -47,6 +56,16 @@ export class SkillError extends Error {
     this.text = details.text
     this.modelUsed = details.modelUsed
   }
+}
+
+/**
+ * The gateway answers 402 once the key's spend limit is reached. It throws its
+ * own error classes (not `APICallError`), so the status code is read directly.
+ */
+function isQuotaError(error: unknown): boolean {
+  const cause = RetryError.isInstance(error) ? error.lastError : error
+  const status = (cause as { statusCode?: unknown } | null)?.statusCode
+  return status === 402
 }
 
 export async function runSkill<S extends z.ZodType>(opts: {
@@ -119,6 +138,13 @@ export async function runSkill<S extends z.ZodType>(opts: {
         text: error.text,
         modelUsed
       })
+    }
+    if (isQuotaError(error)) {
+      throw new SkillError(
+        error instanceof Error ? error.message : 'AI budget exceeded.',
+        'quota_exceeded',
+        { modelUsed }
+      )
     }
     const timedOut =
       error instanceof Error &&
