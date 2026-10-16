@@ -29,10 +29,12 @@ export async function approveIdea(ideaId: string) {
     })
     if (!idea) throw new Error('Idea not found')
 
-    await db
+    const approved = await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
       .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
+      .returning({ id: ideasTable.id })
+    if (approved.length === 0) throw new Error('This idea is already drafted or being drafted')
 
     // The sidebar's Ideas badge counts these.
     revalidatePath('/', 'layout')
@@ -171,11 +173,14 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
 
 export async function approveAllIdeas(ideaIds: string[]) {
   try {
-    if (ideaIds.length === 0) return { success: true }
+    if (ideaIds.length === 0) return { success: false, error: 'No ideas to approve' }
 
     const activeAccountId = await requireActiveAccountId()
 
-    await db
+    // The ids come from a list that may be stale: another identity may be
+    // active now, or some ideas may have been drafted since. Those rows are
+    // left alone, so only the ones actually updated count as approved.
+    const approved = await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
       .where(
@@ -185,12 +190,21 @@ export async function approveAllIdeas(ideaIds: string[]) {
           NOT_YET_DRAFTED
         )
       )
+      .returning({ id: ideasTable.id })
+
+    if (approved.length === 0) {
+      return {
+        success: false,
+        error:
+          'None of these ideas could be approved. They may already be drafted, or a different identity is now active. Refresh the page to see their current status.'
+      }
+    }
 
     // The sidebar's Ideas badge counts these.
     revalidatePath('/', 'layout')
     revalidatePath('/ideas')
     revalidatePath('/runs')
-    return { success: true }
+    return { success: true, approvedIds: approved.map((i) => i.id) }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve ideas' }
   }

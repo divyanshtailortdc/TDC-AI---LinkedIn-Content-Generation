@@ -88,14 +88,26 @@ export function IdeasClient({
     try {
       const res = await approveAllIdeas(allProposedIds)
       if (res.success) {
+        // Only what the server actually approved, which can be fewer than were
+        // sent if some ideas were drafted elsewhere since this list loaded.
+        const approvedIds = res.approvedIds ?? []
         setIdeas((prev) =>
-          prev.map((i) => (allProposedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+          prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
         )
-        showToast({
-          title: 'Approved All',
-          message: `Successfully approved ${allProposedIds.length} ideas!`,
-          type: 'success'
-        })
+        const skippedCount = allProposedIds.length - approvedIds.length
+        if (skippedCount > 0) {
+          showToast({
+            title: 'Some ideas not approved',
+            message: `${approvedIds.length} approved, ${skippedCount} could not be approved. Refresh the page to see their current status.`,
+            type: 'error'
+          })
+        } else {
+          showToast({
+            title: 'Approved All',
+            message: `Approved ${approvedIds.length} idea${approvedIds.length === 1 ? '' : 's'}.`,
+            type: 'success'
+          })
+        }
       } else {
         showToast({ title: 'Approve all failed', message: res.error, type: 'error' })
       }
