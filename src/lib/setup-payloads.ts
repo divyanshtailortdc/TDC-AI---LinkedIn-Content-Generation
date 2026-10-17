@@ -10,7 +10,9 @@ import { optionalUrlError } from './identity-profile'
  */
 
 const URL_MESSAGE = 'URLs must start with http:// or https://'
-const text = (max: number) => z.string().max(max)
+/** A string capped at `max`, with the field named in the message people see. */
+const text = (max: number, label: string) =>
+  z.string().max(max, `${label} must be ${max.toLocaleString('en-US')} characters or fewer`)
 
 /** An empty string is allowed: the forms send "" for no link. */
 const optionalUrl = z
@@ -22,7 +24,7 @@ const optionalUrl = z
 export const AccountIdSchema = idSchema('Invalid account identifier')
 
 export const GoalPayloadSchema = z.object({
-  title: text(200),
+  title: text(200, 'Goal title'),
   objectiveType: z.enum([
     'awareness',
     'engagement',
@@ -31,8 +33,8 @@ export const GoalPayloadSchema = z.object({
     'recruiting',
     'community'
   ]),
-  keyMessage: text(2000),
-  desiredAction: text(500).optional(),
+  keyMessage: text(2000, 'Key message'),
+  desiredAction: text(500, 'Desired action').optional(),
   targetUrl: optionalUrl,
   linkStrategy: z.enum(['body', 'first_comment'])
 })
@@ -41,26 +43,35 @@ export const PreferencesPayloadSchema = z.object({
   pillars: z
     .array(
       z.object({
-        name: text(200),
-        weight_pct: z.number().finite().min(0).max(1000),
-        example_topics: z.array(text(300)).max(30).optional()
+        name: text(200, 'Pillar name'),
+        weight_pct: z
+          .number()
+          .finite()
+          .min(0, 'Pillar weight cannot be negative')
+          .max(1000, 'Pillar weight must be 1,000 or less'),
+        example_topics: z
+          .array(text(300, 'Example topic'))
+          .max(30, 'Use at most 30 example topics per pillar.')
+          .optional()
       })
     )
     .max(20, 'Use at most 20 content pillars.'),
   ideasPerRun: z.number(),
   post_constraints: z.object({ cta_required: z.boolean() }),
   guardrails: z.object({
-    banned_topics: z.array(text(300)).max(100),
-    compliance_notes: text(5000)
+    banned_topics: z
+      .array(text(300, 'Banned topic'))
+      .max(100, 'Use at most 100 banned topics.'),
+    compliance_notes: text(5000, 'Compliance notes')
   })
 })
 
 export const KnowledgeDocumentSchema = z.object({
   accountId: AccountIdSchema,
-  title: text(300),
+  title: text(300, 'Title'),
   sourceType: z.enum(['url', 'artifact']),
   sourceUrl: optionalUrl,
-  content: text(200_000)
+  content: text(200_000, 'Content')
 })
 
 /** Returns the parsed value, or throws the first problem in plain words. */

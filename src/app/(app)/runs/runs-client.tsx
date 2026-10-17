@@ -42,6 +42,21 @@ interface RunSummary {
   createdAt: Date | string
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * When a run started, formatted by hand: toLocaleString renders differently on
+ * the server and in the browser. The time zone can still differ between the
+ * two, so the element that shows it suppresses the hydration warning.
+ */
+function formatRunDate(value: Date | string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`
+}
+
 export function RunsClient({
   initialRuns,
   pageInfo,
@@ -245,9 +260,9 @@ export function RunsClient({
                     </span>
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
                       run.status === 'completed'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
                         : run.status === 'awaiting_idea_approval'
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
                           : run.status === 'failed'
                             ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
                             : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
@@ -259,12 +274,18 @@ export function RunsClient({
                     </span>
                   </div>
 
-                  <p className="text-xs text-muted font-mono">
-                    ID: {run.id.slice(0, 8)}...
+                  <p className="text-xs text-muted">
+                    <time
+                      dateTime={new Date(run.createdAt).toISOString()}
+                      suppressHydrationWarning
+                    >
+                      {formatRunDate(run.createdAt)}
+                    </time>
+                    <span className="font-mono"> · ID: {run.id.slice(0, 8)}...</span>
                   </p>
 
                   {run.error && (
-                    <p className="text-xs text-rose-500 font-medium">{run.error}</p>
+                    <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{run.error}</p>
                   )}
                 </div>
 

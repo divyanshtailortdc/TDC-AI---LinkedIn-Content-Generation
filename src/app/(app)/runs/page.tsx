@@ -1,7 +1,7 @@
-import { listRuns } from '@/lib/run-list'
 import { parsePage } from '@/lib/pagination'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from './runs-client'
+import { loadRunsPage } from './runs-data'
 import { getActiveAccount } from '@/lib/active-account'
 import { NoActiveAccount } from '@/components/no-active-account'
 
@@ -20,7 +20,7 @@ export default async function RunsPage({
 
   const page = parsePage((await searchParams).page)
   const [{ rows, pageInfo }, spend] = await Promise.all([
-    listRuns(activeAccount.id, page),
+    loadRunsPage(activeAccount.id, page),
     getRunSpendSummary(activeAccount.id)
   ])
 

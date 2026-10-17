@@ -818,6 +818,18 @@ describe('safe-url', () => {
     }
   })
 
+  it('flags deprecated IPv6 forms that embed an IPv4 address', () => {
+    for (const address of [
+      '::7f00:1', // IPv4-compatible ::127.0.0.1
+      '::127.0.0.1',
+      '::a9fe:a9fe', // ::169.254.169.254
+      '::ffff:0:7f00:1', // IPv4-translated
+      '2002:7f00:1::' // 6to4 wrapping 127.0.0.1
+    ]) {
+      assert.strictEqual(isPrivateAddress(address), true, address)
+    }
+  })
+
   it('rejects unsafe URLs before any network access', () => {
     for (const url of [
       'ftp://example.com',

@@ -134,13 +134,14 @@ async function createAccountOnce(formData: FormData) {
   })
 
   // The account and its offering and audience are written together. A
-  // concurrent create can take the handle first; retry once with a unique suffix.
+  // concurrent create can take the handle first; retry once with a random
+  // suffix (a timestamp collided when two creates landed in the same millisecond).
   let account: typeof accountsTable.$inferSelect
   try {
     account = await insertIdentity(db, accountValues(candidateHandle), data)
   } catch (err: any) {
     if (err?.code === '23505' || err?.cause?.code === '23505') {
-      const fallbackHandle = `${candidateHandle}-${Date.now().toString(36)}`
+      const fallbackHandle = `${candidateHandle}-${crypto.randomUUID().slice(0, 6)}`
       account = await insertIdentity(db, accountValues(fallbackHandle), data)
     } else {
       throw err

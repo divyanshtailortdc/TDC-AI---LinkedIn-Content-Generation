@@ -70,6 +70,7 @@ import {
   updateDraft,
   updatePostMediaAction
 } from './actions'
+import { initialsOf } from '@/lib/initials'
 
 export interface PostDetail {
   id: string
@@ -194,18 +195,37 @@ const STATUS_FILTERS: StatusFilter[] = [
 const DAY_PARAM = /^\d{4}-\d{2}-\d{2}$/
 
 /**
+ * A yyyy-mm-dd value that names a real day. "2026-02-31" has the right shape
+ * but rolls over to March, and the date input shows it as blank, so a link
+ * carrying it would empty the queue for a reason nobody can see.
+ */
+function realDay(value: string): string {
+  if (!DAY_PARAM.test(value)) return ''
+  const [year, month, day] = value.split('-').map(Number)
+  const date = dayStart(value)
+  return date &&
+    date.getFullYear() === year &&
+    date.getMonth() === month! - 1 &&
+    date.getDate() === day
+    ? value
+    : ''
+}
+
+/**
  * The filters live in the URL (?status=&from=&to=&sort=&q=) so they survive a
  * reload and can be shared as a link. Unknown or malformed values fall back
  * to the defaults, which are left out of the URL.
  */
 function filtersFromParams(params: URLSearchParams) {
   const status = params.get('status') as StatusFilter | null
-  const from = params.get('from') ?? ''
-  const to = params.get('to') ?? ''
+  let from = realDay(params.get('from') ?? '')
+  let to = realDay(params.get('to') ?? '')
+  // A reversed range matches nothing; the popover never writes one.
+  if (from && to && from > to) from = to = ''
   return {
     status: status && STATUS_FILTERS.includes(status) ? status : 'all',
-    from: DAY_PARAM.test(from) ? from : '',
-    to: DAY_PARAM.test(to) ? to : '',
+    from,
+    to,
     sort: params.get('sort') === 'oldest' ? 'oldest' : 'newest'
   } satisfies { status: StatusFilter; from: string; to: string; sort: SortOrder }
 }
@@ -399,8 +419,11 @@ export function PostsClientInner({
 
     const query = searchQuery.trim().toLowerCase()
     if (query) {
+      // Tags are searched as shown in the preview (#tag), whether or not they
+      // were stored with the #, so "#tag" and "tag" both find them.
+      const tags = (p.hashtags || []).map(t => `#${t.replace(/^#+/, '')}`)
       const haystack =
-        `${p.hook} ${p.body} ${p.accountName} ${(p.hashtags || []).join(' ')}`.toLowerCase()
+        `${p.hook} ${p.body} ${p.accountName} ${tags.join(' ')}`.toLowerCase()
       if (!haystack.includes(query)) return false
     }
 
@@ -482,6 +505,13 @@ export function PostsClientInner({
 
   // Media management state
   const [isMediaLoading, setIsMediaLoading] = useState(false)
+  // The post the running media job is for. Only one job runs at a time (they
+  // share the Stop button's abort controller), but its progress belongs to
+  // that post alone, not to whichever post is open now.
+  const [mediaPostId, setMediaPostId] = useState<string | null>(null)
+  // Progress and Stop show on the post the media job is for; on any other post
+  // the media actions just stay disabled until it finishes.
+  const mediaBusyHere = isMediaLoading && mediaPostId === activePost?.id
   const [mediaLoadingText, setMediaLoadingText] = useState('')
   const [mediaError, setMediaError] = useState<string | null>(null)
   const [showStockInput, setShowStockInput] = useState(false)
@@ -723,10 +753,12 @@ export function PostsClientInner({
         return
       }
 
-      if (event.key === 'j' || event.key === 'ArrowDown') {
+      // Letters match with Shift or Caps Lock on too.
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
+      if (key === 'j' || key === 'ArrowDown') {
         event.preventDefault()
         handleNextPost()
-      } else if (event.key === 'k' || event.key === 'ArrowUp') {
+      } else if (key === 'k' || key === 'ArrowUp') {
         event.preventDefault()
         handlePrevPost()
       }
@@ -814,6 +846,7 @@ export function PostsClientInner({
     generationAbortRef.current = controller
 
     setIsMediaLoading(true)
+    setMediaPostId(postId)
     setIsGenerating(true)
     setMediaLoadingText(
       referenceImage
@@ -860,6 +893,7 @@ export function PostsClientInner({
         generationAbortRef.current = null
       setIsGenerating(false)
       setIsMediaLoading(false)
+      setMediaPostId(null)
       setMediaLoadingText('')
     }
   }
@@ -876,6 +910,7 @@ export function PostsClientInner({
 
     const postId = activePost.id
     setIsMediaLoading(true)
+    setMediaPostId(postId)
     setMediaLoadingText('Reading the post and designing a matching visual...')
     setMediaError(null)
     setMediaNotice(null)
@@ -897,6 +932,7 @@ export function PostsClientInner({
       setMediaError(err?.message || 'Could not generate a visual from this post.')
     } finally {
       setIsMediaLoading(false)
+      setMediaPostId(null)
       setMediaLoadingText('')
     }
   }
@@ -944,6 +980,7 @@ export function PostsClientInner({
       return
     }
     setIsMediaLoading(true)
+    setMediaPostId(activePost.id)
     setMediaLoadingText('Searching royalty-free stock imagery...')
     setMediaError(null)
 
@@ -967,6 +1004,7 @@ export function PostsClientInner({
       setMediaError(err?.message || 'Failed to search stock visual')
     } finally {
       setIsMediaLoading(false)
+      setMediaPostId(null)
       setMediaLoadingText('')
     }
   }
@@ -981,6 +1019,7 @@ export function PostsClientInner({
     }
 
     setIsMediaLoading(true)
+    setMediaPostId(activePost.id)
     setMediaLoadingText('Attaching custom image...')
     setMediaError(null)
 
@@ -1006,6 +1045,7 @@ export function PostsClientInner({
       setMediaError(err?.message || 'Failed to update image URL')
     } finally {
       setIsMediaLoading(false)
+      setMediaPostId(null)
       setMediaLoadingText('')
     }
   }
@@ -1013,6 +1053,7 @@ export function PostsClientInner({
   const handleRemoveMedia = async () => {
     if (!activePost) return
     setIsMediaLoading(true)
+    setMediaPostId(activePost.id)
     setMediaLoadingText('Switching to text-only mode...')
     setMediaError(null)
     setMediaMenuOpen(false)
@@ -1030,6 +1071,7 @@ export function PostsClientInner({
       setMediaError(err?.message || 'Failed to remove media')
     } finally {
       setIsMediaLoading(false)
+      setMediaPostId(null)
       setMediaLoadingText('')
     }
   }
@@ -1387,13 +1429,17 @@ export function PostsClientInner({
       }
       if (!activePost || isSaving) return
 
-      if (event.key === 'a') {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
+      if (key === 'a') {
         event.preventDefault()
         void handleApprove()
-      } else if (event.key === 'r') {
+      } else if (key === 'r') {
+        // A rejected post has no Reject button; R would reject it again and
+        // store a second feedback row.
+        if (activePost.status === 'rejected') return
         event.preventDefault()
         setShowPostRejection(true)
-      } else if (event.key === 'c') {
+      } else if (key === 'c') {
         event.preventDefault()
         void handleCopyPost()
       } else if (event.key === 'Escape' && showPostRejection) {
@@ -1407,12 +1453,7 @@ export function PostsClientInner({
   }, [activePost?.id, activePost?.status, isSaving, showPostRejection, shownHook, shownBody, hasUnsavedEdits])
 
   const authorInitials = activePost?.accountName
-    ? activePost.accountName
-        .split(' ')
-        .map(w => w[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase()
+    ? initialsOf(activePost.accountName)
     : 'IN'
 
   // Offered beside the hook in the preview: the AI's own opening first, so a
@@ -1530,10 +1571,10 @@ export function PostsClientInner({
           <span
             className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
               activePost.status === 'approved'
-                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                 : activePost.status === 'rejected'
                   ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                  : 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400'
             }`}
           >
             {activePost.status === 'approved'
@@ -1676,7 +1717,7 @@ export function PostsClientInner({
                 type="button"
                 onClick={handleApprove}
                 disabled={isSaving}
-                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-emerald-800 disabled:opacity-60"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {isSaving
@@ -2177,11 +2218,11 @@ export function PostsClientInner({
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                               relevanceInfo.level === 'Highly relevant'
-                                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                                 : relevanceInfo.level === 'Relevant'
                                   ? 'border border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-400'
                                   : relevanceInfo.level === 'Weak match'
-                                    ? 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                    ? 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400'
                                     : 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
                             }`}
                           >
@@ -2211,7 +2252,14 @@ export function PostsClientInner({
                       )}
                     </div>
 
-                    {isMediaLoading ? (
+                    {isMediaLoading && !mediaBusyHere && (
+                      <p className="text-muted text-[11px]">
+                        An image for another post is still being processed.
+                        Media actions here unlock when it finishes.
+                      </p>
+                    )}
+
+                    {mediaBusyHere ? (
                       <div className="border-border bg-surface-hover/50 text-muted flex animate-pulse flex-col items-center justify-center space-y-2 rounded-xl border py-6 text-xs">
                         <Loader2 className="text-accent h-5 w-5 animate-spin" />
                         <p className="text-foreground font-medium">
@@ -2332,7 +2380,7 @@ export function PostsClientInner({
                     ):null}
 
                     {/* Stock search input */}
-                    {showStockInput && !isMediaLoading && (
+                    {showStockInput && !mediaBusyHere && (
                       <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
                         <label className="text-foreground block text-[11px] font-semibold">
                           Search Stock Imagery
@@ -2375,7 +2423,7 @@ export function PostsClientInner({
                     )}
 
                     {/* Custom URL input */}
-                    {showCustomUrlInput && !isMediaLoading && (
+                    {showCustomUrlInput && !mediaBusyHere && (
                       <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
                         <label className="text-foreground block text-[11px] font-semibold">
                           Direct Image URL
@@ -2415,7 +2463,7 @@ export function PostsClientInner({
                     )}
 
                     {/* Prompt-driven generation */}
-                    {!isMediaLoading && (
+                    {!mediaBusyHere && (
                       <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
                         <div className="flex items-center justify-between">
                           <label
@@ -2536,11 +2584,11 @@ export function PostsClientInner({
                     )}
 
                     {/* Generation from the post's own text */}
-                    {!isMediaLoading && (
+                    {!mediaBusyHere && (
                       <div className="space-y-1">
                         <button
                           type="button"
-                          disabled={isEditing}
+                          disabled={isEditing || isMediaLoading}
                           onClick={handleGenerateFromPost}
                           title={
                             isEditing
@@ -2564,7 +2612,7 @@ export function PostsClientInner({
 
                     {/* Primary & Secondary Media Actions */}
                     <div className="flex items-center gap-2 pt-1">
-                      {isGenerating ? (
+                      {isGenerating && mediaBusyHere ? (
                         <button
                           type="button"
                           onClick={handleStopGeneration}
@@ -2580,7 +2628,7 @@ export function PostsClientInner({
                           onClick={handleGenerateFromPrompt}
                           className="bg-accent hover:bg-accent-hover text-background flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {isMediaLoading ? (
+                          {mediaBusyHere ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <Sparkles className="h-3.5 w-3.5" />
@@ -2664,8 +2712,8 @@ export function PostsClientInner({
                         <span
                           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                             hasLintIssues
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                              : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                           }`}
                         >
                           {hasLintIssues ? (

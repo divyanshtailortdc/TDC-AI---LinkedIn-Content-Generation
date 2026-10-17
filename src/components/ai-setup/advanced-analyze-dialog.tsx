@@ -368,7 +368,7 @@ export function AdvancedAnalyzeDialog({
               <div>
                 <Label htmlFor="adv-description">
                   About you or your business{' '}
-                  <span className="text-rose-500">*</span>
+                  <span className="text-rose-600 dark:text-rose-400">*</span>
                 </Label>
                 <textarea
                   id="adv-description"

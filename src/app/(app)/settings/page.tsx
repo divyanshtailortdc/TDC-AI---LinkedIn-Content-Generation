@@ -1,6 +1,17 @@
 import { PageHeader } from '@/components/page-header'
 import { getCapabilities } from '@/lib/capabilities'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
+import { env } from '~/env'
+
+/** Where the app's database is, without the username or password. */
+function databaseLocation(): string {
+  try {
+    const url = new URL(env.DATABASE_URL)
+    return `${url.hostname}${url.port ? `:${url.port}` : ''}${url.pathname}`
+  } catch {
+    return 'DATABASE_URL could not be read'
+  }
+}
 
 export default function SettingsPage() {
   const capabilities = getCapabilities()
@@ -12,7 +23,7 @@ export default function SettingsPage() {
         description={
           <>
             Configure your API keys in{' '}
-            <code className="font-mono text-xs bg-surface-hover px-1.5 py-0.5 rounded">.env.local</code>{' '}
+            <code className="font-mono text-xs bg-surface-hover px-1.5 py-0.5 rounded">.env</code>{' '}
             at the repo root.
           </>
         }
@@ -36,8 +47,8 @@ export default function SettingsPage() {
                     <p className="text-sm font-medium text-foreground">{cap.name}</p>
                     <p className="text-xs text-muted mt-0.5">{cap.description}</p>
                     {cap.status === 'missing' && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Add <code className="font-mono bg-surface-hover px-1 py-0.5 rounded text-[11px]">{cap.missingKey}=&quot;...&quot;</code> to <code className="font-mono bg-surface-hover px-1 py-0.5 rounded text-[11px]">.env.local</code>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        Add <code className="font-mono bg-surface-hover px-1 py-0.5 rounded text-[11px]">{cap.missingKey}=&quot;...&quot;</code> to <code className="font-mono bg-surface-hover px-1 py-0.5 rounded text-[11px]">.env</code>
                       </p>
                     )}
                   </div>
@@ -59,12 +70,17 @@ export default function SettingsPage() {
               <h2 className="text-sm font-semibold text-foreground">Database</h2>
             </div>
             <div className="px-5 py-4">
-              <p className="text-sm text-foreground font-medium mb-1">PostgreSQL (local)</p>
+              <p className="text-sm text-foreground font-medium mb-1">PostgreSQL</p>
               <code className="text-xs font-mono text-muted bg-surface-hover px-2 py-1 rounded block w-full break-all">
-                postgresql://postgres:postgres@localhost:5432/linkedin-agent
+                {databaseLocation()}
               </code>
               <p className="text-xs text-muted mt-2">
-                Run <code className="font-mono text-[11px] bg-surface-hover px-1.5 py-0.5 rounded">npm run db:push</code> to apply the schema.
+                Set by <code className="font-mono text-[11px] bg-surface-hover px-1.5 py-0.5 rounded">DATABASE_URL</code>. Run{' '}
+                <code className="font-mono text-[11px] bg-surface-hover px-1.5 py-0.5 rounded">npm run db:migrate</code> to apply schema changes.
+              </p>
+              <p className="text-xs text-muted mt-1">
+                Research mode:{' '}
+                <code className="font-mono text-[11px] bg-surface-hover px-1.5 py-0.5 rounded">{env.RESEARCH_MODE}</code>
               </p>
             </div>
           </div>

@@ -83,7 +83,7 @@ export function DeleteIdentityDialog({
             setError(null)
             setIsOpen(true)
           }}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 text-[13px] font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 text-[13px] font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
         >
           <PowerOff className="h-3.5 w-3.5" />
           <span>Deactivate this Identity</span>
@@ -146,11 +146,11 @@ export function DeleteIdentityDialog({
             {/* Simple Active / Inactive status message */}
             <p className="mt-2 text-xs leading-relaxed text-muted">
               This account will be marked as{' '}
-              <span className="font-semibold text-amber-600 dark:text-amber-400">
+              <span className="font-semibold text-amber-700 dark:text-amber-400">
                 Inactive
               </span>
               . You can change it back to{' '}
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
                 Active
               </span>{' '}
               at any time.

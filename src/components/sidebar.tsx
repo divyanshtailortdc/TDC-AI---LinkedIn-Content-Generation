@@ -8,6 +8,7 @@ import { useMobileNav } from '@/components/mobile-nav'
 import logoDark from '@/img/tdccommercelogo-dark.webp'
 import logoLight from '@/img/tdccommercelogo.webp'
 import { cn } from '@/lib/cn'
+import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,6 +17,7 @@ import {
   Lightbulb,
   Play,
   Settings,
+  SlidersHorizontal,
   X
 } from 'lucide-react'
 import Image from 'next/image'
@@ -31,6 +33,9 @@ const navItems = [
 ]
 
 const STORAGE_KEY = 'sidebar-collapsed'
+function writeCollapsedCookie(collapsed: boolean) {
+  document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${collapsed ? '1' : '0'}; path=/; max-age=31536000; samesite=lax`
+}
 
 function subscribeToCollapsedPref(onChange: () => void) {
   window.addEventListener('storage', onChange)
@@ -39,12 +44,6 @@ function subscribeToCollapsedPref(onChange: () => void) {
 
 function readCollapsedPref() {
   return window.localStorage.getItem(STORAGE_KEY) === '1'
-}
-
-// SSR/first paint has no localStorage, so the rail always starts expanded
-// there; the client re-syncs to the stored preference right after.
-function readCollapsedPrefServer() {
-  return false
 }
 
 // The sidebar is a slide-out drawer below `lg` (matches Tailwind's breakpoint);
@@ -65,15 +64,25 @@ function useIsDesktop() {
   )
 }
 
-/** Persisted collapse state for the sidebar rail, shared via localStorage. */
-function useSidebarCollapsed() {
+/**
+ * Persisted collapse state for the sidebar rail, shared via localStorage.
+ * `initialCollapsed` comes from a cookie the server reads, so the first paint
+ * and hydration already match the stored choice instead of flashing open.
+ */
+function useSidebarCollapsed(initialCollapsed: boolean) {
   const collapsed = useSyncExternalStore(
     subscribeToCollapsedPref,
     readCollapsedPref,
-    readCollapsedPrefServer
+    () => initialCollapsed
   )
+  // A preference saved before the cookie existed: copy it over once, so the
+  // next load renders collapsed on the server as well.
+  useEffect(() => {
+    if (readCollapsedPref() !== initialCollapsed) writeCollapsedCookie(readCollapsedPref())
+  }, [initialCollapsed])
   const setCollapsed = useCallback((next: boolean) => {
     window.localStorage.setItem(STORAGE_KEY, next ? '1' : '0')
+    writeCollapsedCookie(next)
     // storage events only fire in *other* tabs; dispatch here so this tab's
     // subscribers (this hook) re-read the value too.
     window.dispatchEvent(new Event('storage'))
@@ -145,15 +154,18 @@ function NavLink({
 export function Sidebar({
   accounts,
   activeAccount,
-  ideasToReview = 0
+  ideasToReview = 0,
+  initialCollapsed = false
 }: {
   accounts: SwitchableAccount[]
   activeAccount: SwitchableAccount | null
   /** Ideas of the active identity still waiting for approval. */
   ideasToReview?: number
+  /** The collapse preference from its cookie, for the server render. */
+  initialCollapsed?: boolean
 }) {
   const pathname = usePathname()
-  const [collapsedPref, setCollapsed] = useSidebarCollapsed()
+  const [collapsedPref, setCollapsed] = useSidebarCollapsed(initialCollapsed)
   const isDesktop = useIsDesktop()
   const { open, setOpen } = useMobileNav()
   // The drawer always shows the full sidebar; only the desktop rail collapses.
@@ -215,7 +227,7 @@ export function Sidebar({
                 priority
                 className="hidden h-8 w-auto self-start dark:block"
               />
-              <p className="text-muted/80 pl-1 text-[11px] leading-none font-medium tracking-[0.14em] uppercase">
+              <p className="text-muted pl-1 text-[11px] leading-none font-medium tracking-[0.14em] uppercase">
                 LinkedIn Content Engine
               </p>
             </>
@@ -282,6 +294,15 @@ export function Sidebar({
               collapsed={collapsed}
             />
           )}
+
+          {/* App-wide configuration (API keys, database), not tied to an identity. */}
+          <NavLink
+            href="/settings"
+            label="Settings"
+            icon={SlidersHorizontal}
+            active={pathname.startsWith('/settings')}
+            collapsed={collapsed}
+          />
         </nav>
 
         {/* Active identity switcher */}

@@ -21,7 +21,7 @@ interface ConfirmPopoverProps {
 
 const TONE_STYLE: Record<NonNullable<ConfirmPopoverProps['tone']>, string> = {
   danger: 'bg-rose-600 text-white hover:bg-rose-700',
-  success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+  success: 'bg-emerald-700 text-white hover:bg-emerald-800',
   neutral: 'bg-accent text-background hover:bg-accent-hover'
 }
 

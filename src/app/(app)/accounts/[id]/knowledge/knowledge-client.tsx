@@ -553,7 +553,7 @@ export function KnowledgeClient({
             {urlPreview && (
               <div className="border-border bg-surface-hover space-y-4 rounded-xl border p-5">
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Scraped successfully ({urlPreview.wordCount} words)
                   </span>

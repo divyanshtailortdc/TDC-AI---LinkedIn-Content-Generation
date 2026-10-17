@@ -40,7 +40,7 @@ interface IdeaCardProps {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  approved: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-400',
+  approved: 'text-emerald-700 bg-emerald-500/10 dark:text-emerald-400',
   rejected: 'text-rose-600 bg-rose-500/10 dark:text-rose-400',
   proposed: 'text-muted bg-surface-hover'
 }
@@ -84,9 +84,9 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
   // it is shown plainly rather than as a colour alone.
   const groundingTone =
     (idea.groundingScore ?? 0) >= 75
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-emerald-700 dark:text-emerald-400'
       : (idea.groundingScore ?? 0) >= 60
-        ? 'text-amber-600 dark:text-amber-400'
+        ? 'text-amber-700 dark:text-amber-400'
         : 'text-rose-600 dark:text-rose-400'
 
   const handleSaveEdit = async () => {
@@ -298,7 +298,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                                     ? 'bg-purple-500/10 text-purple-500'
                                     : ev.factType === 'sourced'
                                       ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
-                                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                                 )}
                               >
                                 {ev.factType === 'inferred'
@@ -328,7 +328,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                   {/* Risks flagged during validation */}
                   {risks.length > 0 && (
                     <div>
-                      <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-amber-600 uppercase dark:text-amber-400">
+                      <span className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-amber-700 uppercase dark:text-amber-400">
                         <AlertTriangle className="h-3 w-3" />
                         Check before approving
                       </span>
@@ -392,7 +392,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-2.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-800 disabled:opacity-60"
                   >
                     {isBusy ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -250,6 +250,22 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   // Runs from the header's Save; false keeps the user on this step.
   const save = async (): Promise<boolean> => {
     setError(null)
+    // A first save with nothing chosen would store only the defaults and tick
+    // Voice off on the setup checklist although no voice was set.
+    const nothingChosen =
+      !derivedRubric.trim() &&
+      !tone &&
+      !perspective &&
+      !emojiPolicy &&
+      !hashtagPolicy &&
+      scales.formality === null &&
+      scales.directness === null
+    if (!initialConfig && nothingChosen) {
+      const message = 'Choose at least one voice setting before saving.'
+      setError(message)
+      showToast({ type: 'error', title: 'Nothing to save', message })
+      return false
+    }
     // Only what this page edits is sent; every other voice detail keeps its
     // saved value. Anything left unselected falls back to the default.
     const res = await saveVoiceConfigAction({

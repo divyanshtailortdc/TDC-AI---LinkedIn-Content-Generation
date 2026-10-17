@@ -2,11 +2,11 @@ import 'server-only'
 
 import { db } from '@/db'
 import { runsTable } from '@/db/schema'
+import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { count, desc, eq } from 'drizzle-orm'
-import { loadPage, PAGE_SIZE } from './pagination'
 
 /** One page of an account's runs, newest first, for the Runs lists. */
-export function listRuns(accountId: string, page: number) {
+export function loadRunsPage(accountId: string, page: number) {
   const ofAccount = eq(runsTable.accountId, accountId)
   return loadPage({
     page,

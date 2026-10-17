@@ -1,9 +1,9 @@
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { accountIdOr404, getAccountOr404 } from '@/lib/account-route'
 import { parsePage } from '@/lib/pagination'
-import { listRuns } from '@/lib/run-list'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from '../../../runs/runs-client'
+import { loadRunsPage } from '../../../runs/runs-data'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +21,7 @@ export default async function AccountRunsPage({
 
   const [account, { rows, pageInfo }, spend] = await Promise.all([
     getAccountOr404(id),
-    listRuns(id, page),
+    loadRunsPage(id, page),
     getRunSpendSummary(id)
   ])
 
