@@ -18,6 +18,8 @@ import {
   type LintOptions
 } from '~/lib/lint/run-linter'
 import { createMediaPlan } from '~/lib/media'
+import { postCharCount, postFullText } from '@/lib/post-text'
+import { buildPostLintOptions } from './post-lint'
 import {
   collectBannedWords,
   loadGenerationContext,
@@ -191,25 +193,8 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
 
   // ------------------------------------------------------------------- lint
   const evidence = idea.supportingEvidence || []
-  const figureSources = collectFigureSources(ctx, idea)
-  const lintOptions = (d: DraftGenerationResult): LintOptions => ({
-    hook: d.hook,
-    body: d.body,
-    cta: d.cta,
-    firstComment: d.firstComment,
-    hashtags: d.hashtags,
-    linkPlacement,
-    bannedWords: collectBannedWords(ctx),
-    bannedTopics: ctx.prefs.guardrails.banned_topics,
-    maxChars: constraints.max_chars,
-    hookMaxChars: constraints.hook_max_chars,
-    hashtagRange: constraints.hashtags,
-    emojiLevel: constraints.emoji_level,
-    ctaRequired: constraints.cta_required,
-    citationsCount: evidence.length,
-    minCitations: ctx.prefs.research.min_citations_per_post,
-    figureSources
-  })
+  const lintOptions = (d: DraftGenerationResult): LintOptions =>
+    buildPostLintOptions(ctx, idea, d)
 
   const lintStart = Date.now()
   let lintFindings: LintFinding[] = runLinter(lintOptions(draft))
@@ -271,9 +256,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   // The idea carries the human's per-idea override from the approval gate;
   // otherwise no image, and one can be added from the review screen.
   const mediaMode = suggested.mode || 'none'
-  const fullPostText = [draft.hook, draft.body, draft.cta]
-    .filter(Boolean)
-    .join('\n\n')
+  const fullPostText = postFullText(draft)
 
   const mediaStart = Date.now()
   const mediaPlan = await createMediaPlan({
@@ -312,7 +295,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   }
 
   // ----------------------------------------------------------------- persist
-  const charCount = fullPostText.length
+  const charCount = postCharCount(draft)
 
   const variantLimit = Math.max(1, Math.min(constraints.variants_per_post, 5))
   const alternateHooks = (draft.alternateHooks || []).slice(0, variantLimit)

@@ -4,16 +4,20 @@ import { db } from '@/db'
 import {
   feedbackTable,
   ideasTable,
+  postCitationsTable,
   postDraftsTable,
   postMediaTable
 } from '@/db/schema'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, count, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { validateImageUrl } from '~/lib/media/image-input'
 import { requireActiveAccountId } from '@/lib/active-account'
 import { z } from 'zod'
+import { postCharCount } from '@/lib/post-text'
+import { runLinter } from '~/lib/lint/run-linter'
+import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
 import { loadPostsPage } from './posts-data'
 
 /** The next page of the active account's posts, after the post with `cursorId`. */
@@ -49,18 +53,63 @@ export async function updateDraft(
 
     const newHook = payload.hook ?? existing.hook
     const newBody = payload.body ?? existing.body
-    const fullText = `${newHook}\n\n${newBody}`
+    const newFirstComment =
+      payload.firstComment !== undefined
+        ? payload.firstComment
+        : existing.firstComment
+
+    // The count and the quality checks describe the text as it now stands. Left
+    // as they were, they kept judging the version the AI wrote.
+    const charCount = postCharCount({
+      hook: newHook,
+      body: newBody,
+      cta: existing.cta
+    })
+    let lintFindings = existing.lintFindings ?? []
+    try {
+      const idea = existing.ideaId
+        ? await db.query.ideasTable.findFirst({
+            where: eq(ideasTable.id, existing.ideaId)
+          })
+        : null
+      const ctx = await loadGenerationContext(existing.accountId, {
+        goalId: idea?.goalId
+      })
+      const citations = idea
+        ? (idea.supportingEvidence?.length ?? 0)
+        : ((
+            await db
+              .select({ total: count() })
+              .from(postCitationsTable)
+              .where(eq(postCitationsTable.draftId, draftId))
+          )[0]?.total ?? 0)
+      lintFindings = runLinter(
+        buildPostLintOptions(
+          ctx,
+          idea ?? null,
+          {
+            hook: newHook,
+            body: newBody,
+            cta: existing.cta,
+            firstComment: newFirstComment,
+            hashtags: existing.hashtags
+          },
+          citations
+        )
+      )
+    } catch (err) {
+      // The text is still saved; the earlier checks are kept rather than lost.
+      console.error(`Could not re-run the quality checks on draft ${draftId}:`, err)
+    }
 
     await db
       .update(postDraftsTable)
       .set({
         hook: newHook,
         body: newBody,
-        firstComment:
-          payload.firstComment !== undefined
-            ? payload.firstComment
-            : existing.firstComment,
-        charCount: fullText.length,
+        firstComment: newFirstComment,
+        charCount,
+        lintFindings,
         editedBody: newBody,
         updatedAt: new Date()
       })
@@ -68,7 +117,7 @@ export async function updateDraft(
 
     revalidatePath('/posts')
     revalidatePath(`/posts/${draftId}`)
-    return { success: true }
+    return { success: true, charCount, lintFindings }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to update draft' }
   }

@@ -537,11 +537,47 @@ export function PostsClientInner({
   const shownComment = isEditing
     ? editedComment
     : activePost?.firstComment || ''
+  // Compared whether or not the editor is open: closing it to look at the
+  // preview keeps the edits in the buffer, and they are still unsaved.
   const hasUnsavedEdits =
-    isEditing &&
-    (editedHook !== (activePost?.hook || '') ||
-      editedBody !== (activePost?.body || '') ||
-      editedComment !== (activePost?.firstComment || ''))
+    editedHook !== (activePost?.hook || '') ||
+    editedBody !== (activePost?.body || '') ||
+    editedComment !== (activePost?.firstComment || '')
+
+  // Asks before unsaved edits are thrown away. True when it is fine to go on.
+  const confirmDiscardEdits = (what: string) =>
+    !hasUnsavedEdits ||
+    window.confirm(
+      `You have unsaved changes to this post. ${what} will discard them. Continue?`
+    )
+
+  // Closing or reloading the tab, and following a link to another page, would
+  // drop the edits without a word.
+  useEffect(() => {
+    if (!hasUnsavedEdits) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    const onLinkClick = (event: MouseEvent) => {
+      const link = (event.target as HTMLElement | null)?.closest?.('a[href]')
+      if (!(link instanceof HTMLAnchorElement)) return
+      if (link.target === '_blank' || event.metaKey || event.ctrlKey) return
+      const url = new URL(link.href, window.location.href)
+      if (url.origin !== window.location.origin) return
+      if (url.pathname === window.location.pathname) return
+      if (!window.confirm('You have unsaved changes to this post. Leave this page and discard them?')) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('click', onLinkClick, true)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('click', onLinkClick, true)
+    }
+  }, [hasUnsavedEdits])
 
   const discardEdits = () => {
     setEditedHook(activePost?.hook || '')
@@ -618,6 +654,9 @@ export function PostsClientInner({
 
   // Opening a post is all it takes: the buffer resets above.
   const handleSelectPost = (post: PostDetail) => {
+    if (post.id !== activePost?.id && !confirmDiscardEdits('Opening another post')) {
+      return
+    }
     setSelectedPostId(post.id)
   }
 
@@ -939,7 +978,16 @@ export function PostsClientInner({
       const res = await updateDraft(activePost.id, { hook: newHook })
       if (!res.success) throw new Error(res.error)
       setPosts(prev =>
-        prev.map(p => (p.id === activePost.id ? { ...p, hook: newHook } : p))
+        prev.map(p =>
+          p.id === activePost.id
+            ? {
+                ...p,
+                hook: newHook,
+                charCount: res.charCount ?? p.charCount,
+                lintFindings: res.lintFindings ?? p.lintFindings
+              }
+            : p
+        )
       )
     } catch (err: any) {
       // Undo the swap unless another post's buffer has replaced it meanwhile.
@@ -972,7 +1020,9 @@ export function PostsClientInner({
                 hook: editedHook,
                 body: editedBody,
                 firstComment: editedComment,
-                charCount: `${editedHook}\n\n${editedBody}`.length
+                // From the save: counted and checked on the text as stored.
+                charCount: res.charCount ?? p.charCount,
+                lintFindings: res.lintFindings ?? p.lintFindings
               }
             : p
         )
@@ -1034,7 +1084,9 @@ export function PostsClientInner({
     const tagsString = (activePost.hashtags || [])
       .map(t => (t.startsWith('#') ? t : `#${t}`))
       .join(' ')
-    const fullContent = `${shownHook}\n\n${shownBody}${
+    // Always the saved post: that is the text Approve stores, so what is copied
+    // is what is approved. Edits not saved yet are not part of either.
+    const fullContent = `${activePost.hook}\n\n${activePost.body}${
       activePost.cta ? `\n\n${activePost.cta}` : ''
     }${tagsString ? `\n\n${tagsString}` : ''}`
 
@@ -1044,7 +1096,9 @@ export function PostsClientInner({
       showToast({
         type: 'success',
         title: 'Post Copied!',
-        message: 'Post text copied with clean line breaks, CTA, and hashtags.'
+        message: hasUnsavedEdits
+          ? 'Copied the saved post. Your unsaved edits are not included; save them to copy them.'
+          : 'Post text copied with clean line breaks, CTA, and hashtags.'
       })
       setTimeout(() => setCopiedPost(false), 2500)
     } else {
@@ -1057,8 +1111,9 @@ export function PostsClientInner({
   }
 
   const handleCopyComment = async () => {
-    if (!shownComment) return
-    const success = await copyTextToClipboard(shownComment)
+    const savedComment = activePost?.firstComment || ''
+    if (!savedComment) return
+    const success = await copyTextToClipboard(savedComment)
     if (success) {
       setCopiedComment(true)
       showToast({
@@ -1190,7 +1245,8 @@ export function PostsClientInner({
       showToast({
         type: 'error',
         title: 'Unsaved changes',
-        message: 'Save or cancel your edits before approving this post.'
+        message:
+          'Save or cancel your edits before approving this post. Use Edit Post Text to reopen them.'
       })
       return
     }
@@ -1223,6 +1279,7 @@ export function PostsClientInner({
 
   const handleReject = async (reason?: string) => {
     if (!activePost) return
+    if (!confirmDiscardEdits('Rejecting this post')) return
     const rejectedId = activePost.id
 
     setIsSaving(true)
