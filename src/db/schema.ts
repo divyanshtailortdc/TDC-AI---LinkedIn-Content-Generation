@@ -12,6 +12,8 @@ import {
   varchar,
   vector
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { ACTIVE_RUN_STATUSES } from '../lib/run-status'
 
 // ---------------------------------------------------------------------------
 // Shared field helpers
@@ -302,62 +304,77 @@ export const preferencesTable = pgTable('preferences', {
 // 9. Runs (1:N with Account) — pipeline execution lifecycle
 // ---------------------------------------------------------------------------
 
-export const runsTable = pgTable('runs', {
-  id: commonFieldDefs.id(),
-  accountId: uuid('account_id')
-    .notNull()
-    .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  goalId: uuid('goal_id').references(() => goalsTable.id, {
-    onDelete: 'set null'
-  }),
-  goalIds: jsonb('goal_ids').$type<string[]>().default([]),
-  preferenceSetId: uuid('preference_set_id').references(
-    () => preferencesTable.id,
-    {
+export const runsTable = pgTable(
+  'runs',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    goalId: uuid('goal_id').references(() => goalsTable.id, {
       onDelete: 'set null'
-    }
-  ),
-  workflow: varchar('workflow', { length: 30 }).default('standard').notNull(),
-  trigger: varchar('trigger', { length: 20 }).default('manual').notNull(),
-  status: varchar('status', { length: 30 }).default('queued').notNull(),
-  currentStep: integer('current_step').default(0).notNull(),
-  totalSteps: integer('total_steps').default(3).notNull(),
-  researchConfig: jsonb('research_config')
-    .$type<Record<string, any>>()
-    .default({}),
-  mediaConfig: jsonb('media_config').$type<Record<string, any>>().default({}),
-  timings: jsonb('timings').$type<Record<string, number>>().default({}),
-  // Summed from run_steps by refreshRunTotals; see src/lib/ai/usage.ts.
-  tokenCounts: jsonb('token_counts')
-    .$type<{
-      calls?: number
-      inputTokens?: number
-      noCacheInputTokens?: number
-      outputTokens?: number
-      reasoningTokens?: number
-      totalTokens?: number
-      cacheReadTokens?: number
-      cacheWriteTokens?: number
-      costUsd?: number
-      billedCalls?: number
-      estimatedCalls?: number
-    }>()
-    .default({}),
-  costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
-  model: varchar('model', { length: 100 }).default('claude-opus-5'),
-  logs: jsonb('logs')
-    .$type<
-      Array<{
-        step: string
-        status: string
-        timestamp?: string
-        message?: string
-      }>
-    >()
-    .default([]),
-  error: text('error'),
-  ...commonFieldDefs.dates
-})
+    }),
+    goalIds: jsonb('goal_ids').$type<string[]>().default([]),
+    preferenceSetId: uuid('preference_set_id').references(
+      () => preferencesTable.id,
+      {
+        onDelete: 'set null'
+      }
+    ),
+    workflow: varchar('workflow', { length: 30 }).default('standard').notNull(),
+    trigger: varchar('trigger', { length: 20 }).default('manual').notNull(),
+    status: varchar('status', { length: 30 }).default('queued').notNull(),
+    currentStep: integer('current_step').default(0).notNull(),
+    totalSteps: integer('total_steps').default(3).notNull(),
+    researchConfig: jsonb('research_config')
+      .$type<Record<string, any>>()
+      .default({}),
+    mediaConfig: jsonb('media_config').$type<Record<string, any>>().default({}),
+    timings: jsonb('timings').$type<Record<string, number>>().default({}),
+    // Summed from run_steps by refreshRunTotals; see src/lib/ai/usage.ts.
+    tokenCounts: jsonb('token_counts')
+      .$type<{
+        calls?: number
+        inputTokens?: number
+        noCacheInputTokens?: number
+        outputTokens?: number
+        reasoningTokens?: number
+        totalTokens?: number
+        cacheReadTokens?: number
+        cacheWriteTokens?: number
+        costUsd?: number
+        billedCalls?: number
+        estimatedCalls?: number
+      }>()
+      .default({}),
+    costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
+    model: varchar('model', { length: 100 }).default('claude-opus-5'),
+    logs: jsonb('logs')
+      .$type<
+        Array<{
+          step: string
+          status: string
+          timestamp?: string
+          message?: string
+        }>
+      >()
+      .default([]),
+    error: text('error'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    // One run in progress per identity: two at once research the same ground
+    // and come back with near-identical ideas. enqueueRun checks first; this
+    // catches anything that slips past it.
+    uniqueIndex('runs_one_active_per_account_uq')
+      .on(table.accountId)
+      .where(
+        sql.raw(
+          `status in (${ACTIVE_RUN_STATUSES.map(s => `'${s}'`).join(', ')})`
+        )
+      )
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 9b. Run Steps (1:N with Run) — per-stage progress and observability

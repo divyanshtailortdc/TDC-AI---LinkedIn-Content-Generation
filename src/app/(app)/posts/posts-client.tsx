@@ -478,9 +478,9 @@ export function PostsClientInner({
   // Leaving the page must not leave a generation running that would still save.
   useEffect(() => () => generationAbortRef.current?.abort(), [])
 
-  // The editor, preview and Copy read the edit buffer, so it is reset (with
-  // the per-post panels) whenever a different post opens, however that
-  // happens: a click, J/K, a filter change or a status change.
+  // The editor reads the edit buffer, so it is reset (with the per-post
+  // panels) whenever a different post opens, however that happens: a click,
+  // J/K, a filter change or a status change.
   const activePostId = activePost?.id
   const [bufferPostId, setBufferPostId] = useState(activePostId)
   if (activePostId !== bufferPostId) {
@@ -501,6 +501,27 @@ export function PostsClientInner({
     setReferenceImageName(null)
     setImageLoadFailure(null)
   }
+  // The preview and Copy show the saved post, which is what Approve saves; the
+  // edit buffer only while the editor is open. Showing unsaved edits there
+  // meant copying or approving one text while another was stored.
+  const shownHook = isEditing ? editedHook : activePost?.hook || ''
+  const shownBody = isEditing ? editedBody : activePost?.body || ''
+  const shownComment = isEditing
+    ? editedComment
+    : activePost?.firstComment || ''
+  const hasUnsavedEdits =
+    isEditing &&
+    (editedHook !== (activePost?.hook || '') ||
+      editedBody !== (activePost?.body || '') ||
+      editedComment !== (activePost?.firstComment || ''))
+
+  const discardEdits = () => {
+    setEditedHook(activePost?.hook || '')
+    setEditedBody(activePost?.body || '')
+    setEditedComment(activePost?.firstComment || '')
+    setIsEditing(false)
+  }
+
   // The file input's own value is DOM state, so it is cleared after render.
   useEffect(() => {
     if (referenceInputRef.current) referenceInputRef.current.value = ''
@@ -985,7 +1006,7 @@ export function PostsClientInner({
     const tagsString = (activePost.hashtags || [])
       .map(t => (t.startsWith('#') ? t : `#${t}`))
       .join(' ')
-    const fullContent = `${editedHook}\n\n${editedBody}${
+    const fullContent = `${shownHook}\n\n${shownBody}${
       activePost.cta ? `\n\n${activePost.cta}` : ''
     }${tagsString ? `\n\n${tagsString}` : ''}`
 
@@ -1008,8 +1029,8 @@ export function PostsClientInner({
   }
 
   const handleCopyComment = async () => {
-    if (!editedComment) return
-    const success = await copyTextToClipboard(editedComment)
+    if (!shownComment) return
+    const success = await copyTextToClipboard(shownComment)
     if (success) {
       setCopiedComment(true)
       showToast({
@@ -1137,6 +1158,14 @@ export function PostsClientInner({
 
   const handleApprove = async () => {
     if (!activePost || activePost.status === 'approved') return
+    if (hasUnsavedEdits) {
+      showToast({
+        type: 'error',
+        title: 'Unsaved changes',
+        message: 'Save or cancel your edits before approving this post.'
+      })
+      return
+    }
     const approvedId = activePost.id
     setIsSaving(true)
     try {
@@ -1225,7 +1254,7 @@ export function PostsClientInner({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, editedHook, editedBody])
+  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, shownHook, shownBody, hasUnsavedEdits])
 
   const authorInitials = activePost?.accountName
     ? activePost.accountName
@@ -1448,7 +1477,7 @@ export function PostsClientInner({
                   C
                 </kbd>
               </button>
-              {editedComment ? (
+              {shownComment ? (
                 <button
                   type="button"
                   onClick={handleCopyComment}
@@ -1818,7 +1847,7 @@ export function PostsClientInner({
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => setIsEditing(false)}
+                          onClick={discardEdits}
                           className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
                         >
                           Cancel
@@ -1840,8 +1869,8 @@ export function PostsClientInner({
                         authorName={activePost.accountName}
                         authorHeadline={activePost.accountHeadline}
                         authorInitials={authorInitials}
-                        hook={editedHook}
-                        body={editedBody}
+                        hook={shownHook}
+                        body={shownBody}
                         cta={activePost.cta}
                         hashtags={activePost.hashtags}
                         mediaUrl={activePost.media?.imageUrl}
@@ -1855,7 +1884,7 @@ export function PostsClientInner({
                         hookOptions={hookOptions.length > 1 ? hookOptions : []}
                         onSelectHook={handleSwapHook}
                         hookSwapDisabled={isSaving}
-                        firstComment={editedComment}
+                        firstComment={shownComment}
                         onCopyFirstComment={handleCopyComment}
                         firstCommentCopied={copiedComment}
                       />

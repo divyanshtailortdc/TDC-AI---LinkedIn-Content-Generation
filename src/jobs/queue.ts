@@ -8,10 +8,11 @@ import {
   preferencesTable,
   accountsTable
 } from '@/db/schema'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '@/lib/ai/context'
 import { defaultModel } from '@/lib/models'
 import { insertRunUnlessActive } from './run-guard'
+import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 
 export interface EnqueueRunOptions {
   accountId: string
@@ -19,6 +20,12 @@ export interface EnqueueRunOptions {
   trigger?: 'manual' | 'schedule'
 }
 
+/**
+ * Queues a run for the account, or returns the run it already has in progress
+ * (`created: false`). Two runs at once for one identity research the same
+ * ground and return near-identical ideas, so a second Launch (another tab, a
+ * double click, a scheduled tick) joins the first instead.
+ */
 export async function enqueueRun(opts: EnqueueRunOptions) {
   const [account, preference, defaultGoal] = await Promise.all([
     db.query.accountsTable.findFirst({ where: eq(accountsTable.id, opts.accountId) }),
@@ -39,7 +46,7 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
     throw new Error(`Account ${opts.accountId} not found`)
   }
   if (!account.isActive) {
-    throw new Error('Identity not found or inactive')
+    throw new Error(`Account ${opts.accountId} is deactivated`)
   }
 
   // Freeze the research settings that produced this run so "why did it write
@@ -71,8 +78,51 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
       }
     ]
   })
+  return db.transaction(async tx => {
+    // Serialises enqueues for this account until commit, so concurrent calls
+    // cannot all pass the check below. The partial unique index on runs is
+    // the backstop.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${opts.accountId}::text))`)
 
-  return newRun
+    const activeRun = await tx.query.runsTable.findFirst({
+      where: and(
+        eq(runsTable.accountId, opts.accountId),
+        inArray(runsTable.status, ACTIVE_RUN_STATUSES)
+      ),
+      orderBy: [asc(runsTable.createdAt)]
+    })
+    if (activeRun) return { run: activeRun, created: false }
+
+    const [newRun] = await tx
+      .insert(runsTable)
+      .values({
+        accountId: opts.accountId,
+        goalId: defaultGoal?.id || null,
+        preferenceSetId: preference?.id || null,
+        workflow: 'standard',
+        // Recorded up front: the database default is a leftover placeholder.
+        model: defaultModel,
+        trigger: opts.trigger || 'manual',
+        status: 'queued',
+        currentStep: 0,
+        totalSteps: 3,
+        researchConfig,
+        timings: {},
+        tokenCounts: {},
+        costUsd: '0',
+        logs: [
+          {
+            step: 'queued',
+            status: 'pending',
+            timestamp: new Date().toISOString(),
+            message: 'Run placed in execution queue'
+          }
+        ]
+      })
+      .returning()
+
+    return { run: newRun, created: true }
+  })
 }
 
 /**

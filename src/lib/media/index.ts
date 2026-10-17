@@ -114,12 +114,12 @@ export async function searchStockImage(
         const pool = freshImages.length > 0 ? freshImages : images
         const selectedImage = pool[attempt % pool.length] || pool[0]
         if (selectedImage?.imageUrl) {
-          const sep = selectedImage.imageUrl.includes('?') ? '&' : '?'
-          const finalUrl = `${selectedImage.imageUrl}${sep}v=${Date.now()}&attempt=${attempt}`
-
+          // Stored exactly as the provider gave it: many image hosts 404 a URL
+          // with query parameters they do not expect. The version and attempt
+          // live in the media plan's own fields.
           return {
             mode: 'stock',
-            imageUrl: finalUrl,
+            imageUrl: selectedImage.imageUrl,
             sourcePageUrl: selectedImage.link || selectedImage.domain,
             altText: selectedImage.title || altText,
             promptOrQuery: cleanQuery

@@ -32,7 +32,9 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
       throw new Error('Identity not found or inactive')
     }
 
-    const run = await enqueueRun({
+    // A run already in progress for this identity is returned instead of a
+    // new one, so a second tab or a repeated click opens that run.
+    const { run } = await enqueueRun({
       accountId,
       goalId: goalId || null,
       trigger: 'manual'
@@ -41,7 +43,8 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
     if (!run) {
       throw new Error('Failed to create run record')
     }
-    // Trigger processing asynchronously in background
+    // Trigger processing asynchronously in background. Only a still-queued run
+    // is claimed, so an existing run already underway is left alone.
     processRunImmediately(run.id).catch((err) => {
       console.error(`Background execution error for run ${run.id}:`, err)
     })

@@ -4,9 +4,13 @@ import { revalidatePath } from 'next/cache'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
-import { writeActiveAccountCookie } from './active-account'
+import { isAccountId, writeActiveAccountCookie } from './active-account'
 
 export async function setActiveAccount(accountId: string) {
+  if (!isAccountId(accountId)) {
+    return { success: false, error: 'Identity not found' }
+  }
+
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, accountId)
   })

@@ -1,5 +1,7 @@
 import cron from 'node-cron'
 import { db } from '@/db'
+import { accountsTable, schedulesTable } from '@/db/schema'
+import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import { enqueueRun } from './queue'
 import { RunInProgressError } from './run-guard'
 import { claimScheduleSlot, findRunnableSchedules } from './schedule-claim'
@@ -27,11 +29,17 @@ export function startScheduler() {
   // at the top of the hour.
   cron.schedule('*/15 * * * *', async () => {
     try {
-      // Only identities that are still active: a deactivated one must not keep
-      // generating runs.
-      const activeSchedules = await findRunnableSchedules(db)
+      // A deactivated identity keeps its schedule row but must not run.
+      const activeSchedules = await db
+        .select({ schedule: schedulesTable })
+        .from(schedulesTable)
+        .innerJoin(accountsTable, eq(accountsTable.id, schedulesTable.accountId))
+        .where(and(eq(schedulesTable.enabled, true), eq(accountsTable.isActive, true)))
+        .then(rows => rows.map(row => row.schedule))
 
       const now = new Date()
+      const startOfToday = new Date(now)
+      startOfToday.setHours(0, 0, 0, 0)
       const currentDay = now.getDay()
       const nowMinutes = now.getHours() * 60 + now.getMinutes()
 
@@ -54,6 +62,21 @@ export function startScheduler() {
         // Claim the slot before enqueueing. The claim only succeeds for one
         // caller, so a second tick or process cannot double up.
         if (!(await claimScheduleSlot(db, sched, now))) continue
+        // Claim today's slot before enqueueing. Every `next dev` on the shared
+        // database runs its own scheduler, so the claim is conditional: only
+        // the process whose UPDATE lands first gets the row back.
+        const [claimed] = await db
+          .update(schedulesTable)
+          .set({ lastRunAt: now, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schedulesTable.id, sched.id),
+              or(isNull(schedulesTable.lastRunAt), lt(schedulesTable.lastRunAt, startOfToday))
+            )
+          )
+          .returning()
+
+        if (!claimed) continue
 
         try {
           await enqueueRun({

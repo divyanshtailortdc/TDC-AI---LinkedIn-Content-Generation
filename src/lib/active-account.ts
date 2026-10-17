@@ -2,10 +2,19 @@ import 'server-only'
 
 import { cookies } from 'next/headers'
 import { eq } from 'drizzle-orm'
+import { z } from 'zod'
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
 
 export const ACTIVE_ACCOUNT_COOKIE = 'activeAccountId'
+
+/**
+ * Account ids are uuids. Anything else would make Postgres throw "invalid
+ * input syntax for type uuid" on every page, so it is checked before a query.
+ */
+export function isAccountId(value: unknown): value is string {
+  return z.string().uuid().safeParse(value).success
+}
 
 export interface ActiveAccount {
   id: string
@@ -21,7 +30,7 @@ export interface ActiveAccount {
  * Every page/action that reads or writes account-scoped data should resolve
  * this server-side rather than trust an accountId passed in from the client.
  *
- * Falls back to the first active account if the cookie is missing or points
+ * Falls back to the first active account if the cookie is missing, malformed, or points
  * at an account that no longer exists/was deactivated, so a stale cookie
  * never silently renders an empty app.
  */
@@ -29,7 +38,8 @@ export async function getActiveAccount(): Promise<ActiveAccount | null> {
   const cookieStore = await cookies()
   const cookieId = cookieStore.get(ACTIVE_ACCOUNT_COOKIE)?.value
 
-  if (cookieId) {
+  // A malformed cookie is treated as no cookie.
+  if (isAccountId(cookieId)) {
     const account = await db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, cookieId)
     })

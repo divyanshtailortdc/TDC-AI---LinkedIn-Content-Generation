@@ -55,28 +55,33 @@ export async function rejectIdea(ideaId: string, reason?: string) {
       where: eq(ideasTable.id, ideaId)
     })
 
-    if (idea) {
-      await db
-        .update(ideasTable)
-        .set({ status: 'rejected', updatedAt: new Date() })
-        .where(eq(ideasTable.id, ideaId))
+    if (!idea) throw new Error('Idea not found')
 
-      // Rejecting the last idea waiting on a decision finishes the run; left
-      // alone it would read "awaiting idea approval" with nothing to approve.
-      if (idea.runId) {
-        await settleRunAfterDrafting(idea.runId).catch(err =>
-          console.error(`Could not settle run ${idea.runId}:`, err)
-        )
-      }
+    // A stale tab could otherwise reject an idea already drafted (or being
+    // drafted), then approve and draft it again: a second post for one idea,
+    // and a paid-for draft thrown away.
+    const rejected = await db
+      .update(ideasTable)
+      .set({ status: 'rejected', updatedAt: new Date() })
+      .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
+      .returning({ id: ideasTable.id })
+    if (rejected.length === 0) throw new Error('This idea is already drafted or being drafted')
 
-      if (reason) {
-        await db.insert(feedbackTable).values({
-          accountId: idea.accountId,
-          verdict: 'rejected',
-          reasonText: reason,
-          reasonTags: ['idea_rejected']
-        })
-      }
+    // Rejecting the last idea waiting on a decision finishes the run; left
+    // alone it would read "awaiting idea approval" with nothing to approve.
+    if (idea.runId) {
+      await settleRunAfterDrafting(idea.runId).catch(err =>
+        console.error(`Could not settle run ${idea.runId}:`, err)
+      )
+    }
+
+    if (reason) {
+      await db.insert(feedbackTable).values({
+        accountId: idea.accountId,
+        verdict: 'rejected',
+        reasonText: reason,
+        reasonTags: ['idea_rejected']
+      })
     }
 
     // The sidebar's Ideas badge counts these.
@@ -106,7 +111,8 @@ export async function editIdea(
 
     const currentMedia = (idea.suggestedMedia as any) || { mode: 'none' }
 
-    await db
+    // Editing an idea once it is drafted would change it under its post.
+    const edited = await db
       .update(ideasTable)
       .set({
         angle: payload.angle ?? idea.angle,
@@ -118,7 +124,9 @@ export async function editIdea(
         },
         updatedAt: new Date()
       })
-      .where(eq(ideasTable.id, ideaId))
+      .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
+      .returning({ id: ideasTable.id })
+    if (edited.length === 0) throw new Error('This idea is already drafted or being drafted')
 
     revalidatePath('/ideas')
     revalidatePath('/runs')
