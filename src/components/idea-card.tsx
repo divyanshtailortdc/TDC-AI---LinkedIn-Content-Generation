@@ -296,10 +296,16 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                                   'rounded px-1.5 py-0.5 text-[9px] font-bold uppercase',
                                   ev.factType === 'inferred'
                                     ? 'bg-purple-500/10 text-purple-500'
-                                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                    : ev.factType === 'sourced'
+                                      ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                                 )}
                               >
-                                {ev.factType === 'inferred' ? 'Inferred' : 'Verified'}
+                                {ev.factType === 'inferred'
+                                  ? 'Inferred'
+                                  : ev.factType === 'sourced'
+                                    ? 'From the web'
+                                    : 'Verified'}
                               </span>
                               {ev.sourceUrl && (
                                 <a

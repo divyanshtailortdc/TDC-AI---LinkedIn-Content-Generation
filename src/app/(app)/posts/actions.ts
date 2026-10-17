@@ -4,15 +4,38 @@ import { db } from '@/db'
 import {
   feedbackTable,
   ideasTable,
+  postCitationsTable,
   postDraftsTable,
   postMediaTable
 } from '@/db/schema'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, count, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { validateImageUrl } from '~/lib/media/image-input'
 import { requireActiveAccountId } from '@/lib/active-account'
+import { z } from 'zod'
+import { postCharCount } from '@/lib/post-text'
+import { REVIEWER_SEARCH_SOURCE, REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
+import { replaceActiveMedia } from '@/lib/media/replace-media'
+import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
+import { runLinter } from '~/lib/lint/run-linter'
+import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
+import { loadPostsPage } from './posts-data'
+
+/** The next page of the active account's posts, after the post with `cursorId`. */
+export async function loadMorePosts(cursorId: string) {
+  try {
+    if (!z.string().uuid().safeParse(cursorId).success) {
+      return { success: false as const, error: 'Invalid page reference.' }
+    }
+    const accountId = await requireActiveAccountId()
+    const { posts, nextCursor } = await loadPostsPage(accountId, { cursorId })
+    return { success: true as const, posts, nextCursor }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Could not load more posts.' }
+  }
+}
 
 export async function updateDraft(
   draftId: string,
@@ -33,18 +56,63 @@ export async function updateDraft(
 
     const newHook = payload.hook ?? existing.hook
     const newBody = payload.body ?? existing.body
-    const fullText = `${newHook}\n\n${newBody}`
+    const newFirstComment =
+      payload.firstComment !== undefined
+        ? payload.firstComment
+        : existing.firstComment
+
+    // The count and the quality checks describe the text as it now stands. Left
+    // as they were, they kept judging the version the AI wrote.
+    const charCount = postCharCount({
+      hook: newHook,
+      body: newBody,
+      cta: existing.cta
+    })
+    let lintFindings = existing.lintFindings ?? []
+    try {
+      const idea = existing.ideaId
+        ? await db.query.ideasTable.findFirst({
+            where: eq(ideasTable.id, existing.ideaId)
+          })
+        : null
+      const ctx = await loadGenerationContext(existing.accountId, {
+        goalId: idea?.goalId
+      })
+      const citations = idea
+        ? (idea.supportingEvidence?.length ?? 0)
+        : ((
+            await db
+              .select({ total: count() })
+              .from(postCitationsTable)
+              .where(eq(postCitationsTable.draftId, draftId))
+          )[0]?.total ?? 0)
+      lintFindings = runLinter(
+        buildPostLintOptions(
+          ctx,
+          idea ?? null,
+          {
+            hook: newHook,
+            body: newBody,
+            cta: existing.cta,
+            firstComment: newFirstComment,
+            hashtags: existing.hashtags
+          },
+          citations
+        )
+      )
+    } catch (err) {
+      // The text is still saved; the earlier checks are kept rather than lost.
+      console.error(`Could not re-run the quality checks on draft ${draftId}:`, err)
+    }
 
     await db
       .update(postDraftsTable)
       .set({
         hook: newHook,
         body: newBody,
-        firstComment:
-          payload.firstComment !== undefined
-            ? payload.firstComment
-            : existing.firstComment,
-        charCount: fullText.length,
+        firstComment: newFirstComment,
+        charCount,
+        lintFindings,
         editedBody: newBody,
         updatedAt: new Date()
       })
@@ -52,7 +120,7 @@ export async function updateDraft(
 
     revalidatePath('/posts')
     revalidatePath(`/posts/${draftId}`)
-    return { success: true }
+    return { success: true, charCount, lintFindings }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to update draft' }
   }
@@ -145,49 +213,39 @@ export async function updatePostMediaAction(
     })
     if (!existingDraft) throw new Error('Post draft not found')
 
-    const existingMedia = await db.query.postMediaTable.findFirst({
-      where: eq(postMediaTable.draftId, draftId)
-    })
-
     if (payload.mode === 'none' || !payload.imageUrl) {
-      if (existingMedia) {
-        await db
-          .delete(postMediaTable)
-          .where(eq(postMediaTable.draftId, draftId))
-      }
+      await db
+        .delete(postMediaTable)
+        .where(eq(postMediaTable.draftId, draftId))
       revalidatePath('/posts')
       return { success: true, media: null }
     }
 
-    if (existingMedia) {
-      await db
-        .update(postMediaTable)
-        .set({
-          mode: payload.mode,
-          imageUrl: payload.imageUrl,
-          altText: payload.altText || null,
-          promptOrQuery: payload.promptOrQuery || null,
-          updatedAt: new Date()
-        })
-        .where(eq(postMediaTable.draftId, draftId))
-    } else {
-      await db.insert(postMediaTable).values({
-        draftId,
-        mode: payload.mode,
-        imageUrl: payload.imageUrl,
-        altText: payload.altText || null,
-        promptOrQuery: payload.promptOrQuery || null
-      })
-    }
+    // A new version, so earlier ones are kept (see replaceActiveMedia).
+    const imageUrl = payload.imageUrl
+    const media = await replaceActiveMedia(db, {
+      draftId,
+      mode: payload.mode,
+      imageUrl,
+      altText: payload.altText,
+      promptOrQuery: payload.promptOrQuery,
+      source: REVIEWER_URL_SOURCE
+    })
 
     revalidatePath('/posts')
     return {
       success: true,
       media: {
+        id: media.id,
+        version: media.version,
+        status: media.status,
         mode: payload.mode,
-        imageUrl: payload.imageUrl,
+        imageUrl,
         altText: payload.altText,
-        promptOrQuery: payload.promptOrQuery
+        promptOrQuery: payload.promptOrQuery,
+        source: REVIEWER_URL_SOURCE,
+        fallbackApplied: false,
+        regenerationAttempt: media.regenerationAttempt
       }
     }
   } catch (err: any) {
@@ -277,6 +335,12 @@ export async function generatePostMediaAction(
       coreArgument,
       evidence,
       ...mediaSettings
+    })
+
+    // Charged to the post's run whether or not an image came back.
+    await recordReviewMediaSpend(draftId, mediaPlan.usage, {
+      summary: `Media plan (${mediaPlan.mode}) (post review)`,
+      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
@@ -403,6 +467,10 @@ export async function regeneratePostMediaAction(
     // Only the reviewer's own words go to the model as their reason; the brief
     // already asks for a different concept from the rejected one.
     const reviewerReason = options?.rejectionReason?.trim() || undefined
+    // A typed stock query is searched as written, so the image is the reviewer's
+    // own pick; it was not scored against the post.
+    const mediaSource =
+      mode === 'stock' && customPrompt ? REVIEWER_SEARCH_SOURCE : undefined
 
     // 2. Produce the new visual before touching the current one, so a failed
     //    search or generation leaves the post's image in place.
@@ -424,6 +492,12 @@ export async function regeneratePostMediaAction(
       version: currentVersion,
       evidence,
       ...(await loadMediaSettings(draft.accountId))
+    })
+
+    // Charged to the post's run whether or not an image came back.
+    await recordReviewMediaSpend(draftId, mediaPlan.usage, {
+      summary: `New media (${mediaPlan.mode}) (post review)`,
+      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
@@ -455,6 +529,7 @@ export async function regeneratePostMediaAction(
             altText: mediaPlan.altText || null,
             promptOrQuery: mediaPlan.promptOrQuery || null,
             metadata: {
+              ...(mediaSource ? { source: mediaSource } : {}),
               sourcePageUrl: mediaPlan.sourcePageUrl,
               fallbackApplied: mediaPlan.fallbackApplied || false,
               visualType: mediaPlan.visualType,
@@ -488,6 +563,7 @@ export async function regeneratePostMediaAction(
           imageUrl: mediaPlan.imageUrl,
           altText: mediaPlan.altText,
           promptOrQuery: mediaPlan.promptOrQuery,
+          source: mediaSource,
           fallbackApplied: mediaPlan.fallbackApplied,
           visualType: mediaPlan.visualType,
           relevanceScore: mediaPlan.relevanceScore,

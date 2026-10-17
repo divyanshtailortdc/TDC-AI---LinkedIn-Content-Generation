@@ -4,6 +4,8 @@ import { db } from '@/db'
 import { postDraftsTable, postMediaTable } from '@/db/schema'
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
+import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { generateCustomImage } from './index'
 
 export type PromptMediaOutcome =
@@ -38,20 +40,45 @@ export interface PromptMediaRecord {
  */
 export async function createPromptMediaForDraft(input: {
   draftId: string
+  /** The identity the request is made as; the post must belong to it. */
+  accountId: string
   prompt: string
   referenceImages?: string[]
   abortSignal?: AbortSignal
 }): Promise<PromptMediaOutcome> {
+  // The same check every other post action makes: a post of another identity
+  // is reported as not found, so nothing is generated or billed for it.
   const draft = await db.query.postDraftsTable.findFirst({
-    where: eq(postDraftsTable.id, input.draftId),
+    where: and(
+      eq(postDraftsTable.id, input.draftId),
+      eq(postDraftsTable.accountId, input.accountId)
+    ),
     columns: { id: true }
   })
   if (!draft) return { status: 'draft_not_found' }
 
-  const generated = await generateCustomImage({
-    prompt: input.prompt,
-    referenceImages: input.referenceImages,
-    abortSignal: input.abortSignal
+  // Every image the provider billed is charged to the post's run, including
+  // ones that fail, are discarded, or finish after the reviewer cancelled.
+  let spent: CallUsage = EMPTY_USAGE
+  let generated: Awaited<ReturnType<typeof generateCustomImage>>
+  try {
+    generated = await generateCustomImage({
+      prompt: input.prompt,
+      referenceImages: input.referenceImages,
+      abortSignal: input.abortSignal,
+      onUsage: usage => {
+        spent = addUsage(spent, usage)
+      }
+    })
+  } catch (err) {
+    await recordReviewMediaSpend(input.draftId, spent, {
+      summary: 'Image from reviewer prompt (post review)',
+      error: err instanceof Error ? err.message : 'Image generation failed'
+    })
+    throw err
+  }
+  await recordReviewMediaSpend(input.draftId, spent, {
+    summary: 'Image from reviewer prompt (post review)'
   })
 
   if (input.abortSignal?.aborted) return { status: 'aborted' }

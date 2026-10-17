@@ -31,7 +31,8 @@ export async function getActiveAccount(): Promise<ActiveAccount | null> {
   const cookieStore = await cookies()
   const cookieId = cookieStore.get(ACTIVE_ACCOUNT_COOKIE)?.value
 
-  if (cookieId && isUuid(cookieId)) {
+  // A malformed cookie is treated as no cookie.
+  if (isUuid(cookieId)) {
     const account = await db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, cookieId)
     })

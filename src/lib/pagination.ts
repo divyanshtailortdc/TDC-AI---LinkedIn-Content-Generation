@@ -2,8 +2,9 @@
  * Paging for the app's lists. Lists that grow with every run (runs, ideas)
  * are paged on the server, with the page in a ?page= search param so it
  * survives a reload and Back steps through pages (see loadPage). Lists that
- * are loaded whole and searched or filtered in the browser (identities,
- * knowledge, the posts queue) are paged there (see paginate).
+ * are searched or filtered in the browser (identities, knowledge, the posts
+ * queue) are paged there (see paginate). The Posts page also loads its posts
+ * in batches, older ones on request (see pageOf).
  */
 
 /** How many rows a page of any list holds. */
@@ -93,4 +94,25 @@ export async function loadPage<T>({
     rows: page === requested ? asked : await rows((page - 1) * pageSize, pageSize),
     pageInfo: { page, pageCount, total, pageSize }
   }
+}
+
+/**
+ * How many posts the Posts page loads at once. The rest come in as the person
+ * asks for them ("Load older posts"), so a long history does not slow every
+ * visit. Its queue then shows these PAGE_SIZE at a time.
+ */
+export const LOAD_BATCH_SIZE = 100
+
+/**
+ * Splits rows fetched with `limit(LOAD_BATCH_SIZE + 1)` into the batch and a
+ * cursor. The extra row only says there is more; the cursor is the id of the
+ * batch's last row, the point the next batch continues from (see olderThan).
+ */
+export function pageOf<T extends { id: string }>(
+  rows: T[],
+  size = LOAD_BATCH_SIZE
+): { items: T[]; nextCursor: string | null } {
+  if (rows.length <= size) return { items: rows, nextCursor: null }
+  const items = rows.slice(0, size)
+  return { items, nextCursor: items[items.length - 1]!.id }
 }

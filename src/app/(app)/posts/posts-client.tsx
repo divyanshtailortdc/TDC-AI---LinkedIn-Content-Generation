@@ -17,6 +17,10 @@ import {
   validateReferenceFile,
   validateStockQuery
 } from '@/lib/media/image-input'
+import {
+  isReviewerChosenSource,
+  reviewerSourceLabel
+} from '@/lib/media/media-source'
 import { getUserFacingRelevance } from '@/lib/media/relevance-label'
 import {
   AlertTriangle,
@@ -32,6 +36,7 @@ import {
   Edit2,
   ExternalLink,
   FileCheck,
+  FileText,
   Image as ImageIcon,
   Info,
   ListFilter,
@@ -58,6 +63,7 @@ import { createPortal } from 'react-dom'
 import {
   approveDraft,
   fetchPostMediaImage,
+  loadMorePosts,
   regeneratePostMediaAction,
   rejectDraft,
   removePostMediaAction,
@@ -316,9 +322,14 @@ function countLintErrors(findings: LintFinding[] | undefined): number {
 
 export function PostsClientInner({
   initialPosts,
+  initialNextCursor,
+  totalCount,
   activeAccount
 }: {
   initialPosts: PostDetail[]
+  /** Where the next page starts; null when every post is already loaded. */
+  initialNextCursor: string | null
+  totalCount: number
   activeAccount: ActiveAccount
 }) {
   const router = useRouter()
@@ -327,6 +338,28 @@ export function PostsClientInner({
   const hasMounted = useHasMounted()
 
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
+  const [nextCursor, setNextCursor] = useState(initialNextCursor)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  // Older posts come in a page at a time; the newest are shown first.
+  const loadMore = async () => {
+    if (!nextCursor || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const res = await loadMorePosts(nextCursor)
+      if (res.success) {
+        setPosts(prev => {
+          const have = new Set(prev.map(p => p.id))
+          return [...prev, ...res.posts.filter(p => !have.has(p.id))]
+        })
+        setNextCursor(res.nextCursor)
+      } else {
+        showToast({ type: 'error', title: 'Could not load more', message: res.error })
+      }
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
   const [selectedPostId, setSelectedPostId] = useState<string>(
     initialPosts.find(p => !filterRunId || p.runId === filterRunId)?.id ||
       initialPosts[0]?.id ||
@@ -480,9 +513,9 @@ export function PostsClientInner({
   // Leaving the page must not leave a generation running that would still save.
   useEffect(() => () => generationAbortRef.current?.abort(), [])
 
-  // The editor, preview and Copy read the edit buffer, so it is reset (with
-  // the per-post panels) whenever a different post opens, however that
-  // happens: a click, J/K, a filter change or a status change.
+  // The editor reads the edit buffer, so it is reset (with the per-post
+  // panels) whenever a different post opens, however that happens: a click,
+  // J/K, a filter change or a status change.
   const activePostId = activePost?.id
   const [bufferPostId, setBufferPostId] = useState(activePostId)
   if (activePostId !== bufferPostId) {
@@ -503,6 +536,63 @@ export function PostsClientInner({
     setReferenceImageName(null)
     setImageLoadFailure(null)
   }
+  // The preview and Copy show the saved post, which is what Approve saves; the
+  // edit buffer only while the editor is open. Showing unsaved edits there
+  // meant copying or approving one text while another was stored.
+  const shownHook = isEditing ? editedHook : activePost?.hook || ''
+  const shownBody = isEditing ? editedBody : activePost?.body || ''
+  const shownComment = isEditing
+    ? editedComment
+    : activePost?.firstComment || ''
+  // Compared whether or not the editor is open: closing it to look at the
+  // preview keeps the edits in the buffer, and they are still unsaved.
+  const hasUnsavedEdits =
+    editedHook !== (activePost?.hook || '') ||
+    editedBody !== (activePost?.body || '') ||
+    editedComment !== (activePost?.firstComment || '')
+
+  // Asks before unsaved edits are thrown away. True when it is fine to go on.
+  const confirmDiscardEdits = (what: string) =>
+    !hasUnsavedEdits ||
+    window.confirm(
+      `You have unsaved changes to this post. ${what} will discard them. Continue?`
+    )
+
+  // Closing or reloading the tab, and following a link to another page, would
+  // drop the edits without a word.
+  useEffect(() => {
+    if (!hasUnsavedEdits) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    const onLinkClick = (event: MouseEvent) => {
+      const link = (event.target as HTMLElement | null)?.closest?.('a[href]')
+      if (!(link instanceof HTMLAnchorElement)) return
+      if (link.target === '_blank' || event.metaKey || event.ctrlKey) return
+      const url = new URL(link.href, window.location.href)
+      if (url.origin !== window.location.origin) return
+      if (url.pathname === window.location.pathname) return
+      if (!window.confirm('You have unsaved changes to this post. Leave this page and discard them?')) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('click', onLinkClick, true)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('click', onLinkClick, true)
+    }
+  }, [hasUnsavedEdits])
+
+  const discardEdits = () => {
+    setEditedHook(activePost?.hook || '')
+    setEditedBody(activePost?.body || '')
+    setEditedComment(activePost?.firstComment || '')
+    setIsEditing(false)
+  }
+
   // The file input's own value is DOM state, so it is cleared after render.
   useEffect(() => {
     if (referenceInputRef.current) referenceInputRef.current.value = ''
@@ -571,6 +661,9 @@ export function PostsClientInner({
 
   // Opening a post is all it takes: the buffer resets above.
   const handleSelectPost = (post: PostDetail) => {
+    if (post.id !== activePost?.id && !confirmDiscardEdits('Opening another post')) {
+      return
+    }
     setSelectedPostId(post.id)
   }
 
@@ -776,6 +869,38 @@ export function PostsClientInner({
     generationAbortRef.current?.abort()
   }
 
+  // The server reads the saved post, writes an image brief from its text and
+  // generates from that. A typed prompt is passed along as direction only.
+  const handleGenerateFromPost = async () => {
+    if (!activePost || isMediaLoading) return
+
+    const postId = activePost.id
+    setIsMediaLoading(true)
+    setMediaLoadingText('Reading the post and designing a matching visual...')
+    setMediaError(null)
+    setMediaNotice(null)
+    setMediaMenuOpen(false)
+
+    try {
+      const res = await regeneratePostMediaAction(postId, {
+        mode: 'ai_generated',
+        customPrompt: imagePrompt.trim() || undefined
+      })
+      if (res.success && res.media) {
+        setPosts(prev =>
+          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
+        )
+      } else {
+        setMediaError(res.error || 'Could not generate a visual from this post.')
+      }
+    } catch (err: any) {
+      setMediaError(err?.message || 'Could not generate a visual from this post.')
+    } finally {
+      setIsMediaLoading(false)
+      setMediaLoadingText('')
+    }
+  }
+
   const handleDownloadMedia = async () => {
     const imageUrl = activePost?.media?.imageUrl
     if (!imageUrl) return
@@ -918,7 +1043,16 @@ export function PostsClientInner({
       const res = await updateDraft(activePost.id, { hook: newHook })
       if (!res.success) throw new Error(res.error)
       setPosts(prev =>
-        prev.map(p => (p.id === activePost.id ? { ...p, hook: newHook } : p))
+        prev.map(p =>
+          p.id === activePost.id
+            ? {
+                ...p,
+                hook: newHook,
+                charCount: res.charCount ?? p.charCount,
+                lintFindings: res.lintFindings ?? p.lintFindings
+              }
+            : p
+        )
       )
     } catch (err: any) {
       // Undo the swap unless another post's buffer has replaced it meanwhile.
@@ -951,7 +1085,9 @@ export function PostsClientInner({
                 hook: editedHook,
                 body: editedBody,
                 firstComment: editedComment,
-                charCount: `${editedHook}\n\n${editedBody}`.length
+                // From the save: counted and checked on the text as stored.
+                charCount: res.charCount ?? p.charCount,
+                lintFindings: res.lintFindings ?? p.lintFindings
               }
             : p
         )
@@ -1013,7 +1149,9 @@ export function PostsClientInner({
     const tagsString = (activePost.hashtags || [])
       .map(t => (t.startsWith('#') ? t : `#${t}`))
       .join(' ')
-    const fullContent = `${editedHook}\n\n${editedBody}${
+    // Always the saved post: that is the text Approve stores, so what is copied
+    // is what is approved. Edits not saved yet are not part of either.
+    const fullContent = `${activePost.hook}\n\n${activePost.body}${
       activePost.cta ? `\n\n${activePost.cta}` : ''
     }${tagsString ? `\n\n${tagsString}` : ''}`
 
@@ -1023,7 +1161,9 @@ export function PostsClientInner({
       showToast({
         type: 'success',
         title: 'Post Copied!',
-        message: 'Post text copied with clean line breaks, CTA, and hashtags.'
+        message: hasUnsavedEdits
+          ? 'Copied the saved post. Your unsaved edits are not included; save them to copy them.'
+          : 'Post text copied with clean line breaks, CTA, and hashtags.'
       })
       setTimeout(() => setCopiedPost(false), 2500)
     } else {
@@ -1036,8 +1176,9 @@ export function PostsClientInner({
   }
 
   const handleCopyComment = async () => {
-    if (!editedComment) return
-    const success = await copyTextToClipboard(editedComment)
+    const savedComment = activePost?.firstComment || ''
+    if (!savedComment) return
+    const success = await copyTextToClipboard(savedComment)
     if (success) {
       setCopiedComment(true)
       showToast({
@@ -1165,6 +1306,15 @@ export function PostsClientInner({
 
   const handleApprove = async () => {
     if (!activePost || activePost.status === 'approved') return
+    if (hasUnsavedEdits) {
+      showToast({
+        type: 'error',
+        title: 'Unsaved changes',
+        message:
+          'Save or cancel your edits before approving this post. Use Edit Post Text to reopen them.'
+      })
+      return
+    }
     const approvedId = activePost.id
     setIsSaving(true)
     try {
@@ -1194,6 +1344,7 @@ export function PostsClientInner({
 
   const handleReject = async (reason?: string) => {
     if (!activePost) return
+    if (!confirmDiscardEdits('Rejecting this post')) return
     const rejectedId = activePost.id
 
     setIsSaving(true)
@@ -1253,7 +1404,7 @@ export function PostsClientInner({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, editedHook, editedBody])
+  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, shownHook, shownBody, hasUnsavedEdits])
 
   const authorInitials = activePost?.accountName
     ? activePost.accountName
@@ -1290,8 +1441,10 @@ export function PostsClientInner({
   const customUrlError = validateImageUrl(customImageUrl)
 
   // Relevance is scored against the post thesis, which only makes sense for media
-  // the pipeline derived itself. When the user dictated the image, skip the verdict.
-  const isUserPromptedMedia = activePost?.media?.source === 'user_prompt'
+  // the pipeline derived itself. An image the reviewer asked for, searched for or
+  // supplied was never scored, so it gets a badge saying so instead of a verdict.
+  const isUserPromptedMedia = isReviewerChosenSource(activePost?.media?.source)
+  const reviewerMediaLabel = reviewerSourceLabel(activePost?.media?.source)
 
   const relevanceInfo = getUserFacingRelevance(
     activePost?.media?.imageUrl && !isUserPromptedMedia
@@ -1476,7 +1629,7 @@ export function PostsClientInner({
                   C
                 </kbd>
               </button>
-              {editedComment ? (
+              {shownComment ? (
                 <button
                   type="button"
                   onClick={handleCopyComment}
@@ -1703,6 +1856,25 @@ export function PostsClientInner({
                 )
               })
             )}
+
+            {/* Older posts load after the last page of the ones loaded. */}
+            {nextCursor && queuePageInfo.page === queuePageInfo.pageCount && (
+              <div className="flex flex-col items-center gap-2 px-2 pt-4 pb-2 text-center">
+                <p className="text-muted text-[11px] leading-relaxed">
+                  Showing the newest {posts.length} of {totalCount} posts. Search
+                  and filters cover the posts loaded so far.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={isLoadingMore}
+                  className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60"
+                >
+                  {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Load older posts
+                </button>
+              </div>
+            )}
           </div>
           {queuePageInfo.pageCount > 1 && (
             <div className="border-border border-t px-3 py-2.5">
@@ -1856,7 +2028,7 @@ export function PostsClientInner({
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => setIsEditing(false)}
+                          onClick={discardEdits}
                           className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
                         >
                           Cancel
@@ -1878,8 +2050,8 @@ export function PostsClientInner({
                         authorName={activePost.accountName}
                         authorHeadline={activePost.accountHeadline}
                         authorInitials={authorInitials}
-                        hook={editedHook}
-                        body={editedBody}
+                        hook={shownHook}
+                        body={shownBody}
                         cta={activePost.cta}
                         hashtags={activePost.hashtags}
                         mediaUrl={activePost.media?.imageUrl}
@@ -1893,7 +2065,7 @@ export function PostsClientInner({
                         hookOptions={hookOptions.length > 1 ? hookOptions : []}
                         onSelectHook={handleSwapHook}
                         hookSwapDisabled={isSaving}
-                        firstComment={editedComment}
+                        firstComment={shownComment}
                         onCopyFirstComment={handleCopyComment}
                         firstCommentCopied={copiedComment}
                       />
@@ -1989,7 +2161,7 @@ export function PostsClientInner({
                     )}
 
                   {/* 1. COMPACT MEDIA REVIEW CARD (No duplicate large image) */}
-                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-8">
+                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-4">
                     <div className="flex items-center justify-between">
                       <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
                         <ImageIcon className="text-accent h-3.5 w-3.5" />
@@ -1998,7 +2170,7 @@ export function PostsClientInner({
                       {activePost.media?.imageUrl && isUserPromptedMedia ? (
                         <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
                           <Sparkles className="h-3 w-3" />
-                          Your prompt
+                          {reviewerMediaLabel}
                         </span>
                       ) : activePost.media?.imageUrl ? (
                         <div className="flex items-center gap-1.5">
@@ -2360,6 +2532,33 @@ export function PostsClientInner({
                             e.target.value = ''
                           }}
                         />
+                      </div>
+                    )}
+
+                    {/* Generation from the post's own text */}
+                    {!isMediaLoading && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={isEditing}
+                          onClick={handleGenerateFromPost}
+                          title={
+                            isEditing
+                              ? 'Save your edits first so the image matches the post'
+                              : undefined
+                          }
+                          className="border-accent/40 text-accent hover:bg-accent/10 flex h-7 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          <span>Generate from post text</span>
+                        </button>
+                        <p className="text-muted text-[10px]">
+                          {isEditing
+                            ? 'Save your edits first so the image matches the post.'
+                            : imagePrompt.trim()
+                              ? 'Designs a visual from the post, using what you typed above as direction.'
+                              : 'Designs a visual from what the post says. No prompt needed.'}
+                        </p>
                       </div>
                     )}
 
@@ -2805,9 +3004,13 @@ function PostFiltersMenu({
 
 export function PostsClient({
   initialPosts,
+  initialNextCursor,
+  totalCount,
   activeAccount
 }: {
   initialPosts: PostDetail[]
+  initialNextCursor: string | null
+  totalCount: number
   activeAccount: ActiveAccount
 }) {
   return (
@@ -2821,7 +3024,12 @@ export function PostsClient({
         </div>
       }
     >
-      <PostsClientInner initialPosts={initialPosts} activeAccount={activeAccount} />
+      <PostsClientInner
+        initialPosts={initialPosts}
+        initialNextCursor={initialNextCursor}
+        totalCount={totalCount}
+        activeAccount={activeAccount}
+      />
     </Suspense>
   )
 }

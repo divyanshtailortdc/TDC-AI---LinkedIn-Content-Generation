@@ -49,14 +49,16 @@ export function buildGroundingCorpus(
         claim: proof.detail ? `${proof.label}: ${proof.detail}` : proof.label,
         quote: proof.detail || proof.label,
         sourceUrl: proof.sourceUrl || offering.url || undefined,
-        sourceTitle: `${offering.name} — verified proof point`
+        sourceTitle: `${offering.name} — verified proof point`,
+        origin: 'own'
       })
     }
     if (offering.description) {
       own.push({
         claim: offering.description,
         sourceTitle: `${offering.name} overview`,
-        sourceUrl: offering.url || undefined
+        sourceUrl: offering.url || undefined,
+        origin: 'own'
       })
     }
   }
@@ -72,7 +74,8 @@ export function buildGroundingCorpus(
       quote: passage.content,
       sourceUrl: doc.sourceUrl || undefined,
       sourceTitle: doc.title,
-      sourceId: doc.id
+      sourceId: doc.id,
+      origin: 'knowledge'
     })
   }
 
@@ -85,7 +88,8 @@ export function buildGroundingCorpus(
       sourceUrl: f.url,
       sourceTitle: f.title,
       publishedAt: f.publishedAt,
-      isFresh: f.provider === 'serper_search'
+      isFresh: f.provider === 'serper_search',
+      origin: 'web'
     })
   }
 
@@ -96,7 +100,8 @@ export function buildGroundingCorpus(
       claim: doc.summary!,
       sourceUrl: doc.sourceUrl || undefined,
       sourceTitle: doc.title,
-      sourceId: doc.id
+      sourceId: doc.id,
+      origin: 'knowledge' as const
     }))
 
   // Taken across documents in turn, so one long document cannot crowd out the rest.
@@ -109,7 +114,8 @@ export function buildGroundingCorpus(
           quote: c.quote,
           sourceUrl: doc.sourceUrl || undefined,
           sourceTitle: doc.title,
-          sourceId: doc.id
+          sourceId: doc.id,
+          origin: 'knowledge' as const
         }))
     )
   )

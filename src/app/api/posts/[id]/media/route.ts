@@ -8,6 +8,7 @@ import {
   validateReferenceDimensions
 } from '~/lib/media/image-input'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
+import { requireActiveAccountId } from '@/lib/active-account'
 import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
 
@@ -70,6 +71,15 @@ export async function POST(
     return fail(400, 'Invalid post identifier.')
   }
 
+  // The identity the request is made as, like every post action. Without it any
+  // caller who knew a post id could have images generated, and billed, for it.
+  let accountId: string
+  try {
+    accountId = await requireActiveAccountId()
+  } catch {
+    return fail(401, 'No active identity selected.')
+  }
+
   const tooLarge = 'Request is too large. Use a reference image under 3 MB.'
   if (Number(request.headers.get('content-length')) > MAX_BODY_BYTES) {
     return fail(413, tooLarge)
@@ -109,6 +119,7 @@ export async function POST(
   try {
     const outcome = await createPromptMediaForDraft({
       draftId: id,
+      accountId,
       prompt: parsed.data.prompt.trim(),
       referenceImages,
       abortSignal: request.signal

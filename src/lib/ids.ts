@@ -15,6 +15,6 @@ export function idSchema(message = 'Invalid identifier') {
 
 const anyId = idSchema()
 
-export function isUuid(value: string): boolean {
+export function isUuid(value: unknown): value is string {
   return anyId.safeParse(value).success
 }
