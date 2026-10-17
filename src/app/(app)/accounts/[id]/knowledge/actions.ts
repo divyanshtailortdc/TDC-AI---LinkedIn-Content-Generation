@@ -20,7 +20,7 @@ export async function fetchUrlPreview(url: string) {
       return {
         success: false,
         error:
-          'That URL 99returned an error or placeholder page rather than an article. Check the link, or paste the text in as an artifact instead.',
+          'That URL returned an error or placeholder page rather than an article. Check the link, or paste the text in as an artifact instead.',
       }
     }
 

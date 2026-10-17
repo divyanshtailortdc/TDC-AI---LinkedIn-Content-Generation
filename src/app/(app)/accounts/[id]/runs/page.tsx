@@ -4,6 +4,7 @@ import { accountsTable, runsTable } from '@/db/schema'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { desc, eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { RunsClient } from '../../../runs/runs-client'
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,7 @@ export default async function AccountRunsPage({
   params
 }: AccountRunsPageProps) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
 
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, id)

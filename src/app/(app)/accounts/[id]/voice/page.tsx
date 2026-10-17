@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { accountsTable, voiceConfigsTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { VoiceForm } from './voice-form'
 
 export const dynamic = 'force-dynamic'
@@ -14,6 +15,7 @@ interface VoicePageProps {
 
 export default async function VoicePage({ params }: VoicePageProps) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
 
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, id)

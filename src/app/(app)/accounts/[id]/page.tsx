@@ -14,6 +14,7 @@ import { asc, eq } from 'drizzle-orm'
 import { ArrowRight, Check, Play, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { EditIdentityForm } from './edit-identity-form'
 
 /** The steps whose saved data makes the account ready to generate. */
@@ -27,6 +28,7 @@ export default async function AccountPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
 
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, id)

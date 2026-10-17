@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { accountsTable, goalsTable } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { GoalsClient } from './goals-client'
 
 type PageProps = {
@@ -11,6 +12,7 @@ type PageProps = {
 
 export default async function GoalsPage({ params }: PageProps) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
 
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, id)

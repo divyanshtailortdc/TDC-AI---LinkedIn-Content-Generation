@@ -5,6 +5,7 @@ import { accountsTable, preferencesTable, schedulesTable } from '@/db/schema'
 import { resolvePreferences } from '@/lib/ai/context'
 import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { ScheduleForm } from '../schedule/schedule-form'
 import { PreferencesForm } from './preferences-form'
 
@@ -14,6 +15,7 @@ type PageProps = {
 
 export default async function PreferencesPage({ params }: PageProps) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
 
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, id)

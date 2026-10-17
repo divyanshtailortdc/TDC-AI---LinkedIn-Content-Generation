@@ -2,6 +2,7 @@ import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { notFound, redirect } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { getRunDetails } from '~/jobs/queue'
 import { getActiveAccountId } from '@/lib/active-account'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
@@ -15,6 +16,7 @@ interface RunPageProps {
 
 export default async function SingleRunPage({ params }: RunPageProps) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
   // A run interrupted by a restart reads as failed, not as still in progress.
   await recoverInterruptedRuns(id)
   const { run, steps, findings, ideas } = await getRunDetails(id)

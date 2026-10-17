@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { accountsTable, knowledgeDocumentsTable } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
+import { isUuid } from '@/lib/ids'
 import { KnowledgeClient } from './knowledge-client'
 
 type PageProps = {
@@ -11,6 +12,7 @@ type PageProps = {
 
 export default async function KnowledgePage({ params }: PageProps) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
 
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, id)
