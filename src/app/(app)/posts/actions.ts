@@ -16,6 +16,8 @@ import { validateImageUrl } from '~/lib/media/image-input'
 import { requireActiveAccountId } from '@/lib/active-account'
 import { z } from 'zod'
 import { postCharCount } from '@/lib/post-text'
+import { REVIEWER_SEARCH_SOURCE, REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
+import { replaceActiveMedia } from '@/lib/media/replace-media'
 import { runLinter } from '~/lib/lint/run-linter'
 import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
 import { loadPostsPage } from './posts-data'
@@ -210,49 +212,39 @@ export async function updatePostMediaAction(
     })
     if (!existingDraft) throw new Error('Post draft not found')
 
-    const existingMedia = await db.query.postMediaTable.findFirst({
-      where: eq(postMediaTable.draftId, draftId)
-    })
-
     if (payload.mode === 'none' || !payload.imageUrl) {
-      if (existingMedia) {
-        await db
-          .delete(postMediaTable)
-          .where(eq(postMediaTable.draftId, draftId))
-      }
+      await db
+        .delete(postMediaTable)
+        .where(eq(postMediaTable.draftId, draftId))
       revalidatePath('/posts')
       return { success: true, media: null }
     }
 
-    if (existingMedia) {
-      await db
-        .update(postMediaTable)
-        .set({
-          mode: payload.mode,
-          imageUrl: payload.imageUrl,
-          altText: payload.altText || null,
-          promptOrQuery: payload.promptOrQuery || null,
-          updatedAt: new Date()
-        })
-        .where(eq(postMediaTable.draftId, draftId))
-    } else {
-      await db.insert(postMediaTable).values({
-        draftId,
-        mode: payload.mode,
-        imageUrl: payload.imageUrl,
-        altText: payload.altText || null,
-        promptOrQuery: payload.promptOrQuery || null
-      })
-    }
+    // A new version, so earlier ones are kept (see replaceActiveMedia).
+    const imageUrl = payload.imageUrl
+    const media = await replaceActiveMedia(db, {
+      draftId,
+      mode: payload.mode,
+      imageUrl,
+      altText: payload.altText,
+      promptOrQuery: payload.promptOrQuery,
+      source: REVIEWER_URL_SOURCE
+    })
 
     revalidatePath('/posts')
     return {
       success: true,
       media: {
+        id: media.id,
+        version: media.version,
+        status: media.status,
         mode: payload.mode,
-        imageUrl: payload.imageUrl,
+        imageUrl,
         altText: payload.altText,
-        promptOrQuery: payload.promptOrQuery
+        promptOrQuery: payload.promptOrQuery,
+        source: REVIEWER_URL_SOURCE,
+        fallbackApplied: false,
+        regenerationAttempt: media.regenerationAttempt
       }
     }
   } catch (err: any) {
@@ -468,6 +460,10 @@ export async function regeneratePostMediaAction(
     // Only the reviewer's own words go to the model as their reason; the brief
     // already asks for a different concept from the rejected one.
     const reviewerReason = options?.rejectionReason?.trim() || undefined
+    // A typed stock query is searched as written, so the image is the reviewer's
+    // own pick; it was not scored against the post.
+    const mediaSource =
+      mode === 'stock' && customPrompt ? REVIEWER_SEARCH_SOURCE : undefined
 
     // 2. Produce the new visual before touching the current one, so a failed
     //    search or generation leaves the post's image in place.
@@ -520,6 +516,7 @@ export async function regeneratePostMediaAction(
             altText: mediaPlan.altText || null,
             promptOrQuery: mediaPlan.promptOrQuery || null,
             metadata: {
+              ...(mediaSource ? { source: mediaSource } : {}),
               sourcePageUrl: mediaPlan.sourcePageUrl,
               fallbackApplied: mediaPlan.fallbackApplied || false,
               visualType: mediaPlan.visualType,
@@ -553,6 +550,7 @@ export async function regeneratePostMediaAction(
           imageUrl: mediaPlan.imageUrl,
           altText: mediaPlan.altText,
           promptOrQuery: mediaPlan.promptOrQuery,
+          source: mediaSource,
           fallbackApplied: mediaPlan.fallbackApplied,
           visualType: mediaPlan.visualType,
           relevanceScore: mediaPlan.relevanceScore,

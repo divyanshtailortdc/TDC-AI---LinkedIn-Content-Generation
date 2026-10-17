@@ -15,6 +15,10 @@ import {
   validateReferenceFile,
   validateStockQuery
 } from '@/lib/media/image-input'
+import {
+  isReviewerChosenSource,
+  reviewerSourceLabel
+} from '@/lib/media/media-source'
 import { getUserFacingRelevance } from '@/lib/media/relevance-label'
 import {
   AlertTriangle,
@@ -1409,8 +1413,10 @@ export function PostsClientInner({
   const customUrlError = validateImageUrl(customImageUrl)
 
   // Relevance is scored against the post thesis, which only makes sense for media
-  // the pipeline derived itself. When the user dictated the image, skip the verdict.
-  const isUserPromptedMedia = activePost?.media?.source === 'user_prompt'
+  // the pipeline derived itself. An image the reviewer asked for, searched for or
+  // supplied was never scored, so it gets a badge saying so instead of a verdict.
+  const isUserPromptedMedia = isReviewerChosenSource(activePost?.media?.source)
+  const reviewerMediaLabel = reviewerSourceLabel(activePost?.media?.source)
 
   const relevanceInfo = getUserFacingRelevance(
     activePost?.media?.imageUrl && !isUserPromptedMedia
@@ -2125,7 +2131,7 @@ export function PostsClientInner({
                       {activePost.media?.imageUrl && isUserPromptedMedia ? (
                         <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
                           <Sparkles className="h-3 w-3" />
-                          Your prompt
+                          {reviewerMediaLabel}
                         </span>
                       ) : activePost.media?.imageUrl ? (
                         <div className="flex items-center gap-1.5">
