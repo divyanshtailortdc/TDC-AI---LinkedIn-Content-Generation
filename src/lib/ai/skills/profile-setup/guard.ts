@@ -12,6 +12,7 @@ import {
   DESCRIPTION_SOURCE,
   EMPTY_SUGGESTIONS,
   FIELD_SPECS,
+  fieldLabel,
   GoalSuggestionsSchema,
   IdentitySetupSuggestionsSchema,
   PreferencesSuggestionsSchema,
@@ -940,17 +941,29 @@ function splitEntries(text: string): string[] {
   ).slice(0, 15)
 }
 
+const GUIDED_SCHEMAS = {
+  profile: ProfileSuggestionsSchema,
+  voice: VoiceSuggestionsSchema,
+  goals: GoalSuggestionsSchema,
+  preferences: PreferencesSuggestionsSchema
+}
+
 /**
  * Writes the user's Advanced analysis choices into the suggestions as facts
  * they provided, replacing whatever the model chose for those fields. Runs
  * after sanitizeIdentitySetup, so a CTA link the user typed survives the URL
  * checks. Topics to avoid are added to the model's list rather than replacing it.
+ *
+ * Each choice is checked on its own. One that cannot be used is left out with
+ * a warning and the rest still apply: checked all together, a single topic
+ * that was too long used to throw away every choice without a word.
  */
 export function applyGuidance(
   suggestions: IdentitySetupSuggestions,
   guidance: AnalysisGuidance | undefined
-): IdentitySetupSuggestions {
-  if (!guidance) return suggestions
+): { suggestions: IdentitySetupSuggestions; warnings: string[] } {
+  const warnings: string[] = []
+  if (!guidance) return { suggestions, warnings }
   const provided = <T>(value: T) => ({
     value,
     kind: 'fact' as const,
@@ -958,46 +971,82 @@ export function applyGuidance(
     confidence: 'high' as const
   })
 
-  const voice = { ...suggestions.voice }
-  if (guidance.tone) voice.tone = provided(guidance.tone)
-  if (guidance.perspective) voice.perspective = provided(guidance.perspective)
-  if (guidance.formality) voice.formality = provided(guidance.formality)
-  if (guidance.emojiPolicy) voice.emojiPolicy = provided(guidance.emojiPolicy)
+  const next = {
+    ...suggestions,
+    profile: { ...suggestions.profile },
+    voice: { ...suggestions.voice },
+    goals: { ...suggestions.goals },
+    preferences: { ...suggestions.preferences }
+  }
+  const write = (
+    section: keyof typeof GUIDED_SCHEMAS,
+    field: string,
+    value: unknown
+  ) => {
+    const item = provided(value)
+    const shape = GUIDED_SCHEMAS[section].shape as Record<string, z.ZodType>
+    if (shape[field]!.safeParse(item).success) {
+      ;(next[section] as Record<string, unknown>)[field] = item
+    } else {
+      warnings.push(
+        `${SECTION_LABELS[section]} → ${fieldLabel(section, field)}: your Advanced analysis choice could not be used, so the AI's suggestion was kept.`
+      )
+    }
+  }
 
-  const goals = { ...suggestions.goals }
+  if (guidance.tone) write('voice', 'tone', guidance.tone)
+  if (guidance.perspective) write('voice', 'perspective', guidance.perspective)
+  if (guidance.formality) write('voice', 'formality', guidance.formality)
+  if (guidance.emojiPolicy) write('voice', 'emojiPolicy', guidance.emojiPolicy)
+
   if (guidance.objectiveType) {
-    goals.objectiveType = provided(guidance.objectiveType)
+    write('goals', 'objectiveType', guidance.objectiveType)
   }
   if (guidance.callToAction) {
-    goals.desiredAction = provided(guidance.callToAction.slice(0, 500))
+    write('goals', 'desiredAction', guidance.callToAction.slice(0, 500))
   }
-  if (guidance.ctaUrl) goals.targetUrl = provided(guidance.ctaUrl)
+  if (guidance.ctaUrl) write('goals', 'targetUrl', guidance.ctaUrl)
 
-  const profile = { ...suggestions.profile }
   if (guidance.targetAudience) {
-    profile.targetAudience = provided(
+    write(
+      'profile',
+      'targetAudience',
       splitEntries(guidance.targetAudience).join('\n').slice(0, 2000)
     )
   }
 
-  const preferences = { ...suggestions.preferences }
   if (guidance.avoidTopics) {
-    const merged = Array.from(
-      new Set([
-        ...splitEntries(guidance.avoidTopics),
-        ...(preferences.bannedTopics?.value ?? [])
-      ])
-    ).slice(0, 15)
-    preferences.bannedTopics = provided(merged)
+    // A topic too long for the list is left out by itself, not with the rest.
+    const fits = (topic: string) =>
+      PreferencesSuggestionsSchema.shape.bannedTopics.safeParse(
+        provided([topic])
+      ).success
+    const topics = splitEntries(guidance.avoidTopics)
+    for (const topic of topics.filter(t => !fits(t))) {
+      warnings.push(
+        `${SECTION_LABELS.preferences} → ${fieldLabel('preferences', 'bannedTopics')}: "${topic.slice(0, 60)}…" from Advanced analysis was left out because it is too long for one topic. Separate topics with commas or new lines.`
+      )
+    }
+    const kept = topics.filter(fits)
+    if (kept.length > 0) {
+      write(
+        'preferences',
+        'bannedTopics',
+        Array.from(
+          new Set([...kept, ...(next.preferences.bannedTopics?.value ?? [])])
+        ).slice(0, 15)
+      )
+    }
   }
 
   // Same strict validation as everything else that leaves this module.
-  const checked = IdentitySetupSuggestionsSchema.safeParse({
-    ...suggestions,
-    profile,
-    voice,
-    goals,
-    preferences
-  })
-  return checked.success ? checked.data : suggestions
+  const checked = IdentitySetupSuggestionsSchema.safeParse(next)
+  if (checked.success) return { suggestions: checked.data, warnings }
+  return {
+    suggestions,
+    warnings: [
+      ...warnings,
+      'Your Advanced analysis choices could not be used, so the AI chose every field.'
+    ]
+  }
 }

@@ -445,7 +445,7 @@ describe('Advanced analysis guidance', () => {
   const { suggestions } = sanitizeIdentitySetup(fullModelOutput(), context)
 
   it("overrides the model with the user's own choices, marked as provided", () => {
-    const guided = applyGuidance(suggestions, {
+    const { suggestions: guided, warnings } = applyGuidance(suggestions, {
       tone: 'storytelling',
       perspective: 'we',
       formality: 2,
@@ -473,10 +473,11 @@ describe('Advanced analysis guidance', () => {
       suggestions.goals.title?.value
     )
     assert.ok(IdentitySetupSuggestionsSchema.safeParse(guided).success)
+    assert.deepStrictEqual(warnings, [])
   })
 
   it("uses the stated audience and adds avoided topics to the model's", () => {
-    const guided = applyGuidance(suggestions, {
+    const { suggestions: guided } = applyGuidance(suggestions, {
       targetAudience: 'CFOs at D2C brands, Founders\nFinance leads',
       avoidTopics: 'politics, Tax evasion'
     })
@@ -492,8 +493,44 @@ describe('Advanced analysis guidance', () => {
   })
 
   it('changes nothing when there is no guidance', () => {
-    assert.strictEqual(applyGuidance(suggestions, undefined), suggestions)
-    assert.deepStrictEqual(applyGuidance(suggestions, {}), suggestions)
+    assert.strictEqual(applyGuidance(suggestions, undefined).suggestions, suggestions)
+    assert.deepStrictEqual(applyGuidance(suggestions, {}), { suggestions, warnings: [] })
+  })
+
+  it('keeps every other choice when one topic is too long to use', () => {
+    const longTopic = `Anything about ${'regulatory detail '.repeat(20)}`
+    const { suggestions: guided, warnings } = applyGuidance(suggestions, {
+      tone: 'storytelling',
+      formality: 2,
+      objectiveType: 'authority',
+      callToAction: 'Join the waitlist',
+      avoidTopics: `politics, ${longTopic}`
+    })
+    // Checked all together, this one topic used to discard every choice.
+    assert.strictEqual(guided.voice.tone?.value, 'storytelling')
+    assert.strictEqual(guided.voice.formality?.value, 2)
+    assert.strictEqual(guided.goals.objectiveType?.value, 'authority')
+    assert.strictEqual(guided.goals.desiredAction?.value, 'Join the waitlist')
+    assert.ok(guided.preferences.bannedTopics?.value.includes('politics'))
+    assert.ok(!guided.preferences.bannedTopics?.value.includes(longTopic.trim()))
+    assert.strictEqual(warnings.length, 1)
+    assert.match(warnings[0]!, /^Preferences → Topics to avoid: "Anything about regulatory/)
+  })
+
+  it('reports a choice it cannot use and applies the rest', () => {
+    const { suggestions: guided, warnings } = applyGuidance(suggestions, {
+      tone: 'storytelling',
+      // Nothing is left once the separators are split off.
+      targetAudience: ', ,'
+    })
+    assert.strictEqual(guided.voice.tone?.value, 'storytelling')
+    assert.strictEqual(
+      guided.profile.targetAudience?.value,
+      suggestions.profile.targetAudience?.value
+    )
+    assert.deepStrictEqual(warnings, [
+      "Profile → Target audience: your Advanced analysis choice could not be used, so the AI's suggestion was kept."
+    ])
   })
 
   it('rejects invalid choices before they reach the model', () => {

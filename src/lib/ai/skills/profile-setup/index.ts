@@ -101,15 +101,16 @@ export async function suggestSetup(input: {
   })
   // The CTA link and every other Advanced choice are applied after the URL
   // checks, so they hold whatever the model returned.
-  const suggestions = applyGuidance(sanitized.suggestions, input.guidance)
+  const guided = applyGuidance(sanitized.suggestions, input.guidance)
   // The user's own CTA link replaced the model's, so its warning would mislead.
   const warnings = input.guidance?.ctaUrl
     ? sanitized.warnings.filter(w => !w.startsWith('Goals → CTA link'))
     : sanitized.warnings
   return {
     accountType: sanitized.accountType,
-    suggestions,
-    warnings,
+    suggestions: guided.suggestions,
+    // Advanced choices that could not be used are reported, not dropped quietly.
+    warnings: [...warnings, ...guided.warnings],
     usage,
     modelUsed
   }

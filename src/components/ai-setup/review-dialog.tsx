@@ -1293,8 +1293,9 @@ export function ReviewSuggestionsDialog({
             {[
               fetched > 0 && `${fetched} page${fetched === 1 ? '' : 's'} read`,
               unread > 0 && `${unread} couldn't be read`,
+              // Unverified suggestions and Advanced choices that could not be used.
               draft.warnings.length > 0 &&
-                `${draft.warnings.length} unverified suggestion${draft.warnings.length === 1 ? '' : 's'} left out`
+                `${draft.warnings.length} item${draft.warnings.length === 1 ? '' : 's'} left out`
             ]
               .filter(Boolean)
               .join(' · ')}

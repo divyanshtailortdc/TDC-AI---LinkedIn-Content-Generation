@@ -62,7 +62,11 @@ export function KnowledgeClient({
   // URL state
   const [inputUrl, setInputUrl] = useState('')
   const [isFetchingUrl, setIsFetchingUrl] = useState(false)
+  // The preview keeps the URL it was fetched from: the input can be edited, or
+  // refilled by "Use this URL", after the fetch starts, and saving its value
+  // stored one page's content under another page's URL.
   const [urlPreview, setUrlPreview] = useState<{
+    url: string
     title: string
     content: string
     wordCount: number
@@ -191,10 +195,12 @@ export function KnowledgeClient({
     setIsFetchingUrl(true)
     setUrlPreview(null)
 
+    const url = inputUrl
     try {
-      const res = await fetchUrlPreview(inputUrl)
+      const res = await fetchUrlPreview(url)
       if (res.success && res.title && res.content) {
         setUrlPreview({
+          url,
           title: res.title,
           content: res.content,
           wordCount: res.wordCount || res.content.split(/\s+/).length
@@ -235,7 +241,7 @@ export function KnowledgeClient({
         accountId,
         title: urlPreview.title,
         sourceType: 'url',
-        sourceUrl: inputUrl,
+        sourceUrl: urlPreview.url,
         content: urlPreview.content
       })
       showToast({
@@ -243,7 +249,7 @@ export function KnowledgeClient({
         title: 'Document Saved',
         message: `"${urlPreview.title}" saved to knowledge base.`
       })
-      clearSavedSuggestion({ url: inputUrl })
+      clearSavedSuggestion({ url: urlPreview.url })
       setInputUrl('')
       setUrlPreview(null)
       router.refresh()
@@ -533,7 +539,7 @@ export function KnowledgeClient({
                     Scraped successfully ({urlPreview.wordCount} words)
                   </span>
                   <span className="text-muted max-w-xs truncate text-xs">
-                    {inputUrl}
+                    {urlPreview.url}
                   </span>
                 </div>
 
