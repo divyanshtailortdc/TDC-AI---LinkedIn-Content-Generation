@@ -7,21 +7,13 @@ import Link from 'next/link'
 import { setActiveAccount } from '@/lib/active-account-actions'
 import { cn } from '@/lib/cn'
 import { showToast } from '@/components/toast-notification'
+import { initialsOf } from '@/lib/initials'
 
 export interface SwitchableAccount {
   id: string
   name: string
   handle: string
   accountType: string
-}
-
-function initialsOf(name: string) {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
 }
 
 export function AccountSwitcher({

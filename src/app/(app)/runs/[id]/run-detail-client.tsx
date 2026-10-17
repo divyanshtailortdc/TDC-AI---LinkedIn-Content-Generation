@@ -408,7 +408,7 @@ export function RunDetailClient({
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                   >
                     {isApprovingAll ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -425,7 +425,7 @@ export function RunDetailClient({
                   onClick={handleDraftApproved}
                   disabled={isBusy}
                   aria-busy={isDrafting}
-                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
+                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
                 >
                   <Sparkles className={cn('w-3.5 h-3.5', isDrafting && 'animate-pulse')} />
                   <span>{isDrafting ? 'Generating posts…' : `Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>

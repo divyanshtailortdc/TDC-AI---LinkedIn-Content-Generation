@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Play,
@@ -17,6 +17,7 @@ import {
 import { triggerNewRun } from './actions'
 import { PageHeader } from '@/components/page-header'
 import type { RunSpendSummary } from '@/lib/run-spend'
+import { PAGE_SIZE } from '@/lib/pagination'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 
 interface RunSummary {
@@ -40,19 +41,41 @@ interface RunSummary {
   createdAt: Date | string
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * When a run started, formatted by hand: toLocaleString renders differently on
+ * the server and in the browser. The time zone can still differ between the
+ * two, so the element that shows it suppresses the hydration warning.
+ */
+function formatRunDate(value: Date | string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`
+}
+
 export function RunsClient({
   initialRuns,
+  hasMore = false,
+  shown,
   activeAccount,
   hideHeader,
   spend
 }: {
   initialRuns: RunSummary[]
+  /** Older runs exist beyond the ones shown. */
+  hasMore?: boolean
+  /** How many runs the page asked for; "Show older runs" raises it. */
+  shown?: number
   activeAccount: { id: string; name: string } | null
   hideHeader?: boolean
   /** Spend windows computed server-side; see getRunSpendSummary. */
   spend?: RunSpendSummary
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   // Rendered straight from props so router.refresh() below shows fresh rows.
   const runs = initialRuns
   const [isTriggering, setIsTriggering] = useState(false)
@@ -240,9 +263,9 @@ export function RunsClient({
                     </span>
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
                       run.status === 'completed'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
                         : run.status === 'awaiting_idea_approval'
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
                           : run.status === 'failed'
                             ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
                             : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
@@ -254,12 +277,18 @@ export function RunsClient({
                     </span>
                   </div>
 
-                  <p className="text-xs text-muted font-mono">
-                    ID: {run.id.slice(0, 8)}...
+                  <p className="text-xs text-muted">
+                    <time
+                      dateTime={new Date(run.createdAt).toISOString()}
+                      suppressHydrationWarning
+                    >
+                      {formatRunDate(run.createdAt)}
+                    </time>
+                    <span className="font-mono"> · ID: {run.id.slice(0, 8)}...</span>
                   </p>
 
                   {run.error && (
-                    <p className="text-xs text-rose-500 font-medium">{run.error}</p>
+                    <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{run.error}</p>
                   )}
                 </div>
 
@@ -289,6 +318,21 @@ export function RunsClient({
               </div>
             ))}
           </div>
+          {hasMore && (
+            <div className="border-t border-border p-3 text-center">
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`${pathname}?show=${(shown ?? runs.length) + PAGE_SIZE}`, {
+                    scroll: false
+                  })
+                }
+                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-surface-hover"
+              >
+                Show older runs
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

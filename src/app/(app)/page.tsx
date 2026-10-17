@@ -24,6 +24,7 @@ import {
   Users
 } from 'lucide-react'
 import Link from 'next/link'
+import { initialsOf } from '@/lib/initials'
 
 export const dynamic = 'force-dynamic'
 
@@ -117,7 +118,7 @@ function CapabilityPanel({ capabilities }: { capabilities: Capability[] }) {
         <p className="mt-0.5 text-xs text-muted">
           Based on the keys present in{' '}
           <code className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-[11px]">
-            .env.local
+            .env
           </code>
         </p>
       </div>
@@ -125,11 +126,11 @@ function CapabilityPanel({ capabilities }: { capabilities: Capability[] }) {
         {capabilities.map((cap) => (
           <div key={cap.name} className="flex items-center gap-4 px-5 py-3.5">
             {cap.status === 'live' ? (
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
                 <Check className="h-3 w-3" strokeWidth={3} />
               </span>
             ) : (
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400">
                 <AlertCircle className="h-3 w-3" />
               </span>
             )}
@@ -199,12 +200,7 @@ function AccountCard({
   hasGoals: boolean
   hasPreferences: boolean
 }) {
-  const initials = account.name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+  const initials = initialsOf(account.name)
 
   const completed: Record<string, boolean> = {
     voice: hasVoice,
@@ -272,7 +268,7 @@ function AccountCard({
                 <Icon className="h-3.5 w-3.5 shrink-0" />
                 <span className="flex-1 truncate">{label}</span>
                 {done ? (
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
                     <Check className="h-2.5 w-2.5" strokeWidth={3} />
                   </span>
                 ) : (

@@ -88,7 +88,14 @@ export async function savePreferences(
       cta_required: Boolean(payload.post_constraints.cta_required)
     },
     guardrails: {
-      banned_topics: payload.guardrails.banned_topics,
+      // Trimmed, blank ones dropped, and repeats (in any case) kept once,
+      // spelled the way they were first entered.
+      banned_topics: payload.guardrails.banned_topics
+        .map(t => t.trim())
+        .filter(
+          (t, i, all) =>
+            t && all.findIndex(o => o.toLowerCase() === t.toLowerCase()) === i
+        ),
       compliance_notes: payload.guardrails.compliance_notes.trim()
     },
     updatedAt: new Date()

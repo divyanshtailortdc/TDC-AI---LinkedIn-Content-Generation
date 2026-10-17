@@ -490,7 +490,7 @@ export function GoalsClient({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="text-foreground mb-1 block text-xs font-medium">
-                Goal Title <span className="text-rose-500">*</span>
+                Goal Title <span className="text-rose-600 dark:text-rose-400">*</span>
               </label>
               <input
                 type="text"
@@ -527,7 +527,7 @@ export function GoalsClient({
           {/* The One Key Message to Land */}
           <div className="border-accent/30 bg-accent/5 space-y-1.5 rounded-xl border p-4">
             <label className="text-accent block text-xs font-bold tracking-wider uppercase">
-              Key Message <span className="text-rose-500">*</span>
+              Key Message <span className="text-rose-600 dark:text-rose-400">*</span>
             </label>
 
             <textarea
@@ -706,7 +706,7 @@ export function GoalsClient({
                             editing ? '' : 'cursor-default'
                           } ${
                             g.isActive
-                              ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                              ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
                               : 'bg-surface-hover text-muted'
                           }`}
                         >

@@ -82,7 +82,7 @@ export function AiDraftingStatus({
         <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
           <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/20" />
           <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15">
-            <Sparkles className="h-5 w-5 animate-pulse text-emerald-600 dark:text-emerald-400" />
+            <Sparkles className="h-5 w-5 animate-pulse text-emerald-700 dark:text-emerald-400" />
           </span>
         </div>
 

@@ -5,6 +5,8 @@ import { db } from '@/db'
 import { accountsTable, ideasTable } from '@/db/schema'
 import { and, count, eq } from 'drizzle-orm'
 import { getActiveAccount } from '@/lib/active-account'
+import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
+import { cookies } from 'next/headers'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +15,7 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [accounts, activeAccount] = await Promise.all([
+  const [accounts, activeAccount, cookieStore] = await Promise.all([
     db
       .select({
         id: accountsTable.id,
@@ -24,8 +26,10 @@ export default async function AppLayout({
       .from(accountsTable)
       .where(eq(accountsTable.isActive, true))
       .orderBy(accountsTable.createdAt),
-    getActiveAccount()
+    getActiveAccount(),
+    cookies()
   ])
+  const sidebarCollapsed = cookieStore.get(SIDEBAR_COLLAPSED_COOKIE)?.value === '1'
 
   // The badge on Ideas: what the active identity still has to approve.
   const [{ pending = 0 } = {}] = activeAccount
@@ -47,6 +51,7 @@ export default async function AppLayout({
           accounts={accounts}
           activeAccount={activeAccount}
           ideasToReview={pending}
+          initialCollapsed={sidebarCollapsed}
         />
         <main className="flex-1 min-w-0 overflow-y-auto bg-background relative flex flex-col">
           {children}

@@ -55,6 +55,14 @@ export async function approveIdea(ideaId: string) {
       .returning({ id: ideasTable.id })
     if (approved.length === 0) throw new Error('This idea is already drafted or being drafted')
 
+    // An approved idea is waiting to be drafted, so a run that read
+    // "completed" goes back to awaiting approval and offers "Create posts".
+    if (idea.runId) {
+      await settleRunAfterDrafting(idea.runId).catch(err =>
+        console.error(`Could not settle run ${idea.runId}:`, err)
+      )
+    }
+
     // The sidebar's Ideas badge counts these.
     revalidatePath('/', 'layout')
     revalidatePath('/ideas')
@@ -251,6 +259,22 @@ export async function approveAllIdeas(ideaIds: string[]) {
           'None of these ideas could be approved. They may already be drafted, or a different identity is now active. Refresh the page to see their current status.'
       }
     }
+
+    // Same as approveIdea: each affected run is waiting on drafting again.
+    const runIds = await db
+      .selectDistinct({ runId: ideasTable.runId })
+      .from(ideasTable)
+      .where(inArray(ideasTable.id, approved.map(i => i.id)))
+    await Promise.all(
+      runIds
+        .map(r => r.runId)
+        .filter((id): id is string => Boolean(id))
+        .map(runId =>
+          settleRunAfterDrafting(runId).catch(err =>
+            console.error(`Could not settle run ${runId}:`, err)
+          )
+        )
+    )
 
     // The sidebar's Ideas badge counts these.
     revalidatePath('/', 'layout')

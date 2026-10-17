@@ -216,7 +216,7 @@ export function AnalyzeForm({
                 htmlFor="ai-description"
                 className="text-foreground text-xs font-medium"
               >
-                Company details <span className="text-rose-500">*</span>
+                Company details <span className="text-rose-600 dark:text-rose-400">*</span>
               </label>
               <button
                 type="button"

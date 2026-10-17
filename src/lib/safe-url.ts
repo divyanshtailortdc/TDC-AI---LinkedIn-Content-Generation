@@ -33,6 +33,11 @@ for (const [network, prefix] of [
 for (const [network, prefix] of [
   ['::', 128],
   ['::1', 128],
+  // Deprecated forms that embed an IPv4 address (e.g. ::7f00:1, ::ffff:0:7f00:1,
+  // 2002:7f00:1::) and can route to it; nothing legitimate uses them.
+  ['::', 96],
+  ['::ffff:0:0:0', 96],
+  ['2002::', 16],
   ['64:ff9b::', 96],
   ['100::', 64],
   ['2001:db8::', 32],

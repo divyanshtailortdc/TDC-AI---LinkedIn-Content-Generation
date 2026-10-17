@@ -1,20 +1,23 @@
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
-import { accountsTable, runsTable } from '@/db/schema'
+import { accountsTable } from '@/db/schema'
 import { getRunSpendSummary } from '@/lib/run-spend'
-import { desc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { isUuid } from '@/lib/ids'
 import { RunsClient } from '../../../runs/runs-client'
+import { loadRunsList, runsShownFromParam } from '../../../runs/runs-data'
 
 export const dynamic = 'force-dynamic'
 
 interface AccountRunsPageProps {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ show?: string | string[] }>
 }
 
 export default async function AccountRunsPage({
-  params
+  params,
+  searchParams
 }: AccountRunsPageProps) {
   const { id } = await params
   if (!isUuid(id)) notFound()
@@ -27,29 +30,13 @@ export default async function AccountRunsPage({
     notFound()
   }
 
-  const accountRuns = await db
-    .select({
-      id: runsTable.id,
-      accountId: runsTable.accountId,
-      workflow: runsTable.workflow,
-      trigger: runsTable.trigger,
-      status: runsTable.status,
-      currentStep: runsTable.currentStep,
-      totalSteps: runsTable.totalSteps,
-      costUsd: runsTable.costUsd,
-      tokenCounts: runsTable.tokenCounts,
-      error: runsTable.error,
-      createdAt: runsTable.createdAt,
-      accountName: accountsTable.name
-    })
-    .from(runsTable)
-    .leftJoin(accountsTable, eq(runsTable.accountId, accountsTable.id))
-    .where(eq(runsTable.accountId, id))
-    .orderBy(desc(runsTable.createdAt))
+  const shown = runsShownFromParam((await searchParams).show)
+  const [{ runs, hasMore }, spend] = await Promise.all([
+    loadRunsList(id, shown),
+    getRunSpendSummary(id)
+  ])
 
-  const spend = await getRunSpendSummary(id)
-
-  const formattedRuns = accountRuns.map(r => ({
+  const formattedRuns = runs.map(r => ({
     ...r,
     accountName: account.name
   }))
@@ -58,6 +45,8 @@ export default async function AccountRunsPage({
     <SetupShell account={account}>
       <RunsClient
         initialRuns={formattedRuns}
+        hasMore={hasMore}
+        shown={shown}
         activeAccount={{ id: account.id, name: account.name }}
         hideHeader={true}
         spend={spend}

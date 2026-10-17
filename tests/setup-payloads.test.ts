@@ -34,6 +34,21 @@ const bad = (schema: Parameters<typeof parseSetupPayload>[0], value: unknown) =>
   assert.throws(() => parseSetupPayload(schema, value))
 
 describe('setup payloads', () => {
+  it('names the field in limit messages instead of a raw schema message', () => {
+    assert.throws(
+      () => parseSetupPayload(GoalPayloadSchema, { ...goal, title: 'x'.repeat(201) }),
+      /Goal title must be 200 characters or fewer/
+    )
+    assert.throws(
+      () =>
+        parseSetupPayload(PreferencesPayloadSchema, {
+          ...prefs,
+          pillars: [{ name: 'Close', weight_pct: -20 }]
+        }),
+      /Pillar weight cannot be negative/
+    )
+  })
+
   it('accepts what the forms send', () => {
     parseSetupPayload(AccountIdSchema, id)
     parseSetupPayload(GoalPayloadSchema, goal)

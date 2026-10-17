@@ -129,7 +129,9 @@ export async function saveVoiceConfigAction(data: SaveVoiceInput) {
         new Set(
           validated.bannedWords
             .map(w => w.trim().toLowerCase())
-            .filter(w => w.length > 2)
+            // Short words such as "AI" are kept: the linter matches whole
+            // words only, so they cannot fire inside longer ones.
+            .filter(w => w.length > 0)
         )
       )
 

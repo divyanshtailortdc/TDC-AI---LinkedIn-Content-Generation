@@ -411,7 +411,10 @@ export async function applyIdentitySetupAction(
   if (sections.knowledgeUrls?.length) {
     tasks.push(
       (async () => {
-        // Only sources from this analysis can be ingested, never arbitrary URLs.
+        // Keeps the review honest: only URLs the analysis listed are added.
+        // The list arrives with the request, so this is not a security
+        // boundary — anyone can add any public URL from the Knowledge step,
+        // and every fetch still goes through the SSRF guard in safe-url.
         const offered = new Map(
           suggestions.knowledge.sources
             .filter(s => s.url)

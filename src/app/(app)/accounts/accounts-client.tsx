@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, Users, Mic, BookOpen, Target, SlidersHorizontal, CheckCircle2, ChevronRight, Play } from 'lucide-react'
 import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
+import { initialsOf } from '@/lib/initials'
 
 type Account = any
 
@@ -53,12 +54,7 @@ function AccountCard({
   hasGoals: boolean
   hasPreferences: boolean
 }) {
-  const initials = account.name
-    .split(' ')
-    .map((w: string) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+  const initials = initialsOf(account.name)
 
   const completed: Record<string, boolean> = {
     voice: hasVoice,
@@ -120,17 +116,17 @@ function AccountCard({
               {account.accountType}
             </span>
             {isActive ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0">
+              <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0">
                 Active
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full shrink-0">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full shrink-0">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                 Deactivated
               </span>
             )}
             {allDone ? (
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
                 Ready
               </span>
@@ -156,7 +152,7 @@ function AccountCard({
           {isActive && allDone && (
             <Link
               href={`/accounts/${account.id}/runs`}
-              className="inline-flex h-7 items-center gap-1.5 text-xs font-semibold px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+              className="inline-flex h-7 items-center gap-1.5 text-xs font-semibold px-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white transition-colors"
             >
               <Play className="w-3 h-3 fill-current" />
               Generate

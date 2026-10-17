@@ -1,46 +1,27 @@
-import { db } from '@/db'
-import { accountsTable, runsTable } from '@/db/schema'
-import { desc, eq } from 'drizzle-orm'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from './runs-client'
+import { loadRunsList, runsShownFromParam } from './runs-data'
 import { getActiveAccount } from '@/lib/active-account'
 import { NoActiveAccount } from '@/components/no-active-account'
 
 export const dynamic = 'force-dynamic'
 
-export default async function RunsPage() {
+export default async function RunsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ show?: string | string[] }>
+}) {
   const activeAccount = await getActiveAccount()
 
   if (!activeAccount) {
     return <NoActiveAccount title="Run Engine & Observability" />
   }
 
-  const runsRaw = await db
-    .select({
-      id: runsTable.id,
-      accountId: runsTable.accountId,
-      workflow: runsTable.workflow,
-      trigger: runsTable.trigger,
-      status: runsTable.status,
-      currentStep: runsTable.currentStep,
-      totalSteps: runsTable.totalSteps,
-      costUsd: runsTable.costUsd,
-      tokenCounts: runsTable.tokenCounts,
-      error: runsTable.error,
-      createdAt: runsTable.createdAt,
-      accountName: accountsTable.name
-    })
-    .from(runsTable)
-    .leftJoin(accountsTable, eq(runsTable.accountId, accountsTable.id))
-    .where(eq(runsTable.accountId, activeAccount.id))
-    .orderBy(desc(runsTable.createdAt))
-
-  const spend = await getRunSpendSummary(activeAccount.id)
-
-  const formattedRuns = runsRaw.map(r => ({
-    ...r,
-    accountName: r.accountName || 'Unknown Identity'
-  }))
+  const shown = runsShownFromParam((await searchParams).show)
+  const [{ runs, hasMore }, spend] = await Promise.all([
+    loadRunsList(activeAccount.id, shown),
+    getRunSpendSummary(activeAccount.id)
+  ])
 
   // Keying on the active account forces a remount on switch, so this client
   // component's local state (which only seeds from initialRuns once) resets
@@ -48,7 +29,9 @@ export default async function RunsPage() {
   return (
     <RunsClient
       key={activeAccount.id}
-      initialRuns={formattedRuns}
+      initialRuns={runs}
+      hasMore={hasMore}
+      shown={shown}
       activeAccount={activeAccount}
       spend={spend}
     />

@@ -19,17 +19,53 @@ const optionalHttpUrl = z
   .optional()
   .refine(value => !optionalUrlError(value ?? ''), URL_MESSAGE)
 
+/** Longest each text field may be; the inputs stop typing at the same limit. */
+export const PROFILE_MAX_LENGTH = {
+  name: 200,
+  company: 200,
+  description: 5000,
+  targetAudience: 2000,
+  offerings: 3000,
+  industry: 200
+} as const
+
+const tooLong = (label: string, max: number) =>
+  `${label} must be ${max.toLocaleString('en-US')} characters or fewer`
+
 export const IdentityProfileSchema = z.object({
-  name: z.string().trim().min(1, 'Display name is required').max(200),
-  company: z.string().trim().max(200).optional(),
-  description: z.string().trim().min(1, 'Description is required').max(5000),
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Display name is required')
+    .max(PROFILE_MAX_LENGTH.name, tooLong('Display name', PROFILE_MAX_LENGTH.name)),
+  company: z
+    .string()
+    .trim()
+    .max(PROFILE_MAX_LENGTH.company, tooLong('Company name', PROFILE_MAX_LENGTH.company))
+    .optional(),
+  description: z
+    .string()
+    .trim()
+    .min(1, 'Description is required')
+    .max(PROFILE_MAX_LENGTH.description, tooLong('Description', PROFILE_MAX_LENGTH.description)),
   targetAudience: z
     .string()
     .trim()
     .min(1, 'Target audience is required')
-    .max(2000),
-  offerings: z.string().trim().min(1, 'Offerings are required').max(3000),
-  industry: z.string().trim().min(1, 'Industry is required').max(200),
+    .max(
+      PROFILE_MAX_LENGTH.targetAudience,
+      tooLong('Target audience', PROFILE_MAX_LENGTH.targetAudience)
+    ),
+  offerings: z
+    .string()
+    .trim()
+    .min(1, 'Offerings are required')
+    .max(PROFILE_MAX_LENGTH.offerings, tooLong('Offerings', PROFILE_MAX_LENGTH.offerings)),
+  industry: z
+    .string()
+    .trim()
+    .min(1, 'Industry is required')
+    .max(PROFILE_MAX_LENGTH.industry, tooLong('Industry', PROFILE_MAX_LENGTH.industry)),
   linkedinUrl: optionalHttpUrl,
   websiteUrl: optionalHttpUrl
 })

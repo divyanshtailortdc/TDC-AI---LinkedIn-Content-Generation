@@ -3,6 +3,7 @@
 import {
   IDENTITY_FIELDS,
   IdentityProfileSchema,
+  PROFILE_MAX_LENGTH,
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
@@ -11,6 +12,12 @@ import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
 export type AccountType = 'personal' | 'company'
+
+/** The schema's limit for a text field; URL fields have none. */
+const maxLengthOf = (name: IdentityProfileField): number | undefined =>
+  name in PROFILE_MAX_LENGTH
+    ? PROFILE_MAX_LENGTH[name as keyof typeof PROFILE_MAX_LENGTH]
+    : undefined
 
 const ACCOUNT_TYPES: Array<{
   value: AccountType
@@ -56,7 +63,7 @@ function SectionCard({
         <div className="min-w-0">
           <h3 className="text-foreground text-xs font-semibold tracking-wider uppercase">
             {title}
-            {required && <span className="ml-1 text-rose-500">*</span>}
+            {required && <span className="ml-1 text-rose-600 dark:text-rose-400">*</span>}
           </h3>
           {description && (
             <p className="text-muted mt-1 text-xs">{description}</p>
@@ -183,7 +190,7 @@ function FieldLabel({
         className="text-foreground block text-sm font-medium"
       >
         {def.label}
-        {def.required && <span className="ml-1 text-rose-500">*</span>}
+        {def.required && <span className="ml-1 text-rose-600 dark:text-rose-400">*</span>}
         {!def.required && def.hint && (
           <span className="text-muted ml-1.5 text-xs font-normal">
             {def.hint}
@@ -293,6 +300,7 @@ function IdentityField({
           name={def.name}
           rows={3}
           value={value}
+          maxLength={maxLengthOf(def.name)}
           required={def.required}
           placeholder={def.placeholder}
           onChange={e => onChange(e.target.value)}
@@ -310,6 +318,7 @@ function IdentityField({
             name={def.name}
             type={def.type}
             value={value}
+            maxLength={maxLengthOf(def.name)}
             required={def.required}
             placeholder={def.placeholder}
             onChange={e => onChange(e.target.value)}

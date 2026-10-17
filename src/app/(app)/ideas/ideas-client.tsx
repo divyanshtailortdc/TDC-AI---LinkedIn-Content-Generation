@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -49,7 +49,7 @@ const EMPTY_STATE: Record<StatusFilter, { title: string; body: string }> = {
   },
   approved: {
     title: 'No approved ideas',
-    body: 'Approve ideas from the Proposed tab to draft them into posts.'
+    body: 'Approve ideas from To review to draft them into posts.'
   },
   rejected: { title: 'No rejected ideas', body: 'Ideas you reject show up here.' },
   all: { title: 'No ideas yet', body: 'Start a run to generate grounded ideas.' }
@@ -94,6 +94,7 @@ export function IdeasClient({
   const searchParams = useSearchParams()
   const selectedStatus = statusFromParams(searchParams)
   const [isActionBusy, setIsActionBusy] = useState(false)
+  const draftingRef = useRef(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
   const [draftError, setDraftError] = useState<string | null>(null)
@@ -207,7 +208,10 @@ export function IdeasClient({
   }
 
   const draftIdeas = async (targetIds: string[]) => {
-    if (targetIds.length === 0) return
+    // Several clicks in the same tick all run before the busy state renders
+    // and disables the button; the ref turns the extras away straight away.
+    if (targetIds.length === 0 || draftingRef.current) return
+    draftingRef.current = true
 
     // Optimistically flip the drafted ideas to their terminal state right away so
     // the list reflects the action immediately, instead of sitting unchanged for
@@ -255,6 +259,7 @@ export function IdeasClient({
       })
     } finally {
       setIsActionBusy(false)
+      draftingRef.current = false
     }
   }
 
@@ -319,7 +324,7 @@ export function IdeasClient({
           isDrafting ? (
             <span
               aria-busy
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white opacity-75 shadow-sm"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white opacity-75 shadow-sm"
             >
               <Sparkles className="h-3.5 w-3.5 animate-pulse" />
               Generating posts…
@@ -338,7 +343,7 @@ export function IdeasClient({
                   <button
                     type="button"
                     disabled={isActionBusy}
-                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                   >
                     <CheckCheck className="h-3.5 w-3.5" />
                     <span>Approve all ({allProposedIds.length})</span>
@@ -355,7 +360,7 @@ export function IdeasClient({
                     'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                     allProposedIds.length > 0
                       ? 'border border-border text-foreground hover:bg-surface-hover'
-                      : 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700'
+                      : 'bg-emerald-700 text-white shadow-sm hover:bg-emerald-800'
                   )}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
@@ -378,7 +383,7 @@ export function IdeasClient({
                   <button
                     type="button"
                     disabled={isActionBusy}
-                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     <span>Approve all &amp; create posts</span>
@@ -487,8 +492,35 @@ function StatusFilterMenu({
   onChange: (next: StatusFilter) => void
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0 })
+
+  // Focus goes back to the button that opened the menu, not to the page body.
+  const closeMenu = () => {
+    setOpen(false)
+    buttonRef.current?.focus()
+  }
+
+  // Arrow keys, Home and End move between the options; Tab leaves the menu.
+  const onMenuKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []
+    )
+    const index = items.indexOf(document.activeElement as HTMLButtonElement)
+    const move = (next: number) => {
+      e.preventDefault()
+      items[(next + items.length) % items.length]?.focus()
+    }
+    if (e.key === 'ArrowDown') move(index + 1)
+    else if (e.key === 'ArrowUp') move(index - 1)
+    else if (e.key === 'Home') move(0)
+    else if (e.key === 'End') move(items.length - 1)
+    else if (e.key === 'Tab') {
+      e.preventDefault()
+      closeMenu()
+    }
+  }
 
   const openMenu = () => {
     const rect = buttonRef.current?.getBoundingClientRect()
@@ -504,7 +536,11 @@ function StatusFilterMenu({
   useEffect(() => {
     if (!open) return
     const close = () => setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      buttonRef.current?.focus()
+    }
     window.addEventListener('resize', close)
     window.addEventListener('keydown', onKey)
     return () => {
@@ -531,10 +567,12 @@ function StatusFilterMenu({
       {open &&
         createPortal(
           <>
-            <div aria-hidden className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div aria-hidden className="fixed inset-0 z-40" onClick={closeMenu} />
             <div
+              ref={menuRef}
               role="menu"
               aria-label="Filter by status"
+              onKeyDown={onMenuKeyDown}
               style={{ top: position.top, left: position.left }}
               className="fixed z-50 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface p-1 shadow-lg"
             >
@@ -547,7 +585,7 @@ function StatusFilterMenu({
                   autoFocus={value === st}
                   onClick={() => {
                     onChange(st)
-                    setOpen(false)
+                    closeMenu()
                   }}
                   className={cn(
                     'flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-left text-xs transition-colors hover:bg-surface-hover',

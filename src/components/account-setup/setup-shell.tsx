@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { SetupFrame, SetupStepper } from './setup-frame'
 import { getStepIndex, SETUP_STEPS } from './steps'
+import { initialsOf } from '@/lib/initials'
 
 type ShellAccount = {
   id: string
@@ -31,12 +32,7 @@ export function SetupShell({
   const index = getStepIndex(pathname, account.id)
   const next = SETUP_STEPS[index + 1]
 
-  const initials = account.name
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+  const initials = initialsOf(account.name)
 
   const isProfile = index === 0
 
