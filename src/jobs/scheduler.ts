@@ -1,8 +1,8 @@
 import cron from 'node-cron'
 import { db } from '@/db'
-import { schedulesTable } from '@/db/schema'
-import { eq } from 'drizzle-orm'
 import { enqueueRun } from './queue'
+import { RunInProgressError } from './run-guard'
+import { claimScheduleSlot, findRunnableSchedules } from './schedule-claim'
 
 declare global {
    
@@ -27,9 +27,9 @@ export function startScheduler() {
   // at the top of the hour.
   cron.schedule('*/15 * * * *', async () => {
     try {
-      const activeSchedules = await db.query.schedulesTable.findMany({
-        where: eq(schedulesTable.enabled, true)
-      })
+      // Only identities that are still active: a deactivated one must not keep
+      // generating runs.
+      const activeSchedules = await findRunnableSchedules(db)
 
       const now = new Date()
       const currentDay = now.getDay()
@@ -51,14 +51,9 @@ export function startScheduler() {
         // Without this a restart inside the window would enqueue a second run.
         if (ranToday(sched.lastRunAt, now)) continue
 
-        // Claim the slot before enqueueing so a duplicate tick cannot double up.
-        const [claimed] = await db
-          .update(schedulesTable)
-          .set({ lastRunAt: now, updatedAt: new Date() })
-          .where(eq(schedulesTable.id, sched.id))
-          .returning()
-
-        if (!claimed) continue
+        // Claim the slot before enqueueing. The claim only succeeds for one
+        // caller, so a second tick or process cannot double up.
+        if (!(await claimScheduleSlot(db, sched, now))) continue
 
         try {
           await enqueueRun({
@@ -66,6 +61,13 @@ export function startScheduler() {
             trigger: 'schedule'
           })
         } catch (err) {
+          // A run already in progress is expected, not a failure.
+          if (err instanceof RunInProgressError) {
+            console.warn(
+              `Skipped the scheduled run for account ${sched.accountId}: one is already in progress.`
+            )
+            continue
+          }
           console.error(
             `Failed to enqueue scheduled run for account ${sched.accountId}:`,
             err
