@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
+import { isUuid } from './ids'
 
 export const ACTIVE_ACCOUNT_COOKIE = 'activeAccountId'
 
@@ -21,15 +22,16 @@ export interface ActiveAccount {
  * Every page/action that reads or writes account-scoped data should resolve
  * this server-side rather than trust an accountId passed in from the client.
  *
- * Falls back to the first active account if the cookie is missing or points
- * at an account that no longer exists/was deactivated, so a stale cookie
- * never silently renders an empty app.
+ * Falls back to the first active account if the cookie is missing, malformed
+ * or points at an account that no longer exists/was deactivated, so a stale
+ * cookie never silently renders an empty app (or, unchecked, a Postgres error
+ * on every page).
  */
 export async function getActiveAccount(): Promise<ActiveAccount | null> {
   const cookieStore = await cookies()
   const cookieId = cookieStore.get(ACTIVE_ACCOUNT_COOKIE)?.value
 
-  if (cookieId) {
+  if (cookieId && isUuid(cookieId)) {
     const account = await db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, cookieId)
     })

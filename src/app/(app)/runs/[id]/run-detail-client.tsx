@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -26,6 +26,7 @@ import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
+import { setActiveAccount } from '@/lib/active-account-actions'
 import { fetchRunStatus } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas } from '../../ideas/actions'
@@ -38,6 +39,8 @@ interface RunDetailProps {
   initialFindings: any[]
   initialIdeas: any[]
   account: any
+  /** The run's identity is not the active one; it becomes active on open. */
+  activateAccount: boolean
 }
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
@@ -145,7 +148,8 @@ export function RunDetailClient({
   initialSteps,
   initialFindings,
   initialIdeas,
-  account
+  account,
+  activateAccount
 }: RunDetailProps) {
   const router = useRouter()
   const [run, setRun] = useState(initialRun)
@@ -159,6 +163,26 @@ export function RunDetailClient({
   const [showAllSources, setShowAllSources] = useState(false)
 
   const isRunning = ACTIVE_STATUSES.includes(run.status)
+
+  // The Runs, Ideas and Posts pages linked from here show the active identity,
+  // so opening another identity's run (from its own Runs tab, say) makes that
+  // identity active, as starting a run there does. Only once, on open:
+  // picking another identity in the sidebar leaves this page, and a re-render
+  // must not switch back.
+  const accountActivated = useRef(!activateAccount)
+  useEffect(() => {
+    if (accountActivated.current) return
+    accountActivated.current = true
+    setActiveAccount(account.id).then(res => {
+      if (!res.success) return
+      router.refresh()
+      showToast({
+        title: 'Switched identity',
+        message: `Now viewing ${account.name}`,
+        type: 'info'
+      })
+    })
+  }, [account.id, account.name, router])
 
   // Polling while run is active
   useEffect(() => {

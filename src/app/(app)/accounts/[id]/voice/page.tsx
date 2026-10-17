@@ -1,10 +1,9 @@
 import { StepFields } from '@/components/account-setup/setup-frame'
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
-import { accountsTable, voiceConfigsTable } from '@/db/schema'
+import { voiceConfigsTable } from '@/db/schema'
+import { accountIdOr404, getAccountOr404 } from '@/lib/account-route'
 import { eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
-import { isUuid } from '@/lib/ids'
 import { VoiceForm } from './voice-form'
 
 export const dynamic = 'force-dynamic'
@@ -14,18 +13,14 @@ interface VoicePageProps {
 }
 
 export default async function VoicePage({ params }: VoicePageProps) {
-  const { id } = await params
-  if (!isUuid(id)) notFound()
+  const id = accountIdOr404((await params).id, '/voice')
 
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, id)
-  })
-
-  if (!account) notFound()
-
-  const voiceConfig = await db.query.voiceConfigsTable.findFirst({
-    where: eq(voiceConfigsTable.accountId, id)
-  })
+  const [account, voiceConfig] = await Promise.all([
+    getAccountOr404(id),
+    db.query.voiceConfigsTable.findFirst({
+      where: eq(voiceConfigsTable.accountId, id)
+    })
+  ])
 
   return (
     <SetupShell account={account} hasSavedData={Boolean(voiceConfig)}>

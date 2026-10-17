@@ -61,10 +61,14 @@ export function AccountSwitcher({
         // the switch onto the new active account's equivalent settings tab.
         // Picking an identity on the create page means working on that one
         // instead, so it leaves for that identity's profile.
+        // A run page shows one identity's run, so switching away from it goes
+        // to the Runs list, which shows the newly active identity's runs.
         const accountsMatch = pathname.match(/^\/accounts\/([^/]+)(\/.*)?$/)
         if (accountsMatch) {
           const tab = accountsMatch[1] === 'new' ? '' : accountsMatch[2] || ''
           router.push(`/accounts/${accountId}${tab}`)
+        } else if (/^\/runs\/[^/]+$/.test(pathname)) {
+          router.push('/runs')
         } else {
           router.refresh()
         }

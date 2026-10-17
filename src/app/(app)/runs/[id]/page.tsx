@@ -1,7 +1,7 @@
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { notFound, redirect } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import { isUuid } from '@/lib/ids'
 import { getRunDetails } from '~/jobs/queue'
 import { getActiveAccountId } from '@/lib/active-account'
@@ -25,23 +25,19 @@ export default async function SingleRunPage({ params }: RunPageProps) {
     notFound()
   }
 
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, run.accountId)
-  })
+  const [account, activeAccountId] = await Promise.all([
+    db.query.accountsTable.findFirst({
+      where: eq(accountsTable.id, run.accountId)
+    }),
+    getActiveAccountId()
+  ])
 
   if (!account) {
     notFound()
   }
 
-  // A run belongs to whichever account created it. If the sidebar's active
-  // account was switched while this page was open, this run no longer
-  // belongs to "the workspace you're now in" — send back to the Runs list,
-  // which re-renders scoped to the newly active account.
-  const activeAccountId = await getActiveAccountId()
-  if (activeAccountId && activeAccountId !== run.accountId) {
-    redirect('/runs')
-  }
-
+  // Any identity's run can be opened, including a deactivated one's (which
+  // can't be made active, so it is shown as it is).
   return (
     <RunDetailClient
       initialRun={run}
@@ -49,6 +45,7 @@ export default async function SingleRunPage({ params }: RunPageProps) {
       initialFindings={findings}
       initialIdeas={ideas}
       account={account}
+      activateAccount={account.isActive && account.id !== activeAccountId}
     />
   )
 }

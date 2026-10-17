@@ -3,9 +3,11 @@
 import { ImageLightbox } from '@/components/image-lightbox'
 import { LinkedInPreview } from '@/components/linkedin-preview'
 import { PageHeader } from '@/components/page-header'
+import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import type { ActiveAccount } from '@/lib/active-account'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
   IMAGE_PROMPT_MAX_WORDS,
   countWords,
@@ -585,6 +587,32 @@ export function PostsClientInner({
       handleSelectPost(next)
     }
   }
+
+  // The queue rail shows a page at a time: the page holding the open post, so
+  // J/K, auto-advance and a new filter carry the page along. Picking a page
+  // opens its first post.
+  const queuePage =
+    currentIndex >= 0 ? Math.floor(currentIndex / PAGE_SIZE) + 1 : 1
+  const { rows: queuePagePosts, pageInfo: queuePageInfo } = paginate(
+    filteredPosts,
+    queuePage,
+    PAGE_SIZE
+  )
+  const openQueuePage = (page: number) => {
+    const first = filteredPosts[(page - 1) * PAGE_SIZE]
+    if (first) handleSelectPost(first)
+  }
+  // A new page opens at its top, or at its open post when K stepped back
+  // onto its last one.
+  const queueListRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const list = queueListRef.current
+    if (!list) return
+    list.scrollTo({ top: 0 })
+    list
+      .querySelector<HTMLElement>('[aria-current="true"]')
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [queuePage])
 
   // Reviewing a long queue is mostly next/next/next, so keep hands on the keyboard.
   useEffect(() => {
@@ -1548,7 +1576,7 @@ export function PostsClientInner({
             {filterControls}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-2 pb-3">
+          <div ref={queueListRef} className="flex-1 overflow-y-auto px-2 pb-3">
             {filteredPosts.length === 0 ? (
               <div className="flex flex-col items-center px-4 py-10 text-center">
                 <Search className="text-muted/60 mb-2 h-5 w-5" />
@@ -1557,11 +1585,12 @@ export function PostsClientInner({
                 </p>
               </div>
             ) : (
-              filteredPosts.map((post, idx) => {
+              queuePagePosts.map((post, idx) => {
                 const isActive = post.id === activePost?.id
+                // Each page opens with its day, even one carried over.
                 const showBucket =
                   idx === 0 ||
-                  dayKey(filteredPosts[idx - 1]!.createdAt) !==
+                  dayKey(queuePagePosts[idx - 1]!.createdAt) !==
                     dayKey(post.createdAt)
                 const errors = countLintErrors(post.lintFindings)
                 const status =
@@ -1675,6 +1704,15 @@ export function PostsClientInner({
               })
             )}
           </div>
+          {queuePageInfo.pageCount > 1 && (
+            <div className="border-border border-t px-3 py-2.5">
+              <Pagination
+                {...queuePageInfo}
+                noun="posts"
+                onPageChange={openQueuePage}
+              />
+            </div>
+          )}
         </aside>
 
         <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:py-8 lg:pr-2 lg:pl-8">

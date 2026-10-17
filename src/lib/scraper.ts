@@ -25,15 +25,41 @@ function cleanJinaMarkdown(md: string): string {
  * Error and placeholder pages scrape "successfully" and then sit in the
  * knowledge base as grounding evidence. Catching them at ingest keeps the
  * corpus honest.
+ *
+ * A title counts only when one part of it is nothing but these phrases and
+ * status codes ("404: Page not found", "Attention Required! | Cloudflare"),
+ * and the rest is short enough to be a site name. Matching the start of the
+ * title alone rejected real articles such as "Error budgets: …" or
+ * "Sign in with Apple: …".
  */
-const PLACEHOLDER_TITLE =
-  /^\s*(page not found|404|not found|error|access denied|forbidden|just a moment|attention required|are you a robot|enable javascript|sign in|log in)\b/i
+const PLACEHOLDER_TERM =
+  '(?:page not found|not found|access denied|forbidden|error|just a moment|attention required|are you a robot|enable javascript|sign in|log in|[45]\\d\\d)'
+const PLACEHOLDER_PART = new RegExp(
+  `^${PLACEHOLDER_TERM}(?:[\\s:()]+${PLACEHOLDER_TERM})*[\\s!?.…()]*$`,
+  'i'
+)
+/** The separators sites put between a page's title and their own name. */
+const TITLE_SEPARATOR = /\s*[|·•]\s*|\s+[-–—]\s+/
+const SITE_NAME_MAX_WORDS = 4
+
+function isPlaceholderTitle(title: string): boolean {
+  const parts = title.split(TITLE_SEPARATOR).map(part => part.trim())
+  const placeholder = parts.findIndex(part => PLACEHOLDER_PART.test(part))
+  return (
+    placeholder !== -1 &&
+    parts.every(
+      (part, i) =>
+        i === placeholder ||
+        part.split(/\s+/).filter(Boolean).length <= SITE_NAME_MAX_WORDS
+    )
+  )
+}
 
 export function looksLikePlaceholderPage(
   title: string,
   content: string
 ): boolean {
-  if (PLACEHOLDER_TITLE.test(title)) return true
+  if (isPlaceholderTitle(title)) return true
   const body = content.slice(0, 600).toLowerCase()
   return (
     /\b(404|page (?:could not be|cannot be|not) found|this page (?:does not|doesn't) exist)\b/.test(
@@ -45,7 +71,8 @@ export function looksLikePlaceholderPage(
 /**
  * Pages fetched in the last few minutes. AI setup reads a page during analysis
  * and the user may add it to the knowledge base right after; this saves the
- * second download, which can take several seconds.
+ * second download, which can take several seconds. Error and placeholder pages
+ * are not kept, so a retry after the site recovers fetches the page again.
  */
 const CACHE_TTL_MS = 10 * 60 * 1000
 const recentPages = new Map<string, { at: number; page: ScrapedContent }>()
@@ -57,6 +84,7 @@ export async function scrapeUrl(url: string): Promise<ScrapedContent> {
   const cached = recentPages.get(validUrl)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.page
   const page = await scrapeUncached(validUrl)
+  if (looksLikePlaceholderPage(page.title, page.content)) return page
   recentPages.set(validUrl, { at: Date.now(), page })
   if (recentPages.size > 50) {
     const oldest = recentPages.keys().next().value

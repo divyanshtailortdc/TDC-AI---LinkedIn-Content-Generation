@@ -30,6 +30,7 @@ import {
   IdentitySetupSuggestionsSchema,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
+import { AccountIdSchema } from '@/lib/setup-payloads'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import { resolvePreferences } from '@/lib/ai/context'
 import { profileFromRecords } from '@/lib/identity-profile'
@@ -88,7 +89,7 @@ export async function getIdentitySetupBaselineAction(
   | { success: true; data: IdentitySetupBaseline }
   | { success: false; error: string }
 > {
-  const id = z.string().uuid().safeParse(accountId)
+  const id = AccountIdSchema.safeParse(accountId)
   if (!id.success)
     return { success: false, error: 'Invalid account identifier' }
 
@@ -138,7 +139,7 @@ export async function getIdentitySetupBaselineAction(
 const modeSchema = z.enum(['fill-empty', 'replace'])
 
 const ApplyInputSchema = z.object({
-  accountId: z.string().uuid('Invalid account identifier'),
+  accountId: AccountIdSchema,
   suggestions: IdentitySetupSuggestionsSchema,
   sections: z.object({
     profile: z.object({ mode: modeSchema }).optional(),

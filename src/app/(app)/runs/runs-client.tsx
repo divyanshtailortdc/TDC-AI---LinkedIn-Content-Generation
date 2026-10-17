@@ -18,6 +18,8 @@ import { triggerNewRun } from './actions'
 import { PageHeader } from '@/components/page-header'
 import type { RunSpendSummary } from '@/lib/run-spend'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
+import type { PageInfo } from '@/lib/pagination'
+import { Pagination } from '@/components/pagination'
 
 interface RunSummary {
   id: string
@@ -42,11 +44,14 @@ interface RunSummary {
 
 export function RunsClient({
   initialRuns,
+  pageInfo,
   activeAccount,
   hideHeader,
   spend
 }: {
+  /** One page of runs; pageInfo says which. */
   initialRuns: RunSummary[]
+  pageInfo: PageInfo
   activeAccount: { id: string; name: string } | null
   hideHeader?: boolean
   /** Spend windows computed server-side; see getRunSpendSummary. */
@@ -291,6 +296,8 @@ export function RunsClient({
           </div>
         </div>
       )}
+
+      <Pagination {...pageInfo} noun="runs" />
     </div>
   )
 

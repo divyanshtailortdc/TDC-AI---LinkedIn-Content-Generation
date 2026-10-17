@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { idSchema } from './ids'
 import { optionalUrlError } from './identity-profile'
 
 /**
@@ -18,7 +19,7 @@ const optionalUrl = z
   .optional()
   .refine(value => !optionalUrlError(value ?? ''), URL_MESSAGE)
 
-export const AccountIdSchema = z.string().uuid('Invalid account identifier')
+export const AccountIdSchema = idSchema('Invalid account identifier')
 
 export const GoalPayloadSchema = z.object({
   title: text(200),

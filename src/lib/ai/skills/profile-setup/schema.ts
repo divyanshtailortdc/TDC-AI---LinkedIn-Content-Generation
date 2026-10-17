@@ -1,4 +1,5 @@
 import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
+import { idSchema } from '@/lib/ids'
 import { z } from 'zod'
 import { VoiceAnalysisSchema, WRITING_STYLES } from '../voice-analysis/schema'
 
@@ -448,7 +449,7 @@ export const AnalysisGuidanceSchema = z.object({
 export type AnalysisGuidance = Partial<z.infer<typeof AnalysisGuidanceSchema>>
 
 export const AnalyzeIdentityInputSchema = z.object({
-  accountId: z.string().uuid().optional(),
+  accountId: idSchema().optional(),
   description: z
     .string()
     .trim()

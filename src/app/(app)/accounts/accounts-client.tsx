@@ -4,6 +4,8 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, Users, Mic, BookOpen, Target, SlidersHorizontal, CheckCircle2, ChevronRight, Play } from 'lucide-react'
 import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
+import { Pagination } from '@/components/pagination'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 
 type Account = any
 
@@ -242,6 +244,7 @@ export function AccountsClient({
   prefAccountIds,
 }: AccountsClientProps) {
   const [searchQuery, setSearchQuery] = useState('')
+  const [page, setPage] = useState(1)
 
   const filteredAccounts = accounts.filter(
     (a) => a.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -253,6 +256,8 @@ export function AccountsClient({
     (a, b) => Number(b.isActive !== false) - Number(a.isActive !== false)
   )
   const hasAnyAccounts = accounts.length > 0
+  // Active first, then paged; a page past the end shows the last page.
+  const { rows: pageAccounts, pageInfo } = paginate(orderedAccounts, page, PAGE_SIZE)
 
   if (!hasAnyAccounts) {
     return <EmptyState />
@@ -267,7 +272,11 @@ export function AccountsClient({
           type="text"
           placeholder="Search identities..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => {
+            setSearchQuery(e.target.value)
+            // A new search starts on its first page.
+            setPage(1)
+          }}
           className="w-full pl-9 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-accent transition-colors"
         />
       </div>
@@ -283,7 +292,7 @@ export function AccountsClient({
           </div>
         ) : (
           <div className="space-y-4">
-            {orderedAccounts.map((account) => (
+            {pageAccounts.map((account) => (
               <AccountCard
                 key={account.id}
                 account={account}
@@ -294,6 +303,7 @@ export function AccountsClient({
                 hasPreferences={prefAccountIds.has(account.id)}
               />
             ))}
+            <Pagination {...pageInfo} noun="identities" onPageChange={setPage} />
           </div>
         )}
       </div>

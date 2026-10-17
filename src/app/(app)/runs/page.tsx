@@ -1,6 +1,5 @@
-import { db } from '@/db'
-import { accountsTable, runsTable } from '@/db/schema'
-import { desc, eq } from 'drizzle-orm'
+import { listRuns } from '@/lib/run-list'
+import { parsePage } from '@/lib/pagination'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from './runs-client'
 import { getActiveAccount } from '@/lib/active-account'
@@ -8,38 +7,26 @@ import { NoActiveAccount } from '@/components/no-active-account'
 
 export const dynamic = 'force-dynamic'
 
-export default async function RunsPage() {
+export default async function RunsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const activeAccount = await getActiveAccount()
 
   if (!activeAccount) {
     return <NoActiveAccount title="Run Engine & Observability" />
   }
 
-  const runsRaw = await db
-    .select({
-      id: runsTable.id,
-      accountId: runsTable.accountId,
-      workflow: runsTable.workflow,
-      trigger: runsTable.trigger,
-      status: runsTable.status,
-      currentStep: runsTable.currentStep,
-      totalSteps: runsTable.totalSteps,
-      costUsd: runsTable.costUsd,
-      tokenCounts: runsTable.tokenCounts,
-      error: runsTable.error,
-      createdAt: runsTable.createdAt,
-      accountName: accountsTable.name
-    })
-    .from(runsTable)
-    .leftJoin(accountsTable, eq(runsTable.accountId, accountsTable.id))
-    .where(eq(runsTable.accountId, activeAccount.id))
-    .orderBy(desc(runsTable.createdAt))
+  const page = parsePage((await searchParams).page)
+  const [{ rows, pageInfo }, spend] = await Promise.all([
+    listRuns(activeAccount.id, page),
+    getRunSpendSummary(activeAccount.id)
+  ])
 
-  const spend = await getRunSpendSummary(activeAccount.id)
-
-  const formattedRuns = runsRaw.map(r => ({
+  const formattedRuns = rows.map(r => ({
     ...r,
-    accountName: r.accountName || 'Unknown Identity'
+    accountName: activeAccount.name
   }))
 
   // Keying on the active account forces a remount on switch, so this client
@@ -49,6 +36,7 @@ export default async function RunsPage() {
     <RunsClient
       key={activeAccount.id}
       initialRuns={formattedRuns}
+      pageInfo={pageInfo}
       activeAccount={activeAccount}
       spend={spend}
     />

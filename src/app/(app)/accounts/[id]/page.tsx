@@ -2,7 +2,6 @@ import { SetupShell } from '@/components/account-setup/setup-shell'
 import { SETUP_STEPS } from '@/components/account-setup/steps'
 import { db } from '@/db'
 import {
-  accountsTable,
   audiencesTable,
   goalsTable,
   knowledgeDocumentsTable,
@@ -10,11 +9,10 @@ import {
   preferencesTable,
   voiceConfigsTable
 } from '@/db/schema'
+import { accountIdOr404, getAccountOr404 } from '@/lib/account-route'
 import { asc, eq } from 'drizzle-orm'
 import { ArrowRight, Check, Play, Sparkles } from 'lucide-react'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
-import { isUuid } from '@/lib/ids'
 import { EditIdentityForm } from './edit-identity-form'
 
 /** The steps whose saved data makes the account ready to generate. */
@@ -27,38 +25,39 @@ export default async function AccountPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { id } = await params
-  if (!isUuid(id)) notFound()
+  const id = accountIdOr404((await params).id, '')
 
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, id)
-  })
-
-  if (!account) notFound()
-
-  const [voiceConfig, knowledgeDoc, goal, preference, offerings, audiences] =
-    await Promise.all([
-      db.query.voiceConfigsTable.findFirst({
-        where: eq(voiceConfigsTable.accountId, id)
-      }),
-      db.query.knowledgeDocumentsTable.findFirst({
-        where: eq(knowledgeDocumentsTable.accountId, id)
-      }),
-      db.query.goalsTable.findFirst({
-        where: eq(goalsTable.accountId, id)
-      }),
-      db.query.preferencesTable.findFirst({
-        where: eq(preferencesTable.accountId, id)
-      }),
-      db.query.offeringsTable.findMany({
-        where: eq(offeringsTable.accountId, id),
-        orderBy: [asc(offeringsTable.createdAt)]
-      }),
-      db.query.audiencesTable.findMany({
-        where: eq(audiencesTable.accountId, id),
-        orderBy: [asc(audiencesTable.createdAt)]
-      })
-    ])
+  const [
+    account,
+    voiceConfig,
+    knowledgeDoc,
+    goal,
+    preference,
+    offerings,
+    audiences
+  ] = await Promise.all([
+    getAccountOr404(id),
+    db.query.voiceConfigsTable.findFirst({
+      where: eq(voiceConfigsTable.accountId, id)
+    }),
+    db.query.knowledgeDocumentsTable.findFirst({
+      where: eq(knowledgeDocumentsTable.accountId, id)
+    }),
+    db.query.goalsTable.findFirst({
+      where: eq(goalsTable.accountId, id)
+    }),
+    db.query.preferencesTable.findFirst({
+      where: eq(preferencesTable.accountId, id)
+    }),
+    db.query.offeringsTable.findMany({
+      where: eq(offeringsTable.accountId, id),
+      orderBy: [asc(offeringsTable.createdAt)]
+    }),
+    db.query.audiencesTable.findMany({
+      where: eq(audiencesTable.accountId, id),
+      orderBy: [asc(audiencesTable.createdAt)]
+    })
+  ])
 
   const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
 
@@ -83,7 +82,7 @@ export default async function AccountPage({
                   {CONFIGURED_STEPS.map(step => (
                     <li key={step.key}>
                       <Link
-                        href={`/accounts/${id}${step.path}`}
+                        href={`/accounts/${account.id}${step.path}`}
                         className="border-border text-foreground hover:bg-surface-hover inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
                       >
                         <Check className="text-brand-strong h-3.5 w-3.5" />
@@ -95,7 +94,7 @@ export default async function AccountPage({
               </div>
             </div>
             <Link
-              href={`/accounts/${id}/runs`}
+              href={`/accounts/${account.id}/runs`}
               className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold whitespace-nowrap shadow-sm transition-colors"
             >
               <Play className="h-3.5 w-3.5 fill-current" />

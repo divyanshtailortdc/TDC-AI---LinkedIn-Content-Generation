@@ -5,8 +5,13 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
 import { writeActiveAccountCookie } from './active-account'
+import { isUuid } from './ids'
 
 export async function setActiveAccount(accountId: string) {
+  if (!isUuid(accountId)) {
+    return { success: false, error: 'Identity not found' }
+  }
+
   const account = await db.query.accountsTable.findFirst({
     where: eq(accountsTable.id, accountId)
   })

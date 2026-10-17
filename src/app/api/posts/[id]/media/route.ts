@@ -8,6 +8,7 @@ import {
   validateReferenceDimensions
 } from '~/lib/media/image-input'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
+import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
 
 /**
@@ -65,7 +66,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  if (!z.string().uuid().safeParse(id).success) {
+  if (!isUuid(id)) {
     return fail(400, 'Invalid post identifier.')
   }
 

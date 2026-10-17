@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useOptimistic, useRef, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Sparkles, ArrowRight, Check, CheckCheck, ListFilter } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
@@ -12,32 +12,13 @@ import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-
 import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas, approveAllIdeas } from './actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
+import { Pagination } from '@/components/pagination'
 import { cn } from '@/lib/cn'
 import type { ActiveAccount } from '@/lib/active-account'
+import type { PageInfo } from '@/lib/pagination'
+import { STATUS_TABS, type StatusFilter } from './status-filter'
 
 type ClientIdeaData = IdeaCardData & { accountId: string }
-
-const STATUS_TABS = ['proposed', 'approved', 'rejected', 'all'] as const
-type StatusFilter = (typeof STATUS_TABS)[number]
-
-/** The status filter lives in the URL (?status=) so it survives a reload and can be shared. */
-function statusFromParams(params: URLSearchParams): StatusFilter {
-  const status = params.get('status') as StatusFilter | null
-  return status && STATUS_TABS.includes(status) ? status : 'all'
-}
-
-/**
- * Writes the status through the native History API, which Next.js keeps in
- * sync with useSearchParams without a server round trip — the same approach
- * as the Posts page. The default ('all') is left out of the URL.
- */
-function writeStatusParam(status: StatusFilter) {
-  const params = new URLSearchParams(window.location.search)
-  if (status === 'all') params.delete('status')
-  else params.set('status', status)
-  const query = params.toString()
-  window.history.pushState(null, '', query ? `?${query}` : window.location.pathname)
-}
 
 const statusLabel = (status: StatusFilter) =>
   status === 'all' ? 'All statuses' : IDEA_STATUS_LABEL[status]
@@ -57,15 +38,60 @@ const EMPTY_STATE: Record<StatusFilter, { title: string; body: string }> = {
 
 export function IdeasClient({
   initialIdeas,
+  pageInfo,
+  status,
+  statusCounts,
+  proposedIds,
+  approvedIds,
   activeAccount
 }: {
+  /** One page of the ideas the status filter shows; pageInfo says which. */
   initialIdeas: ClientIdeaData[]
+  pageInfo: PageInfo
+  status: StatusFilter
+  statusCounts: Record<StatusFilter, number>
+  /** Every idea waiting for review, on any page. */
+  proposedIds: string[]
+  /** Every approved idea not yet drafted, on any page. */
+  approvedIds: string[]
   activeAccount: ActiveAccount
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
-  const searchParams = useSearchParams()
-  const selectedStatus = statusFromParams(searchParams)
+  // The server sends a new page after every action here (each revalidates
+  // /ideas) and on each page or filter change. It replaces the local copy,
+  // which only holds the optimistic changes made until it arrives. Adjusted
+  // during render, as on the Posts page, so the old list never paints.
+  const [shownIdeas, setShownIdeas] = useState(initialIdeas)
+  if (initialIdeas !== shownIdeas) {
+    setShownIdeas(initialIdeas)
+    setIdeas(initialIdeas)
+  }
+  // A page past the end, such as the last page once its ideas have all moved
+  // out of the filter, is served as the last page. The URL follows, so a
+  // reload, Back and the page numbers all agree on where the list is.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const shown = pageInfo.page > 1 ? String(pageInfo.page) : null
+    if (params.get('page') === shown) return
+    if (shown) params.set('page', shown)
+    else params.delete('page')
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `?${query}` : pathname)
+  }, [pageInfo.page, pathname])
+
+  // The filter is loaded on the server, so the menu shows the new choice
+  // while that page loads.
+  const [isFiltering, startFiltering] = useTransition()
+  const [selectedStatus, setSelectedStatus] = useOptimistic(status)
+  const changeStatus = (next: StatusFilter) =>
+    startFiltering(() => {
+      setSelectedStatus(next)
+      // The default ('all') is left out of the URL, and a new filter starts
+      // on its first page.
+      router.push(next === 'all' ? pathname : `${pathname}?status=${next}`)
+    })
   const [isActionBusy, setIsActionBusy] = useState(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
@@ -77,20 +103,15 @@ export function IdeasClient({
   // progress panel is shown — the ideas list would just be noise.
   const showGeneratingOnly = draftStatus === 'processing' || draftStatus === 'success'
 
-  const statusCounts = Object.fromEntries(
-    STATUS_TABS.map((st) => [
-      st,
-      st === 'all' ? ideas.length : ideas.filter((i) => i.status === st).length
-    ])
-  ) as Record<StatusFilter, number>
-
-  // All ideas here already belong to the active account (scoped server-side).
+  // All ideas here already belong to the active account (scoped server-side)
+  // and match the filter; this hides ones an action has just moved out of it
+  // until the server's next page arrives.
   const filteredIdeas = ideas.filter(
-    (idea) => selectedStatus === 'all' || idea.status === selectedStatus
+    (idea) => status === 'all' || idea.status === status
   )
 
-  const approvedCount = ideas.filter((i) => i.status === 'approved').length
-  const allProposedIds = ideas.filter((i) => i.status === 'proposed').map((i) => i.id)
+  const approvedCount = approvedIds.length
+  const allProposedIds = proposedIds
 
   const handleApprove = async (id: string) => {
     setIdeaActionBusyId(id)
@@ -232,15 +253,13 @@ export function IdeasClient({
   }
 
   const handleDraftApproved = async () => {
-    const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
     await draftIdeas(approvedIds)
   }
 
   // One click: approve every idea still waiting for review, then draft posts
   // for all approved ideas (the ones just approved plus any approved before).
   const handleApproveAllAndDraft = async () => {
-    const proposedIds = allProposedIds
-    const alreadyApprovedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+    const alreadyApprovedIds = approvedIds
     if (proposedIds.length === 0) return
 
     setIsActionBusy(true)
@@ -367,7 +386,7 @@ export function IdeasClient({
             <StatusFilterMenu
               value={selectedStatus}
               counts={statusCounts}
-              onChange={writeStatusParam}
+              onChange={changeStatus}
             />
           )
         }
@@ -389,13 +408,18 @@ export function IdeasClient({
           />
 
           {showGeneratingOnly ? null : filteredIdeas.length === 0 ? (
-            <div className="rounded-2xl border-2 border-dashed border-border bg-surface p-12 text-center">
+            <div
+              className={cn(
+                'rounded-2xl border-2 border-dashed border-border bg-surface p-12 text-center transition-opacity',
+                isFiltering && 'opacity-60'
+              )}
+            >
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted" />
               <h3 className="text-sm font-semibold text-foreground">
-                {EMPTY_STATE[selectedStatus].title}
+                {EMPTY_STATE[status].title}
               </h3>
               <p className="mx-auto mt-1 mb-5 max-w-sm text-xs leading-relaxed text-muted">
-                {EMPTY_STATE[selectedStatus].body}
+                {EMPTY_STATE[status].body}
               </p>
               <Link
                 href="/runs"
@@ -406,7 +430,13 @@ export function IdeasClient({
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 items-start gap-4 pb-8 lg:grid-cols-2">
+            <div
+              aria-busy={isFiltering}
+              className={cn(
+                'grid grid-cols-1 items-start gap-4 lg:grid-cols-2 transition-opacity',
+                isFiltering && 'opacity-60'
+              )}
+            >
               {filteredIdeas.map((idea) => (
                 <RunIdeaCard
                   key={idea.id}
@@ -416,9 +446,19 @@ export function IdeasClient({
                   onEditSave={handleEditSave}
                   onDraft={handleDraftSingle}
                   isBusy={ideaActionBusyId === idea.id}
-                  showStatus={selectedStatus === 'all'}
+                  showStatus={status === 'all'}
                 />
               ))}
+            </div>
+          )}
+
+          {!showGeneratingOnly && (
+            <div className="pt-2 pb-8">
+              <Pagination
+                {...pageInfo}
+                noun="ideas"
+                query={status === 'all' ? {} : { status }}
+              />
             </div>
           )}
         </div>

@@ -1,9 +1,8 @@
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
-import { accountsTable, goalsTable } from '@/db/schema'
+import { goalsTable } from '@/db/schema'
+import { accountIdOr404, getAccountOr404 } from '@/lib/account-route'
 import { desc, eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
-import { isUuid } from '@/lib/ids'
 import { GoalsClient } from './goals-client'
 
 type PageProps = {
@@ -11,22 +10,16 @@ type PageProps = {
 }
 
 export default async function GoalsPage({ params }: PageProps) {
-  const { id } = await params
-  if (!isUuid(id)) notFound()
+  const id = accountIdOr404((await params).id, '/goals')
 
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, id)
-  })
-
-  if (!account) {
-    notFound()
-  }
-
-  const goals = await db
-    .select()
-    .from(goalsTable)
-    .where(eq(goalsTable.accountId, id))
-    .orderBy(desc(goalsTable.createdAt))
+  const [account, goals] = await Promise.all([
+    getAccountOr404(id),
+    db
+      .select()
+      .from(goalsTable)
+      .where(eq(goalsTable.accountId, id))
+      .orderBy(desc(goalsTable.createdAt))
+  ])
 
   return (
     <SetupShell account={account} hasSavedData={goals.length > 0}>

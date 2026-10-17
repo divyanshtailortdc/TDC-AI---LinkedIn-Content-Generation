@@ -8,6 +8,7 @@ import {
   IdentityProfileSchema
 } from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
+import { AccountIdSchema } from '@/lib/setup-payloads'
 import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
@@ -167,7 +168,7 @@ async function createAccountOnce(formData: FormData) {
 }
 
 const updateAccountSchema = IdentityProfileSchema.extend({
-  id: z.string().uuid('Invalid account identifier'),
+  id: AccountIdSchema,
   /** Person or Company / Product; left out keeps the saved type. */
   accountType: z.enum(['personal', 'company']).optional()
 })
@@ -245,10 +246,7 @@ export async function updateAccountAction(input: UpdateAccountInput) {
 
 export async function deleteAccountAction(accountId: string) {
   try {
-    const parsed = z
-      .string()
-      .uuid('Invalid account identifier')
-      .safeParse(accountId)
+    const parsed = AccountIdSchema.safeParse(accountId)
     if (!parsed.success) {
       return { success: false, error: 'Invalid account identifier' }
     }
@@ -288,10 +286,7 @@ export async function deleteAccountAction(accountId: string) {
 
 export async function reactivateAccountAction(accountId: string) {
   try {
-    const parsed = z
-      .string()
-      .uuid('Invalid account identifier')
-      .safeParse(accountId)
+    const parsed = AccountIdSchema.safeParse(accountId)
     if (!parsed.success) {
       return { success: false, error: 'Invalid account identifier' }
     }

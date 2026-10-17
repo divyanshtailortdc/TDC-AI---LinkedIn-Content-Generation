@@ -6,12 +6,13 @@ import { z } from 'zod'
 import { db } from '~/db'
 import { samplePostsTable, voiceConfigsTable } from '~/db/schema'
 import { analyzeVoiceSamples } from '~/lib/ai/skills/voice-analysis'
+import { AccountIdSchema } from '~/lib/setup-payloads'
 
 // Every voice field is optional so a voice can be saved without an analysis.
 // A field left out keeps its saved value (or the column default on a new
 // profile); see orNull for how text fields are cleared.
 const saveVoiceSchema = z.object({
-  accountId: z.string().uuid('Invalid account identifier'),
+  accountId: AccountIdSchema,
   derivedStyleRubric: z.string().trim().optional(),
   rawSamplesText: z.string().optional(),
   tone: z.string().trim().min(1).max(50).optional(),

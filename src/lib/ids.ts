@@ -1,12 +1,20 @@
 import { z } from 'zod'
 
-const uuid = z.string().uuid()
-
 /**
- * Whether an id from the URL can be looked up. Postgres throws on a malformed
- * uuid rather than finding nothing, which turned a mistyped link into a 500,
- * so pages check this first and answer 404.
+ * A row id from a URL, form or action. Postgres throws on a malformed uuid
+ * rather than finding nothing, which turns a mistyped link into a 500, so ids
+ * are checked against this before they reach a query.
+ *
+ * z.guid() checks the shape Postgres stores. z.uuid() also requires an RFC
+ * version and variant digit, which Postgres does not, so seeded or imported
+ * rows would look like they don't exist.
  */
+export function idSchema(message = 'Invalid identifier') {
+  return z.guid(message)
+}
+
+const anyId = idSchema()
+
 export function isUuid(value: string): boolean {
-  return uuid.safeParse(value).success
+  return anyId.safeParse(value).success
 }

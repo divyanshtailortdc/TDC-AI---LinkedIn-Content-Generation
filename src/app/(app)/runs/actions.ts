@@ -7,6 +7,7 @@ import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { processRunImmediately } from '~/jobs/worker'
 import { revalidatePath } from 'next/cache'
 import { getActiveAccountId, writeActiveAccountCookie } from '@/lib/active-account'
+import { isUuid } from '@/lib/ids'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 
 /**
@@ -24,6 +25,8 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
     if (!accountId) {
       throw new Error('No active identity selected. Add or activate an identity first.')
     }
+    if (!isUuid(accountId)) throw new Error('Identity not found or inactive')
+    if (goalId && !isUuid(goalId)) throw new Error('Goal not found')
 
     const account = await db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, accountId)
@@ -46,9 +49,9 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
       console.error(`Background execution error for run ${run.id}:`, err)
     })
 
-    // The run page sends a run of any other identity back to /runs, so a run
-    // started from another identity's own Runs tab makes that identity the
-    // active one; otherwise the caller is bounced off the run it just started.
+    // A run started from another identity's own Runs tab makes that identity
+    // the active one. The run page would switch to it anyway; doing it here
+    // saves the sidebar flipping identity just after the run page opens.
     if (accountId !== activeAccountId) {
       await writeActiveAccountCookie(accountId)
       revalidatePath('/', 'layout')
@@ -67,6 +70,7 @@ export type RunStatusResponse =
   | { success: false; error: string; run?: undefined; steps?: undefined; findings?: undefined; ideas?: undefined }
 
 export async function fetchRunStatus(runId: string): Promise<RunStatusResponse> {
+  if (!isUuid(runId)) return { success: false, error: 'Run not found' }
   try {
     // Settles a run whose process died, so its page stops polling a run that
     // will never move again.

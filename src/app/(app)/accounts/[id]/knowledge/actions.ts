@@ -5,7 +5,9 @@ import { knowledgeDocumentsTable } from '@/db/schema'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { extractKnowledgeClaims } from '@/lib/ai/skills/knowledge-extraction'
 import { indexKnowledgeDocument } from '@/lib/ai/embeddings'
+import { idSchema } from '@/lib/ids'
 import {
+  AccountIdSchema,
   KnowledgeDocumentSchema,
   parseSetupPayload
 } from '@/lib/setup-payloads'
@@ -84,7 +86,14 @@ export async function saveKnowledgeDocument(rawPayload: {
   return { success: true, docId: inserted?.id }
 }
 
-export async function deleteKnowledgeDocument(docId: string, accountId: string) {
+const DocumentIdSchema = idSchema('Invalid document identifier')
+
+export async function deleteKnowledgeDocument(
+  rawDocId: string,
+  rawAccountId: string
+) {
+  const docId = parseSetupPayload(DocumentIdSchema, rawDocId)
+  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await db
     .delete(knowledgeDocumentsTable)
     .where(

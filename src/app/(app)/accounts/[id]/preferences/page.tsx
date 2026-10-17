@@ -1,11 +1,10 @@
 import { StepFields } from '@/components/account-setup/setup-frame'
 import { SetupShell } from '@/components/account-setup/setup-shell'
 import { db } from '@/db'
-import { accountsTable, preferencesTable, schedulesTable } from '@/db/schema'
+import { preferencesTable, schedulesTable } from '@/db/schema'
+import { accountIdOr404, getAccountOr404 } from '@/lib/account-route'
 import { resolvePreferences } from '@/lib/ai/context'
 import { eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
-import { isUuid } from '@/lib/ids'
 import { ScheduleForm } from '../schedule/schedule-form'
 import { PreferencesForm } from './preferences-form'
 
@@ -14,18 +13,10 @@ type PageProps = {
 }
 
 export default async function PreferencesPage({ params }: PageProps) {
-  const { id } = await params
-  if (!isUuid(id)) notFound()
+  const id = accountIdOr404((await params).id, '/preferences')
 
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, id)
-  })
-
-  if (!account) {
-    notFound()
-  }
-
-  const [[existingPreferences], schedule] = await Promise.all([
+  const [account, [existingPreferences], schedule] = await Promise.all([
+    getAccountOr404(id),
     db
       .select()
       .from(preferencesTable)

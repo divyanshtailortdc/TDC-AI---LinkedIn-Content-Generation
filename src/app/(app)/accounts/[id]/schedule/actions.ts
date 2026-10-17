@@ -2,12 +2,13 @@
 
 import { db } from '@/db'
 import { schedulesTable } from '@/db/schema'
+import { AccountIdSchema, parseSetupPayload } from '@/lib/setup-payloads'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 /** How many ideas a run produces lives in Preferences; this is only when. */
 export async function saveSchedule(
-  accountId: string,
+  rawAccountId: string,
   payload: {
     daysOfWeek: number[]
     timeOfDay: string
@@ -15,6 +16,7 @@ export async function saveSchedule(
   }
 ) {
   try {
+    const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
     if (payload.daysOfWeek.length === 0) {
       throw new Error('Pick at least one day.')
     }

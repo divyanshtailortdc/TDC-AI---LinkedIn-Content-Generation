@@ -3,6 +3,7 @@
 import { db } from '@/db'
 import { goalsTable } from '@/db/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
+import { idSchema, isUuid } from '@/lib/ids'
 import { loadGenerationContext } from '@/lib/ai/context'
 import { SkillError } from '@/lib/ai/run-skill'
 import {
@@ -79,6 +80,8 @@ async function assertTitleIsNew(
   }
 }
 
+const GoalIdSchema = idSchema('Invalid goal identifier')
+
 function revalidateGoals(accountId: string) {
   revalidatePath(`/accounts/${accountId}/goals`)
   revalidatePath(`/accounts/${accountId}`)
@@ -107,7 +110,7 @@ export async function updateGoal(
   rawAccountId: string,
   rawPayload: GoalPayload
 ) {
-  const goalId = parseSetupPayload(AccountIdSchema, rawGoalId)
+  const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
@@ -129,6 +132,9 @@ export async function suggestGoalsAction(
   | { success: true; suggestions: GoalSuggestion[] }
   | { success: false; error: string }
 > {
+  if (!isUuid(accountId)) {
+    return { success: false, error: 'Invalid account identifier' }
+  }
   try {
     const suggestions = await suggestGoals(
       await loadGenerationContext(accountId)
@@ -164,10 +170,12 @@ export async function suggestGoalsAction(
 }
 
 export async function toggleGoalActive(
-  goalId: string,
-  accountId: string,
+  rawGoalId: string,
+  rawAccountId: string,
   isActive: boolean
 ) {
+  const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
+  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await db
     .update(goalsTable)
     .set({ isActive, updatedAt: new Date() })
@@ -177,7 +185,9 @@ export async function toggleGoalActive(
   return { success: true }
 }
 
-export async function deleteGoal(goalId: string, accountId: string) {
+export async function deleteGoal(rawGoalId: string, rawAccountId: string) {
+  const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
+  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await db
     .delete(goalsTable)
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))

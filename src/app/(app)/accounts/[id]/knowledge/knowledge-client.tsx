@@ -2,6 +2,7 @@
 
 import { useStepView } from '@/components/account-setup/setup-frame'
 import { ConfirmPopover } from '@/components/confirm-popover'
+import { Pagination } from '@/components/pagination'
 import {
   updateDraftSuggestions,
   useIdentitySetupDraft
@@ -11,6 +12,7 @@ import { showToast } from '@/components/toast-notification'
 import {
   EMPTY_SUGGESTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import {
   BookOpen,
@@ -28,7 +30,7 @@ import {
   X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   deleteKnowledgeDocument,
   fetchUrlPreview,
@@ -58,6 +60,23 @@ export function KnowledgeClient({
 }) {
   const router = useRouter()
   const [tab, setTab] = useState<'url' | 'artifact'>('url')
+
+  // The document list, newest first, a page at a time. A document added by
+  // any of the forms below lands at the top, so the list goes back to its
+  // first page to show it. A page emptied by a deletion shows the last page.
+  const [docPage, setDocPage] = useState(1)
+  const newestDocId = initialDocs[0]?.id
+  const [shownNewestDocId, setShownNewestDocId] = useState(newestDocId)
+  if (newestDocId !== shownNewestDocId) {
+    setShownNewestDocId(newestDocId)
+    setDocPage(1)
+  }
+  const { rows: pageDocs, pageInfo: docPageInfo } = paginate(
+    initialDocs,
+    docPage,
+    PAGE_SIZE
+  )
+  const docListRef = useRef<HTMLElement>(null)
 
   // URL state
   const [inputUrl, setInputUrl] = useState('')
@@ -646,7 +665,7 @@ export function KnowledgeClient({
       </section>
 
       {/* Ingested Documents List */}
-      <section className="space-y-4">
+      <section ref={docListRef} className="scroll-mt-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
             <BookOpen className="text-accent h-4 w-4" />
@@ -669,7 +688,7 @@ export function KnowledgeClient({
           </div>
         ) : (
           <div className="space-y-4">
-            {initialDocs.map(doc => {
+            {pageDocs.map(doc => {
               // Summary and claims live in their own columns; rows written before
               // that still carry the packed JSON blob in `summary`.
               let summaryText = doc.summary || undefined
@@ -803,6 +822,12 @@ export function KnowledgeClient({
                 </div>
               )
             })}
+            <Pagination
+              {...docPageInfo}
+              noun="documents"
+              onPageChange={setDocPage}
+              scrollTarget={docListRef}
+            />
           </div>
         )}
       </section>
