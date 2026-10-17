@@ -11,6 +11,7 @@ import {
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '@/lib/ai/context'
 import { defaultModel } from '@/lib/models'
+import { insertRunUnlessActive } from './run-guard'
 
 export interface EnqueueRunOptions {
   accountId: string
@@ -37,38 +38,39 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
   if (!account) {
     throw new Error(`Account ${opts.accountId} not found`)
   }
+  if (!account.isActive) {
+    throw new Error('Identity not found or inactive')
+  }
 
   // Freeze the research settings that produced this run so "why did it write
   // that?" stays answerable if they change later.
   const researchConfig = { ...RESEARCH_SETTINGS }
 
-  const [newRun] = await db
-    .insert(runsTable)
-    .values({
-      accountId: opts.accountId,
-      goalId: defaultGoal?.id || null,
-      preferenceSetId: preference?.id || null,
-      workflow: 'standard',
-      // Recorded up front: the database default is a leftover placeholder.
-      model: defaultModel,
-      trigger: opts.trigger || 'manual',
-      status: 'queued',
-      currentStep: 0,
-      totalSteps: 3,
-      researchConfig,
-      timings: {},
-      tokenCounts: {},
-      costUsd: '0',
-      logs: [
-        {
-          step: 'queued',
-          status: 'pending',
-          timestamp: new Date().toISOString(),
-          message: 'Run placed in execution queue'
-        }
-      ]
-    })
-    .returning()
+  // Refused while this identity has a run queued or in progress.
+  const newRun = await insertRunUnlessActive(db, {
+    accountId: opts.accountId,
+    goalId: defaultGoal?.id || null,
+    preferenceSetId: preference?.id || null,
+    workflow: 'standard',
+    // Recorded up front: the database default is a leftover placeholder.
+    model: defaultModel,
+    trigger: opts.trigger || 'manual',
+    status: 'queued',
+    currentStep: 0,
+    totalSteps: 3,
+    researchConfig,
+    timings: {},
+    tokenCounts: {},
+    costUsd: '0',
+    logs: [
+      {
+        step: 'queued',
+        status: 'pending',
+        timestamp: new Date().toISOString(),
+        message: 'Run placed in execution queue'
+      }
+    ]
+  })
 
   return newRun
 }
