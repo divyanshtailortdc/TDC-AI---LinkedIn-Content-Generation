@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { postCharCount } from '@/lib/post-text'
 import { REVIEWER_SEARCH_SOURCE, REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
+import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { runLinter } from '~/lib/lint/run-linter'
 import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
 import { loadPostsPage } from './posts-data'
@@ -336,6 +337,12 @@ export async function generatePostMediaAction(
       ...mediaSettings
     })
 
+    // Charged to the post's run whether or not an image came back.
+    await recordReviewMediaSpend(draftId, mediaPlan.usage, {
+      summary: `Media plan (${mediaPlan.mode}) (post review)`,
+      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
+    })
+
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
       const [insertedMedia] = await db
         .insert(postMediaTable)
@@ -485,6 +492,12 @@ export async function regeneratePostMediaAction(
       version: currentVersion,
       evidence,
       ...(await loadMediaSettings(draft.accountId))
+    })
+
+    // Charged to the post's run whether or not an image came back.
+    await recordReviewMediaSpend(draftId, mediaPlan.usage, {
+      summary: `New media (${mediaPlan.mode}) (post review)`,
+      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
     })
 
     if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {

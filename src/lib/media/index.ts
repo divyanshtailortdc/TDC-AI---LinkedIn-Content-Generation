@@ -375,6 +375,13 @@ export interface CustomImageRequest {
   seed?: number
   /** Cancels the in-flight provider call; no further models are tried once it fires. */
   abortSignal?: AbortSignal
+  /**
+   * Called with the cost of each image the provider billed, as soon as it is
+   * known. An attempt that is discarded, fails the size check or is cancelled
+   * afterwards is still billed, so the caller records spend from here rather
+   * than from a result that may never come.
+   */
+  onUsage?: (usage: CallUsage) => void
 }
 
 /** Thrown when generation is cancelled through `abortSignal`, so callers can skip saving. */
@@ -475,6 +482,7 @@ export async function generateCustomImage(
         seed,
         abortSignal: req.abortSignal
       })
+      req.onUsage?.(readImageCost(result))
 
       const first = result.images?.[0]
       if (!first?.base64) {
