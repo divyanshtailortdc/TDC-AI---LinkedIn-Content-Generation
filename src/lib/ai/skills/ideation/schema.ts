@@ -85,7 +85,7 @@ export const IdeaItemSchema = z.object({
       z.object({
         claim: z.string().describe('Specific factual claim or statistic'),
         factType: z
-          .enum(['verified', 'inferred', 'unsupported'])
+          .enum(['verified', 'sourced', 'inferred', 'unsupported'])
           .default('verified'),
         sourceId: z.string().optional(),
         sourceUrl: z
@@ -192,4 +192,5 @@ export interface CorpusEvidenceSource {
   sourceUrl?: string
   sourceTitle?: string
   sourceId?: string
+  origin?: 'own' | 'knowledge' | 'web'
 }

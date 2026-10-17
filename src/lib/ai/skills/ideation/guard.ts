@@ -24,6 +24,11 @@ export interface GroundingCorpus {
     sourceId?: string
     publishedAt?: string
     isFresh?: boolean
+    /**
+     * Where the text came from. Web text is copied from pages nobody on this
+     * account vetted, so a claim that matches it is "sourced", not "verified".
+     */
+    origin?: 'own' | 'knowledge' | 'web'
   }>
   knownNumbers?: string[]
   hasFreshEvidence?: boolean
@@ -299,6 +304,16 @@ export function checkClaimDirectSupport(
   return { support: 'inferred', confidence: 0.6 }
 }
 
+/**
+ * The account's own proof points and documents can be called verified. Text
+ * from a web page only matched what the page says, so it is "sourced".
+ */
+export function factTypeFor(
+  origin: 'own' | 'knowledge' | 'web' | undefined
+): 'verified' | 'sourced' {
+  return origin === 'web' ? 'sourced' : 'verified'
+}
+
 export function validateIdea(
   rawIdea: GeneratedIdeaItem,
   corpus: GroundingCorpus
@@ -419,7 +434,7 @@ export function validateIdea(
       directClaims.push(ev.claim)
       keptEvidence.push({
         ...ev,
-        factType: 'verified',
+        factType: factTypeFor(check.matchedSource.origin),
         sourceUrl: check.matchedSource.sourceUrl || ev.sourceUrl,
         sourceTitle: check.matchedSource.sourceTitle || ev.sourceTitle,
         quote: check.matchedSource.quote || ev.quote,
@@ -539,7 +554,7 @@ export function resolveGeneratedIdea(
       const source = index === null ? undefined : corpus[index]
       return {
         claim: ev.claim,
-        factType: 'verified' as const,
+        factType: factTypeFor(source?.origin),
         sourceId: source?.sourceId,
         sourceUrl: source?.sourceUrl,
         sourceTitle: source?.sourceTitle,

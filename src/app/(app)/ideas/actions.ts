@@ -8,7 +8,9 @@ import {
   settleRunAfterDrafting
 } from '~/lib/ai/pipeline/drafting-run'
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 import { requireActiveAccountId } from '@/lib/active-account'
+import { loadIdeasPage } from './ideas-data'
 
 // These actions mutate a specific idea/run identified by its own id, which is
 // already scoped server-side wherever it's read (the /ideas list is fetched
@@ -24,6 +26,20 @@ import { requireActiveAccountId } from '@/lib/active-account'
  * again would make it draftable a second time, and so a second post.
  */
 const NOT_YET_DRAFTED = notInArray(ideasTable.status, ['drafting', 'drafted'])
+
+/** The next page of the active account's ideas, after the idea with `cursorId`. */
+export async function loadMoreIdeas(cursorId: string) {
+  try {
+    if (!z.string().uuid().safeParse(cursorId).success) {
+      return { success: false as const, error: 'Invalid page reference.' }
+    }
+    const accountId = await requireActiveAccountId()
+    const { ideas, nextCursor } = await loadIdeasPage(accountId, cursorId)
+    return { success: true as const, ideas, nextCursor }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Could not load more ideas.' }
+  }
+}
 
 export async function approveIdea(ideaId: string) {
   try {

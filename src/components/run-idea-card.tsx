@@ -397,6 +397,9 @@ export function RunIdeaCard({
                             {ev.factType === 'inferred' && (
                               <span>· inferred</span>
                             )}
+                            {ev.factType === 'sourced' && (
+                              <span>· from the web</span>
+                            )}
                           </span>
                         )}
                       </li>

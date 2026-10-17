@@ -13,6 +13,22 @@ import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { validateImageUrl } from '~/lib/media/image-input'
 import { requireActiveAccountId } from '@/lib/active-account'
+import { z } from 'zod'
+import { loadPostsPage } from './posts-data'
+
+/** The next page of the active account's posts, after the post with `cursorId`. */
+export async function loadMorePosts(cursorId: string) {
+  try {
+    if (!z.string().uuid().safeParse(cursorId).success) {
+      return { success: false as const, error: 'Invalid page reference.' }
+    }
+    const accountId = await requireActiveAccountId()
+    const { posts, nextCursor } = await loadPostsPage(accountId, { cursorId })
+    return { success: true as const, posts, nextCursor }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Could not load more posts.' }
+  }
+}
 
 export async function updateDraft(
   draftId: string,

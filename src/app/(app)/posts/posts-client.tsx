@@ -56,6 +56,7 @@ import { createPortal } from 'react-dom'
 import {
   approveDraft,
   fetchPostMediaImage,
+  loadMorePosts,
   regeneratePostMediaAction,
   rejectDraft,
   removePostMediaAction,
@@ -314,9 +315,14 @@ function countLintErrors(findings: LintFinding[] | undefined): number {
 
 export function PostsClientInner({
   initialPosts,
+  initialNextCursor,
+  totalCount,
   activeAccount
 }: {
   initialPosts: PostDetail[]
+  /** Where the next page starts; null when every post is already loaded. */
+  initialNextCursor: string | null
+  totalCount: number
   activeAccount: ActiveAccount
 }) {
   const router = useRouter()
@@ -325,6 +331,28 @@ export function PostsClientInner({
   const hasMounted = useHasMounted()
 
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
+  const [nextCursor, setNextCursor] = useState(initialNextCursor)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  // Older posts come in a page at a time; the newest are shown first.
+  const loadMore = async () => {
+    if (!nextCursor || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const res = await loadMorePosts(nextCursor)
+      if (res.success) {
+        setPosts(prev => {
+          const have = new Set(prev.map(p => p.id))
+          return [...prev, ...res.posts.filter(p => !have.has(p.id))]
+        })
+        setNextCursor(res.nextCursor)
+      } else {
+        showToast({ type: 'error', title: 'Could not load more', message: res.error })
+      }
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
   const [selectedPostId, setSelectedPostId] = useState<string>(
     initialPosts.find(p => !filterRunId || p.runId === filterRunId)?.id ||
       initialPosts[0]?.id ||
@@ -1703,6 +1731,24 @@ export function PostsClientInner({
                 )
               })
             )}
+
+            {nextCursor && (
+              <div className="flex flex-col items-center gap-2 px-2 pt-4 pb-2 text-center">
+                <p className="text-muted text-[11px] leading-relaxed">
+                  Showing the newest {posts.length} of {totalCount} posts. Search
+                  and filters cover the posts loaded so far.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={isLoadingMore}
+                  className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60"
+                >
+                  {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Load older posts
+                </button>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -2796,9 +2842,13 @@ function PostFiltersMenu({
 
 export function PostsClient({
   initialPosts,
+  initialNextCursor,
+  totalCount,
   activeAccount
 }: {
   initialPosts: PostDetail[]
+  initialNextCursor: string | null
+  totalCount: number
   activeAccount: ActiveAccount
 }) {
   return (
@@ -2812,7 +2862,12 @@ export function PostsClient({
         </div>
       }
     >
-      <PostsClientInner initialPosts={initialPosts} activeAccount={activeAccount} />
+      <PostsClientInner
+        initialPosts={initialPosts}
+        initialNextCursor={initialNextCursor}
+        totalCount={totalCount}
+        activeAccount={activeAccount}
+      />
     </Suspense>
   )
 }

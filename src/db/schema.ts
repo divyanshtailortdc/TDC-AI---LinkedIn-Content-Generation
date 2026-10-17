@@ -196,7 +196,11 @@ export const knowledgeDocumentsTable = pgTable('knowledge_documents', {
     .$type<Array<{ claim: string; quote: string; confidence?: number }>>()
     .default([]),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('knowledge_documents_account_idx').on(table.accountId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 6b. Document Chunks (1:N with Knowledge Documents) — embeddings for retrieval
@@ -260,7 +264,11 @@ export const goalsTable = pgTable('goals', {
     .notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('goals_account_idx').on(table.accountId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 8. Preferences (1:1 with Account) — what to write about and how
@@ -363,6 +371,8 @@ export const runsTable = pgTable(
     ...commonFieldDefs.dates
   },
   table => [
+    index('runs_account_created_idx').on(table.accountId, table.createdAt),
+    index('runs_status_created_idx').on(table.status, table.createdAt),
     // One run in progress per identity: two at once research the same ground
     // and come back with near-identical ideas. enqueueRun checks first; this
     // catches anything that slips past it.
@@ -396,7 +406,11 @@ export const runStepsTable = pgTable('run_steps', {
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
   error: text('error'),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('run_steps_run_idx').on(table.runId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 9c. Research Findings (1:N with Run) — grounded research harvested during runs
@@ -414,7 +428,11 @@ export const researchFindingsTable = pgTable('research_findings', {
   provider: varchar('provider', { length: 50 }).default('web_search'),
   retrievedAt: commonFieldDefs.date('retrieved_at').defaultNow(),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('research_findings_run_idx').on(table.runId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 10. Ideas (1:N with Account, Run) — the human approval gate
@@ -449,7 +467,7 @@ export const ideasTable = pgTable('ideas', {
     .$type<
       Array<{
         claim: string
-        factType?: 'verified' | 'inferred' | 'unsupported'
+        factType?: 'verified' | 'sourced' | 'inferred' | 'unsupported'
         sourceId?: string
         sourceUrl?: string
         sourceTitle?: string
@@ -473,7 +491,12 @@ export const ideasTable = pgTable('ideas', {
   risks: jsonb('risks').$type<string[]>().default([]),
   status: varchar('status', { length: 20 }).default('proposed').notNull(),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('ideas_account_created_idx').on(table.accountId, table.createdAt),
+    index('ideas_run_idx').on(table.runId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 11. Post Drafts (1:N with Account) — final copy for review and copy-out
@@ -527,7 +550,12 @@ export const postDraftsTable = pgTable('post_drafts', {
   approvedAt: commonFieldDefs.date('approved_at'),
   postedAt: commonFieldDefs.date('posted_at'),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('post_drafts_account_created_idx').on(table.accountId, table.createdAt),
+    index('post_drafts_idea_idx').on(table.ideaId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 12. Post Variants (1:N with PostDraft) — alternative hooks and body takes
@@ -541,7 +569,11 @@ export const postVariantsTable = pgTable('post_variants', {
   variantType: varchar('variant_type', { length: 20 }).notNull(), // 'hook' | 'body'
   content: text('content').notNull(),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('post_variants_draft_idx').on(table.draftId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 13. Post Citations (1:N with PostDraft) — grounded source links per draft
@@ -557,7 +589,11 @@ export const postCitationsTable = pgTable('post_citations', {
   sourceUrl: text('source_url'),
   sourceTitle: text('source_title'),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('post_citations_draft_idx').on(table.draftId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 14. Post Media (1:1 / 1:N with PostDraft) — image briefs, stock candidates & assets
@@ -579,7 +615,11 @@ export const postMediaTable = pgTable('post_media', {
   promptOrQuery: text('prompt_or_query'),
   metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('post_media_draft_status_idx').on(table.draftId, table.status)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 15. Schedules (1:1 with Account) — when automatic runs fire

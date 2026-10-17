@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, ListFilter } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, ListFilter, Loader2 } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { IDEA_STATUS_LABEL, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
-import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas, approveAllIdeas } from './actions'
+import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas, approveAllIdeas, loadMoreIdeas } from './actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { cn } from '@/lib/cn'
@@ -57,13 +57,40 @@ const EMPTY_STATE: Record<StatusFilter, { title: string; body: string }> = {
 
 export function IdeasClient({
   initialIdeas,
+  initialNextCursor,
+  totalIdeas,
   activeAccount
 }: {
   initialIdeas: ClientIdeaData[]
+  /** Where the next page starts; null when every idea is already loaded. */
+  initialNextCursor: string | null
+  totalIdeas: number
   activeAccount: ActiveAccount
 }) {
   const router = useRouter()
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
+  const [nextCursor, setNextCursor] = useState(initialNextCursor)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  // Older ideas come in a page at a time; the newest are shown first.
+  const loadMore = async () => {
+    if (!nextCursor || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const res = await loadMoreIdeas(nextCursor)
+      if (res.success) {
+        setIdeas((prev) => {
+          const have = new Set(prev.map((i) => i.id))
+          return [...prev, ...res.ideas.filter((i) => !have.has(i.id))]
+        })
+        setNextCursor(res.nextCursor)
+      } else {
+        showToast({ title: 'Could not load more', message: res.error, type: 'error' })
+      }
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
   const searchParams = useSearchParams()
   const selectedStatus = statusFromParams(searchParams)
   const [isActionBusy, setIsActionBusy] = useState(false)
@@ -419,6 +446,24 @@ export function IdeasClient({
                   showStatus={selectedStatus === 'all'}
                 />
               ))}
+            </div>
+          )}
+
+          {!showGeneratingOnly && nextCursor && (
+            <div className="flex flex-col items-center gap-2 pb-10">
+              <p className="text-muted text-xs">
+                Showing the newest {ideas.length} of {totalIdeas} ideas. Filters
+                and counts cover the ideas loaded so far.
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={isLoadingMore}
+                className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors disabled:opacity-60"
+              >
+                {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Load older ideas
+              </button>
             </div>
           )}
         </div>
