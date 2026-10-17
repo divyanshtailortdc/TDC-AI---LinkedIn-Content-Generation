@@ -80,13 +80,8 @@ export interface PostDetail {
   status: string
   createdAt: Date | string
   variants: Array<{ id: string; variantType: string; content: string }>
-  citations: Array<{
-    id: string
-    claim: string
-    quote?: string | null
-    sourceUrl?: string | null
-    sourceTitle?: string | null
-  }>
+  /** How many sources the draft cites, for the queue badge. */
+  citationCount: number
   media?: {
     id?: string
     version?: number
@@ -561,7 +556,6 @@ export function PostsClientInner({
 
   // Collapsible drawers (all collapsed by default as requested)
   const [showQualityChecks, setShowQualityChecks] = useState(false)
-  const [showCitations, setShowCitations] = useState(false)
   const [showAdvancedMedia, setShowAdvancedMedia] = useState(false)
 
   const currentIndex = filteredPosts.findIndex(p => p.id === activePost?.id)
@@ -1255,7 +1249,6 @@ export function PostsClientInner({
     (option, i, all) =>
       all.findIndex(o => o.content.trim() === option.content.trim()) === i
   )
-  const citations = activePost?.citations || []
   const lintFindings = activePost?.lintFindings || []
   const passedLintCount = lintFindings.filter(f => f.passed).length
   const totalLintCount = lintFindings.length
@@ -1657,13 +1650,13 @@ export function PostsClientInner({
                             Media
                           </span>
                         )}
-                        {post.citations.length > 0 && (
+                        {post.citationCount > 0 && (
                           <span
                             className="bg-surface-hover inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 tabular-nums"
-                            title={`${post.citations.length} source${post.citations.length === 1 ? '' : 's'}`}
+                            title={`${post.citationCount} source${post.citationCount === 1 ? '' : 's'}`}
                           >
                             <Quote className="h-2.5 w-2.5" />
-                            {post.citations.length}
+                            {post.citationCount}
                           </span>
                         )}
                         {errors > 0 && (

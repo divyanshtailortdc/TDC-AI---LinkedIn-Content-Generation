@@ -7,7 +7,7 @@ import {
   postMediaTable,
   ideasTable
 } from '@/db/schema'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { PostsClient, type PostDetail } from './posts-client'
 import { getActiveAccount } from '@/lib/active-account'
 import { NoActiveAccount } from '@/components/no-active-account'
@@ -47,18 +47,21 @@ export default async function PostsPage() {
 
   const draftIds = draftsRaw.map((d) => d.id)
 
-  const [allVariants, allCitations, allMedia] = await Promise.all([
+  const [allVariants, allCitationCounts, allMedia] = await Promise.all([
     draftIds.length > 0
       ? db
           .select()
           .from(postVariantsTable)
           .where(inArray(postVariantsTable.draftId, draftIds))
       : Promise.resolve([]),
+    // Only the queue's source-count badge reads citations, so only the count
+    // is loaded; the rows themselves are not shown anywhere on this page.
     draftIds.length > 0
       ? db
-          .select()
+          .select({ draftId: postCitationsTable.draftId, count: count() })
           .from(postCitationsTable)
           .where(inArray(postCitationsTable.draftId, draftIds))
+          .groupBy(postCitationsTable.draftId)
       : Promise.resolve([]),
     // `image_url` holds a base64 data URL of roughly half a megabyte per image.
     // Selecting it for every draft pushed ~12 MB into this page's payload even
@@ -93,16 +96,6 @@ export default async function PostsPage() {
       .filter((v) => v.draftId === draft.id)
       .map((v) => ({ id: v.id, variantType: v.variantType, content: v.content }))
 
-    const citations = allCitations
-      .filter((c) => c.draftId === draft.id)
-      .map((c) => ({
-        id: c.id,
-        claim: c.claim,
-        quote: c.quote,
-        sourceUrl: c.sourceUrl,
-        sourceTitle: c.sourceTitle
-      }))
-
     const media = allMedia.find((m) => m.draftId === draft.id) || null
 
     return {
@@ -121,7 +114,7 @@ export default async function PostsPage() {
       createdAt: draft.createdAt,
       runId: draft.runId,
       variants,
-      citations,
+      citationCount: allCitationCounts.find((c) => c.draftId === draft.id)?.count ?? 0,
       media: media
         ? {
             id: media.id,
