@@ -32,6 +32,7 @@ import {
   preferencesSuggestionValues,
   preferencesValuesFromRow,
   profileSuggestionValues,
+  undoValues,
   voiceSuggestionValues,
   voiceValuesFromConfig
 } from '../src/lib/settings-merge'
@@ -712,6 +713,51 @@ describe('applying suggestions', () => {
       'fill-empty'
     )
     assert.ok(IdentityProfileSchema.safeParse(merged.values).success)
+  })
+})
+
+describe('undoing a prefill', () => {
+  const before = { description: '', industry: '', company: 'Ledgerly' }
+  const after = {
+    description: 'Bookkeeping for D2C brands.',
+    industry: 'Accounting',
+    company: 'Ledgerly'
+  }
+
+  it('puts back what the prefill filled', () => {
+    assert.deepStrictEqual(undoValues(before, after, after), {
+      description: '',
+      industry: ''
+    })
+  })
+
+  it('keeps a field the user typed into after the prefill', () => {
+    // Undo used to put the whole form back, wiping this company name.
+    const current = { ...after, company: 'Ledgerly Books' }
+    assert.deepStrictEqual(undoValues(before, after, current), {
+      description: '',
+      industry: ''
+    })
+  })
+
+  it('keeps an AI value the user has since edited', () => {
+    const current = { ...after, description: 'Bookkeeping for Indian D2C brands.' }
+    assert.deepStrictEqual(undoValues(before, after, current), { industry: '' })
+  })
+
+  it('compares with the form as shown, not the raw suggestion', () => {
+    // Topics are edited as comma-separated text, so a suggested topic with a
+    // comma reads back as two. Untouched, it still goes back.
+    const pillarsBefore = { pillars: [] as Array<{ name: string; example_topics: string[] }> }
+    const shown = {
+      pillars: [{ name: 'Pricing', example_topics: ['Bundles', 'discounts'] }]
+    }
+    assert.deepStrictEqual(undoValues(pillarsBefore, shown, shown), { pillars: [] })
+  })
+
+  it('has nothing to undo once every change was edited', () => {
+    const current = { description: 'Mine', industry: 'Finance', company: 'Ledgerly' }
+    assert.deepStrictEqual(undoValues(before, after, current), {})
   })
 })
 

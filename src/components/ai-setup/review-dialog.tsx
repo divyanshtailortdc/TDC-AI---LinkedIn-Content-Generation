@@ -1044,6 +1044,8 @@ export function ReviewSuggestionsDialog({
       const outcome = res.results
       const done = (section: SetupSection) =>
         outcome[section] && outcome[section]!.status !== 'failed'
+      // Sources are added one by one, so only those reported saved leave.
+      const savedUrls = new Set(outcome.knowledge?.savedUrls ?? [])
       updateDraftSuggestions(accountId, s => {
         const next = { ...s }
         for (const section of FIELD_SECTIONS) {
@@ -1055,11 +1057,11 @@ export function ReviewSuggestionsDialog({
         if (outcome.goals?.status === 'applied') {
           next.goals = EMPTY_SUGGESTIONS.goals
         }
-        if (outcome.knowledge?.status === 'applied') {
+        if (savedUrls.size > 0) {
           next.knowledge = {
             ...s.knowledge,
             sources: s.knowledge.sources.filter(
-              src => !src.url || !knowledgeUrls.has(src.url)
+              src => !src.url || !savedUrls.has(src.url)
             )
           }
         }
@@ -1067,8 +1069,10 @@ export function ReviewSuggestionsDialog({
       })
       router.refresh()
 
-      const failed = Object.values(outcome).filter(r => r.status === 'failed')
-      if (failed.length > 0) {
+      const incomplete = Object.values(outcome).filter(
+        r => r.status === 'failed' || r.status === 'partial'
+      )
+      if (incomplete.length > 0) {
         setResults(outcome)
         return
       }
@@ -1102,11 +1106,15 @@ export function ReviewSuggestionsDialog({
           className={`flex items-start gap-2.5 rounded-lg p-3 text-sm ${
             result.status === 'failed'
               ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-              : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+              : result.status === 'partial'
+                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
           }`}
         >
           {result.status === 'failed' ? (
             <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : result.status === 'partial' ? (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           ) : (
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           )}

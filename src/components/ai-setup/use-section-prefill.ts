@@ -1,7 +1,12 @@
 'use client'
 
 import type { IdentitySetupSuggestions } from '@/lib/ai/skills/profile-setup/schema'
-import { isEmptyValue, mergeValues, type MergeMode } from '@/lib/settings-merge'
+import {
+  isEmptyValue,
+  mergeValues,
+  undoValues,
+  type MergeMode
+} from '@/lib/settings-merge'
 import { useEffect, useRef, useState } from 'react'
 import { useIdentitySetupDraft, type IdentitySetupDraft } from './draft-store'
 
@@ -99,8 +104,14 @@ export function useSectionPrefill<T extends Values>({
 }): SectionPrefill {
   const draft = useIdentitySetupDraft(draftKey)
   const autoAppliedId = useRef<string | null>(null)
-  // The form and the AI values as they were before the latest apply.
-  const snapshot = useRef<{ values: T; aiValues: Partial<T> } | null>(null)
+  // The form and the AI values as they were before the latest apply, and the
+  // form as it read once that apply landed (`shown`, filled in by the effect
+  // below), so Undo can tell the prefill's changes from later edits.
+  const snapshot = useRef<{
+    values: T
+    aiValues: Partial<T>
+    shown?: T
+  } | null>(null)
   const [state, setState] = useState<{
     draftId: string
     filled: string[]
@@ -145,6 +156,13 @@ export function useSectionPrefill<T extends Values>({
     setAiValues({ ...written, ...changes })
     setState({ draftId, filled: merged.filled, kept: merged.kept, mode })
   }
+
+  // Every apply sets `state`, in the same render as the form values it wrote.
+  useEffect(() => {
+    if (state && snapshot.current && !snapshot.current.shown) {
+      snapshot.current.shown = callbacks.current.getCurrent()
+    }
+  }, [state])
 
   const savedKey =
     section && draft ? `${draftKey}:${section}:${draft.id}` : null
@@ -225,12 +243,17 @@ export function useSectionPrefill<T extends Values>({
     replaceAll: () => {
       if (!draft || !snapshot.current) return
       const { values, aiValues: written } = snapshot.current
+      snapshot.current.shown = undefined
       apply(draft.id, 'replace', values, written, draft.suggestions)
     },
     undo: () => {
       if (!snapshot.current) return
-      callbacks.current.setValues(snapshot.current.values)
-      setAiValues(snapshot.current.aiValues)
+      const { values, aiValues: written, shown = current } = snapshot.current
+      // Only what the prefill changed goes back; anything the user typed
+      // after it, in any field, stays.
+      const restore = undoValues(values, shown, current)
+      if (Object.keys(restore).length > 0) callbacks.current.setValues(restore)
+      setAiValues(written)
       snapshot.current = null
       // With autoApply off this puts the suggestions back up for review.
       setState(null)

@@ -152,10 +152,16 @@ const ApplyInputSchema = z.object({
 export type ApplyIdentitySetupInput = z.input<typeof ApplyInputSchema>
 
 export type SectionApplyResult = {
-  status: 'applied' | 'skipped' | 'failed'
+  /** partial: knowledge only, some URLs were added and some were not. */
+  status: 'applied' | 'partial' | 'skipped' | 'failed'
   message: string
   filled?: string[]
   kept?: string[]
+  /**
+   * Knowledge only: the requested URLs that are now in the knowledge base,
+   * added now or already there, as they were sent. The rest can be retried.
+   */
+  savedUrls?: string[]
 }
 
 export type ApplyIdentitySetupResult =
@@ -424,6 +430,7 @@ export async function applyIdentitySetupAction(
 
         const added: string[] = []
         const problems: string[] = []
+        const savedUrls: string[] = []
         const requested = [...new Set(sections.knowledgeUrls)]
         await Promise.all(
           requested.map(async requestedUrl => {
@@ -437,6 +444,7 @@ export async function applyIdentitySetupAction(
             }
             if (saved.has(key)) {
               problems.push(`${url} is already in your knowledge base`)
+              savedUrls.push(requestedUrl)
               return
             }
             saved.add(key)
@@ -457,6 +465,7 @@ export async function applyIdentitySetupAction(
                 content: preview.content
               })
               added.push(preview.title)
+              savedUrls.push(requestedUrl)
             } catch (error: any) {
               problems.push(`${url}: ${error?.message || 'could not be saved'}`)
             }
@@ -466,10 +475,13 @@ export async function applyIdentitySetupAction(
         results.knowledge = {
           status:
             added.length > 0
-              ? 'applied'
+              ? problems.length > 0
+                ? 'partial'
+                : 'applied'
               : problems.length > 0
                 ? 'failed'
                 : 'skipped',
+          savedUrls,
           message: [
             added.length > 0
               ? `Added ${added.map(t => `"${t}"`).join(', ')}.`

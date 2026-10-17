@@ -64,6 +64,29 @@ export function mergeValues<T extends Record<string, unknown>>(
   return { values, filled, kept }
 }
 
+/**
+ * What undoing a prefill writes back. A field the prefill changed returns to
+ * its value from before, unless the user has edited it since; a field the
+ * prefill left alone is not touched, so nothing typed after it is lost.
+ *
+ * `after` is the form as it read once the prefill landed, not the raw
+ * suggestions: a form that reshapes a value (a list shown as comma-separated
+ * text) would otherwise make an untouched field look edited.
+ */
+export function undoValues<T extends Record<string, unknown>>(
+  before: T,
+  after: T,
+  current: T
+): Partial<T> {
+  const restore: Partial<T> = {}
+  for (const key of Object.keys(before) as Array<keyof T>) {
+    if (sameValue(after[key], before[key])) continue
+    if (!sameValue(current[key], after[key])) continue
+    restore[key] = before[key]
+  }
+  return restore
+}
+
 /** Picks `.value` from every suggested field of a section. */
 function valuesOf<T extends Record<string, unknown>>(
   section: T
