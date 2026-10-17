@@ -254,6 +254,7 @@ export function PreferencesForm({
                 <div className="flex items-center gap-3">
                   <input
                     type="text"
+                    autoComplete="off"
                     value={pillar.name}
                     onChange={e => updatePillar(idx, { name: e.target.value })}
                     placeholder="Pillar name (e.g. Lessons from client projects)"
@@ -296,6 +297,7 @@ export function PreferencesForm({
                 </div>
                 <input
                   type="text"
+                  autoComplete="off"
                   value={topicsInputs[idx] || ''}
                   onChange={e =>
                     setTopicsInputs(
@@ -364,8 +366,12 @@ export function PreferencesForm({
           <label className="text-foreground mb-1 block text-xs font-medium">
             Topics to avoid
           </label>
+          {/* Chrome's autofill read this as a vehicle licence plate and
+              offered to save "politics"; none of these fields are personal
+              details a browser should remember. */}
           <input
             type="text"
+            autoComplete="off"
             value={bannedTopicsInput}
             onChange={e => setBannedTopicsInput(e.target.value)}
             placeholder="e.g. politics, competitor pricing"
@@ -380,6 +386,7 @@ export function PreferencesForm({
           {/* Fixed height (~5 lines); longer notes scroll inside the box
               rather than clipping or stretching the page. */}
           <textarea
+            autoComplete="off"
             value={complianceNotes}
             onChange={e => setComplianceNotes(e.target.value)}
             placeholder="e.g. Never mention client names without approval."

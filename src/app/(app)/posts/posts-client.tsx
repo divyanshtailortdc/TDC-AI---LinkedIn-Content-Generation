@@ -30,6 +30,7 @@ import {
   Edit2,
   ExternalLink,
   FileCheck,
+  FileText,
   Image as ImageIcon,
   Info,
   ListFilter,
@@ -834,6 +835,38 @@ export function PostsClientInner({
   // Aborting the fetch closes the request, which cancels generation server-side.
   const handleStopGeneration = () => {
     generationAbortRef.current?.abort()
+  }
+
+  // The server reads the saved post, writes an image brief from its text and
+  // generates from that. A typed prompt is passed along as direction only.
+  const handleGenerateFromPost = async () => {
+    if (!activePost || isMediaLoading) return
+
+    const postId = activePost.id
+    setIsMediaLoading(true)
+    setMediaLoadingText('Reading the post and designing a matching visual...')
+    setMediaError(null)
+    setMediaNotice(null)
+    setMediaMenuOpen(false)
+
+    try {
+      const res = await regeneratePostMediaAction(postId, {
+        mode: 'ai_generated',
+        customPrompt: imagePrompt.trim() || undefined
+      })
+      if (res.success && res.media) {
+        setPosts(prev =>
+          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
+        )
+      } else {
+        setMediaError(res.error || 'Could not generate a visual from this post.')
+      }
+    } catch (err: any) {
+      setMediaError(err?.message || 'Could not generate a visual from this post.')
+    } finally {
+      setIsMediaLoading(false)
+      setMediaLoadingText('')
+    }
   }
 
   const handleDownloadMedia = async () => {
@@ -2083,7 +2116,7 @@ export function PostsClientInner({
                     )}
 
                   {/* 1. COMPACT MEDIA REVIEW CARD (No duplicate large image) */}
-                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-8">
+                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-4">
                     <div className="flex items-center justify-between">
                       <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
                         <ImageIcon className="text-accent h-3.5 w-3.5" />
@@ -2454,6 +2487,33 @@ export function PostsClientInner({
                             e.target.value = ''
                           }}
                         />
+                      </div>
+                    )}
+
+                    {/* Generation from the post's own text */}
+                    {!isMediaLoading && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={isEditing}
+                          onClick={handleGenerateFromPost}
+                          title={
+                            isEditing
+                              ? 'Save your edits first so the image matches the post'
+                              : undefined
+                          }
+                          className="border-accent/40 text-accent hover:bg-accent/10 flex h-7 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          <span>Generate from post text</span>
+                        </button>
+                        <p className="text-muted text-[10px]">
+                          {isEditing
+                            ? 'Save your edits first so the image matches the post.'
+                            : imagePrompt.trim()
+                              ? 'Designs a visual from the post, using what you typed above as direction.'
+                              : 'Designs a visual from what the post says. No prompt needed.'}
+                        </p>
                       </div>
                     )}
 
