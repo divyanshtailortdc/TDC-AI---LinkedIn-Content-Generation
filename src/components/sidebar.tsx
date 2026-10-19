@@ -1,8 +1,7 @@
 'use client'
 
-import { AddPasskeyButton } from '@/components/add-passkey-button'
 import { useMobileNav } from '@/components/mobile-nav'
-import { SignOutButton } from '@/components/sign-out-button'
+import { UserMenu } from '@/components/user-menu'
 import logoDark from '@/img/tdccommercelogo-dark.webp'
 import logoLight from '@/img/tdccommercelogo.webp'
 import { cn } from '@/lib/cn'
@@ -179,7 +178,7 @@ export function Sidebar({
   ideasToReview?: number
   /** The collapse preference from its cookie, for the server render. */
   initialCollapsed?: boolean
-  /** The signed-in user, shown beside Sign out. */
+  /** The signed-in user, shown at the foot with the account menu. */
   user: { name: string; email: string }
 }) {
   const pathname = usePathname()
@@ -323,12 +322,7 @@ export function Sidebar({
             collapsed ? 'px-2' : 'px-3'
           )}
         >
-          <div
-            className={cn('flex flex-col gap-1', collapsed && 'items-center')}
-          >
-            <AddPasskeyButton collapsed={collapsed} />
-            <SignOutButton user={user} collapsed={collapsed} />
-          </div>
+          <UserMenu user={user} collapsed={collapsed} />
           {/* {!collapsed && (
           <p className="mt-2.5 px-1 text-xs text-muted">Phase 1 · v0.1</p>
         )} */}

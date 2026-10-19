@@ -5,10 +5,15 @@
  */
 const MESSAGES: Record<string, string> = {
   BANNED_USER: 'This account has been suspended. Contact your administrator.',
-  // Passkeys.
+  // Passkeys. A browser refusal comes back with the WebAuthn error's own
+  // code (ERROR_*), not the plugin's PREVIOUSLY_REGISTERED and so on.
   AUTH_CANCELLED: 'Passkey sign-in was cancelled.',
-  REGISTRATION_CANCELLED: 'Adding the passkey was cancelled.',
-  PREVIOUSLY_REGISTERED: 'This passkey is already added to your account.',
+  ERROR_CEREMONY_ABORTED: 'Adding the passkey was cancelled.',
+  ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED:
+    'This device already has a passkey for your account. Use another device or password manager to add a second one.',
+  // Adding a passkey needs a sign-in from the last day.
+  SESSION_NOT_FRESH:
+    'For your security, sign out and sign in again before adding a passkey.',
   PASSKEY_NOT_FOUND:
     'That passkey is not registered here. Sign in with Google or LinkedIn, then add it again.',
   AUTHENTICATION_FAILED:

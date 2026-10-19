@@ -90,5 +90,12 @@ describe('auth error messages', () => {
       RATE_LIMITED_MESSAGE
     )
     assert.match(authErrorMessage('access_denied', 'x'), /cancelled/)
+    assert.match(
+      authErrorMessage(
+        { code: 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED' },
+        'x'
+      ),
+      /already has a passkey/
+    )
   })
 })
