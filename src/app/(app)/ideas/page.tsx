@@ -15,7 +15,7 @@ export default async function IdeasPage({
   const activeAccount = await getActiveAccount()
 
   if (!activeAccount) {
-    return <NoActiveAccount title="Idea Approval Gate" />
+    return <NoActiveAccount title="Idea Review & Approval" />
   }
 
   const params = await searchParams

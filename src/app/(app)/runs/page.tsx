@@ -15,7 +15,7 @@ export default async function RunsPage({
   const activeAccount = await getActiveAccount()
 
   if (!activeAccount) {
-    return <NoActiveAccount title="Run Engine & Observability" />
+    return <NoActiveAccount title="Run History  " />
   }
 
   const page = parsePage((await searchParams).page)

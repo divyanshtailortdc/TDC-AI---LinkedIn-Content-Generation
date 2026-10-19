@@ -39,6 +39,10 @@ const EMPTY_STATE: Record<StatusFilter, { title: string; body: string }> = {
     title: 'No approved ideas',
     body: 'Approve ideas from To review to draft them into posts.'
   },
+  drafted: {
+    title: 'No drafted ideas',
+    body: 'Ideas turned into posts show up here.'
+  },
   rejected: { title: 'No rejected ideas', body: 'Ideas you reject show up here.' },
   all: { title: 'No ideas yet', body: 'Start a run to generate grounded ideas.' }
 }
@@ -331,7 +335,7 @@ export function IdeasClient({
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
-        title="Idea Approval Gate"
+        title="Idea Review & Approval"
         description={`Review post ideas for ${activeAccount.name}`}
         actions={
           isDrafting ? (

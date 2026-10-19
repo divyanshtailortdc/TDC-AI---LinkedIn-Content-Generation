@@ -266,7 +266,10 @@ export function RunsClient({
                     <time dateTime={new Date(run.createdAt).toISOString()}>
                       {hasMounted ? formatAbsoluteDateTime(run.createdAt) : ''}
                     </time>
-                    <span className="font-mono"> · ID: {run.id.slice(0, 8)}...</span>
+                    {' · ID: '}
+                    <span title={run.id} className="font-mono cursor-help">
+                      {run.id.slice(0, 8)}
+                    </span>
                   </p>
 
                   {run.error && (
@@ -314,8 +317,8 @@ export function RunsClient({
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <PageHeader
-        title="Run Engine & Observability"
-        description="Track background pipeline execution, stages, token counts, and costs."
+        title="Run History"
+        description="Explore execution stages, run outcomes, token usage, and associated costs"
         actions={
           <button
             type="button"

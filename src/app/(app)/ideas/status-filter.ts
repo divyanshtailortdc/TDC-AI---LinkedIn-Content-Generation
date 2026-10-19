@@ -1,5 +1,5 @@
 /** The Ideas page's status filter, in the order its menu lists them. */
-export const STATUS_TABS = ['proposed', 'approved', 'rejected', 'all'] as const
+export const STATUS_TABS = ['proposed', 'approved', 'drafted', 'rejected', 'all'] as const
 export type StatusFilter = (typeof STATUS_TABS)[number]
 
 /** The status filter lives in the URL (?status=) so it survives a reload and can be shared. */
@@ -11,8 +11,8 @@ export function parseStatusFilter(
 }
 
 /**
- * How many ideas each filter shows, from per-status counts. Ideas being
- * drafted or already drafted count only toward "all".
+ * How many ideas each filter shows, from per-status counts. Ideas still being
+ * drafted count only toward "all".
  */
 export function statusFilterCounts(
   rows: { status: string; n: number }[]
@@ -20,6 +20,7 @@ export function statusFilterCounts(
   const counts: Record<StatusFilter, number> = {
     proposed: 0,
     approved: 0,
+    drafted: 0,
     rejected: 0,
     all: 0
   }
