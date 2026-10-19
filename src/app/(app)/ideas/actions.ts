@@ -1,25 +1,22 @@
 'use server'
 
 import { db } from '@/db'
-import { ideasTable, feedbackTable } from '@/db/schema'
+import { feedbackTable, ideasTable } from '@/db/schema'
+import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
+import { requireIdentityId } from '@/lib/identity'
+import { requireUser } from '@/lib/session'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
 import {
   executeDraftingForIdea,
   settleRunAfterDrafting,
   settleRunAfterIdeaDecision
 } from '~/lib/ai/pipeline/drafting-run'
-import { revalidatePath } from 'next/cache'
-import { requireWritableActiveAccountId } from '@/lib/active-account'
-import { assertAccountActive, assertRunAccountActive } from '@/lib/account-guard'
 
-// These actions mutate a specific idea/run identified by its own id, which is
-// already scoped server-side wherever it's read (the /ideas list is fetched
-// for the active account only, and /runs/[id] loads a specific run's own
-// account). So the idea's real accountId — looked up here, never trusted
-// from the client — is the authoritative scope, not whichever account
-// happens to be "active" in the cookie right now. Requiring a cookie match
-// would break legitimate actions taken from a run's detail page when that
-// run belongs to an account other than the currently active one.
+// These actions mutate a specific idea/run identified by its own id. The id
+// comes from the client, so it is first looked up under the signed-in user's
+// identity (requireOwnedIdea / requireOwnedRun): someone else's idea or run
+// is "not found".
 
 /**
  * An idea that is drafted, or being drafted, keeps that status: approving it
@@ -28,19 +25,17 @@ import { assertAccountActive, assertRunAccountActive } from '@/lib/account-guard
 const NOT_YET_DRAFTED = notInArray(ideasTable.status, ['drafting', 'drafted'])
 
 export async function approveIdea(ideaId: string) {
+  const user = await requireUser()
   try {
-    const idea = await db.query.ideasTable.findFirst({
-      where: eq(ideasTable.id, ideaId)
-    })
-    if (!idea) throw new Error('Idea not found')
-    await assertAccountActive(idea.accountId)
+    const idea = await requireOwnedIdea(user.id, ideaId)
 
     const approved = await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
-      .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
+      .where(and(eq(ideasTable.id, idea.id), NOT_YET_DRAFTED))
       .returning({ id: ideasTable.id })
-    if (approved.length === 0) throw new Error('This idea is already drafted or being drafted')
+    if (approved.length === 0)
+      throw new Error('This idea is already drafted or being drafted')
 
     // An approved idea is waiting to be drafted, so a run that read
     // "completed" goes back to awaiting approval and offers "Create posts".
@@ -61,13 +56,9 @@ export async function approveIdea(ideaId: string) {
 }
 
 export async function rejectIdea(ideaId: string, reason?: string) {
+  const user = await requireUser()
   try {
-    const idea = await db.query.ideasTable.findFirst({
-      where: eq(ideasTable.id, ideaId)
-    })
-
-    if (!idea) throw new Error('Idea not found')
-    await assertAccountActive(idea.accountId)
+    const idea = await requireOwnedIdea(user.id, ideaId)
 
     // A stale tab could otherwise reject an idea already drafted (or being
     // drafted), then approve and draft it again: a second post for one idea,
@@ -75,9 +66,10 @@ export async function rejectIdea(ideaId: string, reason?: string) {
     const rejected = await db
       .update(ideasTable)
       .set({ status: 'rejected', updatedAt: new Date() })
-      .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
+      .where(and(eq(ideasTable.id, idea.id), NOT_YET_DRAFTED))
       .returning({ id: ideasTable.id })
-    if (rejected.length === 0) throw new Error('This idea is already drafted or being drafted')
+    if (rejected.length === 0)
+      throw new Error('This idea is already drafted or being drafted')
 
     // Rejecting the last idea waiting on a decision finishes the run; left
     // alone it would read "awaiting idea approval" with nothing to approve.
@@ -114,13 +106,9 @@ export async function editIdea(
     mediaMode?: 'ai_generated' | 'stock' | 'none'
   }
 ) {
+  const user = await requireUser()
   try {
-    const idea = await db.query.ideasTable.findFirst({
-      where: eq(ideasTable.id, ideaId)
-    })
-
-    if (!idea) throw new Error('Idea not found')
-    await assertAccountActive(idea.accountId)
+    const idea = await requireOwnedIdea(user.id, ideaId)
 
     const currentMedia = (idea.suggestedMedia as any) || { mode: 'none' }
 
@@ -137,9 +125,10 @@ export async function editIdea(
         },
         updatedAt: new Date()
       })
-      .where(and(eq(ideasTable.id, ideaId), NOT_YET_DRAFTED))
+      .where(and(eq(ideasTable.id, idea.id), NOT_YET_DRAFTED))
       .returning({ id: ideasTable.id })
-    if (edited.length === 0) throw new Error('This idea is already drafted or being drafted')
+    if (edited.length === 0)
+      throw new Error('This idea is already drafted or being drafted')
 
     revalidatePath('/ideas')
     revalidatePath('/runs')
@@ -149,36 +138,37 @@ export async function editIdea(
   }
 }
 
-export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: string[] }) {
+export async function draftApprovedIdeas(options: {
+  runId?: string
+  ideaIds?: string[]
+}) {
+  const user = await requireUser()
   try {
     let targetIdeaIds: string[] = []
 
     if (options.ideaIds && options.ideaIds.length > 0) {
-      // The ideaIds path is only ever called from the /ideas list (already
-      // scoped to the active account), so re-scope to it defensively against
-      // stale ids from a previous session.
-      const activeAccountId = await requireWritableActiveAccountId()
+      // The ideaIds path is only ever called from the /ideas list, so scope
+      // it to the user's identity defensively against stale ids.
+      const identityId = await requireIdentityId()
       const owned = await db.query.ideasTable.findMany({
         where: and(
           inArray(ideasTable.id, options.ideaIds),
-          eq(ideasTable.accountId, activeAccountId)
+          eq(ideasTable.accountId, identityId)
         )
       })
-      targetIdeaIds = owned.map((i) => i.id)
+      targetIdeaIds = owned.map(i => i.id)
     } else if (options.runId) {
-      await assertRunAccountActive(options.runId)
-      // The runId path is called from a specific run's own detail page,
-      // which may not belong to the currently active account — the run's
-      // own account is the correct scope here, not the active-account cookie.
+      const run = await requireOwnedRun(user.id, options.runId)
+      // The runId path is called from a run's own detail page.
       // Ideas being drafted are included so a claim left by a crashed request
       // can be taken over once stale; executeDraftingForIdea decides.
       const approvedIdeas = await db.query.ideasTable.findMany({
         where: and(
-          eq(ideasTable.runId, options.runId),
+          eq(ideasTable.runId, run.id),
           inArray(ideasTable.status, ['approved', 'drafting'])
         )
       })
-      targetIdeaIds = approvedIdeas.map((i) => i.id)
+      targetIdeaIds = approvedIdeas.map(i => i.id)
     }
 
     if (targetIdeaIds.length === 0) {
@@ -201,7 +191,9 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
         .select({ runId: ideasTable.runId })
         .from(ideasTable)
         .where(inArray(ideasTable.id, targetIdeaIds))
-      const runIds = new Set(touched.map(t => t.runId).filter((r): r is string => Boolean(r)))
+      const runIds = new Set(
+        touched.map(t => t.runId).filter((r): r is string => Boolean(r))
+      )
       await Promise.all(
         [...runIds].map(runId =>
           settleRunAfterDrafting(runId).catch(err =>
@@ -217,26 +209,31 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
 
     return { success: true, draftedCount: results.length }
   } catch (err: any) {
-    return { success: false, error: err.message || 'Failed to draft approved ideas' }
+    return {
+      success: false,
+      error: err.message || 'Failed to draft approved ideas'
+    }
   }
 }
 
 export async function approveAllIdeas(ideaIds: string[]) {
+  await requireUser()
   try {
-    if (ideaIds.length === 0) return { success: false, error: 'No ideas to approve' }
+    if (ideaIds.length === 0)
+      return { success: false, error: 'No ideas to approve' }
 
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
-    // The ids come from a list that may be stale: another identity may be
-    // active now, or some ideas may have been drafted since. Those rows are
-    // left alone, so only the ones actually updated count as approved.
+    // The ids come from a list that may be stale: some ideas may have been
+    // drafted since. Those rows are left alone, so only the ones actually
+    // updated count as approved.
     const approved = await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
       .where(
         and(
           inArray(ideasTable.id, ideaIds),
-          eq(ideasTable.accountId, activeAccountId),
+          eq(ideasTable.accountId, identityId),
           NOT_YET_DRAFTED
         )
       )
@@ -246,7 +243,7 @@ export async function approveAllIdeas(ideaIds: string[]) {
       return {
         success: false,
         error:
-          'None of these ideas could be approved. They may already be drafted, or a different identity is now active. Refresh the page to see their current status.'
+          'None of these ideas could be approved. They may already be drafted. Refresh the page to see their current status.'
       }
     }
 
@@ -266,7 +263,7 @@ export async function approveAllIdeas(ideaIds: string[]) {
     revalidatePath('/', 'layout')
     revalidatePath('/ideas')
     revalidatePath('/runs')
-    return { success: true, approvedIds: approved.map((i) => i.id) }
+    return { success: true, approvedIds: approved.map(i => i.id) }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve ideas' }
   }
@@ -274,21 +271,22 @@ export async function approveAllIdeas(ideaIds: string[]) {
 
 /**
  * Approves several ideas of one run, and settles the run once. Scoped by the
- * run's own id, like approveIdea, so it works from a run's page whichever
- * account is active; approveAllIdeas needs the active one. Ideas that are
- * drafted or being drafted are left alone, so only the returned ids count.
+ * run's own id, like approveIdea. Ideas that are drafted or being drafted are
+ * left alone, so only the returned ids count.
  */
 export async function approveRunIdeas(runId: string, ideaIds: string[]) {
+  const user = await requireUser()
   try {
-    if (ideaIds.length === 0) return { success: false, error: 'No ideas to approve' }
-    await assertRunAccountActive(runId)
+    if (ideaIds.length === 0)
+      return { success: false, error: 'No ideas to approve' }
+    const run = await requireOwnedRun(user.id, runId)
 
     const approved = await db
       .update(ideasTable)
       .set({ status: 'approved', updatedAt: new Date() })
       .where(
         and(
-          eq(ideasTable.runId, runId),
+          eq(ideasTable.runId, run.id),
           inArray(ideasTable.id, ideaIds),
           NOT_YET_DRAFTED
         )
@@ -303,8 +301,8 @@ export async function approveRunIdeas(runId: string, ideaIds: string[]) {
       }
     }
 
-    await settleRunAfterIdeaDecision(runId).catch(err =>
-      console.error(`Could not settle run ${runId}:`, err)
+    await settleRunAfterIdeaDecision(run.id).catch(err =>
+      console.error(`Could not settle run ${run.id}:`, err)
     )
 
     // The sidebar's Ideas badge counts these.

@@ -1,3 +1,4 @@
+import { IDENTITY_PATH } from '@/lib/identity-path'
 import {
   BookOpen,
   Mic,
@@ -12,7 +13,7 @@ import {
 export type SetupStep = {
   key: string
   label: string
-  /** Path under /accounts/[id]; empty for the first step. */
+  /** Path under IDENTITY_PATH; empty for the first step. */
   path: string
   icon: LucideIcon
   title: string
@@ -73,8 +74,8 @@ export const SETUP_STEPS: SetupStep[] = [
 ]
 
 /** Which step a pathname belongs to; falls back to the first step. */
-export function getStepIndex(pathname: string, accountId: string): number {
-  const base = `/accounts/${accountId}`
+export function getStepIndex(pathname: string): number {
+  const base = IDENTITY_PATH
   const index = SETUP_STEPS.findIndex(
     step =>
       step.path !== '' &&

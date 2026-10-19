@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -24,11 +24,8 @@ import type { LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
-import { InactiveAccountNotice } from '@/components/inactive-account-notice'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
-import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
-import { setActiveAccount } from '@/lib/active-account-actions'
 import { fetchRunStatus } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import {
@@ -47,8 +44,6 @@ interface RunDetailProps {
   initialFindings: any[]
   initialIdeas: any[]
   account: any
-  /** The run's identity is not the active one; it becomes active on open. */
-  activateAccount: boolean
 }
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
@@ -156,8 +151,7 @@ export function RunDetailClient({
   initialSteps,
   initialFindings,
   initialIdeas,
-  account,
-  activateAccount
+  account
 }: RunDetailProps) {
   const router = useRouter()
   const [run, setRun] = useState(initialRun)
@@ -171,26 +165,6 @@ export function RunDetailClient({
   const [showAllSources, setShowAllSources] = useState(false)
 
   const isRunning = ACTIVE_STATUSES.includes(run.status)
-
-  // The Runs, Ideas and Posts pages linked from here show the active identity,
-  // so opening another identity's run (from its own Runs tab, say) makes that
-  // identity active, as starting a run there does. Only once, on open:
-  // picking another identity in the sidebar leaves this page, and a re-render
-  // must not switch back.
-  const accountActivated = useRef(!activateAccount)
-  useEffect(() => {
-    if (accountActivated.current) return
-    accountActivated.current = true
-    setActiveAccount(account.id).then(res => {
-      if (!res.success) return
-      router.refresh()
-      showToast({
-        title: 'Switched identity',
-        message: `Now viewing ${account.name}`,
-        type: 'info'
-      })
-    })
-  }, [account.id, account.name, router])
 
   // Polling while run is active
   useEffect(() => {
@@ -385,10 +359,6 @@ export function RunDetailClient({
   const approvedCount = statusCount('approved')
   const proposedCount = statusCount('proposed')
   const isBusy = isDrafting || isApprovingAll
-  // A deactivated identity's run can be read but its ideas can't be decided
-  // or drafted; the server refuses those too.
-  const locked = account.isActive === false
-  const lockedTitle = locked ? INACTIVE_ACCOUNT_MESSAGE : undefined
 
   // While the run is active and no step is mid-flight, the first stage with
   // nothing recorded yet is the one starting. Drafting only starts after
@@ -443,12 +413,11 @@ export function RunDetailClient({
                   confirmLabel="Approve all"
                   tone="success"
                   onConfirm={handleApproveAll}
-                  disabled={isBusy || locked}
+                  disabled={isBusy}
                 >
                   <button
                     type="button"
-                    disabled={isBusy || locked}
-                    title={lockedTitle}
+                    disabled={isBusy}
                     className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                   >
                     {isApprovingAll ? (
@@ -464,8 +433,7 @@ export function RunDetailClient({
                 <button
                   type="button"
                   onClick={handleDraftApproved}
-                  disabled={isBusy || locked}
-                  title={lockedTitle}
+                  disabled={isBusy}
                   aria-busy={isDrafting}
                   className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
                 >
@@ -487,12 +455,8 @@ export function RunDetailClient({
             successMessage="Posts generated! Opening the review queue…"
             errorMessage={draftError}
             onRetry={handleDraftApproved}
-            retryDisabled={isDrafting || locked}
+            retryDisabled={isDrafting}
           />
-
-          {locked && (
-            <InactiveAccountNotice accountId={account.id} accountName={account.name} />
-          )}
 
           {run.error && (
             <div
@@ -604,7 +568,6 @@ export function RunDetailClient({
                     onReject={handleRejectIdea}
                     onEditSave={handleEditIdeaSave}
                     isBusy={ideaActionBusyId === idea.id || isBusy}
-                    locked={locked}
                   />
                 ))}
               </div>

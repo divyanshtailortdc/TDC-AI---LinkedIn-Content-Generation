@@ -5,10 +5,8 @@ import { LinkedInPreview } from '@/components/linkedin-preview'
 import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
-import { InactiveAccountNotice } from '@/components/inactive-account-notice'
-import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import type { LintFinding } from '@/lib/lint/run-linter'
-import type { ActiveAccount } from '@/lib/active-account'
+import type { IdentitySummary } from '@/lib/identity'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { toUnicodeBold } from '@/lib/post-text'
 import {
@@ -306,30 +304,18 @@ export function PostsClientInner({
   initialPosts,
   initialNextCursor,
   totalCount,
-  activeAccount
+  identity
 }: {
   initialPosts: PostDetail[]
   /** Where the next page starts; null when every post is already loaded. */
   initialNextCursor: string | null
   totalCount: number
-  activeAccount: ActiveAccount
+  identity: IdentitySummary
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterRunId = searchParams.get('runId')
   const hasMounted = useHasMounted()
-
-  // A deactivated identity's posts can be read and copied, but not approved,
-  // rejected, edited or given new media; the server refuses those too. Every
-  // handler that changes a post checks this first, so the A / R shortcuts
-  // are covered along with the buttons.
-  const locked = !activeAccount.isActive
-  const lockedTitle = locked ? INACTIVE_ACCOUNT_MESSAGE : undefined
-  const blockedWhileInactive = () => {
-    if (!locked) return false
-    showToast({ type: 'error', title: 'Account inactive', message: INACTIVE_ACCOUNT_MESSAGE })
-    return true
-  }
 
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
   const [nextCursor, setNextCursor] = useState(initialNextCursor)
@@ -822,7 +808,6 @@ export function PostsClientInner({
 
   const handleGenerateFromPrompt = async () => {
     if (!activePost || isMediaLoading) return
-    if (blockedWhileInactive()) return
 
     const promptProblem = validateImagePrompt(imagePrompt)
     if (promptProblem) {
@@ -899,7 +884,6 @@ export function PostsClientInner({
   // generates from that. A typed prompt is passed along as direction only.
   const handleGenerateFromPost = async () => {
     if (!activePost || isMediaLoading) return
-    if (blockedWhileInactive()) return
 
     const postId = activePost.id
     setIsMediaLoading(true)
@@ -973,7 +957,6 @@ export function PostsClientInner({
 
   const handleSearchStockMedia = async () => {
     if (!activePost || isMediaLoading) return
-    if (blockedWhileInactive()) return
     const queryProblem = validateStockQuery(stockSearchQuery)
     if (queryProblem) {
       setMediaError(queryProblem)
@@ -1012,7 +995,6 @@ export function PostsClientInner({
 
   const handleApplyCustomUrl = async () => {
     if (!activePost || isMediaLoading) return
-    if (blockedWhileInactive()) return
     const url = customImageUrl.trim()
     const urlProblem = validateImageUrl(url)
     if (urlProblem) {
@@ -1055,7 +1037,6 @@ export function PostsClientInner({
 
   const handleRemoveMedia = async () => {
     if (!activePost) return
-    if (blockedWhileInactive()) return
     const postId = activePost.id
     setIsMediaLoading(true)
     setMediaPostId(postId)
@@ -1082,7 +1063,6 @@ export function PostsClientInner({
   }
 
   const handleSwapHook = async (newHook: string) => {
-    if (blockedWhileInactive()) return
     const previousHook = editedHook
     setEditedHook(newHook)
     if (!activePost) return
@@ -1117,7 +1097,6 @@ export function PostsClientInner({
 
   const handleSaveEdits = async () => {
     if (!activePost) return
-    if (blockedWhileInactive()) return
     setIsSaving(true)
     try {
       const res = await updateDraft(activePost.id, {
@@ -1356,7 +1335,6 @@ export function PostsClientInner({
 
   const handleApprove = async () => {
     if (!activePost || activePost.status === 'approved') return
-    if (blockedWhileInactive()) return
     if (hasUnsavedEdits) {
       showToast({
         type: 'error',
@@ -1395,7 +1373,6 @@ export function PostsClientInner({
 
   const handleReject = async (reason?: string) => {
     if (!activePost) return
-    if (blockedWhileInactive()) return
     if (!confirmDiscardEdits('Rejecting this post')) return
     const rejectedId = activePost.id
 
@@ -1448,7 +1425,6 @@ export function PostsClientInner({
         // store a second feedback row.
         if (activePost.status === 'rejected') return
         event.preventDefault()
-        if (blockedWhileInactive()) return
         setShowPostRejection(true)
       } else if (key === 'c') {
         event.preventDefault()
@@ -1461,7 +1437,7 @@ export function PostsClientInner({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, shownHook, shownBody, hasUnsavedEdits, locked])
+  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, shownHook, shownBody, hasUnsavedEdits])
 
   const authorInitials = activePost?.accountName
     ? initialsOf(activePost.accountName)
@@ -1626,13 +1602,7 @@ export function PostsClientInner({
 
       {/* The one thing to do next, which depends on the post's state */}
       <div className="contents">
-        {locked ? (
-          <InactiveAccountNotice
-            accountId={activeAccount.id}
-            accountName={activeAccount.name}
-            className="w-full sm:w-auto"
-          />
-        ) : showPostRejection ? (
+        {showPostRejection ? (
           <form
             onSubmit={e => {
               e.preventDefault()
@@ -1758,7 +1728,7 @@ export function PostsClientInner({
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Post Review & Approval"
-        description={`Reviewing drafts for ${activeAccount.name} · @${activeAccount.handle}`}
+        description={`Reviewing drafts for ${identity.name} · @${identity.handle}`}
         bottomContent={reviewBar}
       />
 
@@ -2032,8 +2002,6 @@ export function PostsClientInner({
                       <button
                         type="button"
                         onClick={() => setIsEditing(!isEditing)}
-                        disabled={locked && !isEditing}
-                        title={lockedTitle}
                         className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
@@ -2126,7 +2094,7 @@ export function PostsClientInner({
                             : undefined
                         }
                         // Swapping the hook edits the post, so it's offered only while active.
-                        hookOptions={!locked && hookOptions.length > 1 ? hookOptions : []}
+                        hookOptions={hookOptions.length > 1 ? hookOptions : []}
                         onSelectHook={handleSwapHook}
                         hookSwapDisabled={isSaving}
                         firstComment={shownComment}
@@ -2214,8 +2182,7 @@ export function PostsClientInner({
                           </button>
                           <button
                             type="button"
-                            disabled={isMediaLoading || locked}
-                            title={lockedTitle}
+                            disabled={isMediaLoading}
                             onClick={handleRemoveMedia}
                             className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
                           >
@@ -2323,8 +2290,7 @@ export function PostsClientInner({
                               </button>
                               <button
                                 type="button"
-                                disabled={isMediaLoading || locked}
-                                title={lockedTitle}
+                                disabled={isMediaLoading}
                                 onClick={handleRemoveMedia}
                                 className="text-muted inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:text-rose-600 dark:hover:text-rose-400"
                               >
@@ -2404,9 +2370,8 @@ export function PostsClientInner({
                           <button
                             type="button"
                             disabled={
-                              isMediaLoading || stockQueryError !== null || locked
+                              isMediaLoading || stockQueryError !== null
                             }
-                            title={lockedTitle}
                             onClick={handleSearchStockMedia}
                             className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                           >
@@ -2447,8 +2412,7 @@ export function PostsClientInner({
                           />
                           <button
                             type="button"
-                            disabled={isMediaLoading || customUrlError !== null || locked}
-                            title={lockedTitle}
+                            disabled={isMediaLoading || customUrlError !== null}
                             onClick={handleApplyCustomUrl}
                             className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                           >
@@ -2589,13 +2553,12 @@ export function PostsClientInner({
                       <div className="space-y-1">
                         <button
                           type="button"
-                          disabled={isEditing || isMediaLoading || locked}
+                          disabled={isEditing || isMediaLoading}
                           onClick={handleGenerateFromPost}
                           title={
-                            lockedTitle ??
-                            (isEditing
+                            isEditing
                               ? 'Save your edits first so the image matches the post'
-                              : undefined)
+                              : undefined
                           }
                           className="border-accent/40 text-accent hover:bg-accent/10 flex h-7 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -2628,7 +2591,6 @@ export function PostsClientInner({
                           type="button"
                           disabled={
                             isMediaLoading ||
-                            locked ||
                             (regenerateFromPost
                               ? isEditing
                               : promptError !== null)
@@ -2639,10 +2601,9 @@ export function PostsClientInner({
                               : handleGenerateFromPrompt
                           }
                           title={
-                            lockedTitle ??
-                            (regenerateFromPost && isEditing
+                            regenerateFromPost && isEditing
                               ? 'Save your edits first so the image matches the post'
-                              : undefined)
+                              : undefined
                           }
                           className="bg-accent hover:bg-accent-hover text-background flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -2662,8 +2623,7 @@ export function PostsClientInner({
                       <div className="relative">
                         <button
                           type="button"
-                          disabled={isMediaLoading || locked}
-                          title={lockedTitle}
+                          disabled={isMediaLoading}
                           onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
                           className="border-border hover:bg-surface-hover text-foreground flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -3073,12 +3033,12 @@ export function PostsClient({
   initialPosts,
   initialNextCursor,
   totalCount,
-  activeAccount
+  identity
 }: {
   initialPosts: PostDetail[]
   initialNextCursor: string | null
   totalCount: number
-  activeAccount: ActiveAccount
+  identity: IdentitySummary
 }) {
   return (
     <Suspense
@@ -3095,7 +3055,7 @@ export function PostsClient({
         initialPosts={initialPosts}
         initialNextCursor={initialNextCursor}
         totalCount={totalCount}
-        activeAccount={activeAccount}
+        identity={identity}
       />
     </Suspense>
   )

@@ -1,46 +1,42 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { accountsTable, runsTable } from '@/db/schema'
-import { eq } from 'drizzle-orm'
-import { isUuid } from './ids'
-import { INACTIVE_ACCOUNT_MESSAGE } from './inactive-account'
+import { findOwnedAccount, findOwnedIdea, findOwnedRun } from './ownership'
 
 /**
- * A deactivated identity is read-only: its data can be viewed, and the
- * identity selected and activated again, but nothing about it changes and
- * nothing is generated for it. Every action that would change an identity's
- * data checks the identity that owns that data here first; the pages disable
- * the same controls, so this is what holds when a page is stale.
+ * Guards for Server Actions that act on an identity, run or idea named by the
+ * client. Each takes the signed-in user's id (from requireUser(), never from
+ * the request) and checks the row belongs to them before anything reads or
+ * changes it.
+ *
+ * A row that does not exist and one that belongs to someone else both throw
+ * the same NotFoundError, so ids cannot be probed.
  */
-export class InactiveAccountError extends Error {
-  constructor() {
-    super(INACTIVE_ACCOUNT_MESSAGE)
-    this.name = 'InactiveAccountError'
+
+export class NotFoundError extends Error {
+  constructor(resource: 'Identity' | 'Run' | 'Idea') {
+    super(`${resource} not found`)
+    this.name = 'NotFoundError'
   }
 }
 
-/** True when the identity exists and is deactivated. An unknown id is left to the caller's own not-found handling. */
-export async function isAccountInactive(accountId: string): Promise<boolean> {
-  if (!isUuid(accountId)) return false
-  const account = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.id, accountId),
-    columns: { isActive: true }
-  })
-  return account ? !account.isActive : false
+/** The user's identity with this id. */
+export async function requireOwnedAccount(userId: string, accountId: unknown) {
+  const account = await findOwnedAccount(db, userId, accountId)
+  if (!account) throw new NotFoundError('Identity')
+  return account
 }
 
-/** Throws InactiveAccountError when the identity is deactivated. */
-export async function assertAccountActive(accountId: string) {
-  if (await isAccountInactive(accountId)) throw new InactiveAccountError()
+/** A run of the user's identity. */
+export async function requireOwnedRun(userId: string, runId: unknown) {
+  const run = await findOwnedRun(db, userId, runId)
+  if (!run) throw new NotFoundError('Run')
+  return run
 }
 
-/** assertAccountActive for the identity a run belongs to. */
-export async function assertRunAccountActive(runId: string) {
-  if (!isUuid(runId)) return
-  const run = await db.query.runsTable.findFirst({
-    where: eq(runsTable.id, runId),
-    columns: { accountId: true }
-  })
-  if (run) await assertAccountActive(run.accountId)
+/** An idea of the user's identity. */
+export async function requireOwnedIdea(userId: string, ideaId: unknown) {
+  const idea = await findOwnedIdea(db, userId, ideaId)
+  if (!idea) throw new NotFoundError('Idea')
+  return idea
 }

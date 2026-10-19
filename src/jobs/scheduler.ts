@@ -1,6 +1,6 @@
 import cron from 'node-cron'
 import { db } from '@/db'
-import { accountsTable, schedulesTable } from '@/db/schema'
+import { schedulesTable } from '@/db/schema'
 import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import { enqueueRun } from './queue'
 import { RunInProgressError } from './run-guard'
@@ -29,13 +29,7 @@ export function startScheduler() {
   // at the top of the hour.
   cron.schedule('*/15 * * * *', async () => {
     try {
-      // A deactivated identity keeps its schedule row but must not run.
-      const activeSchedules = await db
-        .select({ schedule: schedulesTable })
-        .from(schedulesTable)
-        .innerJoin(accountsTable, eq(accountsTable.id, schedulesTable.accountId))
-        .where(and(eq(schedulesTable.enabled, true), eq(accountsTable.isActive, true)))
-        .then(rows => rows.map(row => row.schedule))
+      const activeSchedules = await findRunnableSchedules(db)
 
       const now = new Date()
       const startOfToday = new Date(now)

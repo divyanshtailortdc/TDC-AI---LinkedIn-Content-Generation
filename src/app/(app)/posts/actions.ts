@@ -8,32 +8,40 @@ import {
   postDraftsTable,
   postMediaTable
 } from '@/db/schema'
+import { requireIdentityId } from '@/lib/identity'
+import {
+  REVIEWER_SEARCH_SOURCE,
+  REVIEWER_URL_SOURCE
+} from '@/lib/media/media-source'
+import { replaceActiveMedia } from '@/lib/media/replace-media'
+import { postCharCount } from '@/lib/post-text'
+import { requireUser } from '@/lib/session'
 import { and, count, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
-import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
-import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
-import { validateImageUrl } from '~/lib/media/image-input'
-import { requireActiveAccountId, requireWritableActiveAccountId } from '@/lib/active-account'
 import { z } from 'zod'
-import { postCharCount } from '@/lib/post-text'
-import { REVIEWER_SEARCH_SOURCE, REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
-import { replaceActiveMedia } from '@/lib/media/replace-media'
+import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
+import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { runLinter } from '~/lib/lint/run-linter'
-import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
+import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
+import { validateImageUrl } from '~/lib/media/image-input'
 import { loadPostsPage } from './posts-data'
 
-/** The next page of the active account's posts, after the post with `cursorId`. */
+/** The next page of the identity's posts, after the post with `cursorId`. */
 export async function loadMorePosts(cursorId: string) {
+  await requireUser()
   try {
     if (!z.string().uuid().safeParse(cursorId).success) {
       return { success: false as const, error: 'Invalid page reference.' }
     }
-    const accountId = await requireActiveAccountId()
+    const accountId = await requireIdentityId()
     const { posts, nextCursor } = await loadPostsPage(accountId, { cursorId })
     return { success: true as const, posts, nextCursor }
   } catch (err: any) {
-    return { success: false as const, error: err.message || 'Could not load more posts.' }
+    return {
+      success: false as const,
+      error: err.message || 'Could not load more posts.'
+    }
   }
 }
 
@@ -45,11 +53,15 @@ export async function updateDraft(
     firstComment?: string
   }
 ) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     const existing = await db.query.postDraftsTable.findFirst({
-      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      )
     })
 
     if (!existing) throw new Error('Draft not found')
@@ -102,7 +114,10 @@ export async function updateDraft(
       )
     } catch (err) {
       // The text is still saved; the earlier checks are kept rather than lost.
-      console.error(`Could not re-run the quality checks on draft ${draftId}:`, err)
+      console.error(
+        `Could not re-run the quality checks on draft ${draftId}:`,
+        err
+      )
     }
 
     await db
@@ -127,8 +142,9 @@ export async function updateDraft(
 }
 
 export async function approveDraft(draftId: string) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     const [approved] = await db
       .update(postDraftsTable)
@@ -137,7 +153,12 @@ export async function approveDraft(draftId: string) {
         approvedAt: new Date(),
         updatedAt: new Date()
       })
-      .where(and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId)))
+      .where(
+        and(
+          eq(postDraftsTable.id, draftId),
+          eq(postDraftsTable.accountId, identityId)
+        )
+      )
       .returning({ id: postDraftsTable.id })
 
     // An update that matched nothing is not an approval.
@@ -151,11 +172,15 @@ export async function approveDraft(draftId: string) {
 }
 
 export async function rejectDraft(draftId: string, reason?: string) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     const draft = await db.query.postDraftsTable.findFirst({
-      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      )
     })
 
     if (!draft) throw new Error('Draft not found')
@@ -199,8 +224,9 @@ export async function updatePostMediaAction(
     promptOrQuery?: string
   }
 ) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     // The client disables Apply for bad URLs, but this action is callable directly.
     if (payload.mode !== 'none' && payload.imageUrl) {
@@ -209,14 +235,15 @@ export async function updatePostMediaAction(
     }
 
     const existingDraft = await db.query.postDraftsTable.findFirst({
-      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      )
     })
     if (!existingDraft) throw new Error('Post draft not found')
 
     if (payload.mode === 'none' || !payload.imageUrl) {
-      await db
-        .delete(postMediaTable)
-        .where(eq(postMediaTable.draftId, draftId))
+      await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
       revalidatePath('/posts')
       return { success: true, media: null }
     }
@@ -255,11 +282,15 @@ export async function updatePostMediaAction(
 }
 
 export async function removePostMediaAction(draftId: string) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     const draft = await db.query.postDraftsTable.findFirst({
-      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      )
     })
     if (!draft) throw new Error('Post draft not found')
 
@@ -272,7 +303,6 @@ export async function removePostMediaAction(draftId: string) {
     return { success: false, error: err?.message || 'Failed to remove media' }
   }
 }
-
 
 /**
  * The account name lets the brief allow the account's own brand; the context
@@ -293,11 +323,15 @@ export async function generatePostMediaAction(
     customPrompt?: string
   }
 ) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     const draft = await db.query.postDraftsTable.findFirst({
-      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      )
     })
     if (!draft) throw new Error('Post draft not found')
 
@@ -370,7 +404,8 @@ export async function generatePostMediaAction(
         })
         .returning()
 
-      if (!insertedMedia) throw new Error('Failed to insert initial media record')
+      if (!insertedMedia)
+        throw new Error('Failed to insert initial media record')
 
       revalidatePath('/posts')
       revalidatePath(`/posts/${draftId}`)
@@ -413,11 +448,15 @@ export async function regeneratePostMediaAction(
     previousMediaId?: string
   }
 ) {
+  await requireUser()
   try {
-    const activeAccountId = await requireWritableActiveAccountId()
+    const identityId = await requireIdentityId()
 
     const draft = await db.query.postDraftsTable.findFirst({
-      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      )
     })
     if (!draft) throw new Error('Post draft not found')
 
@@ -509,7 +548,8 @@ export async function regeneratePostMediaAction(
             .set({
               status: 'superseded',
               rejectionReason:
-                reviewerReason || 'User triggered media regeneration for new concept',
+                reviewerReason ||
+                'User triggered media regeneration for new concept',
               updatedAt: new Date()
             })
             .where(eq(postMediaTable.id, existingMedia.id))
@@ -546,7 +586,8 @@ export async function regeneratePostMediaAction(
           })
           .returning()
 
-        if (!inserted) throw new Error('Failed to insert regenerated media record')
+        if (!inserted)
+          throw new Error('Failed to insert regenerated media record')
         return inserted
       })
 
@@ -598,15 +639,24 @@ export async function regeneratePostMediaAction(
  * payload, so the bytes are fetched when a post is actually opened.
  */
 export async function fetchPostMediaImage(mediaId: string) {
+  await requireUser()
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const identityId = await requireIdentityId()
 
     // Joined to the draft so one account cannot read another's images by id.
     const [media] = await db
       .select({ id: postMediaTable.id, imageUrl: postMediaTable.imageUrl })
       .from(postMediaTable)
-      .innerJoin(postDraftsTable, eq(postMediaTable.draftId, postDraftsTable.id))
-      .where(and(eq(postMediaTable.id, mediaId), eq(postDraftsTable.accountId, activeAccountId)))
+      .innerJoin(
+        postDraftsTable,
+        eq(postMediaTable.draftId, postDraftsTable.id)
+      )
+      .where(
+        and(
+          eq(postMediaTable.id, mediaId),
+          eq(postDraftsTable.accountId, identityId)
+        )
+      )
       .limit(1)
 
     if (!media?.imageUrl) {
@@ -616,6 +666,9 @@ export async function fetchPostMediaImage(mediaId: string) {
     return { success: true as const, imageUrl: media.imageUrl }
   } catch (err: any) {
     console.error('Error loading post media image:', err)
-    return { success: false as const, error: err?.message || 'Failed to load image' }
+    return {
+      success: false as const,
+      error: err?.message || 'Failed to load image'
+    }
   }
 }

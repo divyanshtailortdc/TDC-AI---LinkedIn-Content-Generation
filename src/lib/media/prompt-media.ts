@@ -46,8 +46,8 @@ export async function createPromptMediaForDraft(input: {
   referenceImages?: string[]
   abortSignal?: AbortSignal
 }): Promise<PromptMediaOutcome> {
-  // The same check every other post action makes: a post of another identity
-  // is reported as not found, so nothing is generated or billed for it.
+  // The same check every other post action makes: a post of someone else's
+  // identity is reported as not found, so nothing is generated or billed for it.
   const draft = await db.query.postDraftsTable.findFirst({
     where: and(
       eq(postDraftsTable.id, input.draftId),

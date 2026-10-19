@@ -24,15 +24,14 @@ describe('runs and schedules are guarded', { skip: !url }, () => {
   const client = postgres(url!, { max: 8, prepare: false })
   const database = drizzle(client, { schema })
   const tag = `qa-guard-${Date.now().toString(36)}`
-  const ids: { a: string; b: string; c: string; inactive: string } = {
+  const ids: { a: string; b: string; c: string } = {
     a: '',
     b: '',
-    c: '',
-    inactive: ''
+    c: ''
   }
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-  const makeAccount = async (suffix: string, isActive = true) => {
+  const makeAccount = async (suffix: string) => {
     const [row] = await database
       .insert(schema.accountsTable)
       .values({
@@ -41,8 +40,7 @@ describe('runs and schedules are guarded', { skip: !url }, () => {
         handle: `${tag}-${suffix}`,
         headline: 'QA',
         bio: 'QA',
-        industry: 'Finance',
-        isActive
+        industry: 'Finance'
       })
       .returning()
     return row!.id
@@ -58,7 +56,6 @@ describe('runs and schedules are guarded', { skip: !url }, () => {
     ids.a = await makeAccount('a')
     ids.b = await makeAccount('b')
     ids.c = await makeAccount('c')
-    ids.inactive = await makeAccount('off', false)
   })
   after(async () => {
     await client`delete from accounts where handle like ${tag + '%'}`
@@ -172,17 +169,6 @@ describe('runs and schedules are guarded', { skip: !url }, () => {
         .returning()
     const [first, second] = await Promise.all([claimOldWay(), claimOldWay()])
     assert.equal(first.length + second.length, 2)
-  })
-
-  it('schedules of a deactivated identity are not run', async () => {
-    await database
-      .insert(schema.schedulesTable)
-      .values({ accountId: ids.inactive, enabled: true })
-    const runnable = (await findRunnableSchedules(database)).map(
-      s => s.accountId
-    )
-    assert.ok(runnable.includes(ids.a))
-    assert.ok(!runnable.includes(ids.inactive))
   })
 
   it('a disabled schedule is not run', async () => {

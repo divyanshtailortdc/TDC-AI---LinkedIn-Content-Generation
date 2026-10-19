@@ -1,4 +1,4 @@
-import type { GoalPayload } from '@/app/(app)/accounts/[id]/goals/actions'
+import type { GoalPayload } from '@/app/(app)/identity/goals/actions'
 import { z } from 'zod'
 import { GOAL_OBJECTIVES } from '../profile-setup/schema'
 

@@ -8,8 +8,8 @@ import {
   validateReferenceDimensions
 } from '~/lib/media/image-input'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
-import { InactiveAccountError } from '@/lib/account-guard'
-import { requireWritableActiveAccountId } from '@/lib/active-account'
+import { requireIdentityId } from '@/lib/identity'
+import { getSessionUser } from '@/lib/session'
 import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
 
@@ -67,19 +67,23 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Checked here so a missing session is a 401, not a redirect to sign-in.
+  if (!(await getSessionUser())) return fail(401, 'Please sign in again.')
+
   const { id } = await params
   if (!isUuid(id)) {
     return fail(400, 'Invalid post identifier.')
   }
 
-  // The identity the request is made as, like every post action. Without it any
-  // caller who knew a post id could have images generated, and billed, for it.
+  // The identity the request is made as, like every post action: the
+  // signed-in user's identity. createPromptMediaForDraft only finds the
+  // draft when it belongs to that identity, so no one can have images
+  // generated, and billed, for another user's post.
   let accountId: string
   try {
-    accountId = await requireWritableActiveAccountId()
-  } catch (err) {
-    if (err instanceof InactiveAccountError) return fail(403, err.message)
-    return fail(401, 'No active identity selected.')
+    accountId = await requireIdentityId()
+  } catch {
+    return fail(403, 'Set up your identity first.')
   }
 
   const tooLarge = 'Request is too large. Use a reference image under 3 MB.'

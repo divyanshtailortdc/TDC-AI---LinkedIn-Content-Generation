@@ -1,13 +1,12 @@
 'use client'
 
-import {
-  AccountSwitcher,
-  type SwitchableAccount
-} from '@/components/account-switcher'
+import { AddPasskeyButton } from '@/components/add-passkey-button'
 import { useMobileNav } from '@/components/mobile-nav'
+import { SignOutButton } from '@/components/sign-out-button'
 import logoDark from '@/img/tdccommercelogo-dark.webp'
 import logoLight from '@/img/tdccommercelogo.webp'
 import { cn } from '@/lib/cn'
+import { IDENTITY_PATH } from '@/lib/identity-path'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
   ChevronLeft,
@@ -16,6 +15,7 @@ import {
   LayoutDashboard,
   Lightbulb,
   Play,
+  Plus,
   Settings,
   X
 } from 'lucide-react'
@@ -93,7 +93,8 @@ function useSidebarCollapsed(initialCollapsed: boolean) {
   // A preference saved before the cookie existed: copy it over once, so the
   // next load renders collapsed on the server as well.
   useEffect(() => {
-    if (readCollapsedPref() !== initialCollapsed) writeCollapsedCookie(readCollapsedPref())
+    if (readCollapsedPref() !== initialCollapsed)
+      writeCollapsedCookie(readCollapsedPref())
   }, [initialCollapsed])
   const setCollapsed = useCallback((next: boolean) => {
     window.localStorage.setItem(STORAGE_KEY, next ? '1' : '0')
@@ -167,17 +168,19 @@ function NavLink({
 }
 
 export function Sidebar({
-  accounts,
-  activeAccount,
+  hasIdentity,
   ideasToReview = 0,
-  initialCollapsed = false
+  initialCollapsed = false,
+  user
 }: {
-  accounts: SwitchableAccount[]
-  activeAccount: SwitchableAccount | null
-  /** Ideas of the active identity still waiting for approval. */
+  /** The signed-in user has set up their identity. */
+  hasIdentity: boolean
+  /** Ideas of the identity still waiting for approval. */
   ideasToReview?: number
   /** The collapse preference from its cookie, for the server render. */
   initialCollapsed?: boolean
+  /** The signed-in user, shown beside Sign out. */
+  user: { name: string; email: string }
 }) {
   const pathname = usePathname()
   const [collapsedPref, setCollapsed] = useSidebarCollapsed(initialCollapsed)
@@ -304,37 +307,28 @@ export function Sidebar({
             )
           })}
 
-          {/* Account settings targets the active identity, so its href is dynamic
-            rather than part of the static primaryNavItems list. */}
-          {activeAccount && (
-            <>
-              <NavSection label="Setup" collapsed={collapsed} />
-              <NavLink
-                href={`/accounts/${activeAccount.id}`}
-                label="Account Setup"
-                icon={Settings}
-                active={
-                  pathname.startsWith('/accounts') &&
-                  pathname !== '/accounts/new'
-                }
-                collapsed={collapsed}
-              />
-            </>
-          )}
+          <NavSection label="Setup" collapsed={collapsed} />
+          <NavLink
+            href={IDENTITY_PATH}
+            label={hasIdentity ? 'Account Setup' : 'Set up identity'}
+            icon={hasIdentity ? Settings : Plus}
+            active={pathname.startsWith(IDENTITY_PATH)}
+            collapsed={collapsed}
+          />
         </nav>
 
-        {/* Active identity switcher */}
         <div
           className={cn(
             'border-sidebar-border border-t py-3',
             collapsed ? 'px-2' : 'px-3'
           )}
         >
-          <AccountSwitcher
-            accounts={accounts}
-            activeAccount={activeAccount}
-            collapsed={collapsed}
-          />
+          <div
+            className={cn('flex flex-col gap-1', collapsed && 'items-center')}
+          >
+            <AddPasskeyButton collapsed={collapsed} />
+            <SignOutButton user={user} collapsed={collapsed} />
+          </div>
           {/* {!collapsed && (
           <p className="mt-2.5 px-1 text-xs text-muted">Phase 1 · v0.1</p>
         )} */}

@@ -1,7 +1,7 @@
 /**
- * Pure helpers for identity research: the shapes it works with, LinkedIn URL
- * forms, a fallback guess at who to look up, and the figures check. No
- * network access.
+ * Pure helpers for Account Setup's web research: the shapes it works with,
+ * LinkedIn URL forms, a fallback guess at who to look up, and the figures
+ * check. No network access.
  *
  * Which search results belong to the person or business is not decided here:
  * the AI judges that from context (see link-pick.ts), and research only checks

@@ -1,6 +1,6 @@
-import type { GoalPayload } from '@/app/(app)/accounts/[id]/goals/actions'
-import type { PreferencesPayload } from '@/app/(app)/accounts/[id]/preferences/actions'
-import type { SaveVoiceInput } from '@/app/(app)/accounts/[id]/voice/actions'
+import type { GoalPayload } from '@/app/(app)/identity/goals/actions'
+import type { PreferencesPayload } from '@/app/(app)/identity/preferences/actions'
+import type { SaveVoiceInput } from '@/app/(app)/identity/voice/actions'
 import type { ContentPillar, Guardrails, PostConstraints } from '@/db/schema'
 import type {
   GoalSuggestions,

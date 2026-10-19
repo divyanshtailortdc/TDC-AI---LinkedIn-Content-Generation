@@ -1,18 +1,18 @@
 import { db } from '@/db'
 import {
-  runsTable,
-  runStepsTable,
-  researchFindingsTable,
-  ideasTable,
+  accountsTable,
   goalsTable,
+  ideasTable,
   preferencesTable,
-  accountsTable
+  researchFindingsTable,
+  runsTable,
+  runStepsTable
 } from '@/db/schema'
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '@/lib/ai/context'
 import { defaultModel } from '@/lib/models'
-import { insertRunUnlessActive } from './run-guard'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { insertRunUnlessActive } from './run-guard'
 
 export interface EnqueueRunOptions {
   accountId: string
@@ -28,10 +28,20 @@ export interface EnqueueRunOptions {
  */
 export async function enqueueRun(opts: EnqueueRunOptions) {
   const [account, preference, defaultGoal] = await Promise.all([
-    db.query.accountsTable.findFirst({ where: eq(accountsTable.id, opts.accountId) }),
-    db.query.preferencesTable.findFirst({ where: eq(preferencesTable.accountId, opts.accountId) }),
+    db.query.accountsTable.findFirst({
+      where: eq(accountsTable.id, opts.accountId)
+    }),
+    db.query.preferencesTable.findFirst({
+      where: eq(preferencesTable.accountId, opts.accountId)
+    }),
     opts.goalId
-      ? db.query.goalsTable.findFirst({ where: eq(goalsTable.id, opts.goalId) })
+      ? // Only this identity's goal: a goal id from elsewhere must not steer its run.
+        db.query.goalsTable.findFirst({
+          where: and(
+            eq(goalsTable.id, opts.goalId),
+            eq(goalsTable.accountId, opts.accountId)
+          )
+        })
       : // Newest active goal, so a paused goal never steers a run.
         db.query.goalsTable.findFirst({
           where: and(
@@ -45,8 +55,8 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
   if (!account) {
     throw new Error(`Account ${opts.accountId} not found`)
   }
-  if (!account.isActive) {
-    throw new Error(`Account ${opts.accountId} is deactivated`)
+  if (opts.goalId && !defaultGoal) {
+    throw new Error('Goal not found')
   }
 
   // Freeze the research settings that produced this run so "why did it write
@@ -82,7 +92,9 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
     // Serialises enqueues for this account until commit, so concurrent calls
     // cannot all pass the check below. The partial unique index on runs is
     // the backstop.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${opts.accountId}::text))`)
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${opts.accountId}::text))`
+    )
 
     const activeRun = await tx.query.runsTable.findFirst({
       where: and(
@@ -133,23 +145,9 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
  * if another worker claimed the row between the SELECT and the UPDATE this
  * returns nothing instead of running the same job twice.
  */
-/**
- * Runs of active identities only. A run queued before its identity was
- * deactivated waits, still queued, until the identity is activated again;
- * it is skipped rather than claimed, so it can't hold up other identities.
- */
-const ofActiveAccount = () =>
-  inArray(
-    runsTable.accountId,
-    db
-      .select({ id: accountsTable.id })
-      .from(accountsTable)
-      .where(eq(accountsTable.isActive, true))
-  )
-
 export async function claimNextQueuedRun() {
   const nextQueued = await db.query.runsTable.findFirst({
-    where: and(eq(runsTable.status, 'queued'), ofActiveAccount()),
+    where: eq(runsTable.status, 'queued'),
     orderBy: [asc(runsTable.createdAt)]
   })
 
@@ -160,7 +158,7 @@ export async function claimNextQueuedRun() {
 
 /**
  * Moves one specific run from queued to running, or returns null if it is no
- * longer queued or its identity is deactivated. The status check is what makes this safe to call from both
+ * longer queued. The status check is what makes this safe to call from both
  * the polling worker and "Generate now": whichever UPDATE lands second finds
  * the run already running (or finished) and gets nothing back.
  */
@@ -172,9 +170,7 @@ export async function claimRunById(runId: string) {
       currentStep: 1,
       updatedAt: new Date()
     })
-    .where(
-      and(eq(runsTable.id, runId), eq(runsTable.status, 'queued'), ofActiveAccount())
-    )
+    .where(and(eq(runsTable.id, runId), eq(runsTable.status, 'queued')))
     .returning()
 
   return claimed ?? null
