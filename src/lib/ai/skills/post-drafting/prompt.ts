@@ -64,8 +64,18 @@ ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 TRUTH RULES
 - Use only the evidence supplied with the idea and the author's own details above. If a number is not in either, do not write a number.
-- Never claim first-hand experience that is not in the evidence.
+- Never claim first-hand experience ("I keep seeing", "clients tell me", "in my experience") unless the evidence or the author's details above state it.
+- Evidence from a web page is someone else's work. When you rely on it, name its source by title, put it in your own words (never lift a sentence), and never write "one recent post", "studies show" or "experts say".
+- Write "most", "everyone", "always" or "never" only when the evidence measures it. Otherwise use "many", "often" or "in some teams".
 - Write plain text. Real line breaks, no markdown of any kind.
+
+HOW IT SHOULD READ
+- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
+- One idea per post, made through one specific example (a task, a decision, a scene), not a list of abstractions. If the idea asks for an example, include it.
+- Vary sentence length. Use "it's not X, it's Y" at most twice in a post.
+- Do not announce what the post is or is not ("this is not a pitch", "here's the thing", "let me be honest"). Show it.
+- Do not summarise at the end. The last line before the call to action adds something new.
+- Write the way this author would say it to one reader across a table, not the way a report is written.
 ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
 }
 
@@ -76,8 +86,17 @@ export function buildPrompt(ctx: GenerationContext, idea: Idea): string {
   const linkPlacement = resolveLinkPlacement(goal)
   const goalLink = goal?.targetUrl || null
 
-  return `Write the post for this approved idea.
+  const recentHooks = ctx.history.drafts
+    .map(d => d.hook.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+  const recent =
+    recentHooks.length > 0
+      ? `\nThis author's latest posts opened with the lines below. Open differently, and do not reuse their phrasing or signature lines:\n${recentHooks.map(h => `- ${h}`).join('\n')}\n`
+      : ''
 
+  return `Write the post for this approved idea.
+${recent}
 Title: ${idea.title}
 Thesis: ${idea.thesis || ''}
 Angle: ${idea.angle || ''}

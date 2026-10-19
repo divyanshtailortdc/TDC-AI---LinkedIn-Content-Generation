@@ -101,6 +101,8 @@ export interface ReviewHistory {
     hook: string
     originalHook: string
     body: string
+    /** The closing ask, so the next post can ask something different. */
+    cta?: string | null
     status: string
   }>
   ideas: Array<{
@@ -336,24 +338,39 @@ export function describeHashtags(c: ResolvedPostConstraints): string {
   return `between ${range.min} and ${range.max}, at the end`
 }
 
+/** Closing asks of the account's latest posts, newest first, without repeats. */
+export function recentCtasOf(ctx: GenerationContext, limit = 6): string[] {
+  return unique(
+    ctx.history.drafts.map(d => d.cta?.trim() || '').filter(Boolean)
+  ).slice(0, limit)
+}
+
 /**
  * The closing ask. Without the goal's action the model fell back to the same
  * "we would be glad to hear how you approach it" on every post, and an offer
  * the goal never names (a call, an audit, a template) is a promise the author
- * did not make.
+ * did not make. With it, every post ended on the same offer, so a feed of the
+ * author's posts read as one advert: the goal's action is now used where it
+ * follows from the post, and the recent asks are shown so this one differs.
  */
 export function describeCta(ctx: GenerationContext): string {
   const action = ctx.primaryGoal?.desiredAction?.trim()
+  const recent = recentCtasOf(ctx)
   return [
     ctx.prefs.constraints.cta_required
       ? 'required.'
       : 'optional; leave it empty when no ask follows naturally from the post.',
     action
-      ? `Steer the reader toward: ${action}.`
+      ? `Steer the reader toward: ${action}. Name it only when this post's argument leads to it; otherwise ask a question the reader can answer from their own work. Never use the same sentence as an earlier post.`
       : "Ask for something this reader can do or answer from their own work, and that follows from this post's argument.",
     'It is an ask, not a summary of the post. Never a generic "Thoughts?", "Agree?" or "What do you think?".',
-    `Offer nothing the goal does not name: no call, demo, audit, download, template or DM offer${action ? ' beyond the action above' : ''}.`
-  ].join(' ')
+    `Offer nothing the goal does not name: no call, demo, audit, download, template or DM offer${action ? ' beyond the action above' : ''}.`,
+    recent.length > 0
+      ? `Recent posts already ended with these asks, so do not repeat their wording or shape:\n${bullets(recent.map(r => `"${r}"`))}`
+      : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 export function renderGuardrailsBlock(ctx: GenerationContext): string {

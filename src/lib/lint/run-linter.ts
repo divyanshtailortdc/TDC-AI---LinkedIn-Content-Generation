@@ -2,6 +2,22 @@ import {
   extractNumbers,
   mentionsFigure
 } from '~/lib/ai/skills/ideation/guard'
+import {
+  countContrastFrames,
+  countEmDashes,
+  ctaSimilarity,
+  findExperienceClaims,
+  findFillerPhrases,
+  findMetaStatements,
+  findSweepingClaims,
+  findVagueAttributions,
+  longestSharedRun
+} from './writing-checks'
+import {
+  DEFAULT_WRITING_THRESHOLDS,
+  type WritingCheck,
+  type WritingSettings
+} from './writing-rules'
 
 export interface LintFinding {
   rule: string
@@ -32,6 +48,16 @@ export interface LintOptions {
    * author's own details. Absent skips the check.
    */
   figureSources?: string | null
+  /**
+   * The wording of the evidence the post draws on (claims and quotes). A run
+   * of its words in the post, outside quotation marks, was lifted. Absent
+   * skips the check.
+   */
+  evidenceTexts?: string[] | null
+  /** Closing asks of the account's recent posts; a near repeat is flagged. */
+  recentCtas?: string[] | null
+  /** Thresholds, skipped checks and the author's own posts; see writing-rules. */
+  writing?: WritingSettings | null
 }
 
 /**
@@ -390,6 +416,99 @@ export function runLinter(opts: LintOptions): LintFinding[] {
       message: `All-caps words detected (${capsWords.slice(0, 4).join(', ')}). Reads as shouting.`,
       passed: false
     })
+  }
+
+  // 13. Writing habits that read as machine-written. Each only reports when
+  // it finds something, like the shouting check above. The phrase lists and
+  // thresholds are in writing-rules; `opts.writing` adjusts them per account.
+  const prose = `${opts.hook}\n\n${opts.body}${opts.cta ? `\n\n${opts.cta}` : ''}`
+  const limits = { ...DEFAULT_WRITING_THRESHOLDS, ...opts.writing?.thresholds }
+  const skipped = new Set<WritingCheck>(opts.writing?.skip)
+  const authorText = opts.writing?.authorText?.toLowerCase() || ''
+  // A phrase the author already writes in their own posts is theirs.
+  const notAuthors = (found: string[]) =>
+    authorText ? found.filter(f => !authorText.includes(f.toLowerCase())) : found
+  const quoted = (found: string[]) => found.map(v => `"${v}"`).join(', ')
+  const warn = (rule: WritingCheck, message: string) => {
+    if (skipped.has(rule)) return
+    findings.push({ rule, severity: 'warning', message, passed: false })
+  }
+
+  const frames = countContrastFrames(prose)
+  if (frames > limits.contrastFrames) {
+    warn(
+      'contrast_overuse',
+      `${frames} "it's not X, it's Y" turns in one post reads as a template. Keep at most ${limits.contrastFrames} and state the rest directly.`
+    )
+  }
+
+  if (countEmDashes(prose) > limits.emDashes && !authorText.includes('—')) {
+    warn(
+      'dash_overuse',
+      'Many em dashes. Use full stops or commas for most of them.'
+    )
+  }
+
+  const vague = notAuthors(findVagueAttributions(prose))
+  if (vague.length > 0) {
+    warn(
+      'vague_attribution',
+      `${quoted(vague)} names no source. Name who said it, or leave the claim out.`
+    )
+  }
+
+  // What the post may say: its evidence and the author's own details.
+  const sweeping = notAuthors(findSweepingClaims(prose, opts.figureSources))
+  if (sweeping.length > 0) {
+    warn(
+      'sweeping_claim',
+      `${quoted(sweeping)} is not backed by this post's evidence. Hedge it ("many", "often") or cut it.`
+    )
+  }
+
+  const experience = notAuthors(findExperienceClaims(prose))
+  if (experience.length > 0) {
+    warn(
+      'unverified_experience',
+      `${quoted(experience)} states first-hand experience. Keep it only if it is true of the author.`
+    )
+  }
+
+  const meta = notAuthors(findMetaStatements(prose))
+  if (meta.length > 0) {
+    warn(
+      'meta_statement',
+      `${quoted(meta)} announces what the post is. Show it instead.`
+    )
+  }
+
+  const filler = notAuthors(findFillerPhrases(prose))
+  if (filler.length > 0) {
+    warn(
+      'filler_phrase',
+      `${quoted(filler)} is throat-clearing. Say the point.`
+    )
+  }
+
+  if (opts.evidenceTexts && opts.evidenceTexts.length > 0) {
+    const copied = longestSharedRun(prose, opts.evidenceTexts)
+    if (copied.length >= limits.copiedRunWords) {
+      warn(
+        'copied_source_text',
+        `"${copied.text}" is word for word from a source. Paraphrase it, or put it in quotation marks and name the source.`
+      )
+    }
+  }
+
+  const cta = opts.cta?.trim()
+  if (
+    cta &&
+    opts.recentCtas?.some(r => ctaSimilarity(cta, r) >= limits.sameCtaSimilarity)
+  ) {
+    warn(
+      'repeated_cta',
+      "This closing ask is nearly the same as one on a recent post. Ask something different, or end on a question about the reader's own work."
+    )
   }
 
   return findings

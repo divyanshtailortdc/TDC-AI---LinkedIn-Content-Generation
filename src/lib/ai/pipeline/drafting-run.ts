@@ -23,6 +23,7 @@ import { buildPostLintOptions } from './post-lint'
 import {
   collectBannedWords,
   loadGenerationContext,
+  recentCtasOf,
   renderMediaContext,
   resolveLinkPlacement
 } from '../context'
@@ -210,8 +211,13 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
 
   // ------------------------------------------------------------------- lint
   const evidence = idea.supportingEvidence || []
-  const lintOptions = (d: DraftGenerationResult): LintOptions =>
-    buildPostLintOptions(ctx, idea, d)
+  // Only at drafting time: when a post is edited later its own ask is already
+  // in the history and would be flagged as a repeat of itself.
+  const recentCtas = recentCtasOf(ctx)
+  const lintOptions = (d: DraftGenerationResult): LintOptions => ({
+    ...buildPostLintOptions(ctx, idea, d),
+    recentCtas
+  })
 
   const lintStart = Date.now()
   let lintFindings: LintFinding[] = runLinter(lintOptions(draft))

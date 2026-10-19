@@ -4,6 +4,7 @@ import {
   type GenerationContext
 } from '../context-blocks'
 import { collectFigureSources } from '../skills/post-drafting/guard'
+import { writingSettingsForVoice } from '~/lib/lint/writing-rules'
 import type { LintOptions } from '~/lib/lint/run-linter'
 import type { Idea } from '@/db/schema'
 
@@ -50,6 +51,13 @@ export function buildPostLintOptions(
     ctaRequired: constraints.cta_required,
     citationsCount: citationsCount ?? idea?.supportingEvidence?.length ?? 0,
     minCitations: ctx.prefs.research.min_citations_per_post,
-    figureSources: idea ? collectFigureSources(ctx, idea) : null
+    figureSources: idea ? collectFigureSources(ctx, idea) : null,
+    // Only third-party wording: a web source's own text. The model's restated
+    // claims and the author's own pages are theirs to repeat.
+    evidenceTexts: (idea?.supportingEvidence || [])
+      .filter(e => e.factType === 'sourced' && e.quote)
+      .map(e => e.quote as string),
+    // The voice and the author's own posts decide which habits are theirs.
+    writing: writingSettingsForVoice(ctx.voice, ctx.samplePosts)
   }
 }

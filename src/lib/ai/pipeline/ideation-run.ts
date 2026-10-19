@@ -332,7 +332,12 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   // ------------------------------------------------------------ selection
   // Repeats of earlier work go first, so they cannot take a place from a
   // fresh idea; then the most varied set up to the target is kept.
-  const picked = selectIdeas(validated, pastWork, targetIdeas)
+  const picked = selectIdeas(
+    validated,
+    pastWork,
+    targetIdeas,
+    ctx.prefs.pillars
+  )
   const selected = picked.selected
   discarded.push(...picked.discarded)
 

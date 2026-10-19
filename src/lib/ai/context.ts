@@ -36,6 +36,7 @@ async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
         hook: postDraftsTable.hook,
         originalHook: postDraftsTable.originalHook,
         body: postDraftsTable.body,
+        cta: postDraftsTable.cta,
         status: postDraftsTable.status
       })
       .from(postDraftsTable)

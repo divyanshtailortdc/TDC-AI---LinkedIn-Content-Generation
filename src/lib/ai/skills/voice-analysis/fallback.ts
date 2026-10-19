@@ -44,15 +44,8 @@ export function analyzeHeuristically(text: string): VoiceAnalysisResult {
   if (/is not the|isn't the.*is/i.test(text)) {
     writingPatterns.push("X isn't the problem. Y is.")
   }
-  if (/blame creates|creates/i.test(text)) {
-    writingPatterns.push('A creates B. C creates D.')
-  }
 
   const signaturePhrases: string[] = []
-  if (/net revenue retention/i.test(text))
-    signaturePhrases.push('Net revenue retention')
-  if (/before making/i.test(text))
-    signaturePhrases.push('before making a single dollar')
   if (/uncomfortable truth/i.test(text))
     signaturePhrases.push('Here is an uncomfortable truth:')
 

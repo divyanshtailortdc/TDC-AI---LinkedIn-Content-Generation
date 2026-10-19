@@ -529,6 +529,22 @@ export function parseEvidenceRef(ref: string | undefined): number | null {
 }
 
 /**
+ * Replaces evidence labels the model left in prose ("E7 is unverified") with
+ * the title of the source they point to. The reviewer sees the prose, not the
+ * labels, so "E7" meant nothing to them.
+ */
+export function replaceEvidenceLabels(
+  text: string,
+  corpus: CorpusEvidenceSource[]
+): string {
+  return text.replace(/\[?\bE(\d{1,2})\b\]?/g, (_, n: string) => {
+    const title = corpus[Number(n) - 1]?.sourceTitle?.trim()
+    if (!title) return 'a source'
+    return `"${title.length > 60 ? `${title.slice(0, 57)}...` : title}"`
+  })
+}
+
+/**
  * Expands a generated idea into the full item. Source details come from the
  * corpus entry the model cited, never from the model's own typing. A citation
  * that points outside the corpus keeps its claim but gets no source, so the
@@ -538,6 +554,7 @@ export function resolveGeneratedIdea(
   generated: IdeaGenerationItem,
   corpus: CorpusEvidenceSource[]
 ): GeneratedIdeaItem {
+  const clean = (text: string) => replaceEvidenceLabels(text, corpus)
   return {
     title: generated.title,
     thesis: generated.thesis,
@@ -545,7 +562,7 @@ export function resolveGeneratedIdea(
     angle: generated.angle,
     pillar: generated.pillar,
     format: generated.format,
-    whyNow: generated.whyNow,
+    whyNow: clean(generated.whyNow),
     hookConcept: generated.hookConcept,
     coreArgument: generated.coreArgument,
     audienceTakeaway: generated.audienceTakeaway,
@@ -564,13 +581,13 @@ export function resolveGeneratedIdea(
       }
     }),
     suggestedMedia: { mode: 'none', brief: generated.mediaBrief },
-    noveltyNote: generated.noveltyNote,
+    noveltyNote: clean(generated.noveltyNote),
     estimatedStrength: generated.estimatedStrength,
     // Recomputed by validateIdea; placeholders until then.
     groundingScore: 0,
     originalityScore: 0,
     unsupportedClaims: [],
     sourceIds: [],
-    risks: generated.risks || []
+    risks: (generated.risks || []).map(clean)
   }
 }
