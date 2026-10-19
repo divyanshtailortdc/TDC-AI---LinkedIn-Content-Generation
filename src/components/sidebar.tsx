@@ -17,7 +17,6 @@ import {
   Lightbulb,
   Play,
   Settings,
-  SlidersHorizontal,
   X
 } from 'lucide-react'
 import Image from 'next/image'
@@ -294,15 +293,6 @@ export function Sidebar({
               collapsed={collapsed}
             />
           )}
-
-          {/* App-wide configuration (API keys, database), not tied to an identity. */}
-          <NavLink
-            href="/settings"
-            label="Settings"
-            icon={SlidersHorizontal}
-            active={pathname.startsWith('/settings')}
-            collapsed={collapsed}
-          />
         </nav>
 
         {/* Active identity switcher */}

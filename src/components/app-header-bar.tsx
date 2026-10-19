@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 
 /**
  * The top bar every page shares: setup steps and routes like Dashboard, Ideas
- * or Settings. It runs edge to edge (no gap above, left or right) and has one
+ * or Posts. It runs edge to edge (no gap above, left or right) and has one
  * fixed height: more data never makes it taller, so content shrinks or is cut
  * with an ellipsis instead. When the bar is too narrow for everything on one
  * row it wraps in a fixed way (that depends on width, never on data).

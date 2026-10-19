@@ -76,7 +76,7 @@ Copy the example environment file and configure your `DATABASE_URL` and API keys
 cp .env.example .env
 ```
 
-Use `.env`, not `.env.local`: the Settings page and dashboard point to `.env`, and Next.js lets a key in `.env.local` (even an empty one) override the same key in `.env`.
+Use `.env`, not `.env.local`: the dashboard points to `.env`, and Next.js lets a key in `.env.local` (even an empty one) override the same key in `.env`.
 
 ### 2. Run the Development Server
 
