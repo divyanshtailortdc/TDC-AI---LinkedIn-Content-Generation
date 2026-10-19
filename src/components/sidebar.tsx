@@ -24,12 +24,28 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 
-const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+const primaryNavItems = [
   { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
-  { href: '/posts', label: 'Posts', icon: FileText },
-  { href: '/runs', label: 'Run Details', icon: Play }
+  { href: '/runs', label: 'Run Details', icon: Play },
+  { href: '/posts', label: 'Posts', icon: FileText }
 ]
+
+/** Heading above a group of nav links; a thin divider in the collapsed rail. */
+function NavSection({
+  label,
+  collapsed
+}: {
+  label: string
+  collapsed: boolean
+}) {
+  return collapsed ? (
+    <div aria-hidden className="bg-sidebar-border mx-2 mt-4 mb-2 h-px" />
+  ) : (
+    <p className="text-muted mt-5 mb-1.5 px-3.5 text-[11px] font-semibold tracking-[0.14em] uppercase">
+      {label}
+    </p>
+  )
+}
 
 const STORAGE_KEY = 'sidebar-collapsed'
 function writeCollapsedCookie(collapsed: boolean) {
@@ -264,9 +280,17 @@ export function Sidebar({
 
         {/* Nav */}
         <nav className="flex-1 space-y-1.5 overflow-x-visible overflow-y-auto px-3 py-5">
-          {navItems.map(({ href, label, icon, ...rest }) => {
-            const active =
-              href === '/' ? pathname === '/' : pathname.startsWith(href)
+          <NavLink
+            href="/"
+            label="Dashboard"
+            icon={LayoutDashboard}
+            active={pathname === '/'}
+            collapsed={collapsed}
+          />
+
+          <NavSection label="Primary" collapsed={collapsed} />
+          {primaryNavItems.map(({ href, label, icon, ...rest }) => {
+            const active = pathname.startsWith(href)
             return (
               <NavLink
                 key={href}
@@ -281,17 +305,21 @@ export function Sidebar({
           })}
 
           {/* Account settings targets the active identity, so its href is dynamic
-            rather than part of the static navItems list. */}
+            rather than part of the static primaryNavItems list. */}
           {activeAccount && (
-            <NavLink
-              href={`/accounts/${activeAccount.id}`}
-              label="Account Settings"
-              icon={Settings}
-              active={
-                pathname.startsWith('/accounts') && pathname !== '/accounts/new'
-              }
-              collapsed={collapsed}
-            />
+            <>
+              <NavSection label="Setup" collapsed={collapsed} />
+              <NavLink
+                href={`/accounts/${activeAccount.id}`}
+                label="Account Setup"
+                icon={Settings}
+                active={
+                  pathname.startsWith('/accounts') &&
+                  pathname !== '/accounts/new'
+                }
+                collapsed={collapsed}
+              />
+            </>
           )}
         </nav>
 

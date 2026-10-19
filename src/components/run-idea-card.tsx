@@ -108,7 +108,7 @@ const STATUS_STYLE: Record<string, string> = {
   drafted: 'bg-accent/10 text-accent'
 }
 
-/** Matches the Idea Approval Gate tab names. */
+/** Matches the Idea Review & Approval tab names. */
 export const IDEA_STATUS_LABEL: Record<string, string> = {
   proposed: 'To review',
   approved: 'Approved',
@@ -125,7 +125,7 @@ function isWebUrl(url?: string): url is string {
 }
 
 /**
- * The idea card shown on the Idea Approval Gate and on a run's detail page,
+ * The idea card shown on the Idea Review & Approval and on a run's detail page,
  * so the same idea looks and behaves the same in both places. The face shows
  * only what a quick approve/reject needs; clicking it opens the rest.
  */

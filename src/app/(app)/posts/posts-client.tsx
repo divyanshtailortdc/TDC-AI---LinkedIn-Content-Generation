@@ -10,6 +10,7 @@ import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import type { ActiveAccount } from '@/lib/active-account'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
+import { toUnicodeBold } from '@/lib/post-text'
 import {
   IMAGE_PROMPT_MAX_WORDS,
   countWords,
@@ -1198,8 +1199,9 @@ export function PostsClientInner({
       .map(t => (t.startsWith('#') ? t : `#${t}`))
       .join(' ')
     // Always the saved post: that is the text Approve stores, so what is copied
-    // is what is approved. Edits not saved yet are not part of either.
-    const fullContent = `${activePost.hook}\n\n${activePost.body}${
+    // is what is approved. Edits not saved yet are not part of either. The hook
+    // is copied in Unicode bold, the only bold that survives pasting into LinkedIn.
+    const fullContent = `${toUnicodeBold(activePost.hook)}\n\n${activePost.body}${
       activePost.cta ? `\n\n${activePost.cta}` : ''
     }${tagsString ? `\n\n${tagsString}` : ''}`
 
@@ -1211,7 +1213,7 @@ export function PostsClientInner({
         title: 'Post Copied!',
         message: hasUnsavedEdits
           ? 'Copied the saved post. Your unsaved edits are not included; save them to copy them.'
-          : 'Post text copied with clean line breaks, CTA, and hashtags.'
+          : 'Post copied with a bold hook, ready to paste into LinkedIn.'
       })
       setTimeout(() => setCopiedPost(false), 2500)
     } else {
@@ -1487,6 +1489,10 @@ export function PostsClientInner({
   // user has typed something, so an untouched field is not shown as an error.
   const promptError = validateImagePrompt(imagePrompt)
   const showPromptError = imagePrompt.trim().length > 0 && promptError !== null
+  // With nothing typed, "Regenerate" redesigns the existing image from the post
+  // text instead of sitting disabled waiting for a prompt.
+  const regenerateFromPost =
+    !imagePrompt.trim() && !referenceImage && Boolean(activePost?.media?.imageUrl)
   const stockQueryError = validateStockQuery(stockSearchQuery)
   const customUrlError = validateImageUrl(customImageUrl)
 
@@ -1751,8 +1757,7 @@ export function PostsClientInner({
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
-        title="Review & Ship Posts"
-        badge="Daily Surface"
+        title="Post Review & Approval"
         description={`Reviewing drafts for ${activeAccount.name} · @${activeAccount.handle}`}
         bottomContent={reviewBar}
       />
@@ -2232,33 +2237,7 @@ export function PostsClientInner({
                           <Sparkles className="h-3 w-3" />
                           {reviewerMediaLabel}
                         </span>
-                      ) : activePost.media?.imageUrl ? (
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              relevanceInfo.level === 'Highly relevant'
-                                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                : relevanceInfo.level === 'Relevant'
-                                  ? 'border border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                                  : relevanceInfo.level === 'Weak match'
-                                    ? 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                                    : 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                            }`}
-                          >
-                            {relevanceInfo.isPass ? (
-                              <CheckCircle2 className="h-3 w-3" />
-                            ) : (
-                              <AlertTriangle className="h-3 w-3" />
-                            )}
-                            {relevanceInfo.label}
-                          </span>
-                          <span className="text-muted bg-surface-hover rounded px-1.5 py-0.5 text-[10px] capitalize">
-                            {activePost.media.visualType
-                              ? activePost.media.visualType.replace('_', ' ')
-                              : 'Editorial visual'}
-                          </span>
-                        </div>
-                      ) : activePost.media ? (
+                      ) : activePost.media?.imageUrl ? null : activePost.media ? (
                         <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
                           {activeImageLoadError
                             ? 'Image not loaded'
@@ -2647,9 +2626,24 @@ export function PostsClientInner({
                       ) : (
                         <button
                           type="button"
-                          disabled={isMediaLoading || promptError !== null || locked}
-                          title={lockedTitle}
-                          onClick={handleGenerateFromPrompt}
+                          disabled={
+                            isMediaLoading ||
+                            locked ||
+                            (regenerateFromPost
+                              ? isEditing
+                              : promptError !== null)
+                          }
+                          onClick={
+                            regenerateFromPost
+                              ? handleGenerateFromPost
+                              : handleGenerateFromPrompt
+                          }
+                          title={
+                            lockedTitle ??
+                            (regenerateFromPost && isEditing
+                              ? 'Save your edits first so the image matches the post'
+                              : undefined)
+                          }
                           className="bg-accent hover:bg-accent-hover text-background flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {mediaBusyHere ? (

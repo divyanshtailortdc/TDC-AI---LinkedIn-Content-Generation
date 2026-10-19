@@ -14,7 +14,7 @@ export default async function PostsPage({
   const activeAccount = await getActiveAccount()
 
   if (!activeAccount) {
-    return <NoActiveAccount title="Review & Ship Posts" />
+    return <NoActiveAccount title="Post Review & Approval" />
   }
 
   // Opened from a run (?runId=): that run's posts are loaded along with the
