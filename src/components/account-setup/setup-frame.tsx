@@ -3,6 +3,7 @@
 import { useSuggestedSections } from '@/components/ai-setup/draft-store'
 import { AppHeaderBar } from '@/components/app-header-bar'
 import type { SetupSection } from '@/lib/ai/skills/profile-setup/schema'
+import { IDENTITY_PATH } from '@/lib/identity-path'
 import { ArrowRight, Loader2, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -126,16 +127,17 @@ export function StepFields({
 // ---------------------------------------------------------------------------
 
 /**
- * The numbered step bar with connectors. Steps link to their pages when an
- * account exists; on the create page they are shown but not clickable yet.
+ * The numbered step bar with connectors. Steps link to their pages once the
+ * identity exists; on the create page they are shown but not clickable yet.
  */
 export function SetupStepper({
   activeIndex,
-  accountId,
+  linked = false,
   draftKey
 }: {
   activeIndex: number
-  accountId?: string
+  /** The identity exists, so each step links to its page. */
+  linked?: boolean
   /** Which AI draft decides the "suggestions ready" dots. */
   draftKey: string
 }) {
@@ -203,9 +205,9 @@ export function SetupStepper({
                   : ''
               }`}
             >
-              {accountId ? (
+              {linked ? (
                 <Link
-                  href={`/accounts/${accountId}${step.path}`}
+                  href={`${IDENTITY_PATH}${step.path}`}
                   aria-current={active ? 'step' : undefined}
                   className="group flex flex-col items-center gap-1"
                 >
@@ -244,8 +246,6 @@ export function SetupFrame({
   stepIndex,
   nextHref,
   hasSavedData = false,
-  locked = false,
-  notice,
   title,
   description,
   children
@@ -263,13 +263,6 @@ export function SetupFrame({
    * step must not hide the form under the person's hands.
    */
   hasSavedData?: boolean
-  /**
-   * The identity is deactivated: the step is shown read-only, with no Edit or
-   * Save, and every control in it and in the assistant is disabled.
-   */
-  locked?: boolean
-  /** Shown above the step's content, such as why it is locked. */
-  notice?: ReactNode
   /** Override the step's own title and description. */
   title?: string
   description?: string
@@ -311,7 +304,7 @@ export function SetupFrame({
   }, [])
   // Unsaved changes keep the step editable; otherwise a saved step is viewed.
   const editing =
-    !locked && (!viewable || edit || Object.values(views).some(view => view.dirty))
+    !viewable || edit || Object.values(views).some(view => view.dirty)
   const viewCtx = useMemo(
     () => ({ editing, setView, removeView }),
     [editing, setView, removeView]
@@ -388,7 +381,7 @@ export function SetupFrame({
                       <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   )}
-                  {locked ? null : viewable && !editing ? (
+                  {viewable && !editing ? (
                     <button
                       type="button"
                       onClick={() => setEdit(true)}
@@ -454,13 +447,7 @@ export function SetupFrame({
                 is the quickest way to fill the form. */}
             {aside && (
               <aside className="relative order-first xl:order-last xl:h-full xl:min-h-0 xl:overflow-y-auto">
-                {locked ? (
-                  <fieldset disabled className="m-0 h-full min-w-0 border-0 p-0">
-                    {aside}
-                  </fieldset>
-                ) : (
-                  aside
-                )}
+                {aside}
               </aside>
             )}
 
@@ -479,15 +466,8 @@ export function SetupFrame({
                 </span>
               </div>
               <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-5">
-                {notice && <div className="mb-4">{notice}</div>}
                 <StepViewContext.Provider value={viewCtx}>
-                  {locked ? (
-                    <fieldset disabled className="m-0 min-w-0 border-0 p-0">
-                      {children}
-                    </fieldset>
-                  ) : (
-                    children
-                  )}
+                  {children}
                 </StepViewContext.Provider>
               </div>
             </section>

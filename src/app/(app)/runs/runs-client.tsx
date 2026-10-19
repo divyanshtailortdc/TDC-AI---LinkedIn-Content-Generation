@@ -15,7 +15,6 @@ import {
   Plus
 } from 'lucide-react'
 import { triggerNewRun } from './actions'
-import { InactiveAccountNotice } from '@/components/inactive-account-notice'
 import { PageHeader } from '@/components/page-header'
 import type { RunSpendSummary } from '@/lib/run-spend'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
@@ -23,7 +22,6 @@ import type { PageInfo } from '@/lib/pagination'
 import { Pagination } from '@/components/pagination'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { formatAbsoluteDateTime } from '@/lib/format-date'
-import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 
 interface RunSummary {
   id: string
@@ -49,15 +47,15 @@ interface RunSummary {
 export function RunsClient({
   initialRuns,
   pageInfo,
-  activeAccount,
+  identity,
   hideHeader,
   spend
 }: {
   /** One page of runs; pageInfo says which. */
   initialRuns: RunSummary[]
   pageInfo: PageInfo
-  /** `isActive: false` (deactivated) disables Generate Now; the server refuses it too. */
-  activeAccount: { id: string; name: string; isActive: boolean } | null
+  /** The signed-in user's identity, which runs are started for. */
+  identity: { id: string; name: string }
   hideHeader?: boolean
   /** Spend windows computed server-side; see getRunSpendSummary. */
   spend?: RunSpendSummary
@@ -69,8 +67,6 @@ export function RunsClient({
   const [isTriggering, setIsTriggering] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [triggerError, setTriggerError] = useState<string | null>(null)
-  const isDeactivated = activeAccount?.isActive === false
-  const lockedTitle = isDeactivated ? INACTIVE_ACCOUNT_MESSAGE : undefined
 
   const openModal = () => {
     setTriggerError(null)
@@ -91,11 +87,10 @@ export function RunsClient({
   }, [hasActiveRun, router])
 
   const handleGenerateNow = async () => {
-    if (!activeAccount || isDeactivated) return
     setIsTriggering(true)
     setTriggerError(null)
     try {
-      const res = await triggerNewRun(activeAccount.id)
+      const res = await triggerNewRun()
       if (res.success && res.runId) {
         setShowModal(false)
         router.push(`/runs/${res.runId}`)
@@ -122,10 +117,6 @@ export function RunsClient({
 
   const content = (
     <div className="space-y-8">
-      {/* Inside an identity's setup frame (hideHeader) the frame shows this. */}
-      {activeAccount && isDeactivated && !hideHeader && (
-        <InactiveAccountNotice accountId={activeAccount.id} accountName={activeAccount.name} />
-      )}
       {spend && runs.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
@@ -182,7 +173,7 @@ export function RunsClient({
                 Identity
               </label>
               <div className="w-full rounded-xl border border-border bg-surface-hover p-2.5 text-xs text-foreground">
-                {activeAccount?.name || 'No active identity selected'}
+                {identity.name}
               </div>
             </div>
 
@@ -207,7 +198,7 @@ export function RunsClient({
               <button
                 type="button"
                 onClick={handleGenerateNow}
-                disabled={isTriggering || !activeAccount || isDeactivated}
+                disabled={isTriggering}
                 className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-xs transition-colors disabled:opacity-60"
               >
                 {isTriggering && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -225,8 +216,6 @@ export function RunsClient({
           <button
             type="button"
             onClick={openModal}
-            disabled={isDeactivated}
-            title={lockedTitle}
             className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent text-background text-[13px] font-semibold shadow-xs hover:bg-accent-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
@@ -334,8 +323,6 @@ export function RunsClient({
           <button
             type="button"
             onClick={openModal}
-            disabled={isDeactivated}
-            title={lockedTitle}
             className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-xs transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play className="w-3.5 h-3.5 fill-current" />

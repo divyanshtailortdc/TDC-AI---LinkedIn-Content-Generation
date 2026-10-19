@@ -5,7 +5,7 @@ import {
   getIdentitySetupBaselineAction,
   type IdentitySetupBaseline,
   type SectionApplyResult
-} from '@/app/(app)/accounts/ai-setup-actions'
+} from '@/app/(app)/identity/ai-setup-actions'
 import { showToast } from '@/components/toast-notification'
 import {
   EMPTY_SUGGESTIONS,

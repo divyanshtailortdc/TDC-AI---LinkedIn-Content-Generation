@@ -2,7 +2,6 @@
 
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { cn } from '@/lib/cn'
-import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import {
   AlertTriangle,
   ArrowRight,
@@ -57,8 +56,6 @@ interface RunIdeaCardProps {
   ) => Promise<boolean | void>
   onDraft?: (id: string) => Promise<void>
   isBusy: boolean
-  /** The idea's identity is deactivated: every action is disabled, Details still opens. */
-  locked?: boolean
   /** Hide the status badge where the surrounding list already filters by it. */
   showStatus?: boolean
 }
@@ -136,11 +133,9 @@ export function RunIdeaCard({
   onEditSave,
   onDraft,
   isBusy,
-  locked = false,
   showStatus = true
 }: RunIdeaCardProps) {
-  const actionsDisabled = isBusy || locked
-  const lockedTitle = locked ? INACTIVE_ACCOUNT_MESSAGE : undefined
+  const actionsDisabled = isBusy
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [editHook, setEditHook] = useState(idea.hookConcept || '')
   const [editAngle, setEditAngle] = useState(idea.angle || '')
@@ -307,7 +302,6 @@ export function RunIdeaCard({
               <button
                 type="button"
                 disabled={actionsDisabled}
-                title={lockedTitle}
                 onClick={handleSaveEdit}
                 className="bg-accent text-background hover:bg-accent-hover inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
               >
@@ -426,7 +420,6 @@ export function RunIdeaCard({
                     <button
                       type="button"
                       disabled={actionsDisabled}
-                      title={lockedTitle}
                       onClick={() => setMode('edit')}
                       className="border-border text-foreground hover:bg-surface-hover ml-auto inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
                     >
@@ -476,7 +469,6 @@ export function RunIdeaCard({
                       <button
                         type="button"
                         disabled={actionsDisabled}
-                        title={lockedTitle}
                         className="text-muted inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-medium transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -489,7 +481,6 @@ export function RunIdeaCard({
                     <button
                       type="button"
                       disabled={actionsDisabled}
-                      title={lockedTitle}
                       onClick={() => onApprove(idea.id)}
                       className={cn(
                         'inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60',
@@ -511,7 +502,6 @@ export function RunIdeaCard({
                     <button
                       type="button"
                       disabled={actionsDisabled}
-                      title={lockedTitle}
                       onClick={() => onDraft?.(idea.id)}
                       className="bg-accent text-background hover:bg-accent-hover inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
                     >

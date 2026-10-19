@@ -19,11 +19,9 @@ import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-
 import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas, approveAllIdeas } from './actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
-import { InactiveAccountNotice } from '@/components/inactive-account-notice'
 import { Pagination } from '@/components/pagination'
 import { cn } from '@/lib/cn'
-import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
-import type { ActiveAccount } from '@/lib/active-account'
+import type { IdentitySummary } from '@/lib/identity'
 import type { PageInfo } from '@/lib/pagination'
 import { STATUS_TABS, type StatusFilter } from './status-filter'
 
@@ -56,7 +54,7 @@ export function IdeasClient({
   statusCounts,
   proposedIds,
   approvedIds,
-  activeAccount
+  identity
 }: {
   /** One page of the ideas the status filter shows; pageInfo says which. */
   initialIdeas: ClientIdeaData[]
@@ -67,7 +65,7 @@ export function IdeasClient({
   proposedIds: string[]
   /** Every approved idea not yet drafted, on any page. */
   approvedIds: string[]
-  activeAccount: ActiveAccount
+  identity: IdentitySummary
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -106,10 +104,6 @@ export function IdeasClient({
       router.push(next === 'all' ? pathname : `${pathname}?status=${next}`)
     })
   const [isActionBusy, setIsActionBusy] = useState(false)
-  // A deactivated identity's ideas can be read but not approved, rejected,
-  // edited or drafted; the server refuses those too.
-  const locked = !activeAccount.isActive
-  const lockedTitle = locked ? INACTIVE_ACCOUNT_MESSAGE : undefined
   const draftingRef = useRef(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
@@ -342,7 +336,7 @@ export function IdeasClient({
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Idea Review & Approval"
-        description={`Review post ideas for ${activeAccount.name}`}
+        description={`Review post ideas for ${identity.name}`}
         actions={
           isDrafting ? (
             <span
@@ -361,12 +355,11 @@ export function IdeasClient({
                   confirmLabel="Approve all"
                   tone="success"
                   onConfirm={handleApproveAll}
-                  disabled={isActionBusy || locked}
+                  disabled={isActionBusy}
                 >
                   <button
                     type="button"
-                    disabled={isActionBusy || locked}
-                    title={lockedTitle}
+                    disabled={isActionBusy}
                     className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                   >
                     <CheckCheck className="h-3.5 w-3.5" />
@@ -379,8 +372,7 @@ export function IdeasClient({
                 <button
                   type="button"
                   onClick={handleDraftApproved}
-                  disabled={isActionBusy || locked}
-                  title={lockedTitle}
+                  disabled={isActionBusy}
                   className={cn(
                     'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                     allProposedIds.length > 0
@@ -403,12 +395,11 @@ export function IdeasClient({
                   align="end"
                   // Don't await: the popover would otherwise stay open for the whole drafting run.
                   onConfirm={() => void handleApproveAllAndDraft()}
-                  disabled={isActionBusy || locked}
+                  disabled={isActionBusy}
                 >
                   <button
                     type="button"
-                    disabled={isActionBusy || locked}
-                    title={lockedTitle}
+                    disabled={isActionBusy}
                     className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
@@ -434,12 +425,6 @@ export function IdeasClient({
       {/* Scrollable ideas list */}
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-7xl space-y-4">
-          {locked && (
-            <InactiveAccountNotice
-              accountId={activeAccount.id}
-              accountName={activeAccount.name}
-            />
-          )}
           <AiDraftingStatus
             status={draftStatus}
             subject={
@@ -449,7 +434,7 @@ export function IdeasClient({
             }
             errorMessage={draftError}
             onRetry={() => void draftIdeas(draftTargetIds)}
-            retryDisabled={isActionBusy || locked}
+            retryDisabled={isActionBusy}
           />
 
           {showGeneratingOnly ? null : filteredIdeas.length === 0 ? (
@@ -491,7 +476,6 @@ export function IdeasClient({
                   onEditSave={handleEditSave}
                   onDraft={handleDraftSingle}
                   isBusy={ideaActionBusyId === idea.id}
-                  locked={locked}
                   showStatus={status === 'all'}
                 />
               ))}

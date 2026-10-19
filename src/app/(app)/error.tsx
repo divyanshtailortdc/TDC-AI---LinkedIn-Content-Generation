@@ -1,11 +1,11 @@
 'use client' // Error boundaries must be Client Components
 
-import { useEffect } from 'react'
 import { ErrorState } from '@/components/error-state'
+import { useEffect } from 'react'
 
 /**
  * Shown in place of a page that threw, inside the app shell, so the sidebar
- * and identity switcher stay usable to get out of it. An error in the shell
+ * stays usable to get out of it. An error in the shell
  * itself (this folder's layout) is caught one level up, by app/error.tsx.
  */
 export default function AppError({

@@ -14,6 +14,9 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { ACTIVE_RUN_STATUSES } from '../lib/run-status'
+import { authUsersTable } from './auth-schema'
+
+export * from './auth-schema'
 
 // ---------------------------------------------------------------------------
 // Shared field helpers
@@ -48,8 +51,18 @@ export const commonFieldDefs = {
 
 export const accountsTable = pgTable('accounts', {
   id: commonFieldDefs.id(),
+  // The signed-in user who owns this identity; each user has at most one.
+  // Null only for identities made before sign-in existed: those are hidden
+  // from everyone until they are assigned to their owner
+  // (docs/AUTHENTICATION.md, "Legacy identities"). Postgres allows any number
+  // of nulls under the unique constraint.
+  userId: uuid('user_id')
+    .unique()
+    .references(() => authUsersTable.id, {
+      onDelete: 'cascade'
+    }),
   name: text('name').notNull(),
-  handle: text('handle').notNull().unique(),
+  handle: text('handle').notNull(),
   headline: text('headline').notNull(),
   bio: text('bio'),
   avatarUrl: text('avatar_url'),
@@ -60,6 +73,9 @@ export const accountsTable = pgTable('accounts', {
   websiteUrl: text('website_url'),
   linkedinUrl: text('linkedin_url'),
   industry: text('industry'),
+  // No longer read or written: identities used to be deactivatable. The
+  // migration that dropped the feature disabled the schedules of the ones
+  // that were off.
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
 })

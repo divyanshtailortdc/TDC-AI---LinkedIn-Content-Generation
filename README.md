@@ -78,6 +78,8 @@ cp .env.example .env
 
 Use `.env`, not `.env.local`: the dashboard points to `.env`, and Next.js lets a key in `.env.local` (even an empty one) override the same key in `.env`.
 
+Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; Google and LinkedIn sign-in (the only ways to create an account) are configured there too; passkeys need no setup. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup, the rules every new Server Action follows, and how to assign existing identities to their owners.
+
 ### 2. Run the Development Server
 
 ```bash

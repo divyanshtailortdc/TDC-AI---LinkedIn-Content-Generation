@@ -16,8 +16,10 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.52",
+    "@better-auth/passkey": "1.6.11",
     "@t3-oss/env-nextjs": "^0.13.11",
     "ai": "^7.0.97",
+    "better-auth": "1.6.11",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",

@@ -42,6 +42,7 @@ const now = new Date('2026-10-01T00:00:00Z')
 function account(overrides: Partial<Account>): Account {
   return {
     id: 'acc',
+    userId: null,
     name: 'Account',
     handle: 'account',
     headline: 'Headline',

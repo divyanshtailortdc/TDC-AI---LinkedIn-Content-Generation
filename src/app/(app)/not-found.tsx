@@ -10,7 +10,7 @@ export default function AppNotFound() {
       variant="not-found"
       className="h-[calc(100vh-4rem)]"
       title="Not found"
-      message="This item does not exist or was deleted. It may belong to another identity."
+      message="This item does not exist or was deleted."
     />
   )
 }

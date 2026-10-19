@@ -17,7 +17,22 @@ export const env = createEnv({
     // 'agent' lets the research agent choose searches and read pages.
     RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
-    CRON_SECRET: z.string().optional()
+    CRON_SECRET: z.string().optional(),
+
+    // Authentication (see docs/AUTHENTICATION.md). Better Auth refuses to
+    // start in production without a secret.
+    BETTER_AUTH_SECRET: z
+      .string()
+      .min(32, 'BETTER_AUTH_SECRET must be at least 32 characters')
+      .optional(),
+    /** The URL people open the app at; Google/LinkedIn redirects and passkeys use it. */
+    BETTER_AUTH_URL: z.url().optional(),
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    LINKEDIN_CLIENT_ID: z.string().optional(),
+    LINKEDIN_CLIENT_SECRET: z.string().optional(),
+    /** Comma-separated auth user ids that are always admins (Admin plugin `adminUserIds`). */
+    ADMIN_USER_IDS: z.string().optional()
   },
 
   client: {
@@ -32,6 +47,13 @@ export const env = createEnv({
     RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
+    LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
+    ADMIN_USER_IDS: process.env.ADMIN_USER_IDS,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL
   },
 

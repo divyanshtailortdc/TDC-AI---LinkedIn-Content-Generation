@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { VoiceAnalysisSchema, WRITING_STYLES } from '../voice-analysis/schema'
 
 /**
- * AI identity setup: one natural-language description in, suggestions for the
+ * AI Account Setup: one natural-language description in, suggestions for the
  * Profile, Voice, Knowledge, Goals and Preferences sections out.
  *
  * There are two shapes here:

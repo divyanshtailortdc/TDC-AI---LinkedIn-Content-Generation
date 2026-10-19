@@ -1,8 +1,8 @@
 import { IdeasClient } from './ideas-client'
 import { loadIdeasPage } from './ideas-data'
-import { getActiveAccount } from '@/lib/active-account'
+import { getIdentity, toIdentitySummary } from '@/lib/identity'
 import { parsePage } from '@/lib/pagination'
-import { NoActiveAccount } from '@/components/no-active-account'
+import { NoIdentity } from '@/components/no-identity'
 import { parseStatusFilter } from './status-filter'
 
 export const dynamic = 'force-dynamic'
@@ -12,33 +12,29 @@ export default async function IdeasPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const activeAccount = await getActiveAccount()
+  const identity = await getIdentity()
 
-  if (!activeAccount) {
-    return <NoActiveAccount title="Idea Review & Approval" />
+  if (!identity) {
+    return <NoIdentity title="Idea Review & Approval" />
   }
 
   const params = await searchParams
   const status = parseStatusFilter(params.status)
   const { ideas, pageInfo, statusCounts, proposedIds, approvedIds } =
-    await loadIdeasPage(activeAccount.id, {
+    await loadIdeasPage(identity.id, {
       status,
       page: parsePage(params.page)
     })
 
-  // Keying on the active account forces a remount on switch, so this client
-  // component's local state resets and reflects the newly active account's
-  // data instead of stale state.
   return (
     <IdeasClient
-      key={activeAccount.id}
       initialIdeas={ideas}
       pageInfo={pageInfo}
       status={status}
       statusCounts={statusCounts}
       proposedIds={proposedIds}
       approvedIds={approvedIds}
-      activeAccount={activeAccount}
+      identity={toIdentitySummary(identity)}
     />
   )
 }

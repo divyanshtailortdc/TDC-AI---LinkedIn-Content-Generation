@@ -1,5 +1,5 @@
 /**
- * Web research for identity setup, as plain rules with no network access.
+ * Web research for Account Setup, as plain rules with no network access.
  *
  * Search results are untrusted: a company name is rarely unique, and a search
  * engine will happily return a different business, a directory listing or a

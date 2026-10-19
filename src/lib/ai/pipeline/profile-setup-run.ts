@@ -252,7 +252,7 @@ export async function analyzeIdentitySetup(
       signal
     })
   } catch (error) {
-    console.error('Identity setup analysis failed:', error)
+    console.error('Account Setup analysis failed:', error)
     if (error instanceof SkillError && error.reason === 'quota_exceeded') {
       // Retrying cannot help until the key's budget is raised or replaced.
       throw new IdentitySetupError(

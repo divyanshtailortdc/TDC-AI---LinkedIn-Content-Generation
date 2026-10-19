@@ -1,7 +1,7 @@
 import { PostsClient } from './posts-client'
 import { countPosts, loadPostsPage } from './posts-data'
-import { getActiveAccount } from '@/lib/active-account'
-import { NoActiveAccount } from '@/components/no-active-account'
+import { getIdentity, toIdentitySummary } from '@/lib/identity'
+import { NoIdentity } from '@/components/no-identity'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -11,10 +11,10 @@ export default async function PostsPage({
 }: {
   searchParams: Promise<{ runId?: string | string[] }>
 }) {
-  const activeAccount = await getActiveAccount()
+  const identity = await getIdentity()
 
-  if (!activeAccount) {
-    return <NoActiveAccount title="Post Review & Approval" />
+  if (!identity) {
+    return <NoIdentity title="Post Review & Approval" />
   }
 
   // Opened from a run (?runId=): that run's posts are loaded along with the
@@ -25,20 +25,20 @@ export default async function PostsPage({
     : null
 
   const [{ posts, nextCursor }, total] = await Promise.all([
-    loadPostsPage(activeAccount.id, { runId }),
-    countPosts(activeAccount.id)
+    loadPostsPage(identity.id, { runId }),
+    countPosts(identity.id)
   ])
 
-  // Keying on the active account (and the run) forces a remount on a switch, so
-  // this client component's local state (which only seeds from initialPosts
-  // once) resets and reflects the data for what is now being shown.
+  // Keying on the run forces a remount when it changes, so this client
+  // component's local state (which only seeds from initialPosts once) resets
+  // and reflects the data for what is now being shown.
   return (
     <PostsClient
-      key={`${activeAccount.id}:${runId ?? ''}`}
+      key={runId ?? ''}
       initialPosts={posts}
       initialNextCursor={nextCursor}
       totalCount={total}
-      activeAccount={activeAccount}
+      identity={toIdentitySummary(identity)}
     />
   )
 }

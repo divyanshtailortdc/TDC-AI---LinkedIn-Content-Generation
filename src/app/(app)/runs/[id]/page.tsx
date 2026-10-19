@@ -1,11 +1,9 @@
 import { db } from '@/db'
-import { accountsTable } from '@/db/schema'
-import { eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
-import { isUuid } from '@/lib/ids'
-import { getRunDetails } from '~/jobs/queue'
-import { getActiveAccountId } from '@/lib/active-account'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
+import { findOwnedAccount, findOwnedRun } from '@/lib/ownership'
+import { requireUser } from '@/lib/session'
+import { notFound } from 'next/navigation'
+import { getRunDetails } from '~/jobs/queue'
 import { RunDetailClient } from './run-detail-client'
 
 export const dynamic = 'force-dynamic'
@@ -16,28 +14,25 @@ interface RunPageProps {
 
 export default async function SingleRunPage({ params }: RunPageProps) {
   const { id } = await params
-  if (!isUuid(id)) notFound()
+  const user = await requireUser()
+  // Someone else's run is a 404, the same as a run that does not exist.
+  const owned = await findOwnedRun(db, user.id, id)
+  if (!owned) notFound()
+
   // A run interrupted by a restart reads as failed, not as still in progress.
-  await recoverInterruptedRuns(id)
-  const { run, steps, findings, ideas } = await getRunDetails(id)
+  await recoverInterruptedRuns(owned.id)
+  const { run, steps, findings, ideas } = await getRunDetails(owned.id)
 
   if (!run) {
     notFound()
   }
 
-  const [account, activeAccountId] = await Promise.all([
-    db.query.accountsTable.findFirst({
-      where: eq(accountsTable.id, run.accountId)
-    }),
-    getActiveAccountId()
-  ])
+  const account = await findOwnedAccount(db, user.id, run.accountId)
 
   if (!account) {
     notFound()
   }
 
-  // Any identity's run can be opened. A deactivated identity's run is shown
-  // without switching to that identity.
   return (
     <RunDetailClient
       initialRun={run}
@@ -45,7 +40,6 @@ export default async function SingleRunPage({ params }: RunPageProps) {
       initialFindings={findings}
       initialIdeas={ideas}
       account={account}
-      activateAccount={account.isActive && account.id !== activeAccountId}
     />
   )
 }
