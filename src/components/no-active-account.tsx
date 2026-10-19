@@ -3,8 +3,8 @@ import { ArrowRight, Users } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 
 /**
- * Shown on account-scoped pages (Ideas, Posts, Runs) when there is no active
- * identity yet — either no accounts exist, or all of them are deactivated.
+ * Shown on account-scoped pages (Ideas, Posts, Runs) when there is no identity
+ * to show yet. A deactivated identity is still shown, so this means none exist.
  */
 export function NoActiveAccount({ title }: { title: string }) {
   return (
@@ -15,10 +15,9 @@ export function NoActiveAccount({ title }: { title: string }) {
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10">
             <Users className="h-7 w-7 text-accent" />
           </div>
-          <h2 className="mb-2 text-lg font-semibold text-foreground">No active identity</h2>
+          <h2 className="mb-2 text-lg font-semibold text-foreground">No identity yet</h2>
           <p className="mb-8 text-sm leading-relaxed text-muted">
-            Add an identity, or reactivate an existing one, then select it from the switcher to see
-            its content here.
+            Add an identity to see its content here.
           </p>
           <Link
             href="/accounts/new"

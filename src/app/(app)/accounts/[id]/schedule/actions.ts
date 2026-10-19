@@ -2,6 +2,7 @@
 
 import { db } from '@/db'
 import { schedulesTable } from '@/db/schema'
+import { assertAccountActive } from '@/lib/account-guard'
 import { AccountIdSchema, parseSetupPayload } from '@/lib/setup-payloads'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -17,6 +18,7 @@ export async function saveSchedule(
 ) {
   try {
     const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+    await assertAccountActive(accountId)
     if (payload.daysOfWeek.length === 0) {
       throw new Error('Pick at least one day.')
     }

@@ -3,7 +3,9 @@
 import { db } from '@/db'
 import { goalsTable } from '@/db/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
+import { assertAccountActive, isAccountInactive } from '@/lib/account-guard'
 import { idSchema, isUuid } from '@/lib/ids'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import { loadGenerationContext } from '@/lib/ai/context'
 import { SkillError } from '@/lib/ai/run-skill'
 import {
@@ -91,6 +93,7 @@ function revalidateGoals(accountId: string) {
 
 export async function createGoal(rawAccountId: string, rawPayload: GoalPayload) {
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  await assertAccountActive(accountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
   await assertTitleIsNew(accountId, payload.title)
@@ -112,6 +115,7 @@ export async function updateGoal(
 ) {
   const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  await assertAccountActive(accountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
   validate(payload)
   await assertTitleIsNew(accountId, payload.title, goalId)
@@ -134,6 +138,9 @@ export async function suggestGoalsAction(
 > {
   if (!isUuid(accountId)) {
     return { success: false, error: 'Invalid account identifier' }
+  }
+  if (await isAccountInactive(accountId)) {
+    return { success: false, error: INACTIVE_ACCOUNT_MESSAGE }
   }
   try {
     const suggestions = await suggestGoals(
@@ -176,6 +183,7 @@ export async function toggleGoalActive(
 ) {
   const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  await assertAccountActive(accountId)
   await db
     .update(goalsTable)
     .set({ isActive, updatedAt: new Date() })
@@ -188,6 +196,7 @@ export async function toggleGoalActive(
 export async function deleteGoal(rawGoalId: string, rawAccountId: string) {
   const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  await assertAccountActive(accountId)
   await db
     .delete(goalsTable)
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))

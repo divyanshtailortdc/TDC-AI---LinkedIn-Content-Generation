@@ -244,6 +244,8 @@ export function SetupFrame({
   stepIndex,
   nextHref,
   hasSavedData = false,
+  locked = false,
+  notice,
   title,
   description,
   children
@@ -261,6 +263,13 @@ export function SetupFrame({
    * step must not hide the form under the person's hands.
    */
   hasSavedData?: boolean
+  /**
+   * The identity is deactivated: the step is shown read-only, with no Edit or
+   * Save, and every control in it and in the assistant is disabled.
+   */
+  locked?: boolean
+  /** Shown above the step's content, such as why it is locked. */
+  notice?: ReactNode
   /** Override the step's own title and description. */
   title?: string
   description?: string
@@ -302,7 +311,7 @@ export function SetupFrame({
   }, [])
   // Unsaved changes keep the step editable; otherwise a saved step is viewed.
   const editing =
-    !viewable || edit || Object.values(views).some(view => view.dirty)
+    !locked && (!viewable || edit || Object.values(views).some(view => view.dirty))
   const viewCtx = useMemo(
     () => ({ editing, setView, removeView }),
     [editing, setView, removeView]
@@ -357,8 +366,10 @@ export function SetupFrame({
                     </button>
                   )}
                   {showNext && nextHref && (
+                    // Just the arrow on phones, where the name needs the room.
                     <Link
                       href={nextHref}
+                      aria-label="Next"
                       aria-disabled={saving}
                       onClick={e => {
                         if (
@@ -371,13 +382,13 @@ export function SetupFrame({
                           e.preventDefault()
                         }
                       }}
-                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60"
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors aria-disabled:opacity-60 @max-md:w-8 @max-md:px-0"
                     >
-                      Next
+                      <span className="hidden @md:inline">Next</span>
                       <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   )}
-                  {viewable && !editing ? (
+                  {locked ? null : viewable && !editing ? (
                     <button
                       type="button"
                       onClick={() => setEdit(true)}
@@ -411,7 +422,9 @@ export function SetupFrame({
               ) : undefined
             }
           >
-            <div className="flex min-w-0 flex-1 items-center gap-3 @min-[56rem]:w-44 @min-[56rem]:flex-none">
+            {/* A fixed width once the steps share the row, so the steps sit
+                in the same place for every identity; long names truncate. */}
+            <div className="flex min-w-0 flex-1 items-center gap-3 @min-[56rem]:w-56 @min-[56rem]:flex-none @min-[72rem]:w-64">
               {identity}
             </div>
 
@@ -441,7 +454,13 @@ export function SetupFrame({
                 is the quickest way to fill the form. */}
             {aside && (
               <aside className="relative order-first xl:order-last xl:h-full xl:min-h-0 xl:overflow-y-auto">
-                {aside}
+                {locked ? (
+                  <fieldset disabled className="m-0 h-full min-w-0 border-0 p-0">
+                    {aside}
+                  </fieldset>
+                ) : (
+                  aside
+                )}
               </aside>
             )}
 
@@ -460,8 +479,15 @@ export function SetupFrame({
                 </span>
               </div>
               <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-5">
+                {notice && <div className="mb-4">{notice}</div>}
                 <StepViewContext.Provider value={viewCtx}>
-                  {children}
+                  {locked ? (
+                    <fieldset disabled className="m-0 min-w-0 border-0 p-0">
+                      {children}
+                    </fieldset>
+                  ) : (
+                    children
+                  )}
                 </StepViewContext.Provider>
               </div>
             </section>

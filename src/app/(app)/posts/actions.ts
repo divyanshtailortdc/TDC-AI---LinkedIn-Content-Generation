@@ -13,7 +13,7 @@ import { revalidatePath } from 'next/cache'
 import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
 import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { validateImageUrl } from '~/lib/media/image-input'
-import { requireActiveAccountId } from '@/lib/active-account'
+import { requireActiveAccountId, requireWritableActiveAccountId } from '@/lib/active-account'
 import { z } from 'zod'
 import { postCharCount } from '@/lib/post-text'
 import { REVIEWER_SEARCH_SOURCE, REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
@@ -46,7 +46,7 @@ export async function updateDraft(
   }
 ) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     const existing = await db.query.postDraftsTable.findFirst({
       where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
@@ -128,7 +128,7 @@ export async function updateDraft(
 
 export async function approveDraft(draftId: string) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     const [approved] = await db
       .update(postDraftsTable)
@@ -152,7 +152,7 @@ export async function approveDraft(draftId: string) {
 
 export async function rejectDraft(draftId: string, reason?: string) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     const draft = await db.query.postDraftsTable.findFirst({
       where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
@@ -200,7 +200,7 @@ export async function updatePostMediaAction(
   }
 ) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     // The client disables Apply for bad URLs, but this action is callable directly.
     if (payload.mode !== 'none' && payload.imageUrl) {
@@ -256,7 +256,7 @@ export async function updatePostMediaAction(
 
 export async function removePostMediaAction(draftId: string) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     const draft = await db.query.postDraftsTable.findFirst({
       where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
@@ -294,7 +294,7 @@ export async function generatePostMediaAction(
   }
 ) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     const draft = await db.query.postDraftsTable.findFirst({
       where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))
@@ -414,7 +414,7 @@ export async function regeneratePostMediaAction(
   }
 ) {
   try {
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     const draft = await db.query.postDraftsTable.findFirst({
       where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, activeAccountId))

@@ -7,6 +7,8 @@ import { db } from '~/db'
 import { samplePostsTable, voiceConfigsTable } from '~/db/schema'
 import { analyzeVoiceSamples } from '~/lib/ai/skills/voice-analysis'
 import { AccountIdSchema } from '~/lib/setup-payloads'
+import { isAccountInactive } from '@/lib/account-guard'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import { hasVoiceChoice, NO_VOICE_CHOICE_MESSAGE } from '~/lib/voice-choice'
 
 // Every voice field is optional so a voice can be saved without an analysis.
@@ -123,6 +125,9 @@ export async function saveVoiceConfigAction(data: SaveVoiceInput) {
       }
     }
     const validated = parsed.data
+    if (await isAccountInactive(validated.accountId)) {
+      return { success: false, error: INACTIVE_ACCOUNT_MESSAGE }
+    }
 
     // 2. Clean banned words
     const sanitizedBannedWords =

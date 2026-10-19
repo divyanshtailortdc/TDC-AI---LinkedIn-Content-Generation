@@ -1,4 +1,4 @@
-import { DeleteIdentityDialog } from '@/components/delete-identity-dialog'
+import { IdentityStatusToggle } from '@/components/identity-status-toggle'
 import { PageHeader } from '@/components/page-header'
 import { UsageSummaryCards } from '@/components/usage-summary-cards'
 import { db } from '@/db'
@@ -25,10 +25,13 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { initialsOf } from '@/lib/initials'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
+  // The selected identity, deactivated or not: deactivating it here leaves it
+  // on this card, showing Activate, rather than switching to another identity.
   const activeAccount = await getActiveAccount()
   const capabilities = getCapabilities()
 
@@ -90,9 +93,10 @@ export default async function DashboardPage() {
           {account && (
             <section>
               <h2 className="mb-4 text-sm font-semibold tracking-tight text-foreground">
-                Active identity
+                Current identity
               </h2>
               <AccountCard
+                key={account.id}
                 account={account}
                 isActive={account.isActive !== false}
                 hasVoice={voiceConfigs.length > 0}
@@ -212,9 +216,17 @@ function AccountCard({
   const completedCount = Object.values(completed).filter(Boolean).length
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-6 shadow-xs">
+    <div
+      className={`rounded-2xl border p-6 shadow-xs ${
+        isActive ? 'border-border bg-surface' : 'border-dashed border-border/70 bg-surface-hover/40'
+      }`}
+    >
       <div className="mb-6 flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-background">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+            isActive ? 'bg-accent text-background' : 'bg-surface-hover text-muted'
+          }`}
+        >
           {initials}
         </div>
         <div className="min-w-0 flex-1">
@@ -228,8 +240,23 @@ function AccountCard({
             <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-[11px] capitalize text-muted">
               {account.accountType}
             </span>
+            {isActive ? (
+              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                Active
+              </span>
+            ) : (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Deactivated
+              </span>
+            )}
           </div>
           <p className="mt-0.5 truncate text-sm text-muted">{account.headline}</p>
+          {!isActive && (
+            <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
+              {INACTIVE_ACCOUNT_MESSAGE}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Link
@@ -239,7 +266,12 @@ function AccountCard({
             Edit
           </Link>
           <span className="h-3 w-px bg-border" />
-          <DeleteIdentityDialog accountId={account.id} accountName={account.name} />
+          <IdentityStatusToggle
+            key={account.id}
+            accountId={account.id}
+            accountName={account.name}
+            isActive={isActive}
+          />
         </div>
       </div>
 

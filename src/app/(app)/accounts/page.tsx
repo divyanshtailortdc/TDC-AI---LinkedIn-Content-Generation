@@ -15,7 +15,9 @@ export const dynamic = 'force-dynamic'
 
 export default async function AccountsPage() {
   const [accounts, voiceConfigs, knowledgeDocs, goals, prefs] = await Promise.all([
-    db.select().from(accountsTable),
+    // Oldest first, as in the switcher. Unordered, Postgres usually returns a
+    // just-updated row last, so a card jumped around the list when toggled.
+    db.select().from(accountsTable).orderBy(accountsTable.createdAt),
     db.select({ accountId: voiceConfigsTable.accountId }).from(voiceConfigsTable),
     db.select({ accountId: knowledgeDocumentsTable.accountId }).from(knowledgeDocumentsTable),
     db.select({ accountId: goalsTable.accountId }).from(goalsTable),

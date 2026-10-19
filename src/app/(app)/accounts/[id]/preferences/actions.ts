@@ -1,5 +1,6 @@
 'use server'
 
+import { assertAccountActive } from '@/lib/account-guard'
 import { db } from '@/db'
 import {
   preferencesTable,
@@ -78,6 +79,7 @@ export async function savePreferences(
   rawPayload: PreferencesPayload
 ) {
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  await assertAccountActive(accountId)
   const payload = parseSetupPayload(PreferencesPayloadSchema, rawPayload)
   validate(payload)
 

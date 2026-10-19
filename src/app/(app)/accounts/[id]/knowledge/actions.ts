@@ -5,6 +5,7 @@ import { knowledgeDocumentsTable } from '@/db/schema'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { extractKnowledgeClaims } from '@/lib/ai/skills/knowledge-extraction'
 import { indexKnowledgeDocument } from '@/lib/ai/embeddings'
+import { assertAccountActive } from '@/lib/account-guard'
 import { idSchema } from '@/lib/ids'
 import {
   AccountIdSchema,
@@ -48,6 +49,7 @@ export async function saveKnowledgeDocument(rawPayload: {
   content: string
 }) {
   const payload = parseSetupPayload(KnowledgeDocumentSchema, rawPayload)
+  await assertAccountActive(payload.accountId)
   if (!payload.title.trim() || !payload.content.trim()) {
     throw new Error('Title and content are required')
   }
@@ -94,6 +96,7 @@ export async function deleteKnowledgeDocument(
 ) {
   const docId = parseSetupPayload(DocumentIdSchema, rawDocId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
+  await assertAccountActive(accountId)
   await db
     .delete(knowledgeDocumentsTable)
     .where(

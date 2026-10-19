@@ -8,7 +8,8 @@ import {
   validateReferenceDimensions
 } from '~/lib/media/image-input'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
-import { requireActiveAccountId } from '@/lib/active-account'
+import { InactiveAccountError } from '@/lib/account-guard'
+import { requireWritableActiveAccountId } from '@/lib/active-account'
 import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
 
@@ -75,8 +76,9 @@ export async function POST(
   // caller who knew a post id could have images generated, and billed, for it.
   let accountId: string
   try {
-    accountId = await requireActiveAccountId()
-  } catch {
+    accountId = await requireWritableActiveAccountId()
+  } catch (err) {
+    if (err instanceof InactiveAccountError) return fail(403, err.message)
     return fail(401, 'No active identity selected.')
   }
 

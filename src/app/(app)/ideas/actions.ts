@@ -9,7 +9,8 @@ import {
   settleRunAfterIdeaDecision
 } from '~/lib/ai/pipeline/drafting-run'
 import { revalidatePath } from 'next/cache'
-import { requireActiveAccountId } from '@/lib/active-account'
+import { requireWritableActiveAccountId } from '@/lib/active-account'
+import { assertAccountActive, assertRunAccountActive } from '@/lib/account-guard'
 
 // These actions mutate a specific idea/run identified by its own id, which is
 // already scoped server-side wherever it's read (the /ideas list is fetched
@@ -32,6 +33,7 @@ export async function approveIdea(ideaId: string) {
       where: eq(ideasTable.id, ideaId)
     })
     if (!idea) throw new Error('Idea not found')
+    await assertAccountActive(idea.accountId)
 
     const approved = await db
       .update(ideasTable)
@@ -65,6 +67,7 @@ export async function rejectIdea(ideaId: string, reason?: string) {
     })
 
     if (!idea) throw new Error('Idea not found')
+    await assertAccountActive(idea.accountId)
 
     // A stale tab could otherwise reject an idea already drafted (or being
     // drafted), then approve and draft it again: a second post for one idea,
@@ -117,6 +120,7 @@ export async function editIdea(
     })
 
     if (!idea) throw new Error('Idea not found')
+    await assertAccountActive(idea.accountId)
 
     const currentMedia = (idea.suggestedMedia as any) || { mode: 'none' }
 
@@ -153,7 +157,7 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
       // The ideaIds path is only ever called from the /ideas list (already
       // scoped to the active account), so re-scope to it defensively against
       // stale ids from a previous session.
-      const activeAccountId = await requireActiveAccountId()
+      const activeAccountId = await requireWritableActiveAccountId()
       const owned = await db.query.ideasTable.findMany({
         where: and(
           inArray(ideasTable.id, options.ideaIds),
@@ -162,6 +166,7 @@ export async function draftApprovedIdeas(options: { runId?: string; ideaIds?: st
       })
       targetIdeaIds = owned.map((i) => i.id)
     } else if (options.runId) {
+      await assertRunAccountActive(options.runId)
       // The runId path is called from a specific run's own detail page,
       // which may not belong to the currently active account — the run's
       // own account is the correct scope here, not the active-account cookie.
@@ -220,7 +225,7 @@ export async function approveAllIdeas(ideaIds: string[]) {
   try {
     if (ideaIds.length === 0) return { success: false, error: 'No ideas to approve' }
 
-    const activeAccountId = await requireActiveAccountId()
+    const activeAccountId = await requireWritableActiveAccountId()
 
     // The ids come from a list that may be stale: another identity may be
     // active now, or some ideas may have been drafted since. Those rows are
@@ -276,6 +281,7 @@ export async function approveAllIdeas(ideaIds: string[]) {
 export async function approveRunIdeas(runId: string, ideaIds: string[]) {
   try {
     if (ideaIds.length === 0) return { success: false, error: 'No ideas to approve' }
+    await assertRunAccountActive(runId)
 
     const approved = await db
       .update(ideasTable)

@@ -133,9 +133,23 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
  * if another worker claimed the row between the SELECT and the UPDATE this
  * returns nothing instead of running the same job twice.
  */
+/**
+ * Runs of active identities only. A run queued before its identity was
+ * deactivated waits, still queued, until the identity is activated again;
+ * it is skipped rather than claimed, so it can't hold up other identities.
+ */
+const ofActiveAccount = () =>
+  inArray(
+    runsTable.accountId,
+    db
+      .select({ id: accountsTable.id })
+      .from(accountsTable)
+      .where(eq(accountsTable.isActive, true))
+  )
+
 export async function claimNextQueuedRun() {
   const nextQueued = await db.query.runsTable.findFirst({
-    where: eq(runsTable.status, 'queued'),
+    where: and(eq(runsTable.status, 'queued'), ofActiveAccount()),
     orderBy: [asc(runsTable.createdAt)]
   })
 
@@ -146,7 +160,7 @@ export async function claimNextQueuedRun() {
 
 /**
  * Moves one specific run from queued to running, or returns null if it is no
- * longer queued. The status check is what makes this safe to call from both
+ * longer queued or its identity is deactivated. The status check is what makes this safe to call from both
  * the polling worker and "Generate now": whichever UPDATE lands second finds
  * the run already running (or finished) and gets nothing back.
  */
@@ -158,7 +172,9 @@ export async function claimRunById(runId: string) {
       currentStep: 1,
       updatedAt: new Date()
     })
-    .where(and(eq(runsTable.id, runId), eq(runsTable.status, 'queued')))
+    .where(
+      and(eq(runsTable.id, runId), eq(runsTable.status, 'queued'), ofActiveAccount())
+    )
     .returning()
 
   return claimed ?? null

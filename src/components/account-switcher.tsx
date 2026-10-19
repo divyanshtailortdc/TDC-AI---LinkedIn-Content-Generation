@@ -14,6 +14,8 @@ export interface SwitchableAccount {
   name: string
   handle: string
   accountType: string
+  /** Deactivated identities are listed and selectable, marked as such. */
+  isActive: boolean
 }
 
 export function AccountSwitcher({
@@ -66,7 +68,11 @@ export function AccountSwitcher({
         }
         showToast({
           title: 'Switched identity',
-          message: target ? `Now viewing ${target.name} · @${target.handle}` : undefined,
+          message: target
+            ? `Now viewing ${target.name} · @${target.handle}${
+                target.isActive ? '' : ' (inactive: activate it to continue)'
+              }`
+            : undefined,
           type: 'success'
         })
       } else {
@@ -106,7 +112,9 @@ export function AccountSwitcher({
           collapsed
             ? isCreating
               ? 'Creating new identity'
-              : activeAccount?.name || 'Select identity'
+              : activeAccount
+                ? `${activeAccount.name}${activeAccount.isActive ? '' : ' (deactivated)'}`
+                : 'Select identity'
             : undefined
         }
         className={cn(
@@ -119,7 +127,14 @@ export function AccountSwitcher({
             <Plus className="h-3.5 w-3.5" />
           </div>
         ) : (
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-background">
+          <div
+            className={cn(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+              activeAccount && !activeAccount.isActive
+                ? 'bg-surface-hover text-muted'
+                : 'bg-accent text-background'
+            )}
+          >
             {activeAccount ? initialsOf(activeAccount.name) : '?'}
           </div>
         )}
@@ -129,6 +144,11 @@ export function AccountSwitcher({
               <p className="truncate text-xs font-semibold leading-tight text-foreground">
                 {isCreating ? 'Creating new identity' : activeAccount?.name || 'Select identity'}
               </p>
+              {shownAccount && !shownAccount.isActive && (
+                <p className="mt-0.5 truncate text-[11px] leading-tight text-amber-700 dark:text-amber-400">
+                  Deactivated
+                </p>
+              )}
               {/* <p className="truncate text-[11px] leading-tight text-muted">
                 {activeAccount ? `@${activeAccount.handle}` : 'No active identity'}
               </p> */}
@@ -167,9 +187,21 @@ export function AccountSwitcher({
                     {initialsOf(account.name)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-foreground">{account.name}</p>
+                    <p
+                      className={cn(
+                        'truncate text-xs font-medium',
+                        account.isActive ? 'text-foreground' : 'text-muted'
+                      )}
+                    >
+                      {account.name}
+                    </p>
                     {/* <p className="truncate text-[10px] text-muted">@{account.handle}</p> */}
                   </div>
+                  {!account.isActive && (
+                    <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                      Deactivated
+                    </span>
+                  )}
                   {account.id === shownAccount?.id && (
                     <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
                   )}

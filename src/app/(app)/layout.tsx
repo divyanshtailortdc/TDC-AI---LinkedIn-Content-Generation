@@ -21,10 +21,11 @@ export default async function AppLayout({
         id: accountsTable.id,
         name: accountsTable.name,
         handle: accountsTable.handle,
-        accountType: accountsTable.accountType
+        accountType: accountsTable.accountType,
+        isActive: accountsTable.isActive
       })
       .from(accountsTable)
-      .where(eq(accountsTable.isActive, true))
+      // Deactivated identities stay listed (marked as such) and selectable.
       .orderBy(accountsTable.createdAt),
     getActiveAccount(),
     cookies()

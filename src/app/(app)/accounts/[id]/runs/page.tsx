@@ -35,7 +35,7 @@ export default async function AccountRunsPage({
       <RunsClient
         initialRuns={formattedRuns}
         pageInfo={pageInfo}
-        activeAccount={{ id: account.id, name: account.name }}
+        activeAccount={{ id: account.id, name: account.name, isActive: account.isActive }}
         hideHeader={true}
         spend={spend}
       />

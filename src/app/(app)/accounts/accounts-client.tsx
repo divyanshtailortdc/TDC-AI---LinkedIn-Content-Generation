@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, Users, Mic, BookOpen, Target, SlidersHorizontal, CheckCircle2, ChevronRight, Play } from 'lucide-react'
-import { ReactivateIdentityButton } from '@/components/reactivate-identity-button'
+import { IdentityStatusToggle } from '@/components/identity-status-toggle'
 import { Pagination } from '@/components/pagination'
 import { initialsOf } from '@/lib/initials'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
@@ -143,14 +143,13 @@ function AccountCard({
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          {!isActive && (
-            <ReactivateIdentityButton
-              accountId={account.id}
-              accountName={account.name}
-              label="Activate"
-              variant="solid"
-            />
-          )}
+          {/* This identity's own status decides whether it offers Activate or Deactivate. */}
+          <IdentityStatusToggle
+            accountId={account.id}
+            accountName={account.name}
+            isActive={isActive}
+            compact
+          />
           {isActive && allDone && (
             <Link
               href={`/accounts/${account.id}/runs`}
@@ -160,24 +159,14 @@ function AccountCard({
               Generate
             </Link>
           )}
-          {isActive ? (
-            <Link
-              href={`/accounts/${account.id}`}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
-            >
-              Open
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          ) : (
-            <span
-              aria-disabled="true"
-              title="Activate this identity to open it"
-              className="inline-flex cursor-not-allowed items-center gap-1.5 text-xs font-semibold text-muted opacity-50 select-none"
-            >
-              Open
-              <ChevronRight className="w-3.5 h-3.5" />
-            </span>
-          )}
+          {/* Deactivating only changes the status, so a deactivated identity still opens. */}
+          <Link
+            href={`/accounts/${account.id}`}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
+          >
+            Open
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
       </div>
 
@@ -186,13 +175,19 @@ function AccountCard({
           Setup:
         </span>
         {setupSteps.map(({ key, label, icon: Icon, href }) => {
+          // A deactivated identity's steps stay open, just without their colors.
           const stepClasses = `flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
             isActive
               ? getStepColor(key, !!completed[key])
-              : 'bg-surface-hover text-muted cursor-not-allowed opacity-60 select-none'
+              : 'bg-surface-hover text-muted hover:text-foreground'
           }`
-          const stepContent = (
-            <>
+
+          return (
+            <Link
+              key={key}
+              href={`/accounts/${account.id}/${href}`}
+              className={stepClasses}
+            >
               <Icon className="w-3.5 h-3.5" />
               {label}
               {completed[key] ? (
@@ -202,21 +197,7 @@ function AccountCard({
               ) : (
                 <span className="w-3 h-3 rounded-full border border-border bg-background/50 inline-block" />
               )}
-            </>
-          )
-
-          return isActive ? (
-            <Link
-              key={key}
-              href={`/accounts/${account.id}/${href}`}
-              className={stepClasses}
-            >
-              {stepContent}
             </Link>
-          ) : (
-            <span key={key} aria-disabled="true" className={stepClasses}>
-              {stepContent}
-            </span>
           )
         })}
       </div>
@@ -247,12 +228,11 @@ export function AccountsClient({
            (a.headline && a.headline.toLowerCase().includes(searchQuery.toLowerCase()))
   )
 
-  // Active first, so deactivated ones settle at the bottom without being hidden.
-  const orderedAccounts = [...filteredAccounts].sort(
-    (a, b) => Number(b.isActive !== false) - Number(a.isActive !== false)
-  )
+  // Kept in the server's order (oldest first) whatever their status, so a card
+  // stays where it is when it is activated or deactivated.
+  const orderedAccounts = filteredAccounts
   const hasAnyAccounts = accounts.length > 0
-  // Active first, then paged; a page past the end shows the last page.
+  // A page past the end shows the last page.
   const { rows: pageAccounts, pageInfo } = paginate(orderedAccounts, page, PAGE_SIZE)
 
   if (!hasAnyAccounts) {

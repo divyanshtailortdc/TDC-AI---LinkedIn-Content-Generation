@@ -59,7 +59,10 @@ export default async function AccountPage({
     })
   ])
 
-  const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
+  // "Ready to Generate" only for an active identity; a deactivated one shows
+  // the inactive notice instead (see SetupShell).
+  const allDone =
+    account.isActive && Boolean(voiceConfig && knowledgeDoc && goal && preference)
 
   return (
     <SetupShell account={account} hasSavedData>

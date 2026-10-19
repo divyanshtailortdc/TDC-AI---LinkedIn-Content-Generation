@@ -31,6 +31,7 @@ import {
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { AccountIdSchema } from '@/lib/setup-payloads'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import { resolvePreferences } from '@/lib/ai/context'
 import { profileFromRecords } from '@/lib/identity-profile'
@@ -213,6 +214,7 @@ export async function applyIdentitySetupAction(
 
   const account = await findAccount(accountId)
   if (!account) return { success: false, error: 'Account identity not found' }
+  if (!account.isActive) return { success: false, error: INACTIVE_ACCOUNT_MESSAGE }
 
   const results: Partial<Record<SetupSection, SectionApplyResult>> = {}
   // Sections write to separate tables, so they run side by side; each one

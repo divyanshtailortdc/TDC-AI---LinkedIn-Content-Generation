@@ -36,8 +36,8 @@ export default async function SingleRunPage({ params }: RunPageProps) {
     notFound()
   }
 
-  // Any identity's run can be opened, including a deactivated one's (which
-  // can't be made active, so it is shown as it is).
+  // Any identity's run can be opened. A deactivated identity's run is shown
+  // without switching to that identity.
   return (
     <RunDetailClient
       initialRun={run}

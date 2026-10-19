@@ -6,6 +6,7 @@ import {
 } from '@/lib/ai/pipeline/profile-setup-run'
 import { AnalyzeIdentityInputSchema } from '@/lib/ai/skills/profile-setup/schema'
 import { eq } from 'drizzle-orm'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 
 /**
  * Analyze with AI: read-only, nothing is written to the database.
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
       where: eq(accountsTable.id, parsed.data.accountId)
     })
     if (!account) return fail(404, 'Account identity not found', false)
+    if (!account.isActive) return fail(403, INACTIVE_ACCOUNT_MESSAGE, false)
   }
 
   try {

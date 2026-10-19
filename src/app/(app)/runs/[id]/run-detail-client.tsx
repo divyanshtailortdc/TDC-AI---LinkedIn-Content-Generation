@@ -24,8 +24,10 @@ import type { LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
+import { InactiveAccountNotice } from '@/components/inactive-account-notice'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import { setActiveAccount } from '@/lib/active-account-actions'
 import { fetchRunStatus } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
@@ -383,6 +385,10 @@ export function RunDetailClient({
   const approvedCount = statusCount('approved')
   const proposedCount = statusCount('proposed')
   const isBusy = isDrafting || isApprovingAll
+  // A deactivated identity's run can be read but its ideas can't be decided
+  // or drafted; the server refuses those too.
+  const locked = account.isActive === false
+  const lockedTitle = locked ? INACTIVE_ACCOUNT_MESSAGE : undefined
 
   // While the run is active and no step is mid-flight, the first stage with
   // nothing recorded yet is the one starting. Drafting only starts after
@@ -437,11 +443,12 @@ export function RunDetailClient({
                   confirmLabel="Approve all"
                   tone="success"
                   onConfirm={handleApproveAll}
-                  disabled={isBusy}
+                  disabled={isBusy || locked}
                 >
                   <button
                     type="button"
-                    disabled={isBusy}
+                    disabled={isBusy || locked}
+                    title={lockedTitle}
                     className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                   >
                     {isApprovingAll ? (
@@ -457,7 +464,8 @@ export function RunDetailClient({
                 <button
                   type="button"
                   onClick={handleDraftApproved}
-                  disabled={isBusy}
+                  disabled={isBusy || locked}
+                  title={lockedTitle}
                   aria-busy={isDrafting}
                   className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
                 >
@@ -479,8 +487,12 @@ export function RunDetailClient({
             successMessage="Posts generated! Opening the review queue…"
             errorMessage={draftError}
             onRetry={handleDraftApproved}
-            retryDisabled={isDrafting}
+            retryDisabled={isDrafting || locked}
           />
+
+          {locked && (
+            <InactiveAccountNotice accountId={account.id} accountName={account.name} />
+          )}
 
           {run.error && (
             <div
@@ -592,6 +604,7 @@ export function RunDetailClient({
                     onReject={handleRejectIdea}
                     onEditSave={handleEditIdeaSave}
                     isBusy={ideaActionBusyId === idea.id || isBusy}
+                    locked={locked}
                   />
                 ))}
               </div>

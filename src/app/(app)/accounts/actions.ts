@@ -2,12 +2,13 @@
 
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
-import { writeActiveAccountCookie } from '@/lib/active-account'
+import { pinActiveAccount, writeActiveAccountCookie } from '@/lib/active-account'
 import {
   deriveHeadline,
   IdentityProfileSchema
 } from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import { AccountIdSchema } from '@/lib/setup-payloads'
 import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -193,6 +194,9 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     if (!existing) {
       return { success: false, error: 'Account identity not found' }
     }
+    if (!existing.isActive) {
+      return { success: false, error: INACTIVE_ACCOUNT_MESSAGE }
+    }
 
     // The handle only follows the LinkedIn URL; renaming keeps the old handle.
     let handle = existing.handle
@@ -245,82 +249,77 @@ export async function updateAccountAction(input: UpdateAccountInput) {
   }
 }
 
-export async function deleteAccountAction(accountId: string) {
+const setAccountActiveSchema = z.object({
+  id: AccountIdSchema,
+  isActive: z.boolean()
+})
+
+export type SetAccountActiveResult =
+  | { success: true; isActive: boolean; changed: boolean }
+  | { success: false; error: string }
+
+/**
+ * Activates or deactivates one identity. The caller names the status it wants
+ * rather than asking for a flip, so a repeated or stale request (a double
+ * click, a second tab) leaves the identity as asked instead of undoing it, and
+ * the update is scoped to this one id so no other identity can change.
+ *
+ * Only the status changes. A deactivated identity stays listed, keeps its
+ * settings, ideas and posts, and stays selected if it was; runs are refused
+ * for it until it is activated again. The selection is never moved here.
+ */
+export async function setAccountActiveAction(
+  accountId: string,
+  isActive: boolean
+): Promise<SetAccountActiveResult> {
+  const verb = isActive ? 'activate' : 'deactivate'
   try {
-    const parsed = AccountIdSchema.safeParse(accountId)
+    const parsed = setAccountActiveSchema.safeParse({ id: accountId, isActive })
     if (!parsed.success) {
-      return { success: false, error: 'Invalid account identifier' }
+      return {
+        success: false,
+        error: parsed.error.issues.map(i => i.message).join('. ')
+      }
     }
-    const id = parsed.data
+    const { id } = parsed.data
 
-    // Verify account exists
-    const existing = await db.query.accountsTable.findFirst({
-      where: eq(accountsTable.id, id)
-    })
-    if (!existing) {
-      return { success: false, error: 'Account identity not found' }
-    }
+    // With no identity picked yet the one shown is a fallback that prefers
+    // active identities; pin it first so this change can't move it.
+    await pinActiveAccount()
 
-    // Soft delete: mark identity as inactive (isActive: false)
-    await db
+    // Only a row not already in the asked-for state is written, so updatedAt
+    // (which keys the profile form) moves only on a real change.
+    const [updated] = await db
       .update(accountsTable)
-      .set({
-        isActive: false,
-        updatedAt: new Date()
+      .set({ isActive: parsed.data.isActive, updatedAt: new Date() })
+      .where(
+        and(
+          eq(accountsTable.id, id),
+          ne(accountsTable.isActive, parsed.data.isActive)
+        )
+      )
+      .returning({ id: accountsTable.id })
+
+    if (!updated) {
+      const existing = await db.query.accountsTable.findFirst({
+        where: eq(accountsTable.id, id),
+        columns: { id: true }
       })
-      .where(eq(accountsTable.id, id))
+      if (!existing) {
+        return { success: false, error: 'Identity not found' }
+      }
+    }
 
-    // Revalidate paths
-    revalidatePath('/')
-    revalidatePath('/accounts')
-    revalidatePath(`/accounts/${id}`)
+    // The root layout holds the identity switcher, which shows each
+    // identity's status, and every page under it shows status or depends on it.
+    revalidatePath('/', 'layout')
 
-    return { success: true }
+    return { success: true, isActive: parsed.data.isActive, changed: !!updated }
   } catch (error: any) {
-    console.error('Error deactivating account identity:', error)
+    console.error(`Error trying to ${verb} account identity:`, error)
     return {
       success: false,
-      error: error?.message || 'Failed to deactivate identity'
-    }
-  }
-}
-
-export async function reactivateAccountAction(accountId: string) {
-  try {
-    const parsed = AccountIdSchema.safeParse(accountId)
-    if (!parsed.success) {
-      return { success: false, error: 'Invalid account identifier' }
-    }
-    const id = parsed.data
-
-    // Verify account exists
-    const existing = await db.query.accountsTable.findFirst({
-      where: eq(accountsTable.id, id)
-    })
-    if (!existing) {
-      return { success: false, error: 'Account identity not found' }
-    }
-
-    // Reactivate identity (isActive: true)
-    await db
-      .update(accountsTable)
-      .set({
-        isActive: true,
-        updatedAt: new Date()
-      })
-      .where(eq(accountsTable.id, id))
-
-    // Revalidate paths
-    revalidatePath('/')
-    revalidatePath('/accounts')
-    revalidatePath(`/accounts/${id}`)
-
-    return { success: true }
-  } catch (error: any) {
-    console.error('Error reactivating account identity:', error)
-    return {
-      success: false,
-      error: error?.message || 'Failed to reactivate identity'
+      error: error?.message || `Failed to ${verb} identity`
     }
   }
 }

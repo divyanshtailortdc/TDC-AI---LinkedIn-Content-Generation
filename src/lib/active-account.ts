@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { accountsTable } from '@/db/schema'
+import { InactiveAccountError } from './account-guard'
 import { isUuid } from './ids'
 
 export const ACTIVE_ACCOUNT_COOKIE = 'activeAccountId'
@@ -15,6 +16,8 @@ export interface ActiveAccount {
   headline: string
   avatarUrl: string | null
   accountType: string
+  /** The identity's status. A deactivated identity stays selected; it just can't start runs. */
+  isActive: boolean
 }
 
 /**
@@ -22,31 +25,46 @@ export interface ActiveAccount {
  * Every page/action that reads or writes account-scoped data should resolve
  * this server-side rather than trust an accountId passed in from the client.
  *
- * Falls back to the first active account if the cookie is missing, malformed
- * or points at an account that no longer exists/was deactivated, so a stale
- * cookie never silently renders an empty app (or, unchecked, a Postgres error
- * on every page).
+ * The identity in the cookie is kept whatever its status: deactivating the
+ * selected identity leaves it selected, and only picking another one in the
+ * switcher changes the selection. Falls back only when the cookie is missing,
+ * malformed or points at no account, so a stale cookie never renders an empty
+ * app (or, unchecked, a Postgres error on every page).
  */
 export async function getActiveAccount(): Promise<ActiveAccount | null> {
+  const selected = await findCookieAccount()
+  if (selected) return pick(selected)
+  const fallback = await findFallbackAccount()
+  return fallback ? pick(fallback) : null
+}
+
+/**
+ * Writes the identity being shown into the cookie when it is only there as
+ * the fallback. Call before changing an identity's status: deactivating the
+ * fallback identity would otherwise move the fallback to another one,
+ * switching identities without the user picking one.
+ */
+export async function pinActiveAccount() {
+  if (await findCookieAccount()) return
+  const fallback = await findFallbackAccount()
+  if (fallback) await writeActiveAccountCookie(fallback.id)
+}
+
+async function findCookieAccount() {
   const cookieStore = await cookies()
   const cookieId = cookieStore.get(ACTIVE_ACCOUNT_COOKIE)?.value
-
   // A malformed cookie is treated as no cookie.
-  if (isUuid(cookieId)) {
-    const account = await db.query.accountsTable.findFirst({
-      where: eq(accountsTable.id, cookieId)
-    })
-    if (account && account.isActive) {
-      return pick(account)
-    }
-  }
-
-  const fallback = await db.query.accountsTable.findFirst({
-    where: eq(accountsTable.isActive, true),
-    orderBy: (accounts, { asc }) => [asc(accounts.createdAt)]
+  if (!isUuid(cookieId)) return undefined
+  return db.query.accountsTable.findFirst({
+    where: eq(accountsTable.id, cookieId)
   })
+}
 
-  return fallback ? pick(fallback) : null
+/** The oldest active identity, or the oldest of all when none is active. */
+function findFallbackAccount() {
+  return db.query.accountsTable.findFirst({
+    orderBy: (accounts, { asc, desc }) => [desc(accounts.isActive), asc(accounts.createdAt)]
+  })
 }
 
 /**
@@ -76,9 +94,22 @@ export async function getActiveAccountId(): Promise<string | null> {
 export async function requireActiveAccountId(): Promise<string> {
   const id = await getActiveAccountId()
   if (!id) {
-    throw new Error('No active identity selected. Add or activate an identity first.')
+    throw new Error('No identity selected. Add an identity first.')
   }
   return id
+}
+
+/**
+ * requireActiveAccountId for actions that change the selected identity's data
+ * (approve, reject, edit, generate): refused while that identity is deactivated.
+ */
+export async function requireWritableActiveAccountId(): Promise<string> {
+  const account = await getActiveAccount()
+  if (!account) {
+    throw new Error('No identity selected. Add an identity first.')
+  }
+  if (!account.isActive) throw new InactiveAccountError()
+  return account.id
 }
 
 function pick(account: typeof accountsTable.$inferSelect): ActiveAccount {
@@ -88,7 +119,8 @@ function pick(account: typeof accountsTable.$inferSelect): ActiveAccount {
     handle: account.handle,
     headline: account.headline,
     avatarUrl: account.avatarUrl,
-    accountType: account.accountType
+    accountType: account.accountType,
+    isActive: account.isActive
   }
 }
 

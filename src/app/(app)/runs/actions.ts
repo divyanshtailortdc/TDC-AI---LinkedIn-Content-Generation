@@ -8,6 +8,7 @@ import { processRunImmediately } from '~/jobs/worker'
 import { revalidatePath } from 'next/cache'
 import { getActiveAccountId, writeActiveAccountCookie } from '@/lib/active-account'
 import { isUuid } from '@/lib/ids'
+import { INACTIVE_ACCOUNT_MESSAGE } from '@/lib/inactive-account'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 
 /**
@@ -25,15 +26,14 @@ export async function triggerNewRun(explicitAccountId?: string | null, goalId?: 
     if (!accountId) {
       throw new Error('No active identity selected. Add or activate an identity first.')
     }
-    if (!isUuid(accountId)) throw new Error('Identity not found or inactive')
+    if (!isUuid(accountId)) throw new Error('Identity not found')
     if (goalId && !isUuid(goalId)) throw new Error('Goal not found')
 
     const account = await db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, accountId)
     })
-    if (!account || !account.isActive) {
-      throw new Error('Identity not found or inactive')
-    }
+    if (!account) throw new Error('Identity not found')
+    if (!account.isActive) throw new Error(INACTIVE_ACCOUNT_MESSAGE)
 
     // A run already in progress for this identity is returned instead of a
     // new one, so a second tab or a repeated click opens that run.
