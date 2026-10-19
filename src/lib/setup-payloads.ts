@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { idSchema } from './ids'
-import { optionalUrlError } from './identity-profile'
+import { optionalUrlError, tooLong } from './identity-profile'
 
 /**
  * What the setup server actions accept. A server action is a public endpoint:
@@ -12,7 +12,7 @@ import { optionalUrlError } from './identity-profile'
 const URL_MESSAGE = 'URLs must start with http:// or https://'
 /** A string capped at `max`, with the field named in the message people see. */
 const text = (max: number, label: string) =>
-  z.string().max(max, `${label} must be ${max.toLocaleString('en-US')} characters or fewer`)
+  z.string().max(max, tooLong(label, max))
 
 /** An empty string is allowed: the forms send "" for no link. */
 const optionalUrl = z

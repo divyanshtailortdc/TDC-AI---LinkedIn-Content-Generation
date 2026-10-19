@@ -20,6 +20,8 @@ import type { RunSpendSummary } from '@/lib/run-spend'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import type { PageInfo } from '@/lib/pagination'
 import { Pagination } from '@/components/pagination'
+import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+import { formatAbsoluteDateTime } from '@/lib/format-date'
 
 interface RunSummary {
   id: string
@@ -42,21 +44,6 @@ interface RunSummary {
   createdAt: Date | string
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/**
- * When a run started, formatted by hand: toLocaleString renders differently on
- * the server and in the browser. The time zone can still differ between the
- * two, so the element that shows it suppresses the hydration warning.
- */
-function formatRunDate(value: Date | string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`
-}
-
 export function RunsClient({
   initialRuns,
   pageInfo,
@@ -73,6 +60,7 @@ export function RunsClient({
   spend?: RunSpendSummary
 }) {
   const router = useRouter()
+  const hasMounted = useHasMounted()
   // Rendered straight from props so router.refresh() below shows fresh rows.
   const runs = initialRuns
   const [isTriggering, setIsTriggering] = useState(false)
@@ -275,11 +263,8 @@ export function RunsClient({
                   </div>
 
                   <p className="text-xs text-muted">
-                    <time
-                      dateTime={new Date(run.createdAt).toISOString()}
-                      suppressHydrationWarning
-                    >
-                      {formatRunDate(run.createdAt)}
+                    <time dateTime={new Date(run.createdAt).toISOString()}>
+                      {hasMounted ? formatAbsoluteDateTime(run.createdAt) : ''}
                     </time>
                     <span className="font-mono"> · ID: {run.id.slice(0, 8)}...</span>
                   </p>

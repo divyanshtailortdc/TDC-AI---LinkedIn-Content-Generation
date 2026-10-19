@@ -214,18 +214,44 @@ function FieldLabel({
   )
 }
 
+/** The counter shows once the text is within this share of its limit. */
+const COUNTER_FROM = 0.8
+
 function FieldFooter({
   def,
-  error
+  error,
+  length,
+  max
 }: {
   def: IdentityFieldDefinition
   error?: string
+  /** Length of the typed text, and the limit it is held to, if any. */
+  length: number
+  max?: number
 }) {
-  if (error) return <p className="mt-1.5 text-xs text-red-500">{error}</p>
   // Optional fields show their hint beside the label instead.
-  return def.hint && def.required ? (
-    <p className="text-muted mt-1.5 text-xs">{def.hint}</p>
+  const message = error ? (
+    <p className="text-xs text-red-500">{error}</p>
+  ) : def.hint && def.required ? (
+    <p className="text-muted text-xs">{def.hint}</p>
   ) : null
+  const counter =
+    max !== undefined && length >= max * COUNTER_FROM ? (
+      <p
+        className={`ml-auto shrink-0 text-xs tabular-nums ${
+          length > max ? 'font-medium text-red-500' : 'text-muted'
+        }`}
+      >
+        {length.toLocaleString('en-US')} / {max.toLocaleString('en-US')}
+      </p>
+    ) : null
+  if (!message && !counter) return null
+  return (
+    <div className="mt-1.5 flex items-start justify-between gap-3">
+      {message}
+      {counter}
+    </div>
+  )
 }
 
 function IdentityField({
@@ -283,9 +309,15 @@ function IdentityField({
     )
   }
 
+  // The limit is not enforced while typing: a browser's maxLength cuts pasted
+  // text silently. The counter and error say so instead.
+  const max = maxLengthOf(def.name)
+  const length = value.length
+  const overLimit = max !== undefined && length > max
+
   const className = `${baseInputClass} ${
-    error
-      ? 'border-red-500/60 ring-1 ring-red-500/30'
+    error || overLimit
+      ?'border-red-500/60 ring-1 ring-red-500/30'
       : aiFilled
         ? 'border-accent/40'
         : 'border-border'
@@ -300,7 +332,6 @@ function IdentityField({
           name={def.name}
           rows={3}
           value={value}
-          maxLength={maxLengthOf(def.name)}
           required={def.required}
           placeholder={def.placeholder}
           onChange={e => onChange(e.target.value)}
@@ -318,7 +349,6 @@ function IdentityField({
             name={def.name}
             type={def.type}
             value={value}
-            maxLength={maxLengthOf(def.name)}
             required={def.required}
             placeholder={def.placeholder}
             onChange={e => onChange(e.target.value)}
@@ -326,7 +356,7 @@ function IdentityField({
           />
         </div>
       )}
-      <FieldFooter def={def} error={error} />
+      <FieldFooter def={def} error={error} length={length} max={max} />
     </div>
   )
 }

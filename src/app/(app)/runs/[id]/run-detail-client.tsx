@@ -29,7 +29,13 @@ import { cn } from '@/lib/cn'
 import { setActiveAccount } from '@/lib/active-account-actions'
 import { fetchRunStatus } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
-import { approveIdea, rejectIdea, editIdea, draftApprovedIdeas } from '../../ideas/actions'
+import {
+  approveIdea,
+  approveRunIdeas,
+  rejectIdea,
+  editIdea,
+  draftApprovedIdeas
+} from '../../ideas/actions'
 import { AiDraftingStatus, DraftingStatus } from '~/components/ai-drafting-status'
 import { RunIdeaCard } from '~/components/run-idea-card'
 
@@ -269,14 +275,18 @@ export function RunDetailClient({
     }
   }
 
-  // Approves each idea by its own id, so it works whichever account is active.
+  // Approves by the run's own id, so it works whichever account is active.
   const handleApproveAll = async () => {
     const proposedIds = ideas.filter((i) => i.status === 'proposed').map((i) => i.id)
     if (proposedIds.length === 0) return
     setIsApprovingAll(true)
     try {
-      const results = await Promise.all(proposedIds.map((id) => approveIdea(id)))
-      const approvedIds = proposedIds.filter((_, idx) => results[idx]?.success)
+      const res = await approveRunIdeas(run.id, proposedIds)
+      if (!res.success) {
+        showToast({ title: 'Approve all failed', message: res.error, type: 'error' })
+        return
+      }
+      const approvedIds = res.approvedIds ?? []
       setIdeas((prev) =>
         prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
       )

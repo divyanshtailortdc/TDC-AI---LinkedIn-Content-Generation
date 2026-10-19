@@ -56,8 +56,7 @@ import {
   Suspense,
   useEffect,
   useRef,
-  useState,
-  useSyncExternalStore
+  useState
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -71,6 +70,8 @@ import {
   updatePostMediaAction
 } from './actions'
 import { initialsOf } from '@/lib/initials'
+import { formatAbsoluteDate, formatAbsoluteDateTime } from '@/lib/format-date'
+import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 
 export interface PostDetail {
   id: string
@@ -156,11 +157,6 @@ const STATUS_LABELS: Record<StatusFilter, string> = {
 }
 
 const DAY_MS = 86_400_000
-
-const MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-]
 
 function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value)
@@ -256,30 +252,6 @@ function toDayInput(date: Date): string {
 }
 
 /**
- * Dates are formatted by hand rather than through `toLocaleString`, which
- * renders with Node's locale on the server and the browser's locale on the
- * client ("9/16/2026" vs "16/09/2026") and breaks hydration.
- */
-function formatAbsoluteDate(value: Date | string): string {
-  const date = toDate(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const day = date.getDate()
-  const month = MONTHS[date.getMonth()]
-  const year = date.getFullYear()
-  return year === new Date().getFullYear()
-    ? `${day} ${month}`
-    : `${day} ${month} ${year}`
-}
-
-function formatAbsoluteDateTime(value: Date | string): string {
-  const date = toDate(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`
-}
-
-/**
  * Stable grouping key. Group boundaries are derived from this rather than from
  * the display label, so swapping "16 Sep" for "Today" after mount never
  * reshuffles the list.
@@ -321,19 +293,6 @@ function bucketLabel(value: Date | string, relative: boolean): string {
     return 'Yesterday'
   }
   return absolute
-}
-
-/**
- * False during SSR and the hydration render, true afterwards. Lets "now"-relative
- * text render only on the client without tripping a hydration mismatch.
- */
-const emptySubscribe = () => () => {}
-function useHasMounted(): boolean {
-  return useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  )
 }
 
 function countLintErrors(findings: LintFinding[] | undefined): number {
@@ -566,6 +525,20 @@ export function PostsClientInner({
     setReferenceImageName(null)
     setImageLoadFailure(null)
   }
+
+  // A media job outlives the post it started on: the user can open another
+  // post while it runs. The error, notice and input resets below are the open
+  // post's panel, so a job's outcome only goes there while its post is open.
+  const activePostIdRef = useRef(activePostId)
+  useEffect(() => {
+    activePostIdRef.current = activePostId
+  })
+  const isPostOpen = (postId: string) => activePostIdRef.current === postId
+  const reportMediaError = (postId: string, message: string) => {
+    if (isPostOpen(postId)) setMediaError(message)
+    else showToast({ type: 'error', title: 'Media update failed', message })
+  }
+
   // The preview and Copy show the saved post, which is what Approve saves; the
   // edit buffer only while the editor is open. Showing unsaved edits there
   // meant copying or approving one text while another was stored.
@@ -874,15 +847,18 @@ export function PostsClientInner({
           prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
         )
       } else {
-        setMediaError(
+        reportMediaError(
+          postId,
           res?.error || `Image generation failed (HTTP ${response.status}).`
         )
       }
     } catch (err: any) {
       if (controller.signal.aborted) {
-        setMediaNotice('Generation stopped. Edit your prompt and try again.')
+        if (isPostOpen(postId))
+          setMediaNotice('Generation stopped. Edit your prompt and try again.')
       } else {
-        setMediaError(
+        reportMediaError(
+          postId,
           err?.message
             ? `Could not reach the server: ${err.message}`
             : 'Could not reach the server. Check your connection and try again.'
@@ -926,10 +902,16 @@ export function PostsClientInner({
           prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
         )
       } else {
-        setMediaError(res.error || 'Could not generate a visual from this post.')
+        reportMediaError(
+          postId,
+          res.error || 'Could not generate a visual from this post.'
+        )
       }
     } catch (err: any) {
-      setMediaError(err?.message || 'Could not generate a visual from this post.')
+      reportMediaError(
+        postId,
+        err?.message || 'Could not generate a visual from this post.'
+      )
     } finally {
       setIsMediaLoading(false)
       setMediaPostId(null)
@@ -979,29 +961,30 @@ export function PostsClientInner({
       setMediaError(queryProblem)
       return
     }
+    const postId = activePost.id
     setIsMediaLoading(true)
-    setMediaPostId(activePost.id)
+    setMediaPostId(postId)
     setMediaLoadingText('Searching royalty-free stock imagery...')
     setMediaError(null)
 
     try {
-      const res = await regeneratePostMediaAction(activePost.id, {
+      const res = await regeneratePostMediaAction(postId, {
         mode: 'stock',
         customPrompt: stockSearchQuery.trim() || undefined
       })
       if (res.success && res.media) {
         setPosts(prev =>
-          prev.map(p =>
-            p.id === activePost.id ? { ...p, media: res.media } : p
-          )
+          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
         )
-        setShowStockInput(false)
-        setStockSearchQuery('')
+        if (isPostOpen(postId)) {
+          setShowStockInput(false)
+          setStockSearchQuery('')
+        }
       } else {
-        setMediaError(res.error || 'Failed to search stock visual')
+        reportMediaError(postId, res.error || 'Failed to search stock visual')
       }
     } catch (err: any) {
-      setMediaError(err?.message || 'Failed to search stock visual')
+      reportMediaError(postId, err?.message || 'Failed to search stock visual')
     } finally {
       setIsMediaLoading(false)
       setMediaPostId(null)
@@ -1018,13 +1001,14 @@ export function PostsClientInner({
       return
     }
 
+    const postId = activePost.id
     setIsMediaLoading(true)
-    setMediaPostId(activePost.id)
+    setMediaPostId(postId)
     setMediaLoadingText('Attaching custom image...')
     setMediaError(null)
 
     try {
-      const res = await updatePostMediaAction(activePost.id, {
+      const res = await updatePostMediaAction(postId, {
         mode: 'stock',
         imageUrl: url,
         altText: `Custom visual for: ${activePost.hook.slice(0, 50)}`
@@ -1032,17 +1016,17 @@ export function PostsClientInner({
 
       if (res.success && res.media) {
         setPosts(prev =>
-          prev.map(p =>
-            p.id === activePost.id ? { ...p, media: res.media } : p
-          )
+          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
         )
-        setShowCustomUrlInput(false)
-        setCustomImageUrl('')
+        if (isPostOpen(postId)) {
+          setShowCustomUrlInput(false)
+          setCustomImageUrl('')
+        }
       } else {
-        setMediaError(res.error || 'Failed to update image URL')
+        reportMediaError(postId, res.error || 'Failed to update image URL')
       }
     } catch (err: any) {
-      setMediaError(err?.message || 'Failed to update image URL')
+      reportMediaError(postId, err?.message || 'Failed to update image URL')
     } finally {
       setIsMediaLoading(false)
       setMediaPostId(null)
@@ -1052,23 +1036,24 @@ export function PostsClientInner({
 
   const handleRemoveMedia = async () => {
     if (!activePost) return
+    const postId = activePost.id
     setIsMediaLoading(true)
-    setMediaPostId(activePost.id)
+    setMediaPostId(postId)
     setMediaLoadingText('Switching to text-only mode...')
     setMediaError(null)
     setMediaMenuOpen(false)
 
     try {
-      const res = await removePostMediaAction(activePost.id)
+      const res = await removePostMediaAction(postId)
       if (res.success) {
         setPosts(prev =>
-          prev.map(p => (p.id === activePost.id ? { ...p, media: null } : p))
+          prev.map(p => (p.id === postId ? { ...p, media: null } : p))
         )
       } else {
-        setMediaError(res.error || 'Failed to remove media')
+        reportMediaError(postId, res.error || 'Failed to remove media')
       }
     } catch (err: any) {
-      setMediaError(err?.message || 'Failed to remove media')
+      reportMediaError(postId, err?.message || 'Failed to remove media')
     } finally {
       setIsMediaLoading(false)
       setMediaPostId(null)

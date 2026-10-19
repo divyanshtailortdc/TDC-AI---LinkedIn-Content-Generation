@@ -7,6 +7,7 @@ import { db } from '~/db'
 import { samplePostsTable, voiceConfigsTable } from '~/db/schema'
 import { analyzeVoiceSamples } from '~/lib/ai/skills/voice-analysis'
 import { AccountIdSchema } from '~/lib/setup-payloads'
+import { hasVoiceChoice, NO_VOICE_CHOICE_MESSAGE } from '~/lib/voice-choice'
 
 // Every voice field is optional so a voice can be saved without an analysis.
 // A field left out keeps its saved value (or the column default on a new
@@ -131,7 +132,8 @@ export async function saveVoiceConfigAction(data: SaveVoiceInput) {
           validated.bannedWords
             .map(w => w.trim().toLowerCase())
             // Short words such as "AI" are kept: the linter matches whole
-            // words only, so they cannot fire inside longer ones.
+            // words only, so they cannot fire inside longer ones. Symbols
+            // such as "—" or "🚀" match wherever they appear.
             .filter(w => w.length > 0)
         )
       )
@@ -140,6 +142,12 @@ export async function saveVoiceConfigAction(data: SaveVoiceInput) {
     const existing = await db.query.voiceConfigsTable.findFirst({
       where: eq(voiceConfigsTable.accountId, validated.accountId)
     })
+
+    // A first save with nothing chosen would store only the defaults, and the
+    // setup checklist counts any saved row as a voice that was set.
+    if (!existing && !hasVoiceChoice(validated)) {
+      return { success: false, error: NO_VOICE_CHOICE_MESSAGE }
+    }
 
     if (existing) {
       await db

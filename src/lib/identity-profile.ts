@@ -19,7 +19,7 @@ const optionalHttpUrl = z
   .optional()
   .refine(value => !optionalUrlError(value ?? ''), URL_MESSAGE)
 
-/** Longest each text field may be; the inputs stop typing at the same limit. */
+/** Longest each text field may be; the form counts against it and the schema enforces it. */
 export const PROFILE_MAX_LENGTH = {
   name: 200,
   company: 200,
@@ -29,7 +29,8 @@ export const PROFILE_MAX_LENGTH = {
   industry: 200
 } as const
 
-const tooLong = (label: string, max: number) =>
+/** The message for a text over its limit, with the field named. */
+export const tooLong = (label: string, max: number) =>
   `${label} must be ${max.toLocaleString('en-US')} characters or fewer`
 
 export const IdentityProfileSchema = z.object({

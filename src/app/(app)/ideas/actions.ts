@@ -5,7 +5,8 @@ import { ideasTable, feedbackTable } from '@/db/schema'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import {
   executeDraftingForIdea,
-  settleRunAfterDrafting
+  settleRunAfterDrafting,
+  settleRunAfterIdeaDecision
 } from '~/lib/ai/pipeline/drafting-run'
 import { revalidatePath } from 'next/cache'
 import { requireActiveAccountId } from '@/lib/active-account'
@@ -42,7 +43,7 @@ export async function approveIdea(ideaId: string) {
     // An approved idea is waiting to be drafted, so a run that read
     // "completed" goes back to awaiting approval and offers "Create posts".
     if (idea.runId) {
-      await settleRunAfterDrafting(idea.runId).catch(err =>
+      await settleRunAfterIdeaDecision(idea.runId).catch(err =>
         console.error(`Could not settle run ${idea.runId}:`, err)
       )
     }
@@ -78,7 +79,7 @@ export async function rejectIdea(ideaId: string, reason?: string) {
     // Rejecting the last idea waiting on a decision finishes the run; left
     // alone it would read "awaiting idea approval" with nothing to approve.
     if (idea.runId) {
-      await settleRunAfterDrafting(idea.runId).catch(err =>
+      await settleRunAfterIdeaDecision(idea.runId).catch(err =>
         console.error(`Could not settle run ${idea.runId}:`, err)
       )
     }
@@ -234,7 +235,7 @@ export async function approveAllIdeas(ideaIds: string[]) {
           NOT_YET_DRAFTED
         )
       )
-      .returning({ id: ideasTable.id })
+      .returning({ id: ideasTable.id, runId: ideasTable.runId })
 
     if (approved.length === 0) {
       return {
@@ -245,19 +246,15 @@ export async function approveAllIdeas(ideaIds: string[]) {
     }
 
     // Same as approveIdea: each affected run is waiting on drafting again.
-    const runIds = await db
-      .selectDistinct({ runId: ideasTable.runId })
-      .from(ideasTable)
-      .where(inArray(ideasTable.id, approved.map(i => i.id)))
+    const runIds = new Set(
+      approved.map(i => i.runId).filter((id): id is string => Boolean(id))
+    )
     await Promise.all(
-      runIds
-        .map(r => r.runId)
-        .filter((id): id is string => Boolean(id))
-        .map(runId =>
-          settleRunAfterDrafting(runId).catch(err =>
-            console.error(`Could not settle run ${runId}:`, err)
-          )
+      [...runIds].map(runId =>
+        settleRunAfterIdeaDecision(runId).catch(err =>
+          console.error(`Could not settle run ${runId}:`, err)
         )
+      )
     )
 
     // The sidebar's Ideas badge counts these.
@@ -265,6 +262,50 @@ export async function approveAllIdeas(ideaIds: string[]) {
     revalidatePath('/ideas')
     revalidatePath('/runs')
     return { success: true, approvedIds: approved.map((i) => i.id) }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to approve ideas' }
+  }
+}
+
+/**
+ * Approves several ideas of one run, and settles the run once. Scoped by the
+ * run's own id, like approveIdea, so it works from a run's page whichever
+ * account is active; approveAllIdeas needs the active one. Ideas that are
+ * drafted or being drafted are left alone, so only the returned ids count.
+ */
+export async function approveRunIdeas(runId: string, ideaIds: string[]) {
+  try {
+    if (ideaIds.length === 0) return { success: false, error: 'No ideas to approve' }
+
+    const approved = await db
+      .update(ideasTable)
+      .set({ status: 'approved', updatedAt: new Date() })
+      .where(
+        and(
+          eq(ideasTable.runId, runId),
+          inArray(ideasTable.id, ideaIds),
+          NOT_YET_DRAFTED
+        )
+      )
+      .returning({ id: ideasTable.id })
+
+    if (approved.length === 0) {
+      return {
+        success: false,
+        error:
+          'None of these ideas could be approved. They may already be drafted. Refresh the page to see their current status.'
+      }
+    }
+
+    await settleRunAfterIdeaDecision(runId).catch(err =>
+      console.error(`Could not settle run ${runId}:`, err)
+    )
+
+    // The sidebar's Ideas badge counts these.
+    revalidatePath('/', 'layout')
+    revalidatePath('/ideas')
+    revalidatePath('/runs')
+    return { success: true, approvedIds: approved.map(i => i.id) }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve ideas' }
   }

@@ -70,11 +70,13 @@ npm run db:studio
 
 ### 1. Setup Environment
 
-Copy the example environment file and configure your `DATABASE_URL`:
+Copy the example environment file and configure your `DATABASE_URL` and API keys:
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 ```
+
+Use `.env`, not `.env.local`: the Settings page and dashboard point to `.env`, and Next.js lets a key in `.env.local` (even an empty one) override the same key in `.env`.
 
 ### 2. Run the Development Server
 

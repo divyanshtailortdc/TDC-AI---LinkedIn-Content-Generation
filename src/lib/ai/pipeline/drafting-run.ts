@@ -9,7 +9,7 @@ import {
   runsTable,
   type NewRunStep
 } from '@/db/schema'
-import { runStatusAfterDrafting } from '@/lib/run-status'
+import { runStatusAfterDrafting, type DraftingRunStatus } from '@/lib/run-status'
 import { and, eq, inArray } from 'drizzle-orm'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import {
@@ -89,16 +89,19 @@ const STEP_FOR_STATUS = {
  */
 async function updateRunAfterDrafting(
   runId: string,
-  options: { batchRunning: boolean }
+  options: {
+    batchRunning: boolean
+    /** Run statuses this may overwrite; the default is all drafting-time ones. */
+    onlyFrom?: DraftingRunStatus[]
+  }
 ) {
   const runIdeas = await db
     .select({ status: ideasTable.status })
     .from(ideasTable)
     .where(eq(ideasTable.runId, runId))
-  const status = runStatusAfterDrafting(
-    runIdeas.map(i => i.status),
-    options
-  )
+  const status = runStatusAfterDrafting(runIdeas.map(i => i.status), {
+    batchRunning: options.batchRunning
+  })
   await db
     .update(runsTable)
     .set({
@@ -109,11 +112,10 @@ async function updateRunAfterDrafting(
     .where(
       and(
         eq(runsTable.id, runId),
-        inArray(runsTable.status, [
-          'drafting',
-          'awaiting_idea_approval',
-          'completed'
-        ])
+        inArray(
+          runsTable.status,
+          options.onlyFrom ?? ['drafting', 'awaiting_idea_approval', 'completed']
+        )
       )
     )
 }
@@ -125,6 +127,21 @@ async function updateRunAfterDrafting(
  */
 export async function settleRunAfterDrafting(runId: string) {
   await updateRunAfterDrafting(runId, { batchRunning: false })
+}
+
+/**
+ * Called when an idea of the run is approved or rejected. A run that is
+ * "drafting" is left alone: a batch is working through its ideas, and between
+ * one idea finishing and the next being claimed none reads "drafting", so
+ * settling then would show "Create posts" mid-batch. The batch settles the run
+ * itself when it ends. The status check is part of the update, so a batch that
+ * starts meanwhile is not overwritten either.
+ */
+export async function settleRunAfterIdeaDecision(runId: string) {
+  await updateRunAfterDrafting(runId, {
+    batchRunning: false,
+    onlyFrom: ['awaiting_idea_approval', 'completed']
+  })
 }
 
 async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {

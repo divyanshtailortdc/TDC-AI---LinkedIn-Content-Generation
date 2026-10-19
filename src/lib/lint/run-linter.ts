@@ -68,6 +68,21 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+const WORD_CHAR = /[\p{L}\p{N}_]/u
+
+/**
+ * Matches `term` as a whole word, case-insensitively. `\b` cannot do this for
+ * terms such as "—" or "🚀": it only exists next to word characters, so those
+ * would never match. The boundary is added on a side only when the term's edge
+ * character is a word character; a term like "—" matches wherever it appears.
+ */
+function wholeTermPattern(term: string): RegExp {
+  const chars = Array.from(term)
+  const before = WORD_CHAR.test(chars[0]!) ? '(?<![\\p{L}\\p{N}_])' : ''
+  const after = WORD_CHAR.test(chars[chars.length - 1]!) ? '(?![\\p{L}\\p{N}_])' : ''
+  return new RegExp(`${before}${escapeRegex(term)}${after}`, 'iu')
+}
+
 export function runLinter(opts: LintOptions): LintFinding[] {
   const findings: LintFinding[] = []
   const maxChars = opts.maxChars ?? 3000
@@ -185,7 +200,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   ).filter(Boolean)
 
   const detectedBanned = allBanned.filter(word =>
-    new RegExp(`\\b${escapeRegex(word)}\\b`, 'i').test(fullText)
+    wholeTermPattern(word).test(fullText)
   )
 
   findings.push(
@@ -208,7 +223,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   const bannedTopics = (opts.bannedTopics || []).map(t => t.toLowerCase().trim()).filter(Boolean)
   if (bannedTopics.length > 0) {
     const hits = bannedTopics.filter(topic =>
-      new RegExp(`\\b${escapeRegex(topic)}\\b`, 'i').test(fullText)
+      wholeTermPattern(topic).test(fullText)
     )
     findings.push(
       hits.length > 0

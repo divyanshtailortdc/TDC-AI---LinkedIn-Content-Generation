@@ -208,12 +208,22 @@ export function IdeasClient({
     }
   }
 
+  // Approving and drafting are one operation at a time. Several clicks in the
+  // same tick all run before the busy state renders and disables the button;
+  // the ref turns the extras away straight away. Whoever takes it must be the
+  // one to release it.
   const draftIdeas = async (targetIds: string[]) => {
-    // Several clicks in the same tick all run before the busy state renders
-    // and disables the button; the ref turns the extras away straight away.
     if (targetIds.length === 0 || draftingRef.current) return
     draftingRef.current = true
+    try {
+      await runDrafting(targetIds)
+    } finally {
+      draftingRef.current = false
+    }
+  }
 
+  // Drafts the ideas. The caller holds draftingRef.
+  const runDrafting = async (targetIds: string[]) => {
     // Optimistically flip the drafted ideas to their terminal state right away so
     // the list reflects the action immediately, instead of sitting unchanged for
     // the full duration of the (multi-LLM-call) server action below.
@@ -260,7 +270,6 @@ export function IdeasClient({
       })
     } finally {
       setIsActionBusy(false)
-      draftingRef.current = false
     }
   }
 
@@ -272,37 +281,42 @@ export function IdeasClient({
   // for all approved ideas (the ones just approved plus any approved before).
   const handleApproveAllAndDraft = async () => {
     const alreadyApprovedIds = approvedIds
-    if (proposedIds.length === 0) return
+    if (proposedIds.length === 0 || draftingRef.current) return
+    draftingRef.current = true
 
-    setIsActionBusy(true)
-    setDraftStatus('processing')
-    setDraftError(null)
-    let approved = false
     try {
-      const res = await approveAllIdeas(proposedIds)
-      if (res.success) {
-        approved = true
-        setIdeas((prev) =>
-          prev.map((i) => (proposedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
-        )
-      } else {
-        showToast({ title: 'Approve all failed', message: res.error, type: 'error' })
+      setIsActionBusy(true)
+      setDraftStatus('processing')
+      setDraftError(null)
+      let approved = false
+      try {
+        const res = await approveAllIdeas(proposedIds)
+        if (res.success) {
+          approved = true
+          setIdeas((prev) =>
+            prev.map((i) => (proposedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
+          )
+        } else {
+          showToast({ title: 'Approve all failed', message: res.error, type: 'error' })
+        }
+      } catch (err: any) {
+        showToast({
+          title: 'Approve all failed',
+          message: err?.message || 'Something went wrong while approving ideas.',
+          type: 'error'
+        })
       }
-    } catch (err: any) {
-      showToast({
-        title: 'Approve all failed',
-        message: err?.message || 'Something went wrong while approving ideas.',
-        type: 'error'
-      })
-    } finally {
-      setIsActionBusy(false)
-    }
 
-    if (!approved) {
-      setDraftStatus('idle')
-      return
+      if (!approved) {
+        setIsActionBusy(false)
+        setDraftStatus('idle')
+        return
+      }
+      // Stays busy straight through into drafting, which clears it when done.
+      await runDrafting([...alreadyApprovedIds, ...proposedIds])
+    } finally {
+      draftingRef.current = false
     }
-    await draftIdeas([...alreadyApprovedIds, ...proposedIds])
   }
 
   const handleDraftSingle = async (id: string) => {

@@ -21,6 +21,7 @@ import type { VoiceConfig } from '~/db/schema'
 import { parseHashtagPolicy } from '~/lib/ai/hashtags'
 import { WRITING_STYLES } from '~/lib/ai/skills/voice-analysis/schema'
 import { voiceSuggestionValues, type VoiceValues } from '~/lib/settings-merge'
+import { hasVoiceChoice, NO_VOICE_CHOICE_MESSAGE } from '~/lib/voice-choice'
 import { saveVoiceConfigAction } from './actions'
 
 interface VoiceFormProps {
@@ -250,20 +251,23 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
   // Runs from the header's Save; false keeps the user on this step.
   const save = async (): Promise<boolean> => {
     setError(null)
-    // A first save with nothing chosen would store only the defaults and tick
-    // Voice off on the setup checklist although no voice was set.
-    const nothingChosen =
-      !derivedRubric.trim() &&
-      !tone &&
-      !perspective &&
-      !emojiPolicy &&
-      !hashtagPolicy &&
-      scales.formality === null &&
-      scales.directness === null
+    // The save action refuses this too; checking here just says so first.
+    const nothingChosen = !hasVoiceChoice({
+      derivedStyleRubric: derivedRubric,
+      tone,
+      perspective,
+      emojiPolicy,
+      hashtagPolicy,
+      formality: scales.formality ?? undefined,
+      directness: scales.directness ?? undefined
+    })
     if (!initialConfig && nothingChosen) {
-      const message = 'Choose at least one voice setting before saving.'
-      setError(message)
-      showToast({ type: 'error', title: 'Nothing to save', message })
+      setError(NO_VOICE_CHOICE_MESSAGE)
+      showToast({
+        type: 'error',
+        title: 'Nothing to save',
+        message: NO_VOICE_CHOICE_MESSAGE
+      })
       return false
     }
     // Only what this page edits is sent; every other voice detail keeps its
