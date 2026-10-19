@@ -111,14 +111,14 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           {/* Soft glows, as on the reference design. */}
           <div
             aria-hidden
-            className="bg-auth-hero-glow pointer-events-none absolute -top-40 -left-40 h-[32rem] w-[32rem] rounded-full opacity-70 blur-3xl"
+            className="bg-auth-hero-glow pointer-events-none absolute -top-40 -left-40 h-128 w-lg rounded-full opacity-70 blur-3xl"
           />
           <div
             aria-hidden
-            className="bg-auth-hero-glow pointer-events-none absolute right-0 -bottom-48 h-[36rem] w-[36rem] rounded-full opacity-60 blur-3xl"
+            className="bg-auth-hero-glow pointer-events-none absolute right-0 -bottom-48 h-144 w-xl rounded-full opacity-60 blur-3xl"
           />
 
-          <div className="relative w-full max-w-[52rem] px-12 py-16 xl:px-[4.5rem]">
+          <div className="relative w-full max-w-208 px-12 py-16 xl:px-18">
             <p className="border-border bg-surface inline-flex items-center gap-2.5 rounded-full border px-4 py-1.5 text-sm shadow-sm">
               <span className="bg-linkedin-text h-2 w-2 rounded-full" />
               <span className="text-foreground font-medium">
@@ -131,13 +131,13 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             <h2 className="text-foreground mt-8 text-5xl leading-[1.05] font-bold tracking-tight">
               Elevate your voice on LinkedIn with executive precision.
             </h2>
-            <p className="text-muted mt-6 max-w-[45rem] text-lg leading-relaxed">
+            <p className="text-muted mt-6 max-w-180 text-lg leading-relaxed">
               Transform strategic ideas, industry perspectives, and commerce
               data into high-engagement authority. Trusted by enterprise leaders
               and modern founders.
             </p>
 
-            <div className="mt-11 max-w-[45rem]">
+            <div className="mt-11 max-w-180">
               <SamplePost />
             </div>
 
@@ -168,7 +168,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           <span aria-hidden className="text-muted/60">
             •
           </span>
-          <span>Powered by TDC Commerce</span>
+          <span>Powered by TDCCommerce</span>
         </p>
      
       </footer>
