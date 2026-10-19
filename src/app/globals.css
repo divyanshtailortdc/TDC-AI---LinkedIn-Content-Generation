@@ -144,3 +144,25 @@ select,
     scrollbar-color: var(--muted) transparent;
   }
 }
+
+/* Modal dialogs: the backdrop fades in and the card rises slightly into place.
+   Applied with motion-safe: so reduced-motion users get no movement. */
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
