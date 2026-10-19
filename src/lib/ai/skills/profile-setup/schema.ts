@@ -60,7 +60,9 @@ function suggested<T extends z.ZodType>(value: T) {
     value,
     kind: z.enum(PROVENANCE),
     source: z.string().trim().max(500).optional(),
-    confidence: z.enum(CONFIDENCE)
+    confidence: z.enum(CONFIDENCE),
+    /** Why this value was suggested, shown beside it in the review. */
+    note: z.string().trim().min(1).max(1000).optional()
   })
 }
 
@@ -76,6 +78,7 @@ export type Suggested<T> = {
   kind: (typeof PROVENANCE)[number]
   source?: string
   confidence: (typeof CONFIDENCE)[number]
+  note?: string
 }
 
 /** Where one line of a list came from. */

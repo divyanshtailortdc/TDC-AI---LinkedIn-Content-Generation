@@ -198,9 +198,10 @@ describe('sanitizeIdentitySetup: valid output', () => {
 
   it('keeps only source URLs from the user input', () => {
     const urls = suggestions.knowledge.sources.map(s => s.url)
+    // A link written without a scheme is kept as an address that can be saved.
     assert.deepStrictEqual(urls, [
       'https://ledgerly.in',
-      'ledgerly.in/case-studies'
+      'https://ledgerly.in/case-studies'
     ])
     assert.strictEqual(suggestions.knowledge.sources[0]?.accessible, true)
     assert.strictEqual(suggestions.knowledge.sources[1]?.accessible, false)

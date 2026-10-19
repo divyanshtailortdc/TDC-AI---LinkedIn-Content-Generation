@@ -2,18 +2,14 @@ import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import {
   researchIdentity,
+  type LinkPickInput,
+  type LinkPicks,
   type ResearchDeps
 } from '../src/lib/ai/pipeline/identity-research'
 import { sanitizeIdentitySetup } from '../src/lib/ai/skills/profile-setup/guard'
 import {
   canonicalLinkedinUrl,
   guessEntity,
-  marketTerms,
-  mentionsEntity,
-  pageMatchStrength,
-  pickBackgroundPages,
-  pickLinkedin,
-  pickWebsiteCandidates,
   ungroundedNumbers,
   type Entity,
   type SearchHit
@@ -23,7 +19,6 @@ const DESCRIPTION =
   'I am Priya Rao, founder of Ledgerly, a bookkeeping and month-end close service for direct-to-consumer brands in India. We help founders close their books in 5 days instead of 20.'
 
 const company: Entity = { name: 'Ledgerly', kind: 'company', location: 'India' }
-const person: Entity = { name: 'Priya Rao', kind: 'person' }
 
 const hit = (url: string, title: string, snippet = ''): SearchHit => ({
   url,
@@ -45,36 +40,6 @@ const entry = (
 })
 
 describe('recognizing the entity', () => {
-  it('matches a name however it is written, and not a different one', () => {
-    assert.ok(
-      mentionsEntity('Welcome to Ledgerly — books closed fast', 'Ledgerly')
-    )
-    assert.ok(mentionsEntity('Rao, Priya | Founder', 'Priya Rao'))
-    assert.ok(mentionsEntity('Ledger-ly is hiring', 'Ledgerly'))
-    assert.ok(!mentionsEntity('Ledger Systems Inc', 'Ledgerly'))
-    assert.ok(!mentionsEntity('anything', 'A'))
-  })
-
-  it('needs the name together, not its words scattered over a page', () => {
-    // Regression: a different firm's page with "Reyes" and "legal" somewhere
-    // on it was read as being about Reyes Legal.
-    const otherFirm =
-      'The Reyes Law Firm handles family visas. Our legal team is here to help.'
-    assert.ok(!mentionsEntity(otherFirm, 'Reyes Legal', 'company'))
-    assert.ok(
-      mentionsEntity('Call Reyes Legal today', 'Reyes Legal', 'company')
-    )
-    assert.ok(
-      !mentionsEntity(
-        'Maya Angelou wrote it. Years later, Chidi Okafor read it.',
-        'Maya Okafor'
-      )
-    )
-    assert.ok(mentionsEntity('Priya K. Rao, founder', 'Priya Rao'))
-    // A title the page leaves off is not needed.
-    assert.ok(mentionsEntity('Maya Okafor, physiotherapist', 'Dr. Maya Okafor'))
-  })
-
   it('guesses the entity from common phrasings when no model is available', () => {
     assert.deepStrictEqual(guessEntity(DESCRIPTION), {
       name: 'Ledgerly',
@@ -113,7 +78,7 @@ describe('recognizing the entity', () => {
   })
 })
 
-describe('LinkedIn pages come only from matching search results', () => {
+describe('LinkedIn URLs', () => {
   it('canonicalizes regional and tracking variants', () => {
     assert.strictEqual(
       canonicalLinkedinUrl('https://in.linkedin.com/company/Ledgerly/?trk=x')
@@ -126,208 +91,6 @@ describe('LinkedIn pages come only from matching search results', () => {
     )
     assert.strictEqual(
       canonicalLinkedinUrl('https://example.com/company/x'),
-      null
-    )
-  })
-
-  it('picks a company page for a company and a profile for a person', () => {
-    const hits = [
-      hit(
-        'https://www.linkedin.com/in/priya-rao-123',
-        'Priya Rao - Founder - Ledgerly | LinkedIn'
-      ),
-      hit(
-        'https://www.linkedin.com/company/ledgerly',
-        'Ledgerly | LinkedIn',
-        'Bookkeeping for D2C'
-      )
-    ]
-    assert.strictEqual(
-      pickLinkedin(hits, company).link?.url,
-      'https://www.linkedin.com/company/ledgerly'
-    )
-    assert.strictEqual(
-      pickLinkedin(hits, person).link?.url,
-      'https://www.linkedin.com/in/priya-rao-123'
-    )
-  })
-
-  it('refuses a page that does not name the entity', () => {
-    const pick = pickLinkedin(
-      [
-        hit(
-          'https://www.linkedin.com/company/ledger-systems',
-          'Ledger Systems | LinkedIn'
-        )
-      ],
-      company
-    )
-    assert.strictEqual(pick.link, undefined)
-  })
-
-  it('does not guess between several equally good pages', () => {
-    const pick = pickLinkedin(
-      [
-        hit(
-          'https://www.linkedin.com/in/priya-rao-1',
-          'Priya Rao - Designer | LinkedIn'
-        ),
-        hit(
-          'https://www.linkedin.com/in/priya-rao-2',
-          'Priya Rao - Engineer | LinkedIn'
-        )
-      ],
-      person
-    )
-    assert.strictEqual(pick.link, undefined)
-    assert.strictEqual(pick.ambiguous, true)
-  })
-})
-
-describe('official websites', () => {
-  it('never treats social networks or directories as the official site', () => {
-    const { candidates } = pickWebsiteCandidates(
-      [
-        hit('https://www.linkedin.com/company/ledgerly', 'Ledgerly | LinkedIn'),
-        hit(
-          'https://www.crunchbase.com/organization/ledgerly',
-          'Ledgerly - Crunchbase'
-        ),
-        hit('https://en.wikipedia.org/wiki/Ledgerly', 'Ledgerly - Wikipedia')
-      ],
-      company
-    )
-    assert.strictEqual(candidates.length, 0)
-  })
-
-  it('prefers a host whose name matches, and returns its homepage', () => {
-    const { candidates } = pickWebsiteCandidates(
-      [
-        hit('https://blog.example.com/ledgerly-review', 'Ledgerly review'),
-        hit('https://www.ledgerly.in/pricing', 'Pricing | Ledgerly')
-      ],
-      company
-    )
-    assert.strictEqual(candidates[0]?.url, 'https://ledgerly.in/')
-  })
-
-  it('flags two equally likely sites as ambiguous', () => {
-    const { ambiguous } = pickWebsiteCandidates(
-      [
-        hit('https://ledgerly.com/', 'Ledgerly'),
-        hit('https://ledgerly.io/', 'Ledgerly')
-      ],
-      company
-    )
-    assert.strictEqual(ambiguous, true)
-  })
-
-  it('background pages exclude the site itself and unrelated results', () => {
-    const picked = pickBackgroundPages(
-      [
-        hit('https://ledgerly.in/about', 'About Ledgerly'),
-        hit(
-          'https://yourstory.com/ledgerly',
-          'Ledgerly raises seed',
-          'Ledgerly, a bookkeeping firm'
-        ),
-        hit('https://random.com/other', 'Unrelated page')
-      ],
-      company,
-      ['ledgerly.in']
-    )
-    assert.deepStrictEqual(
-      picked.map(p => p.url),
-      ['https://yourstory.com/ledgerly']
-    )
-  })
-
-  it('background pages skip lookalike sites named after the entity', () => {
-    const picked = pickBackgroundPages(
-      [
-        hit('https://ledgerly-en.com/', 'Ledgerly Official Website'),
-        hit(
-          'https://yourstory.com/ledgerly',
-          'Ledgerly raises seed',
-          'Ledgerly, a bookkeeping firm'
-        )
-      ],
-      company,
-      ['ledgerly.in']
-    )
-    assert.deepStrictEqual(
-      picked.map(p => p.url),
-      ['https://yourstory.com/ledgerly']
-    )
-  })
-})
-
-describe('telling the right business from a namesake', () => {
-  it('accepts a page that names the entity and shares terms with the description', () => {
-    const page =
-      'Ledgerly runs bookkeeping and month-end close for direct-to-consumer brands across India.'
-    assert.ok((pageMatchStrength(page, company, DESCRIPTION) ?? 0) >= 2)
-  })
-
-  it('rejects a different business with the same name', () => {
-    const namesake =
-      'Ledgerly is a luxury leather goods boutique in Milan selling handbags and wallets.'
-    assert.strictEqual(pageMatchStrength(namesake, company, DESCRIPTION), null)
-  })
-
-  it('rejects a same-trade namesake in another market', () => {
-    const hoa =
-      'Ledgerly provides bookkeeping and month-end close for homeowners associations across the United States.'
-    assert.strictEqual(pageMatchStrength(hoa, company, DESCRIPTION), null)
-  })
-
-  it('takes the places and markets from the description, not names or noise', () => {
-    const terms = marketTerms(DESCRIPTION, company)
-    assert.ok(terms.includes('India'))
-    // The entity, the writer and LinkedIn say who, not where or what.
-    for (const left of ['Ledgerly', 'Priya', 'Rao', 'LinkedIn', 'I']) {
-      assert.ok(!terms.includes(left), left)
-    }
-    assert.deepStrictEqual(
-      marketTerms('Vercel is a platform for Next.js teams.', {
-        name: 'Vercel',
-        kind: 'company'
-      }),
-      ['Next.js']
-    )
-    assert.deepStrictEqual(marketTerms('we make things', company), [])
-  })
-
-  it("does not let the entity's own name pass for its market", () => {
-    // Regression: "North" (from North Philadelphia) matched inside
-    // "Northside", so a namesake food bank in another state was accepted.
-    const pantry: Entity = { name: 'Northside Pantry', kind: 'company' }
-    const description =
-      'Northside Pantry is a volunteer-led food bank serving families in North Philadelphia since 2014.'
-    assert.strictEqual(
-      pageMatchStrength(
-        'Clothing donations went to the Salvation Army and Northside Pantry, a food bank serving families, police said.',
-        pantry,
-        description
-      ),
-      null
-    )
-    assert.ok(
-      pageMatchStrength(
-        'Northside Pantry is a food bank serving families in North Philadelphia.',
-        pantry,
-        description
-      ) !== null
-    )
-  })
-
-  it('rejects a page that never names the entity', () => {
-    assert.strictEqual(
-      pageMatchStrength(
-        'Bookkeeping for direct-to-consumer brands in India.',
-        company,
-        DESCRIPTION
-      ),
       null
     )
   })
@@ -372,145 +135,244 @@ describe('figures must come from the input', () => {
   })
 })
 
-describe('researchIdentity', () => {
-  const page = (url: string, content: string): ResearchDeps['fetchPage'] => {
-    return async requested => {
-      if (requested.startsWith(url)) {
-        return {
-          status: {
-            url: requested,
-            kind: 'web',
-            status: 'fetched',
-            title: 'page'
-          },
-          content
-        }
-      }
-      return {
-        status: {
-          url: requested,
-          kind: 'web',
-          status: 'unavailable',
-          reason: 'nope'
-        }
-      }
-    }
+describe('researchIdentity: the AI picks, code checks the picks are copied from results', () => {
+  const samsung: Entity = { name: 'Samsung', kind: 'company' }
+  const SAMSUNG =
+    'Samsung inspires the world and shapes the future with transformative ideas and technologies. For the latest news, please visit the Samsung Newsroom at http://news.samsung.com.'
+  const results = {
+    website: [
+      hit('https://www.samsung.com/us/', 'Samsung US | Mobile | TV'),
+      hit('https://news.samsung.com/global/', 'Samsung Global Newsroom'),
+      hit('https://www.samsungmobilepress.com/', 'Samsung Mobile Press')
+    ],
+    linkedin: [
+      hit(
+        'https://in.linkedin.com/company/samsung-electronics?trk=x',
+        'Samsung Electronics | LinkedIn'
+      )
+    ],
+    background: [
+      hit('https://www.samsung.com/us/', 'Samsung US | Mobile | TV'),
+      hit(
+        'https://www.forbes.com/companies/samsung-electronics/',
+        'Samsung Electronics | Forbes'
+      ),
+      hit('https://www.wsj.com/samsung-profile', 'Samsung profile'),
+      hit('https://www.ft.com/samsung', 'Samsung | FT')
+    ]
   }
+  const queries: string[] = []
+  const search: ResearchDeps['search'] = async query => {
+    queries.push(query)
+    return query.includes('linkedin.com')
+      ? results.linkedin
+      : query.includes('official website')
+        ? results.website
+        : results.background
+  }
+  const pick = (
+    url: string,
+    reason = 'It fits the description.',
+    confidence: 'high' | 'medium' = 'high'
+  ) => ({ url, reason, confidence })
+  const picked = (overrides: Partial<LinkPicks> = {}): LinkPicks => ({
+    website: pick(
+      'https://www.samsung.com',
+      "The top results are Samsung's own regional sites."
+    ),
+    linkedin: pick('https://in.linkedin.com/company/samsung-electronics?trk=x'),
+    background: [
+      {
+        url: 'https://www.forbes.com/companies/samsung-electronics/',
+        reason: 'A company profile.'
+      }
+    ],
+    ...overrides
+  })
+  const readable =
+    (hosts: string[]): ResearchDeps['fetchPage'] =>
+    async url =>
+      hosts.includes(new URL(url).hostname)
+        ? {
+            status: { url, kind: 'web', status: 'fetched', title: 'page' },
+            content: 'Samsung page text'
+          }
+        : {
+            status: { url, kind: 'web', status: 'unavailable', reason: 'timeout' }
+          }
+  const run = (
+    picks: LinkPicks | null,
+    options: {
+      fetchable?: string[]
+      provided?: { websiteUrl?: string; linkedinUrl?: string }
+      inputs?: LinkPickInput[]
+      search?: ResearchDeps['search']
+    } = {}
+  ) =>
+    researchIdentity(
+      { description: SAMSUNG, entity: samsung, provided: options.provided ?? {} },
+      {
+        searchConfigured: true,
+        search: options.search ?? search,
+        fetchPage: readable(options.fetchable ?? ['www.samsung.com', 'www.forbes.com']),
+        pickLinks: async input => {
+          options.inputs?.push(input)
+          return picks
+        }
+      }
+    )
 
-  const goodSite =
-    'Ledgerly runs bookkeeping and month-end close for direct-to-consumer brands across India.'
+  it('gives the AI the description and every result once', async () => {
+    const inputs: LinkPickInput[] = []
+    await run(picked(), { inputs })
+    assert.strictEqual(inputs.length, 1)
+    assert.strictEqual(inputs[0]?.description, SAMSUNG)
+    assert.deepStrictEqual(inputs[0]?.need, { website: true, linkedin: true })
+    const urls = inputs[0]!.hits.map(h => h.url)
+    assert.strictEqual(urls.filter(u => u === 'https://www.samsung.com/us/').length, 1)
+    assert.ok(urls.includes('https://news.samsung.com/global/'))
+  })
+
+  it('keeps the website exactly as the results write its host', async () => {
+    const result = await run(picked())
+    assert.deepStrictEqual(result.verified.websiteUrl, {
+      url: 'https://www.samsung.com',
+      evidence: "The top results are Samsung's own regional sites.",
+      confidence: 'high'
+    })
+    assert.strictEqual(
+      result.verified.linkedinUrl?.url,
+      'https://www.linkedin.com/company/samsung-electronics'
+    )
+    assert.deepStrictEqual(
+      result.sources.map(s => [s.status.url, s.status.kind]),
+      [
+        ['https://www.samsung.com', 'web'],
+        ['https://www.forbes.com/companies/samsung-electronics/', 'web']
+      ]
+    )
+    assert.deepStrictEqual(result.notes, [])
+  })
+
+  it('takes the root of a result picked as the website, on the same host', async () => {
+    // A regional page was picked; the Website URL is the site's homepage.
+    for (const url of ['https://www.samsung.com/us/', 'https://www.samsung.com/']) {
+      const result = await run(picked({ website: pick(url) }))
+      assert.strictEqual(result.verified.websiteUrl?.url, 'https://www.samsung.com', url)
+    }
+  })
+
+  it('never uses a link that is not among the results, an altered domain included', async () => {
+    for (const url of [
+      'https://samsung.com',
+      'https://new.samsung.com',
+      'https://www.samsung.com/about',
+      'https://www.samsung.co.kr'
+    ]) {
+      const result = await run(picked({ website: pick(url) }))
+      assert.strictEqual(result.verified.websiteUrl, undefined, url)
+      assert.ok(
+        result.notes.some(n => n.includes('was not among the search results')),
+        url
+      )
+    }
+    const linkedin = await run(
+      picked({ linkedin: pick('https://www.linkedin.com/company/samsung') })
+    )
+    assert.strictEqual(linkedin.verified.linkedinUrl, undefined)
+  })
+
+  it('keeps the website when its page cannot be read, without offering it as a source', async () => {
+    // Big sites often turn readers away; it used to be dropped for that.
+    const result = await run(picked(), { fetchable: ['www.forbes.com'] })
+    assert.strictEqual(result.verified.websiteUrl?.url, 'https://www.samsung.com')
+    assert.deepStrictEqual(
+      result.sources.map(s => s.status.url),
+      ['https://www.forbes.com/companies/samsung-electronics/']
+    )
+  })
+
+  it('says so when the AI is not sure which site is theirs', async () => {
+    const result = await run(
+      picked({ website: pick('https://www.samsung.com', 'Likeliest of two.', 'medium') })
+    )
+    assert.strictEqual(result.verified.websiteUrl?.confidence, 'medium')
+    assert.ok(result.notes.some(n => n.includes('likeliest of several')))
+  })
+
+  it('reads at most two background pages from the results, never their own site', async () => {
+    const result = await run(
+      picked({
+        background: [
+          { url: 'https://www.samsung.com/us/', reason: 'Their site' },
+          { url: 'https://www.samsung.com/uk/', reason: 'Not a result' },
+          { url: 'https://www.wsj.com/samsung-profile', reason: 'Profile' },
+          { url: 'https://www.ft.com/samsung', reason: 'Profile' },
+          {
+            url: 'https://www.forbes.com/companies/samsung-electronics/',
+            reason: 'Profile'
+          }
+        ]
+      }),
+      { fetchable: ['www.wsj.com', 'www.ft.com', 'www.forbes.com'] }
+    )
+    assert.deepStrictEqual(
+      result.sources.map(s => s.status.url),
+      ['https://www.wsj.com/samsung-profile', 'https://www.ft.com/samsung']
+    )
+  })
+
+  it("reports what the AI could not find, in the AI's words", async () => {
+    const result = await run(
+      picked({
+        website: pick('', 'Only a newsroom and press sites appeared.'),
+        linkedin: pick('', '')
+      })
+    )
+    assert.deepStrictEqual(result.verified, {})
+    assert.deepStrictEqual(result.notes, [
+      'LinkedIn: no company page for Samsung was found. Paste the URL if you have one.',
+      'Website: no official site for Samsung was found (Only a newsroom and press sites appeared). Paste it if you have one.'
+    ])
+  })
+
+  it('does not look for, or take, links the user already gave', async () => {
+    queries.length = 0
+    const inputs: LinkPickInput[] = []
+    const result = await run(picked(), {
+      inputs,
+      provided: {
+        websiteUrl: 'https://www.samsung.com',
+        linkedinUrl: 'https://www.linkedin.com/company/samsung-electronics'
+      }
+    })
+    assert.strictEqual(queries.length, 1, 'only the background search runs')
+    assert.deepStrictEqual(inputs[0]?.need, { website: false, linkedin: false })
+    assert.deepStrictEqual(result.verified, {})
+    assert.deepStrictEqual(result.notes, [])
+  })
+
+  it('reports a failed AI step instead of guessing', async () => {
+    const result = await run(null)
+    assert.deepStrictEqual(result.verified, {})
+    assert.ok(result.notes[0]?.includes('could not be completed'))
+  })
+
+  it('says so when search finds nothing, without asking the AI', async () => {
+    const inputs: LinkPickInput[] = []
+    const result = await run(picked(), { inputs, search: async () => [] })
+    assert.strictEqual(inputs.length, 0)
+    assert.deepStrictEqual(result.verified, {})
+    assert.ok(result.notes.some(n => n.startsWith('Website:')))
+    assert.ok(result.notes.some(n => n.startsWith('LinkedIn:')))
+  })
 
   const deps = (overrides: Partial<ResearchDeps> = {}): ResearchDeps => ({
     searchConfigured: true,
-    search: async query =>
-      query.includes('linkedin.com')
-        ? [
-            hit(
-              'https://www.linkedin.com/company/ledgerly',
-              'Ledgerly | LinkedIn'
-            )
-          ]
-        : [
-            hit(
-              'https://ledgerly.in/',
-              'Ledgerly - Month-end close for D2C brands'
-            )
-          ],
-    fetchPage: page('https://ledgerly.in', goodSite),
+    search,
+    fetchPage: readable([]),
+    pickLinks: async () => picked(),
     ...overrides
-  })
-
-  it('verifies the website by reading it, and finds the LinkedIn page', async () => {
-    const result = await researchIdentity(
-      { description: DESCRIPTION, entity: company, provided: {} },
-      deps()
-    )
-    assert.strictEqual(result.verified.websiteUrl?.url, 'https://ledgerly.in/')
-    assert.strictEqual(
-      result.verified.linkedinUrl?.url,
-      'https://www.linkedin.com/company/ledgerly'
-    )
-    assert.strictEqual(result.sources[0]?.status.kind, 'web')
-    assert.deepStrictEqual(result.notes, [])
-  })
-
-  it('picks the top-ranked site when several verify, and says to check it', async () => {
-    const result = await researchIdentity(
-      { description: DESCRIPTION, entity: company, provided: {} },
-      deps({
-        search: async query =>
-          query.includes('linkedin.com')
-            ? []
-            : [
-                hit('https://ledgerly.in/', 'Ledgerly - Month-end close'),
-                hit('https://ledgerly.com/', 'Ledgerly - Month-end close')
-              ],
-        fetchPage: async url => ({
-          status: { url, kind: 'web', status: 'fetched', title: 'page' },
-          content: goodSite
-        })
-      })
-    )
-    assert.strictEqual(result.verified.websiteUrl?.url, 'https://ledgerly.in/')
-    assert.strictEqual(result.verified.websiteUrl?.confidence, 'medium')
-    assert.ok(result.notes.some(n => n.includes('chosen from several')))
-  })
-
-  it('does not accept a site whose page is about a namesake', async () => {
-    const result = await researchIdentity(
-      { description: DESCRIPTION, entity: company, provided: {} },
-      deps({
-        fetchPage: page(
-          'https://ledgerly.in',
-          'Ledgerly is a luxury leather goods boutique in Milan.'
-        )
-      })
-    )
-    assert.strictEqual(result.verified.websiteUrl, undefined)
-    assert.ok(result.notes.some(n => n.startsWith('Website:')))
-    assert.strictEqual(result.sources.length, 0)
-  })
-
-  it('does not accept a site that could not be read', async () => {
-    const result = await researchIdentity(
-      { description: DESCRIPTION, entity: company, provided: {} },
-      deps({ fetchPage: page('https://other.com', 'x') })
-    )
-    assert.strictEqual(result.verified.websiteUrl, undefined)
-  })
-
-  it('does not search for links the user already gave', async () => {
-    const queries: string[] = []
-    const result = await researchIdentity(
-      {
-        description: DESCRIPTION,
-        entity: company,
-        provided: {
-          websiteUrl: 'https://ledgerly.in',
-          linkedinUrl: 'https://linkedin.com/company/ledgerly'
-        }
-      },
-      deps({
-        search: async q => {
-          queries.push(q)
-          return []
-        }
-      })
-    )
-    assert.strictEqual(queries.length, 1, 'only the background search runs')
-    assert.strictEqual(result.verified.websiteUrl, undefined)
-    assert.deepStrictEqual(result.notes, [])
-  })
-
-  it('says so when nothing can be verified, instead of guessing', async () => {
-    const result = await researchIdentity(
-      { description: DESCRIPTION, entity: company, provided: {} },
-      deps({ search: async () => [] })
-    )
-    assert.deepStrictEqual(result.verified, {})
-    assert.strictEqual(result.notes.length, 2)
-    assert.ok(result.notes.some(n => n.startsWith('Website:')))
-    assert.ok(result.notes.some(n => n.startsWith('LinkedIn:')))
   })
 
   it('reports plainly when search is not configured or nobody is named', async () => {

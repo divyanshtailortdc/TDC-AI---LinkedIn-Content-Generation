@@ -1,5 +1,6 @@
-import { extractUrls, normalizeUrlForCompare } from '@/lib/urls'
+import { findLinks, normalizeUrlForCompare } from '@/lib/urls'
 import { z } from 'zod'
+import { chooseWebsite } from './links'
 import {
   canonicalLinkedinUrl,
   figureChecker,
@@ -294,6 +295,9 @@ export function summarizeLines(lines: LineBasis[]) {
 
 const CONFIDENCE_ORDER = ['low', 'medium', 'high']
 
+/** Longest link a suggestion or knowledge source may hold (see the schema). */
+const MAX_URL_LENGTH = 500
+
 /** Why a link does not fit the field it was put in, or null when it fits. */
 function urlTypeProblem(field: string, url: string): string | null {
   const isLinkedin = canonicalLinkedinUrl(url) !== null
@@ -412,7 +416,12 @@ export function normalizeWeights(weights: number[]): number[] {
  *   otherwise it is downgraded to a recommendation.
  * - Voice settings are always recommendations: no posts were analyzed here.
  * - URLs (profile links, CTA link, knowledge sources) survive only if the user
- *   typed them, either in the form or in the description.
+ *   typed them, either in the form or in the description. Links in the
+ *   description are kept as absolute https:// addresses.
+ * - The model decides which link is the website; a page rather than a site's
+ *   homepage is only ever a recommendation with a note saying so (see
+ *   chooseWebsite). Every page linked in the description is offered as a
+ *   knowledge source.
  * - Knowledge facts survive only if their quote appears verbatim in the text
  *   they cite.
  * - The profile is written for one identity type, the user's or else the
@@ -441,12 +450,18 @@ export function sanitizeIdentitySetup(
   // Which links each kind of field may hold. A goal's call-to-action link is
   // only ever one the user wrote; a profile link may also be one web research
   // verified; a knowledge source may also be a page that was found and read.
+  // Links in the description are kept with https:// added where it was left
+  // off; the form's spelling of a link wins over the description's.
+  const mentioned = findLinks(context.description).filter(
+    link => link.url.length <= MAX_URL_LENGTH
+  )
   const userUrls = new Map<string, string>()
   for (const url of [
     ...context.providedUrls,
-    ...extractUrls(context.description)
+    ...mentioned.map(link => link.url)
   ]) {
-    userUrls.set(normalizeUrlForCompare(url), url)
+    const key = normalizeUrlForCompare(url)
+    if (!userUrls.has(key)) userUrls.set(key, url)
   }
   const verifiedByUrl = new Map<string, VerifiedLink>()
   for (const link of Object.values(context.verifiedLinks ?? {})) {
@@ -507,6 +522,8 @@ export function sanitizeIdentitySetup(
   ]
   // Set from the profile's own name and company while it is read.
   let nameStems: ReadonlySet<string> = new Set()
+  // The model's Website URL, chosen between once the profile is read.
+  let proposedWebsite: string | undefined
   const lineBasis = (field: string, text: string): LineBasis => {
     const basis = lineBases.find(
       b =>
@@ -614,6 +631,13 @@ export function sanitizeIdentitySetup(
 
       let kind = asString(entry.kind) === 'fact' ? 'fact' : 'recommendation'
       let source: string | undefined = asString(entry.source) || undefined
+
+      // The website is checked against the typed and verified links too, so
+      // it is decided after the loop.
+      if (section === 'profile' && field === 'websiteUrl') {
+        proposedWebsite ??= String(value)
+        continue
+      }
 
       let forcedConfidence: string | undefined
       if (spec.type === 'text' && spec.url) {
@@ -727,32 +751,46 @@ export function sanitizeIdentitySetup(
   if (!goals.targetUrl) delete goals.linkStrategy
   const preferences = readSection('preferences', PreferencesSuggestionsSchema)
 
-  // Links the user typed into the form are facts by definition.
-  for (const url of context.providedUrls) {
-    const field = /(^|\.)linkedin\.com/i.test(normalizeUrlForCompare(url))
-      ? 'linkedinUrl'
-      : 'websiteUrl'
-    if (!profile[field]) {
-      profile[field] = {
-        value: url,
-        kind: 'fact',
-        source: PROVIDED_SOURCE,
-        confidence: 'high'
-      }
-    }
+  // Profile links: what the user typed into the form wins, then the model's
+  // checked choice, then what research verified. Which page is the website is
+  // the model's call; chooseWebsite only checks it is grounded (see links.ts).
+  const typed = (linkedin: boolean) =>
+    context.providedUrls.find(
+      url =>
+        /(^|\.)linkedin\.com/i.test(normalizeUrlForCompare(url)) === linkedin
+    )
+  const { website, warnings: websiteWarnings } = chooseWebsite({
+    proposed: proposedWebsite,
+    typed: typed(false),
+    mentioned,
+    verified: context.verifiedLinks?.websiteUrl
+  })
+  warnings.push(...websiteWarnings)
+  const parsedWebsite = website
+    ? ProfileSuggestionsSchema.shape.websiteUrl.safeParse(website)
+    : undefined
+  if (parsedWebsite?.success) {
+    profile.websiteUrl = parsedWebsite.data
+  } else if (parsedWebsite) {
+    warnings.push('Profile → Website URL: ignored an invalid value.')
   }
 
-  // Links web research verified fill any link field the user left empty. They
-  // are sourced to themselves, so the review shows where each came from.
-  for (const field of ['websiteUrl', 'linkedinUrl'] as const) {
-    const link = context.verifiedLinks?.[field]
-    if (link && !profile[field]) {
-      profile[field] = {
-        value: link.url,
-        kind: 'fact',
-        source: link.url,
-        confidence: link.confidence
-      }
+  const typedLinkedin = typed(true)
+  const verifiedLinkedin = context.verifiedLinks?.linkedinUrl
+  if (typedLinkedin) {
+    profile.linkedinUrl = {
+      value: typedLinkedin,
+      kind: 'fact',
+      source: PROVIDED_SOURCE,
+      confidence: 'high'
+    }
+  } else if (!profile.linkedinUrl && verifiedLinkedin) {
+    // Sourced to itself, so the review shows where it came from.
+    profile.linkedinUrl = {
+      value: verifiedLinkedin.url,
+      kind: 'fact',
+      source: verifiedLinkedin.url,
+      confidence: verifiedLinkedin.confidence
     }
   }
   // What could not be found or verified is said plainly, not left to guess.
@@ -864,6 +902,30 @@ export function sanitizeIdentitySetup(
         ? 'Found by web search and checked to be about you. It was read for this analysis.'
         : 'A page you provided. It was read for this analysis.',
       accessible: true
+    })
+  }
+
+  // So is every page linked in their details, so none of their links is lost.
+  // The model names each page it lists ("Careers page"); one it left out is
+  // offered under a plain title. A bare "name.word" is left to the model, as
+  // it may not be a site at all ("Node.js"). LinkedIn cannot be read signed
+  // out, so its links only go to the LinkedIn field.
+  for (const link of mentioned) {
+    if (
+      !link.explicit ||
+      /(^|\.)linkedin\.com$/.test(new URL(link.url).hostname)
+    ) {
+      continue
+    }
+    const key = normalizeUrlForCompare(link.url)
+    if (sources.some(s => s.url && normalizeUrlForCompare(s.url) === key)) {
+      continue
+    }
+    sources.push({
+      url: link.url,
+      title: 'Page from your details',
+      reason: 'Your details link to this page.',
+      accessible: fetchedByKey.has(key)
     })
   }
 

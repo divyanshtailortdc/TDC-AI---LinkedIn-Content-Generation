@@ -63,6 +63,8 @@ export type Item = {
   value: unknown
   kind: 'fact' | 'recommendation'
   source?: string
+  /** Why the AI suggested it; an edited value has none. */
+  note?: string
 }
 
 type Pillar = NonNullable<
@@ -654,6 +656,7 @@ export function SuggestionRow({
             </span>
           )}
         </div>
+        {item.note && <p className="text-muted text-xs">{item.note}</p>}
 
         {hasCurrent ? (
           <div className="grid gap-2 sm:grid-cols-2">

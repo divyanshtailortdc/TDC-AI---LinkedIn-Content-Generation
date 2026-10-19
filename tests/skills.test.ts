@@ -92,8 +92,9 @@ describe('goal-suggestions guard', () => {
   }
 
   it('collects the website and links written in the bio', () => {
+    // A link written without a scheme gets https://, as a goal link must have.
     assert.deepStrictEqual([...allowedUrls.values()].sort(), [
-      'acme.com/pricing',
+      'https://acme.com/pricing',
       'https://www.acme.com/'
     ])
   })

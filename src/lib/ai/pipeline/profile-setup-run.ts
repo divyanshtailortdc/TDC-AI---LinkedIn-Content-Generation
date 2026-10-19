@@ -7,6 +7,7 @@ import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { SkillError } from '../run-skill'
 import { suggestSetup, type SetupSource } from '../skills/profile-setup'
 import { findEntity } from '../skills/profile-setup/entity'
+import { pickLinks } from '../skills/profile-setup/link-pick'
 import {
   AnalyzeIdentityInputSchema,
   hasAnySuggestion,
@@ -28,8 +29,11 @@ const SOURCE_PROMPT_CHARS = 8000
 const SOURCE_FETCH_TIMEOUT_MS = 8000
 /** A single search that hangs must not hold up the analysis. */
 const SEARCH_TIMEOUT_MS = 8000
-/** Web research as a whole; past this the analysis goes ahead without it. */
-const RESEARCH_BUDGET_MS = 30_000
+/**
+ * Web research as a whole (finding who to look up, searching, the AI's pick of
+ * links, reading pages); past this the analysis goes ahead without it.
+ */
+const RESEARCH_BUDGET_MS = 40_000
 
 export class IdentitySetupError extends Error {
   constructor(
@@ -169,7 +173,8 @@ async function researchOnline(
           {
             searchConfigured: isWebSearchConfigured,
             search: query => searchWithTimeout(query),
-            fetchPage: url => fetchSource(url, 'web')
+            fetchPage: url => fetchSource(url, 'web'),
+            pickLinks
           }
         ))(),
       new Promise<ResearchResult>(resolve => {
