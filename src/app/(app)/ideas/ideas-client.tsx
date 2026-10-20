@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  Fragment,
   useEffect,
   useOptimistic,
   useRef,
@@ -21,11 +22,20 @@ import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { Pagination } from '@/components/pagination'
 import { cn } from '@/lib/cn'
+import { formatAbsoluteDateTime } from '@/lib/format-date'
+import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import type { IdentitySummary } from '@/lib/identity'
 import type { PageInfo } from '@/lib/pagination'
 import { STATUS_TABS, type StatusFilter } from './status-filter'
 
-type ClientIdeaData = IdeaCardData & { accountId: string }
+type ClientIdeaData = IdeaCardData & {
+  accountId: string
+  runId?: string | null
+  runCreatedAt?: Date | string | null
+  /** The identity's name when the run started. */
+  runAccountName?: string | null
+  runGoalTitle?: string | null
+}
 
 const statusLabel = (status: StatusFilter) =>
   status === 'all' ? 'All statuses' : IDEA_STATUS_LABEL[status]
@@ -121,6 +131,14 @@ export function IdeasClient({
   const filteredIdeas = ideas.filter(
     (idea) => status === 'all' || idea.status === status
   )
+
+  // Ideas come in batches, one per run. Once the list holds more than one, or
+  // a batch made under another name, each batch gets a heading.
+  const showRunHeaders =
+    new Set(filteredIdeas.map(i => i.runId)).size > 1 ||
+    filteredIdeas.some(
+      i => i.runAccountName && i.runAccountName !== identity.name
+    )
 
   const approvedCount = approvedIds.length
   const allProposedIds = proposedIds
@@ -467,17 +485,25 @@ export function IdeasClient({
                 isFiltering && 'opacity-60'
               )}
             >
-              {filteredIdeas.map((idea) => (
-                <RunIdeaCard
-                  key={idea.id}
-                  idea={idea}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                  onEditSave={handleEditSave}
-                  onDraft={handleDraftSingle}
-                  isBusy={ideaActionBusyId === idea.id}
-                  showStatus={status === 'all'}
-                />
+              {filteredIdeas.map((idea, index) => (
+                <Fragment key={idea.id}>
+                  {showRunHeaders &&
+                    idea.runId !== filteredIdeas[index - 1]?.runId && (
+                      <RunGroupHeader
+                        idea={idea}
+                        currentName={identity.name}
+                      />
+                    )}
+                  <RunIdeaCard
+                    idea={idea}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    onEditSave={handleEditSave}
+                    onDraft={handleDraftSingle}
+                    isBusy={ideaActionBusyId === idea.id}
+                    showStatus={status === 'all'}
+                  />
+                </Fragment>
               ))}
             </div>
           )}
@@ -622,5 +648,52 @@ function StatusFilterMenu({
           document.body
         )}
     </>
+  )
+}
+
+/** Heading above the ideas of one run: when it ran, as whom, and for which goal. */
+function RunGroupHeader({
+  idea,
+  currentName
+}: {
+  idea: ClientIdeaData
+  currentName: string
+}) {
+  const mounted = useHasMounted()
+  const ranAs = idea.runAccountName
+  const renamed = Boolean(ranAs && ranAs !== currentName)
+
+  return (
+    <div className="border-border col-span-full mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-2 first:mt-0">
+      <span className="text-foreground text-xs font-semibold">
+        {idea.runCreatedAt
+          ? mounted
+            ? `Run of ${formatAbsoluteDateTime(idea.runCreatedAt)}`
+            : 'Run'
+          : 'Earlier ideas'}
+      </span>
+      {ranAs && (
+        <span
+          title={
+            renamed
+              ? `This run was made when the identity was named ${ranAs}. It is named ${currentName} now.`
+              : undefined
+          }
+          className={cn(
+            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+            renamed
+              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+              : 'bg-surface-hover text-muted'
+          )}
+        >
+          {renamed ? `Made as ${ranAs}` : ranAs}
+        </span>
+      )}
+      {idea.runGoalTitle && (
+        <span className="text-muted min-w-0 truncate text-[11px]">
+          Goal: {idea.runGoalTitle}
+        </span>
+      )}
+    </div>
   )
 }

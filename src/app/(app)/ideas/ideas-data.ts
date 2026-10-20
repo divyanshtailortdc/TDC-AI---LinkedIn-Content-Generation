@@ -1,9 +1,10 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { ideasTable } from '@/db/schema'
+import { goalsTable, ideasTable, runsTable } from '@/db/schema'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { and, count, desc, eq, inArray } from 'drizzle-orm'
+import { accountNameAtRunSql } from '../runs/runs-data'
 import { statusFilterCounts, type StatusFilter } from './status-filter'
 
 /**
@@ -56,9 +57,17 @@ export async function loadIdeasPage(
             sourceIds: ideasTable.sourceIds,
             risks: ideasTable.risks,
             status: ideasTable.status,
-            createdAt: ideasTable.createdAt
+            createdAt: ideasTable.createdAt,
+            // Which run made the idea, so ideas from different runs (and from
+            // before the identity was renamed) can be told apart.
+            runId: ideasTable.runId,
+            runCreatedAt: runsTable.createdAt,
+            runAccountName: accountNameAtRunSql,
+            runGoalTitle: goalsTable.title
           })
           .from(ideasTable)
+          .leftJoin(runsTable, eq(runsTable.id, ideasTable.runId))
+          .leftJoin(goalsTable, eq(goalsTable.id, runsTable.goalId))
           .where(shown)
           .orderBy(desc(ideasTable.createdAt), desc(ideasTable.id))
           .offset(offset)

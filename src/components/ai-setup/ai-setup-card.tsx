@@ -21,7 +21,11 @@ import {
   useIdentitySetupDraft
 } from './draft-store'
 import { ProfileSuggestionsPanel } from './profile-suggestions-panel'
-import { ReviewSuggestionsDialog, StatusChip } from './review-dialog'
+import {
+  pruneDraftAgainstSaved,
+  ReviewSuggestionsDialog,
+  StatusChip
+} from './review-dialog'
 import type { SectionPrefill } from './use-section-prefill'
 
 type Urls = { linkedinUrl?: string | null; websiteUrl?: string | null }
@@ -96,6 +100,15 @@ export function AiSetupCard({
     if (hasRemaining) queueMicrotask(() => setReviewOpen(true))
     router.replace(pathname)
   }, [account, pathname, router])
+
+  // A new analysis often repeats what is already saved (after applying, or
+  // after a re-analysis). Those suggestions have nothing to apply, so they are
+  // removed before the card offers a review of them.
+  const accountId = account?.id
+  const draftId = draft?.id
+  useEffect(() => {
+    if (accountId && draftId) void pruneDraftAgainstSaved(accountId)
+  }, [accountId, draftId])
 
   const hasSuggestions = draft
     ? SETUP_SECTIONS.some(

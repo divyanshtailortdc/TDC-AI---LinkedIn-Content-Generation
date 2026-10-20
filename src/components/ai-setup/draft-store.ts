@@ -194,7 +194,11 @@ export function updateDraftSuggestions(
 ) {
   const draft = readDraft(key)
   if (!draft) return
-  writeDraft(key, { ...draft, suggestions: update(draft.suggestions) })
+  const suggestions = update(draft.suggestions)
+  // Returning the same object means nothing changed; skip the write and the
+  // re-render it would cause.
+  if (suggestions === draft.suggestions) return
+  writeDraft(key, { ...draft, suggestions })
 }
 
 /** Hands a draft made on the create page to the account it created. */

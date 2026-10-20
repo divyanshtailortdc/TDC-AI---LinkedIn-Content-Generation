@@ -159,6 +159,64 @@ function savedValueFor(
   return undefined
 }
 
+/** Whether a suggestion says what is already saved, so there is nothing to change. */
+function matchesSaved(
+  baseline: IdentitySetupBaseline | null,
+  suggestions: IdentitySetupSuggestions,
+  section: EntrySection,
+  field: string
+): boolean {
+  const saved = savedValueFor(baseline, section, field)
+  return (
+    !isEmptyValue(saved) &&
+    formatValue(saved) === formatValue(itemOf(suggestions, section, field).value)
+  )
+}
+
+/**
+ * Takes suggestions that match the saved settings out of the draft. They never
+ * show in the review window, and left in the draft they kept the card on "View
+ * AI suggestions" (and sections on "Needs more info") with nothing to review.
+ */
+function dropSuggestionsMatchingSaved(
+  accountId: string,
+  baseline: IdentitySetupBaseline
+) {
+  const saved = new Set(baseline.knowledgeUrls.map(normalizeUrlForCompare))
+  updateDraftSuggestions(accountId, s => {
+    let changed = false
+    const next = { ...s }
+    for (const section of FIELD_SECTIONS) {
+      const matching = suggestedFieldNames(section, s).filter(field =>
+        matchesSaved(baseline, s, section, field)
+      )
+      if (matching.length === 0) continue
+      const rest = { ...s[section] } as Record<string, unknown>
+      for (const field of matching) delete rest[field]
+      ;(next as Record<string, unknown>)[section] = rest
+      changed = true
+    }
+    const sources = s.knowledge.sources.filter(
+      src => !src.url || !saved.has(normalizeUrlForCompare(src.url))
+    )
+    if (sources.length !== s.knowledge.sources.length) {
+      next.knowledge = { ...s.knowledge, sources }
+      changed = true
+    }
+    return changed ? next : s
+  })
+}
+
+/** Compares a fresh draft with what is saved and drops what already matches. */
+export async function pruneDraftAgainstSaved(accountId: string) {
+  try {
+    const res = await getIdentitySetupBaselineAction(accountId)
+    if (res.success) dropSuggestionsMatchingSaved(accountId, res.data)
+  } catch {
+    // The review window compares again when it opens.
+  }
+}
+
 export function StatusChip({ status }: { status: SectionStatus }) {
   if (status.state === 'ready') {
     return (
@@ -916,6 +974,12 @@ export function ReviewSuggestionsDialog({
 
   const loading = !baseline && !baselineError
 
+  // What matches the saved settings leaves the draft, so the card does not
+  // keep offering suggestions that have nothing to apply.
+  useEffect(() => {
+    if (baseline) dropSuggestionsMatchingSaved(accountId, baseline)
+  }, [baseline, accountId])
+
   // Rows that would change something: a suggestion equal to the saved value
   // is left out.
   const rows = Object.fromEntries(
@@ -1055,6 +1119,12 @@ export function ReviewSuggestionsDialog({
           if (!done(section)) continue
           const rest = { ...s[section] } as Record<string, unknown>
           for (const field of chosen[section]) delete rest[field]
+          // Fields that already matched were not offered, so they go too.
+          for (const field of suggestedFieldNames(section, s)) {
+            if (!rows[section].some(row => row.field === field)) {
+              delete rest[field]
+            }
+          }
           ;(next as Record<string, unknown>)[section] = rest
         }
         if (outcome.goals?.status === 'applied') {

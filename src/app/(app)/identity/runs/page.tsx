@@ -24,7 +24,8 @@ export default async function AccountRunsPage({
 
   const formattedRuns = rows.map(r => ({
     ...r,
-    accountName: account.name
+    // Under the name it ran with; the current name only when none was recorded.
+    accountName: r.accountNameAtRun ?? account.name
   }))
 
   return (
