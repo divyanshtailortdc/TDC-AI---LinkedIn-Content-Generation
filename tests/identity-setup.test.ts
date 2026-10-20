@@ -1052,10 +1052,11 @@ describe('each audience and offering line keeps where it came from', () => {
     const { suggestions } = run(
       [
         entry('offerings', 'Month-end close', 'fact', 'https://ledgerly.in'),
-        // Even the business's own site does not state who it is for.
+        // Even the business's own site does not state who it is for. (The
+        // site says this; the description does not.)
         entry(
           'targetAudience',
-          'D2C brands across India',
+          'Brands founded in Bengaluru',
           'fact',
           'https://ledgerly.in'
         ),

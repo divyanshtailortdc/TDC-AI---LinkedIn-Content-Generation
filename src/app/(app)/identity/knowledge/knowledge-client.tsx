@@ -378,8 +378,9 @@ export function KnowledgeClient({
                   Suggested from your AI setup
                 </h2>
                 <p className="text-muted mt-0.5 text-xs">
-                  Only sources you mentioned are listed, and facts were checked
-                  against their source text. Nothing is added until you save it.
+                  Sources are pages you mentioned or that web search found and
+                  checked to be about you, and facts were checked against their
+                  source text. Nothing is added until you save it.
                 </p>
               </div>
             </div>
@@ -411,6 +412,7 @@ export function KnowledgeClient({
                     <div>
                       <p className="text-foreground font-medium">{source.title}</p>
                       <p className="text-muted">
+                        {source.official && 'Your official site · '}
                         {source.url} · {source.reason}
                       </p>
                     </div>
@@ -451,7 +453,11 @@ export function KnowledgeClient({
                 <div key={fact.quote} className="bg-surface rounded-lg p-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-foreground font-medium">{fact.statement}</span>
-                    <ProvenanceBadge kind="fact" source={fact.source} />
+                    <ProvenanceBadge
+                      kind="fact"
+                      source={fact.source}
+                      official={fact.official}
+                    />
                   </div>
                   <p className="text-muted mt-1 italic">&ldquo;{fact.quote}&rdquo;</p>
                 </div>

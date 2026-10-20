@@ -10,6 +10,7 @@ import { scrapeUrl } from '@/lib/scraper'
 import { isStepCount, Output, tool, ToolLoopAgent } from 'ai'
 import { z } from 'zod'
 import type { GenerationContext } from '../../context'
+import { inferRegion } from '../../region'
 import {
   addUsage,
   EMPTY_USAGE,
@@ -84,6 +85,7 @@ export async function runResearchAgent(
     throw new Error('Web search is not configured (SERPER_API_KEY).')
 
   const freshnessDays = ctx.prefs.research.freshness_days
+  const country = inferRegion(ctx)?.code
   const seen: ResearchSeen = new Map()
   const queries: string[] = []
   const pagesRead: string[] = []
@@ -102,7 +104,7 @@ export async function runResearchAgent(
             return { error: `Search limit (${MAX_SEARCHES}) reached.` }
           }
           queries.push(query)
-          const results = await searchWeb(query, { freshnessDays })
+          const results = await searchWeb(query, { freshnessDays, country })
           for (const r of results) {
             if (!seen.has(r.url))
               seen.set(r.url, { finding: r, text: r.snippet })

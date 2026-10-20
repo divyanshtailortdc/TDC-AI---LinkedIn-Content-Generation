@@ -1,4 +1,4 @@
-import { isSiteRoot, normalizeUrlForCompare, toWebUrl } from '@/lib/urls'
+import { isHomepage, normalizeUrlForCompare, toWebUrl } from '@/lib/urls'
 import type { SetupSource } from '../skills/profile-setup/prompt'
 import {
   canonicalLinkedinUrl,
@@ -191,9 +191,11 @@ export async function researchIdentity(
   const websitePick = picks?.website
   if (needWebsite && websitePick?.url.trim()) {
     const picked = toWebUrl(websitePick.url)
+    // A homepage (the root, or a regional one such as /in/ for a business
+    // in India) stands for the host, so a result anywhere on it grounds it.
     const hit = picked
       ? (fromResults(picked) ??
-        (isSiteRoot(picked)
+        (isHomepage(picked)
           ? hits.find(result => sameHost(result.url, picked))
           : undefined))
       : undefined

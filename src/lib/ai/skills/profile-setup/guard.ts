@@ -203,6 +203,49 @@ export function tidyIndustry(value: string): string | null {
   return isIndustryLabel(lead) ? lead : null
 }
 
+/** The prompt asks for under 70; past this it has stopped being a summary. */
+const MAX_DESCRIPTION_WORDS = 80
+
+/** "and uses LinkedIn to hire engineers": a plan for LinkedIn, inside a sentence. */
+const LINKEDIN_PLAN =
+  /,?\s*(?:\b(?:and|while|but)\s+)?(?:\b(?:it|we|i|they|he|she)\s+)?\b(?:uses?|using|wants?|wanting|plans?|planning|aims?|aiming|hopes?|hoping|looks?|looking|turns?|turning)\s+(?:[\w'-]+\s+){0,3}?linkedin\b[^.!?]*/i
+
+/** "It aims to be the brand families trust most": an ambition, which is the goal's. */
+const AMBITION = /\b(?:aims?|wants?|hopes?|strives?|seeks?|aspires?)\s+to\s+(?:be|become)\b/i
+
+/**
+ * The profile description says who they are and what they do. What they want
+ * from LinkedIn belongs to the goal and audience, but the model kept closing
+ * the description with it ("…and uses LinkedIn to hire engineers"). That
+ * clause is cut, or its sentence dropped when nothing else is left; a
+ * sentence stating an ambition ("It aims to be the most trusted brand") is
+ * dropped too. The description is kept to whole sentences within
+ * MAX_DESCRIPTION_WORDS. A business whose work is LinkedIn itself
+ * (`aboutLinkedin`) keeps every mention.
+ */
+export function tidyDescription(text: string, aboutLinkedin = false): string {
+  const kept: string[] = []
+  let words = 0
+  for (const original of splitSentences(text)) {
+    let sentence = original
+    if (AMBITION.test(sentence) && kept.length > 0) continue
+    if (!aboutLinkedin && /\blinkedin\b/i.test(sentence)) {
+      sentence = sentence.replace(LINKEDIN_PLAN, '').trim()
+      if (/\blinkedin\b/i.test(sentence) || sentence.split(/\s+/).length < 4) {
+        continue
+      }
+      if (!/[.!?]$/.test(sentence)) sentence += '.'
+    }
+    const count = sentence.split(/\s+/).length
+    if (kept.length > 0 && words + count > MAX_DESCRIPTION_WORDS) break
+    kept.push(sentence)
+    words += count
+  }
+  return kept.join(' ')
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
+
 /** Most lines each profile list keeps; past these it stops being a focus. */
 const PROFILE_LIST_LIMITS: Record<string, number> = {
   targetAudience: 6,
@@ -237,39 +280,58 @@ const FILLER = new Set(
   )
 )
 
-/** Content words with plural and tense endings removed: "referrals" → "referral". */
+/** "IPO", "HR", "B2B": short enough to skip as a word, but they carry the meaning. */
+const ACRONYM = /^[A-Z][A-Z0-9]{1,2}$/
+
+/**
+ * Content words with plural and tense endings removed: "referrals" →
+ * "referral". Acronyms count as words: skipped for being short, "Bond and IPO
+ * investing" read as stated by a description that never mentions IPOs.
+ */
 function stems(text: string): string[] {
-  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
-    .filter(word => word.length >= 4 && !FILLER.has(word))
-    .map(word => word.replace(/(?:es|s|ing|ed)$/, ''))
-    .filter(stem => stem.length >= 3)
+  const out: string[] = []
+  for (const word of text.match(/[\p{L}\p{N}]+/gu) ?? []) {
+    if (ACRONYM.test(word)) {
+      out.push(word.toLowerCase())
+      continue
+    }
+    const lower = word.toLowerCase()
+    if (lower.length < 4 || FILLER.has(lower)) continue
+    const stem = lower.replace(/(?:es|s|ing|ed)$/, '')
+    if (stem.length >= 3) out.push(stem)
+  }
+  return out
 }
 
 /**
  * Builds a check for whether `sourceText` states a line: at least three
- * quarters of the line's content words must appear there ("injured" matches
- * "injury", "physio" matches "physiotherapist"). Words in `ignore` (the
- * business's own name) do not count: "Canva Pro" is not stated by every text
- * that says "Canva". A line with no other words ("VAT", "Canva Pro") must
- * appear as written. Nothing is rewritten; this only decides whether a line
- * is shown as stated or as a suggestion.
+ * quarters (or `share`) of the line's content words must appear there
+ * ("injured" matches "injury", "physio" matches "physiotherapist"). Words in
+ * `ignore` (the business's own name) do not count: "Canva Pro" is not stated
+ * by every text that says "Canva". A line with no other words ("VAT", "Canva
+ * Pro") must appear as written. Nothing is rewritten; this only decides
+ * whether a line is shown as stated or as a suggestion.
  */
 export function backedBy(
-  sourceText: string
+  sourceText: string,
+  share = 0.75
 ): (line: string, ignore?: ReadonlySet<string>) => boolean {
   const known = Array.from(new Set(stems(sourceText)))
+  const plain = lineKey(sourceText)
+  const words = new Set(plain.split(' '))
   const matches = (stem: string) =>
+    // An acronym matches only as a whole word, in any case.
+    (stem.length <= 3 && words.has(stem)) ||
     known.some(
       k =>
         k === stem ||
         (Math.min(k.length, stem.length) >= 4 &&
           (k.startsWith(stem) || stem.startsWith(k)))
     )
-  const plain = lineKey(sourceText)
   return (line, ignore = new Set()) => {
     const wanted = stems(line).filter(stem => !ignore.has(stem))
     if (wanted.length === 0) return plain.includes(lineKey(line))
-    return wanted.filter(matches).length * 4 >= wanted.length * 3
+    return wanted.filter(matches).length >= wanted.length * share
   }
 }
 
@@ -481,6 +543,7 @@ export function sanitizeIdentitySetup(
 
   const resolveSourceText = (source: string): string | null => {
     if (source.toLowerCase() === DESCRIPTION_SOURCE) return context.description
+    if (source === PROVIDED_SOURCE) return context.trustedText?.trim() || null
     return fetchedByKey.get(normalizeUrlForCompare(source))?.content ?? null
   }
 
@@ -533,6 +596,34 @@ export function sanitizeIdentitySetup(
     return basis
       ? { text, kind: 'fact', source: basis.source }
       : { text, kind: 'recommendation' }
+  }
+
+  /**
+   * The source that states a single value, or undefined when none does. A
+   * fact used to need only a source that existed, so a goal taken from the
+   * Advanced choices read "from your description", and a synthesised summary
+   * passed as a quote. The cited source is tried first, then the user's own
+   * words. A pick from a fixed list or a scale ("lead_gen", 3/5) is the AI's
+   * reading of the input, never something it states.
+   */
+  const backingSource = (
+    value: string,
+    claimed: string | undefined,
+    spec: FieldSpec
+  ): string | undefined => {
+    if (spec.type === 'enum' || spec.type === 'scale') return undefined
+    for (const candidate of new Set(
+      [claimed, DESCRIPTION_SOURCE, PROVIDED_SOURCE].filter(
+        (s): s is string => Boolean(s)
+      )
+    )) {
+      const text = resolveSourceText(candidate)
+      if (text === null || !backedBy(text)(value, nameStems)) continue
+      if (candidate.toLowerCase() === DESCRIPTION_SOURCE) return DESCRIPTION_SOURCE
+      if (candidate === PROVIDED_SOURCE) return PROVIDED_SOURCE
+      return fetchedByKey.get(normalizeUrlForCompare(candidate))?.url ?? candidate
+    }
+    return undefined
   }
 
   const resolveAllowedUrl = (
@@ -664,12 +755,13 @@ export function sanitizeIdentitySetup(
         // A link found by research is sourced to itself; one the user typed to them.
         source = verified ? verified.url : PROVIDED_SOURCE
         forcedConfidence = verified?.confidence
-      } else if (
-        kind === 'fact' &&
-        (!source || resolveSourceText(source) === null)
-      ) {
-        kind = 'recommendation'
-        source = undefined
+      } else if (kind === 'fact' && !isList) {
+        source = backingSource(
+          Array.isArray(value) ? value.join('\n') : String(value),
+          source,
+          spec
+        )
+        if (!source) kind = 'recommendation'
       }
 
       if (section === 'voice') {
@@ -736,6 +828,17 @@ export function sanitizeIdentitySetup(
       ? 'company'
       : 'personal')
   reconcileNames(profile, accountType)
+  const description = profile.description as { value: string } | undefined
+  if (description) {
+    const field = (key: string) =>
+      (profile[key] as { value?: string } | undefined)?.value ?? ''
+    const tidy = tidyDescription(
+      description.value,
+      /\blinkedin\b/i.test(`${field('offerings')} ${field('industry')}`)
+    )
+    if (tidy) description.value = tidy
+    else delete profile.description
+  }
   const voice = readSection('voice', VoiceSuggestionsSchema)
   const goals = readSection('goals', GoalSuggestionsSchema)
 
@@ -795,7 +898,8 @@ export function sanitizeIdentitySetup(
   }
   // What could not be found or verified is said plainly, not left to guess.
   // Research states these precisely, so the model's vaguer note on the same
-  // link ("Website URL: not provided") is dropped.
+  // link ("Website URL: not provided", "Your LinkedIn profile URL: none was
+  // found") is dropped, however it is worded.
   const notes = context.researchNotes ?? []
   const researchCovers = (label: 'website' | 'linkedin') =>
     notes.some(note => note.toLowerCase().startsWith(`${label}:`))
@@ -803,9 +907,9 @@ export function sanitizeIdentitySetup(
     .map(String)
     .filter(item => {
       const lower = item.toLowerCase()
-      if (researchCovers('website') && /^website( url)?\b/.test(lower))
+      if (researchCovers('website') && /\b(?:website|web site)\b/.test(lower))
         return false
-      if (researchCovers('linkedin') && /^linkedin( url| page)?\b/.test(lower))
+      if (researchCovers('linkedin') && /\blinkedin\b/.test(lower))
         return false
       return true
     })
@@ -848,10 +952,13 @@ export function sanitizeIdentitySetup(
   const knowledgeRaw = asRecord(root.knowledge)
   const suggestedAdditions = readListValue(knowledgeRaw?.suggestedAdditions)
   const sources: KnowledgeSuggestions['sources'] = []
+  const foundByResearch = new Set(
+    (context.webSourceUrls ?? []).map(normalizeUrlForCompare)
+  )
   for (const sourceRaw of asArray(knowledgeRaw?.sources)) {
     const item = asRecord(sourceRaw)
-    const title = asString(item?.title).slice(0, 200)
-    const reason = asString(item?.reason).slice(0, 500)
+    let title = oneLine(asString(item?.title)).slice(0, 200)
+    let reason = oneLine(asString(item?.reason)).slice(0, 500)
     const rawUrl = asString(item?.url)
     if (!title || !reason) continue
 
@@ -876,20 +983,25 @@ export function sanitizeIdentitySetup(
     ) {
       continue
     }
-    sources.push({
-      url,
-      title,
-      reason,
-      accessible: fetchedByKey.has(normalizeUrlForCompare(url))
-    })
+    const key = normalizeUrlForCompare(url)
+    const page = fetchedByKey.get(key)
+    const official = isOfficial(url)
+    // The model names each page; it must not call a page off their own site
+    // their official one. The page's own title replaces such a label.
+    if (!official && /\bofficial\b/i.test(title)) {
+      title = oneLine(page?.title || hostOf(url) || url).slice(0, 200)
+    }
+    if (!official && /\bofficial\b/i.test(reason)) {
+      reason = foundByResearch.has(key)
+        ? 'Found by web search and checked to be about you.'
+        : 'A page linked in your details.'
+    }
+    sources.push({ url, title, reason, accessible: Boolean(page), official })
   }
 
   // A page the user gave us and we could read is a knowledge source whether or
   // not the model thought to list it. It is only offered: nothing is added
   // until the user ticks it in the review.
-  const foundByResearch = new Set(
-    (context.webSourceUrls ?? []).map(normalizeUrlForCompare)
-  )
   for (const page of context.fetchedSources) {
     const key = normalizeUrlForCompare(page.url)
     if (sources.some(s => s.url && normalizeUrlForCompare(s.url) === key)) {
@@ -897,11 +1009,12 @@ export function sanitizeIdentitySetup(
     }
     sources.push({
       url: page.url,
-      title: (page.title || page.url).slice(0, 200),
+      title: oneLine(page.title || page.url).slice(0, 200),
       reason: foundByResearch.has(key)
         ? 'Found by web search and checked to be about you. It was read for this analysis.'
         : 'A page you provided. It was read for this analysis.',
-      accessible: true
+      accessible: true,
+      official: isOfficial(page.url)
     })
   }
 
@@ -925,7 +1038,8 @@ export function sanitizeIdentitySetup(
       url: link.url,
       title: 'Page from your details',
       reason: 'Your details link to this page.',
-      accessible: fetchedByKey.has(key)
+      accessible: fetchedByKey.has(key),
+      official: isOfficial(link.url)
     })
   }
 
@@ -946,13 +1060,14 @@ export function sanitizeIdentitySetup(
       )
       continue
     }
+    const fromDescription = source.toLowerCase() === DESCRIPTION_SOURCE
     facts.push({
       statement: statement.slice(0, 500),
       quote: quote.slice(0, 1000),
-      source:
-        source.toLowerCase() === DESCRIPTION_SOURCE
-          ? DESCRIPTION_SOURCE
-          : (fetchedByKey.get(normalizeUrlForCompare(source))?.url ?? source)
+      source: fromDescription
+        ? DESCRIPTION_SOURCE
+        : (fetchedByKey.get(normalizeUrlForCompare(source))?.url ?? source),
+      official: !fromDescription && isOfficial(source)
     })
   }
 
@@ -1002,6 +1117,9 @@ function splitEntries(text: string): string[] {
     )
   ).slice(0, 15)
 }
+
+/** The most content pillars a setup may have (see PreferencesSuggestionsSchema). */
+const MAX_PILLARS = 6
 
 const GUIDED_SCHEMAS = {
   profile: ProfileSuggestionsSchema,
@@ -1061,6 +1179,41 @@ export function applyGuidance(
   if (guidance.formality) write('voice', 'formality', guidance.formality)
   if (guidance.emojiPolicy) write('voice', 'emojiPolicy', guidance.emojiPolicy)
 
+  // What they want LinkedIn to achieve is the goal. Only its objective, CTA and
+  // link used to be enforced, so a goal written about another aim kept the
+  // user's objective under a different strategy. A goal that does not share
+  // most of its words with theirs (the business's own name aside) is named in
+  // their words, and a key message arguing for something else is dropped.
+  if (guidance.goal) {
+    const aim = oneLine(guidance.goal)
+    const names = new Set(
+      [next.profile.name?.value, next.profile.company?.value].flatMap(v =>
+        v ? stems(v) : []
+      )
+    )
+    const relates = backedBy(aim, 0.5)
+    const title = next.goals.title?.value
+    if (!title || !relates(title, names)) {
+      write(
+        'goals',
+        'title',
+        aim.length > 200 ? `${aim.slice(0, 199).replace(/\s+\S*$/, '')}…` : aim
+      )
+      if (title) {
+        warnings.push(
+          `${SECTION_LABELS.goals} → ${fieldLabel('goals', 'title')}: the AI's goal ("${title.slice(0, 80)}") was about something other than the goal you gave, so your own words name it.`
+        )
+      }
+      const keyMessage = next.goals.keyMessage?.value
+      if (keyMessage && !relates(keyMessage, names)) {
+        delete next.goals.keyMessage
+        warnings.push(
+          `${SECTION_LABELS.goals} → ${fieldLabel('goals', 'keyMessage')}: left blank because it argued for a different goal than yours.`
+        )
+      }
+    }
+  }
+
   if (guidance.objectiveType) {
     write('goals', 'objectiveType', guidance.objectiveType)
   }
@@ -1098,6 +1251,41 @@ export function applyGuidance(
           new Set([...kept, ...(next.preferences.bannedTopics?.value ?? [])])
         ).slice(0, 15)
       )
+    }
+  }
+
+  // Topics they chose to focus on are pillars. A topic no pillar covers is
+  // added as a pillar of its own with an equal share, up to the six allowed.
+  if (guidance.focusTopics) {
+    const pillars = [...(next.preferences.pillars?.value ?? [])]
+    const covered = (topic: string) =>
+      pillars.some(p => backedBy([p.name, ...p.example_topics].join('\n'))(topic))
+    const added: string[] = []
+    for (const topic of splitEntries(guidance.focusTopics)) {
+      if (covered(topic)) continue
+      if (pillars.length >= MAX_PILLARS) {
+        warnings.push(
+          `${SECTION_LABELS.preferences} → ${fieldLabel('preferences', 'pillars')}: your focus topic "${topic.slice(0, 60)}" was not added; there are already ${MAX_PILLARS} pillars.`
+        )
+        continue
+      }
+      const name = topic.slice(0, 120)
+      pillars.push({ name, weight_pct: 0, example_topics: [] })
+      added.push(name)
+    }
+    if (added.length > 0) {
+      const share = 100 / pillars.length
+      const weights = normalizeWeights(
+        pillars.map(p => (added.includes(p.name) ? share : p.weight_pct))
+      )
+      const value = pillars.map((p, i) => ({ ...p, weight_pct: weights[i]! }))
+      const item = { value, kind: 'recommendation' as const, confidence: 'medium' as const }
+      if (PreferencesSuggestionsSchema.shape.pillars.safeParse(item).success) {
+        next.preferences.pillars = item
+        warnings.push(
+          `${SECTION_LABELS.preferences} → ${fieldLabel('preferences', 'pillars')}: added your focus topic${added.length === 1 ? '' : 's'} ${added.map(t => `"${t}"`).join(', ')}, which the AI's pillars did not cover.`
+        )
+      }
     }
   }
 

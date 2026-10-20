@@ -1,9 +1,69 @@
+import { isRecent } from '~/lib/research/findings'
 import type { Finding } from '~/lib/research/web-search'
+import { isGenericPage, isReferencePage } from '~/lib/urls'
 import type { GenerationContext } from '../context-blocks'
 import type { KnowledgePassage } from '../embeddings'
 import type { GroundingCorpus } from '../skills/ideation/guard'
 
 type Claim = GroundingCorpus['verifiedClaims'][number]
+
+/** Capitalised words that start a sentence rather than name a product. */
+const NOT_A_PRODUCT_LINE = new Set([
+  'the', 'and', 'for', 'with', 'our', 'your', 'their', 'its', 'from', 'into',
+  'this', 'that', 'these', 'those', 'all', 'any', 'every', 'each', 'new', 'more'
+])
+
+/**
+ * The account's own words: what it says about itself, its offerings and its
+ * pillars. Figures and product names stated here are the account's, so the
+ * ideation guard accepts them as it accepts the evidence.
+ */
+function accountTextOf(ctx: GenerationContext): string {
+  const a = ctx.account
+  return [
+    a.name,
+    a.company,
+    a.bio,
+    a.industry,
+    ...ctx.offerings.flatMap(o => [
+      o.name,
+      o.tagline,
+      o.description,
+      o.whoItIsFor,
+      o.problemSolved,
+      ...(o.keyFeatures || []),
+      ...(o.differentiators || []),
+      ...(o.proofPoints || []).flatMap(p => [p.label, p.detail])
+    ]),
+    ...ctx.prefs.pillars.flatMap(p => [p.name, ...(p.example_topics || [])])
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/**
+ * Capitalised names in the account's name and offerings ("Galaxy", "QLED",
+ * "Bespoke"): the product lines a model name invented for this brand would
+ * start with.
+ */
+function productLinesOf(ctx: GenerationContext): string[] {
+  const text = [
+    ctx.account.name,
+    ctx.account.company,
+    ...ctx.offerings.flatMap(o => [
+      o.name,
+      o.tagline,
+      o.description,
+      ...(o.keyFeatures || [])
+    ])
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const words = text.match(/\b[A-Z][A-Za-z0-9]{2,}\b/g) || []
+  return Array.from(new Set(words)).filter(
+    w => !NOT_A_PRODUCT_LINE.has(w.toLowerCase())
+  )
+}
 
 /**
  * One item from each list in turn until every list is used up.
@@ -31,13 +91,25 @@ export interface CorpusSources {
   knowledgeClaims: number
 }
 
-/** Everything a run's ideas may cite, with each kind of source represented early. */
+/**
+ * Everything a run's ideas may cite, with each kind of source represented early.
+ *
+ * Only a dated item from the last `freshness_days` is "fresh", and never a
+ * homepage or news index. Every search result used to count as fresh, so an
+ * idea could call anything news as long as the run had searched at all.
+ */
 export function buildGroundingCorpus(
   ctx: GenerationContext,
   findings: Finding[],
-  passages: KnowledgePassage[] = []
+  passages: KnowledgePassage[] = [],
+  now = new Date()
 ): GroundingCorpus & { sources: CorpusSources } {
   const docs = ctx.knowledgeDocs
+  const fresh = (url: string | undefined, publishedAt: string | undefined) =>
+    !(url && (isGenericPage(url) || isReferencePage(url))) &&
+    isRecent(publishedAt, ctx.prefs.research.freshness_days, now)
+  const docDate = (doc: (typeof docs)[number]) =>
+    doc.publishedAt ? doc.publishedAt.toISOString().slice(0, 10) : undefined
 
   // The account's own verified numbers and offerings: the defense against
   // invented metrics, and the most specific thing known about this business.
@@ -75,6 +147,8 @@ export function buildGroundingCorpus(
       sourceUrl: doc.sourceUrl || undefined,
       sourceTitle: doc.title,
       sourceId: doc.id,
+      publishedAt: docDate(doc),
+      isFresh: fresh(doc.sourceUrl || undefined, docDate(doc)),
       origin: 'knowledge'
     })
   }
@@ -88,10 +162,15 @@ export function buildGroundingCorpus(
       sourceUrl: f.url,
       sourceTitle: f.title,
       publishedAt: f.publishedAt,
-      isFresh: f.provider === 'serper_search',
+      isFresh: fresh(f.url, f.publishedAt),
       origin: 'web'
     })
   }
+  // Recent articles first and homepages last, so the slice the prompt shows
+  // leads with what is new. The sort is stable within each group.
+  const webRank = (c: Claim) =>
+    c.isFresh ? 0 : c.sourceUrl && isGenericPage(c.sourceUrl) ? 2 : 1
+  web.sort((a, b) => webRank(a) - webRank(b))
 
   // The summary grounds each document's overall thesis.
   const summaries: Claim[] = docs
@@ -101,6 +180,8 @@ export function buildGroundingCorpus(
       sourceUrl: doc.sourceUrl || undefined,
       sourceTitle: doc.title,
       sourceId: doc.id,
+      publishedAt: docDate(doc),
+      isFresh: fresh(doc.sourceUrl || undefined, docDate(doc)),
       origin: 'knowledge' as const
     }))
 
@@ -115,14 +196,19 @@ export function buildGroundingCorpus(
           sourceUrl: doc.sourceUrl || undefined,
           sourceTitle: doc.title,
           sourceId: doc.id,
+          publishedAt: docDate(doc),
+          isFresh: fresh(doc.sourceUrl || undefined, docDate(doc)),
           origin: 'knowledge' as const
         }))
     )
   )
 
+  const verifiedClaims = interleave([own, retrieved, web, summaries, keyClaims])
   return {
-    verifiedClaims: interleave([own, retrieved, web, summaries, keyClaims]),
-    hasFreshEvidence: findings.some(f => f.provider === 'serper_search'),
+    verifiedClaims,
+    hasFreshEvidence: verifiedClaims.some(c => c.isFresh),
+    accountText: accountTextOf(ctx),
+    productLines: productLinesOf(ctx),
     sources: {
       offeringFacts: own.length,
       knowledgePassages: retrieved.length,

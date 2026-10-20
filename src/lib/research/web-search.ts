@@ -2,6 +2,9 @@ import 'server-only'
 
 import { env } from '~/env'
 import type { GenerationContext } from '~/lib/ai/context'
+import { inferRegion } from '~/lib/ai/region'
+import { stripTrackingParams } from '~/lib/urls'
+import { buildSearchQueries, normalizePublishedDate } from './findings'
 
 /**
  * Web research over Serper (Google results). Plain code, no model: the fixed
@@ -14,6 +17,7 @@ export type Finding = {
   title: string
   snippet: string
   provider: string
+  /** YYYY-MM-DD, fixed when the result was fetched; absent when undated. */
   publishedAt?: string
 }
 
@@ -30,48 +34,12 @@ function freshnessToTbs(days: number): string | undefined {
 }
 
 /**
- * Search queries come from what the account is actually trying to say, not a
- * fixed template. Previously every run searched
- * "<goal title> industry trends insights 2026".
+ * One search. Returns no results, rather than throwing, when it fails.
+ * `country` (an ISO code) asks for results from that market.
  */
-export function buildSearchQueries(
-  ctx: GenerationContext,
-  limit: number
-): string[] {
-  const queries: string[] = []
-  const goal = ctx.primaryGoal
-
-  if (goal?.keyMessage) queries.push(goal.keyMessage)
-  if (goal?.title) queries.push(goal.title)
-
-  for (const pillar of ctx.prefs.pillars) {
-    if (queries.length >= limit + 2) break
-    const topics = pillar.example_topics || []
-    queries.push(
-      topics.length > 0 ? `${pillar.name} ${topics[0]}` : pillar.name
-    )
-  }
-
-  for (const audience of ctx.audiences) {
-    if (queries.length >= limit + 2) break
-    const pain = (audience.painPoints || [])[0]
-    if (pain) queries.push(pain)
-  }
-
-  if (queries.length === 0) {
-    queries.push(ctx.account.headline || ctx.account.name)
-  }
-
-  return Array.from(new Set(queries.map(q => q.trim()).filter(Boolean))).slice(
-    0,
-    limit
-  )
-}
-
-/** One search. Returns no results, rather than throwing, when it fails. */
 export async function searchWeb(
   query: string,
-  options: { freshnessDays: number; resultCount?: number }
+  options: { freshnessDays: number; resultCount?: number; country?: string }
 ): Promise<Finding[]> {
   if (!env.SERPER_API_KEY) return []
   const tbs = freshnessToTbs(options.freshnessDays)
@@ -85,7 +53,11 @@ export async function searchWeb(
       body: JSON.stringify({
         q: query,
         num: options.resultCount ?? 5,
-        ...(tbs ? { tbs } : {})
+        ...(tbs ? { tbs } : {}),
+        // Google's country codes are ISO ones, except "uk" for the United Kingdom.
+        ...(options.country
+          ? { gl: options.country === 'gb' ? 'uk' : options.country }
+          : {})
       })
     })
     if (!res.ok) {
@@ -93,15 +65,16 @@ export async function searchWeb(
       return []
     }
     const data = await res.json()
+    const fetchedAt = new Date()
     const findings: Finding[] = []
     for (const item of data.organic || []) {
       if (!item.link || !item.title) continue
       findings.push({
-        url: item.link,
+        url: stripTrackingParams(item.link),
         title: item.title,
         snippet: item.snippet || '',
         provider: 'serper_search',
-        publishedAt: item.date
+        publishedAt: normalizePublishedDate(item.date, fetchedAt)
       })
     }
     return findings
@@ -131,11 +104,15 @@ export async function runWebSearch(
   if (!env.SERPER_API_KEY) return []
 
   const maxSearches = Math.max(1, Math.min(policy.max_searches_per_run || 3, 8))
+  const region = inferRegion(ctx)
   const findings: Finding[] = []
-  for (const query of buildSearchQueries(ctx, maxSearches)) {
+  for (const query of buildSearchQueries(ctx, maxSearches, region)) {
     onQuery(query)
     findings.push(
-      ...(await searchWeb(query, { freshnessDays: policy.freshness_days }))
+      ...(await searchWeb(query, {
+        freshnessDays: policy.freshness_days,
+        country: region?.code
+      }))
     )
   }
   return dedupeFindings(findings)

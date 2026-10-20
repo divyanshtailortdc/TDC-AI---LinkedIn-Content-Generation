@@ -488,6 +488,7 @@ export const ideasTable = pgTable('ideas', {
         sourceUrl?: string
         sourceTitle?: string
         quote?: string
+        publishedAt?: string
         confidence?: number
       }>
     >()

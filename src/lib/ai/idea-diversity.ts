@@ -131,8 +131,9 @@ export function filterDiverseIdeas(
 ): DiversityCheckResult {
   // Sort candidates by combined quality score descending
   const sorted = [...candidates].sort((a, b) => {
-    const scoreA = (a.groundingScore || 80) * 0.4 + (a.originalityScore || 80) * 0.3 + (a.estimatedStrength || 80) * 0.3
-    const scoreB = (b.groundingScore || 80) * 0.4 + (b.originalityScore || 80) * 0.3 + (b.estimatedStrength || 80) * 0.3
+    // ?? not ||: a grounding score of 0 is a score, not a missing one.
+    const scoreA = (a.groundingScore ?? 80) * 0.4 + (a.originalityScore ?? 80) * 0.3 + (a.estimatedStrength ?? 80) * 0.3
+    const scoreB = (b.groundingScore ?? 80) * 0.4 + (b.originalityScore ?? 80) * 0.3 + (b.estimatedStrength ?? 80) * 0.3
     return scoreB - scoreA
   })
 

@@ -1,5 +1,6 @@
 import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
 import { idSchema } from '@/lib/ids'
+import { normalizeUrlForCompare } from '@/lib/urls'
 import { z } from 'zod'
 import { VoiceAnalysisSchema, WRITING_STYLES } from '../voice-analysis/schema'
 
@@ -168,7 +169,9 @@ export const KnowledgeSuggestionsSchema = z.object({
         url: z.string().trim().max(500).optional(),
         title: text(200),
         reason: text(500),
-        accessible: z.boolean()
+        accessible: z.boolean(),
+        /** On the business's own website, rather than a page about it. */
+        official: z.boolean().optional()
       })
     )
     .max(10)
@@ -179,7 +182,9 @@ export const KnowledgeSuggestionsSchema = z.object({
       z.object({
         statement: text(500),
         quote: text(1000),
-        source: text(500)
+        source: text(500),
+        /** Quoted from the business's own website. */
+        official: z.boolean().optional()
       })
     )
     .max(15)
@@ -287,6 +292,57 @@ export const FIELD_SPECS = {
   }
 } as const satisfies Record<EntrySection, Record<string, FieldSpec>>
 
+/** A URL's host without "www.", or null when it is not a web address. */
+function hostLabel(url: string): string | null {
+  if (!/^https?:\/\//i.test(url)) return null
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return null
+  }
+}
+
+/** The suggested website, when it is a link the user gave or research verified. */
+export function officialSiteOf(
+  suggestions: IdentitySetupSuggestions
+): string | undefined {
+  const site = suggestions.profile.websiteUrl
+  return site?.kind === 'fact' ? site.value : undefined
+}
+
+/**
+ * Where a suggested value came from, as the review shows it. Every page used
+ * to read "From a web page", so a fan blog and the business's own site looked
+ * the same, and a website found by search read as if a page stated it. The
+ * page's host is named, the business's own site is marked as such, and a link
+ * sourced to itself (research verified it) reads as found by web search.
+ * `short` is the form for one line of a list.
+ */
+export function describeSource(
+  item: { kind: string; source?: string; value?: unknown },
+  officialUrl?: string,
+  short = false
+): string {
+  if (item.source === 'edited') return 'Edited'
+  if (item.kind !== 'fact') return short ? 'Suggested' : 'AI suggestion'
+  const source = item.source ?? ''
+  if (source.toLowerCase() === DESCRIPTION_SOURCE) {
+    return short ? 'Your description' : 'From your description'
+  }
+  if (source === PROVIDED_SOURCE) return short ? 'You gave this' : 'You provided this'
+  const host = hostLabel(source)
+  if (!host) return short ? 'Your info' : 'From your info'
+  if (
+    typeof item.value === 'string' &&
+    normalizeUrlForCompare(item.value) === normalizeUrlForCompare(source)
+  ) {
+    return 'Found by web search'
+  }
+  const official = officialUrl !== undefined && hostLabel(officialUrl) === host
+  if (short) return official ? `${host} (official)` : host
+  return official ? `From ${host}, the official site` : `From ${host}`
+}
+
 export const SECTION_LABELS: Record<SetupSection, string> = {
   profile: 'Profile',
   voice: 'Voice',
@@ -340,7 +396,7 @@ function entrySchema(section: EntrySection) {
     source: z
       .string()
       .describe(
-        'For facts: "description" or the exact URL of the fetched page. Empty string for recommendations.'
+        'For facts: "description", "provided" (a value from <choices>) or the exact URL of the fetched page. Empty string for recommendations.'
       ),
     confidence: z.enum(CONFIDENCE)
   })

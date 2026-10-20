@@ -543,12 +543,13 @@ describe('buildGroundingCorpus', () => {
       url: 'https://news.example.com/1',
       title: 'A fresh development',
       snippet: 'Something that happened this month.',
-      provider: 'serper_search'
+      provider: 'serper_search',
+      publishedAt: '2026-09-25'
     }
   ]
 
   it('shows every kind of source inside the prompt limit', () => {
-    const corpus = buildGroundingCorpus(ctx, findings, passages)
+    const corpus = buildGroundingCorpus(ctx, findings, passages, now)
     const shown = corpus.verifiedClaims
       .slice(0, ideationPrompt.PROMPT_EVIDENCE_LIMIT)
       .map(c => c.claim)

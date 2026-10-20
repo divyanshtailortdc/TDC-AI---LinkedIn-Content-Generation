@@ -61,6 +61,10 @@ export const IdeaItemSchema = z.object({
   perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).default('practitioner_lesson'),
   angle: z.string().describe('The distinctive POV or contrarian thesis lens'),
   pillar: z.string().describe('Which content pillar this belongs to'),
+  targetAudience: z
+    .string()
+    .optional()
+    .describe('The one reader group from the profile this idea is written for'),
   format: z.string().default('thought_leadership'),
   whyNow: z
     .string()
@@ -100,6 +104,10 @@ export const IdeaItemSchema = z.object({
           .string()
           .optional()
           .describe('Verbatim quote supporting the claim'),
+        publishedAt: z
+          .string()
+          .optional()
+          .describe('When the source was published, YYYY-MM-DD'),
         confidence: z.number().min(0).max(1).default(0.9)
       })
     )
@@ -143,6 +151,11 @@ export const IdeaGenerationItemSchema = z.object({
   perspectiveAngle: IdeaItemSchema.shape.perspectiveAngle,
   angle: IdeaItemSchema.shape.angle,
   pillar: IdeaItemSchema.shape.pillar,
+  audienceRef: z
+    .string()
+    .describe(
+      'The label of the one reader group this idea is written for, e.g. "A2".'
+    ),
   format: IdeaItemSchema.shape.format,
   whyNow: IdeaItemSchema.shape.whyNow,
   hookConcept: IdeaItemSchema.shape.hookConcept,
@@ -192,5 +205,6 @@ export interface CorpusEvidenceSource {
   sourceUrl?: string
   sourceTitle?: string
   sourceId?: string
+  publishedAt?: string
   origin?: 'own' | 'knowledge' | 'web'
 }

@@ -1,3 +1,5 @@
+import { isGenericPage } from '@/lib/urls'
+import { countryName, countryOfUrl, type Region } from '../../region'
 import type {
   CorpusEvidenceSource,
   GeneratedIdeaItem,
@@ -23,6 +25,7 @@ export interface GroundingCorpus {
     sourceTitle?: string
     sourceId?: string
     publishedAt?: string
+    /** Dated within the run's freshness window, and not a homepage or index. */
     isFresh?: boolean
     /**
      * Where the text came from. Web text is copied from pages nobody on this
@@ -32,6 +35,10 @@ export interface GroundingCorpus {
   }>
   knownNumbers?: string[]
   hasFreshEvidence?: boolean
+  /** The account's own details; figures and names stated there are its own. */
+  accountText?: string
+  /** Names the account's products start with ("Galaxy"), for spotting invented models. */
+  productLines?: string[]
 }
 
 export interface ClaimVerificationDetail {
@@ -57,6 +64,14 @@ export interface ValidationResult {
   sourceIds: string[]
   hasFabricatedAnecdote: boolean
   hasUnsupportedNumbers: boolean
+  /** Presents something as current without citing a recent source. */
+  hasUnsupportedTimeliness: boolean
+  /** Product or model names that no source or account detail mentions. */
+  unknownProducts: string[]
+  /** Outside the account's pillars, or written for no reader group in the profile. */
+  offBrief: boolean
+  /** Why the idea was disqualified, when it was. */
+  rejectionReason?: string
   claimDetails: ClaimVerificationDetail[]
 }
 
@@ -71,7 +86,8 @@ const FIGURE_NUMBER = String.raw`\d+(?:[.,]\d+)*`
 
 /**
  * Extracts figures a reader would treat as a factual claim: percentages,
- * currency, and qualified thresholds ("around 50 customers").
+ * currency, product specifications ("200MP", "5,000mAh"), and qualified
+ * thresholds ("around 50 customers").
  *
  * Bare integers are intentionally NOT collected. Treating every number over 10
  * as a claim flagged ordinary prose like "10 minutes" or "3 of 5 teams".
@@ -80,13 +96,31 @@ export function extractNumbers(text: string): string[] {
   if (!text) return []
   const matches: string[] = []
 
+  // "40 percent" and "40 per cent" are the same figure as "40%".
   const percentages = text.match(
-    new RegExp(`${FIGURE_START}${FIGURE_NUMBER}\\s*%`, 'g')
+    new RegExp(`${FIGURE_START}${FIGURE_NUMBER}\\s*(?:%|per\\s?cent\\b)`, 'gi')
   )
-  if (percentages) matches.push(...percentages.map(m => m.replace(/\s+/g, '')))
+  if (percentages) {
+    matches.push(
+      ...percentages.map(m => m.replace(/\s*per\s?cent$/i, '%').replace(/\s+/g, ''))
+    )
+  }
 
-  const currency = text.match(/[$£€]\s?\d+(?:[.,]\d+)*\s*[kKmMbB]?/g)
-  if (currency) matches.push(...currency.map(m => m.replace(/\s+/g, '')))
+  // "Rs 1,500" and "INR 1,500" are written as "₹1,500".
+  const currency = text.match(
+    /(?:[$£€₹¥₩]|\b(?:rs\.?|inr)\s?)\s?\d+(?:[.,]\d+)*\s*[kmb]?/gi
+  )
+  if (currency) {
+    matches.push(
+      ...currency.map(m => m.replace(/^(?:rs\.?|inr)\s?/i, '₹').replace(/\s+/g, ''))
+    )
+  }
+
+  // A specification is a product claim: an invented one invents a feature.
+  const specs = text.match(
+    new RegExp(`${FIGURE_START}${FIGURE_NUMBER}\\s*(?:mp|hz|khz|ghz|mah|gb|tb|nits)\\b`, 'gi')
+  )
+  if (specs) matches.push(...specs.map(m => m.replace(/\s+/g, '')))
 
   const multipliers = text.match(
     new RegExp(`${FIGURE_START}${FIGURE_NUMBER}x\\b`, 'gi')
@@ -104,7 +138,7 @@ export function extractNumbers(text: string): string[] {
   // Large magnitudes always read as a statistic.
   const magnitudes = text.match(
     new RegExp(
-      `${FIGURE_START}${FIGURE_NUMBER}\\s*(?:million|billion|thousand)\\b`,
+      `${FIGURE_START}${FIGURE_NUMBER}\\s*(?:million|billion|trillion|thousand|lakh|crore)s?\\b`,
       'gi'
     )
   )
@@ -167,6 +201,15 @@ const FABRICATED_ANECDOTE_PATTERNS: Array<{ pattern: RegExp; label: string }> =
     {
       pattern: /\bi\s+watched\s+(?:a|an|the)\s+\w+/i,
       label: 'invented observation'
+    },
+    {
+      pattern: /\b(?:in\s+my\s+experience|i\s+keep\s+seeing|i(?:'ve|\s+have)\s+seen)\b/i,
+      label: 'invented experience'
+    },
+    {
+      pattern:
+        /\b(?:customers?|clients?|users?|retailers?|dealers?|partners?|buyers?)\s+(?:often\s+|always\s+|keep\s+)?(?:tell|told|telling)\s+(?:us|me)\b/i,
+      label: 'invented customer quote'
     }
   ]
 
@@ -189,15 +232,103 @@ export function detectFabricatedAnecdote(
   return { detected: false }
 }
 
-/** Urgency language is only honest when fresh evidence backs it. */
-const TEMPORAL_URGENCY_PATTERNS = [
-  /\bjust\s+launched\b/i,
+/**
+ * Language that presents something as current. It is only honest when the
+ * idea cites a recent source; a homepage, an undated page or the knowledge
+ * base is background.
+ */
+const TIMELINESS_PATTERNS = [
+  /\bjust\s+(?:been\s+)?(?:launched|announced|released|unveiled|introduced|opened|rolled\s+out|published)\b/i,
+  /\bnewly\s+(?:launched|announced|released|unveiled|introduced|published)\b/i,
   /\brecently\b/i,
-  /\bthis\s+(?:week|month)\b/i,
-  /\bbreaking\b/i,
-  /\bbrand\s+new\b/i,
+  /\b(?:most\s+)?recent\s+(?:launch|announcement|release|report|survey|study|data|figures|news|update|change|ruling|policy|rule|regulation|deal|partnership|result|move|campaign|programme|program|initiative|expansion)/i,
+  /\b(?:the\s+)?latest\s+(?:launch|announcement|release|report|survey|study|data|figures|news|update|move|campaign)/i,
+  /\b(?:this|last|past)\s+(?:week|month|quarter)(?:'s)?\b/i,
+  /\bearlier\s+this\s+(?:week|month|year)\b/i,
+  /\b(?:yesterday|this\s+morning)\b/i,
+  /\bbreaking\s+news\b/i,
+  /\bbrand[-\s]new\b/i,
+  /\bin\s+the\s+news\b/i,
   /\bright\s+now,?\s+the\s+(?:market|industry)\b/i
 ]
+
+/** The phrases in `text` that present something as current, each once. */
+export function findTimelinessClaims(text: string): string[] {
+  if (!text) return []
+  const found: string[] = []
+  for (const pattern of TIMELINESS_PATTERNS) {
+    const match = pattern.exec(text)
+    if (match) found.push(match[0])
+  }
+  return Array.from(new Set(found))
+}
+
+/** What a homepage cannot prove: an event, a date or a figure. */
+const STORY_PATTERNS = [
+  /\b(?:launch(?:ed|es)?|unveil(?:ed|s)?|announc(?:ed|es|ement)|introduc(?:ed|es)|releas(?:ed|es)|debut(?:ed|s)?|roll(?:ed|s)\s+out|expand(?:ed|s)|acquir(?:ed|es)|partner(?:ed|s)\s+with|open(?:ed|s)\s+(?:a|an|its|the|new)|sign(?:ed|s)|invest(?:ed|s)|won|award(?:ed|s)?)\b/i,
+  /\b(?:19|20)\d{2}\b/
+]
+
+/** True when a claim tells a specific story rather than describing the brand. */
+export function describesSpecificStory(text: string): boolean {
+  return STORY_PATTERNS.some(p => p.test(text)) || extractNumbers(text).length > 0
+}
+
+/** "S26", "Fold7", "QN90F", "Book5": letters and digits forming a model code. */
+const MODEL_CODE = /^[A-Za-z]{0,6}\d{1,4}[A-Za-z]{0,3}$/
+/** Codes that are not products: years, quarters, network generations, resolutions. */
+const NOT_A_MODEL = /^(?:(?:19|20)\d{2}|Q[1-4]|H[12]|FY\d{2,4}|[2-6]G|\d+K|B2[BC]|D2C|P2P)$/i
+/** Words that finish a model's name ("Galaxy S26 Ultra"). */
+const MODEL_SUFFIX = /^(?:Ultra|Edge|Pro|Plus|Max|Mini|FE|Lite|Slim)$/
+const word = (token: string) =>
+  token.replace(/^[^\w]+|[^\w]+$/g, '').replace(/['’]s$/, '')
+
+/**
+ * Model names built on one of the account's product lines ("Galaxy S26 Edge")
+ * that `knownText` never mentions. A brand's next model is the invention a
+ * figure check cannot see: the name reads as fact, and so does every feature
+ * the idea gives it. Spacing is ignored ("Fold 7" is "Fold7").
+ */
+export function findUnknownProducts(
+  text: string,
+  productLines: string[],
+  knownText: string
+): string[] {
+  if (!text || productLines.length === 0) return []
+  const lines = new Set(productLines.map(l => l.toLowerCase()))
+  const known = knownText.toLowerCase().replace(/\s+/g, '')
+  const tokens = text.split(/\s+/)
+  const found: string[] = []
+
+  for (let i = 0; i < tokens.length; i++) {
+    if (!lines.has(word(tokens[i]!).toLowerCase())) continue
+    const name = [word(tokens[i]!)]
+    for (let j = i + 1; j < Math.min(tokens.length, i + 4); j++) {
+      const part = word(tokens[j]!)
+      if (!/^[A-Z0-9]/.test(part)) break
+      name.push(part)
+      // A bare number counts only after another name part ("Fold 7"), so
+      // "Samsung's 2 factories" is not a model.
+      const isModel =
+        MODEL_CODE.test(part) &&
+        !NOT_A_MODEL.test(part) &&
+        (/[A-Za-z]/.test(part) || j > i + 1)
+      if (isModel) {
+        const next = tokens[j + 1] ? word(tokens[j + 1]!) : ''
+        if (MODEL_SUFFIX.test(next) && !/[.,;:!?]$/.test(tokens[j]!)) name.push(next)
+        // "Samsung Galaxy S25" is known when a source says "Galaxy S25".
+        const isKnown = name
+          .slice(0, -1)
+          .some((_, k) => known.includes(name.slice(k).join('').toLowerCase()))
+        if (!isKnown) found.push(name.join(' '))
+        i = j
+        break
+      }
+      if (/[.,;:!?)]$/.test(tokens[j]!)) break
+    }
+  }
+  return Array.from(new Set(found))
+}
 
 /** Absolutes that a reader will read as a proven fact. */
 const UNSUPPORTED_ABSOLUTE_PATTERNS = [
@@ -314,9 +445,58 @@ export function factTypeFor(
   return origin === 'web' ? 'sourced' : 'verified'
 }
 
+/** What the idea must fit besides its evidence: the account's brief. */
+export interface IdeaFit {
+  /** The account's content pillars; when set, an idea must belong to one. */
+  pillars: string[]
+  /** The profile's reader groups; when set, an idea must be for one. */
+  audiences: string[]
+  /** Where the readers are; evidence localised for another market is flagged. */
+  region?: Region | null
+}
+
+const pillarKey = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+/**
+ * The configured pillar an idea names, tolerating case and punctuation
+ * ("innovation & tech" for "Innovation and Tech"), or null when it names none.
+ */
+export function matchPillar(name: string, pillars: string[]): string | null {
+  const key = pillarKey(name || '')
+  if (!key) return null
+  const exact = pillars.find(p => pillarKey(p) === key)
+  if (exact) return exact
+  const close = pillars.filter(p => {
+    const other = pillarKey(p)
+    return other.includes(key) || key.includes(other)
+  })
+  return close.length === 1 ? close[0]! : null
+}
+
+/** The corpus entries from the source an evidence item cites. */
+function citedSource(
+  ev: GeneratedIdeaItem['supportingEvidence'][number],
+  corpus: GroundingCorpus
+): GroundingCorpus['verifiedClaims'] {
+  return corpus.verifiedClaims.filter(c =>
+    ev.sourceUrl
+      ? c.sourceUrl === ev.sourceUrl
+      : ev.sourceId
+        ? c.sourceId === ev.sourceId
+        : Boolean(ev.sourceTitle) && !c.sourceUrl && c.sourceTitle === ev.sourceTitle
+  )
+}
+
 export function validateIdea(
   rawIdea: GeneratedIdeaItem,
-  corpus: GroundingCorpus
+  corpus: GroundingCorpus,
+  /** Without it, only grounding is checked. */
+  fit?: IdeaFit
 ): ValidationResult {
   const idea: GeneratedIdeaItem = structuredClone(rawIdea)
   const issues: string[] = []
@@ -328,15 +508,45 @@ export function validateIdea(
 
   let hasFabricatedAnecdote = false
   let hasUnsupportedNumbers = false
+  let hasUnsupportedTimeliness = false
+  let offBrief = false
+  let rejectionReason: string | undefined
+  /** Records a problem that disqualifies the idea; the first one is the reason. */
+  const reject = (issue: string) => {
+    issues.push(issue)
+    rejectionReason ??= issue
+  }
 
   const knownQuotes = corpus.verifiedClaims
     .map(c => c.quote || '')
     .filter(Boolean)
 
-  const allSourceText = corpus.verifiedClaims
-    .map(c => `${c.claim} ${c.quote || ''}`)
+  const allSourceText = [
+    ...corpus.verifiedClaims.map(c => `${c.claim} ${c.quote || ''}`),
+    corpus.accountText || ''
+  ]
     .join(' ')
     .toLowerCase()
+
+  // 0. The brief: one of the account's pillars, one of its reader groups.
+  if (fit && fit.pillars.length > 0) {
+    const pillar = matchPillar(idea.pillar, fit.pillars)
+    if (pillar) {
+      idea.pillar = pillar
+    } else {
+      offBrief = true
+      reject(`"${idea.pillar}" is not one of this account's content pillars.`)
+    }
+  }
+  if (fit && fit.audiences.length > 0) {
+    if (!idea.targetAudience && fit.audiences.length === 1) {
+      idea.targetAudience = fit.audiences[0]
+    }
+    if (!idea.targetAudience) {
+      offBrief = true
+      reject('It is not written for one of the reader groups in the profile.')
+    }
+  }
 
   const knownNumbers = new Set(
     (corpus.knownNumbers || [])
@@ -349,31 +559,52 @@ export function validateIdea(
     { name: 'hook', text: idea.hookConcept },
     { name: 'core argument', text: idea.coreArgument },
     { name: 'thesis', text: idea.thesis },
-    { name: 'title', text: idea.title }
+    { name: 'title', text: idea.title },
+    { name: 'why-now', text: idea.whyNow }
   ]
 
   for (const section of proseSections) {
     const check = detectFabricatedAnecdote(section.text, knownQuotes)
     if (check.detected) {
       hasFabricatedAnecdote = true
-      issues.push(
+      reject(
         `The ${section.name} states a first-hand experience ("${check.snippet}") that no source backs up.`
       )
     }
   }
 
+  // Every field the reviewer reads and the drafting brief carries forward.
+  const prose = [
+    idea.title,
+    idea.thesis,
+    idea.angle,
+    idea.hookConcept,
+    idea.coreArgument,
+    idea.whyNow,
+    idea.audienceTakeaway
+  ].join('\n')
+
   // 2. Figures with no source
-  const proseNumbers = extractNumbers(
-    `${idea.hookConcept} ${idea.coreArgument} ${idea.thesis} ${idea.title}`
-  )
+  const proseNumbers = extractNumbers(prose)
   for (const num of proseNumbers) {
     const grounded =
       knownNumbers.has(num) || mentionsFigure(allSourceText, num)
     if (!grounded) {
       hasUnsupportedNumbers = true
-      issues.push(`The figure "${num}" does not appear in any source.`)
+      reject(`The figure "${num}" does not appear in any source.`)
       unsupportedClaims.push(`Unsupported figure: ${num}`)
     }
+  }
+
+  // 2b. Products and models with no source
+  const unknownProducts = findUnknownProducts(
+    prose,
+    corpus.productLines || [],
+    allSourceText
+  )
+  for (const name of unknownProducts) {
+    reject(`It names "${name}", which no source or account detail mentions.`)
+    unsupportedClaims.push(`Unsupported product: ${name}`)
   }
 
   // 3. Absolutes stated as proven
@@ -385,17 +616,7 @@ export function validateIdea(
     issues.push(`"${phrase}" claims more certainty than the evidence supports.`)
   }
 
-  // 4. Urgency without fresh evidence
-  if (idea.whyNow && !corpus.hasFreshEvidence) {
-    const urgent = TEMPORAL_URGENCY_PATTERNS.find(p => p.test(idea.whyNow))
-    if (urgent) {
-      issues.push(
-        '"Why now" claims timeliness, but this run gathered no fresh evidence to support it.'
-      )
-    }
-  }
-
-  // 5. Grounding per section
+  // 4. Grounding per section
   const verify = (
     text: string,
     section: ClaimVerificationDetail['section']
@@ -425,43 +646,98 @@ export function validateIdea(
   verify(idea.coreArgument, 'coreArgument')
   verify(idea.whyNow, 'whyNow')
 
-  // 6. Evidence: keep what checks out, drop what does not.
+  // 5. Evidence: keep a claim only with a source that says it.
+  //
+  // A claim used to be matched against the whole corpus, and one that matched
+  // nothing was still kept as "inferred" under the source it cited. So any
+  // claim could carry any URL, and a brand's homepage became the source of
+  // stories it never told. Now the cited source must back the claim (word for
+  // word, or by substantial overlap); failing that, a source that states it
+  // word for word replaces the citation; failing both, the claim is dropped.
+  let citesRecentEvidence = false
   const keptEvidence: typeof idea.supportingEvidence = []
   for (const ev of idea.supportingEvidence) {
-    const check = checkClaimDirectSupport(ev.claim, corpus.verifiedClaims)
-
-    if (check.support === 'direct' && check.matchedSource) {
-      directClaims.push(ev.claim)
-      keptEvidence.push({
-        ...ev,
-        factType: factTypeFor(check.matchedSource.origin),
-        sourceUrl: check.matchedSource.sourceUrl || ev.sourceUrl,
-        sourceTitle: check.matchedSource.sourceTitle || ev.sourceTitle,
-        quote: check.matchedSource.quote || ev.quote,
-        sourceId: check.matchedSource.sourceId,
-        confidence: Math.max(ev.confidence, 0.9)
-      })
-      if (check.matchedSource.sourceId)
-        sourceIds.push(check.matchedSource.sourceId)
-      continue
-    }
-
     const evNumbers = extractNumbers(ev.claim)
     const inventedNumbers = evNumbers.some(
       n => !knownNumbers.has(n) && !mentionsFigure(allSourceText, n)
     )
+    const cited = citedSource(ev, corpus)
+    const fromCited = cited.length > 0 ? checkClaimDirectSupport(ev.claim, cited) : null
 
-    if (!inventedNumbers && check.support === 'inferred') {
-      inferredClaims.push(ev.claim)
-      keptEvidence.push({ ...ev, factType: 'inferred', confidence: 0.72 })
+    let match: GroundingCorpus['verifiedClaims'][number] | undefined
+    let direct = false
+    if (
+      fromCited?.matchedSource &&
+      (fromCited.support === 'direct' || !inventedNumbers)
+    ) {
+      match = fromCited.matchedSource
+      direct = fromCited.support === 'direct'
     } else {
+      const anywhere = checkClaimDirectSupport(ev.claim, corpus.verifiedClaims)
+      if (anywhere.support === 'direct' && anywhere.matchedSource) {
+        match = anywhere.matchedSource
+        direct = true
+      }
+    }
+
+    const shortClaim = ev.claim.slice(0, 80)
+    if (!match) {
       issues.push(
-        `Dropped an unverifiable supporting claim: "${ev.claim.slice(0, 80)}".`
+        cited.length > 0
+          ? `Dropped a supporting claim its cited source does not back: "${shortClaim}".`
+          : `Dropped an unverifiable supporting claim: "${shortClaim}".`
       )
       unsupportedClaims.push(ev.claim)
+      continue
     }
+    if (match.sourceUrl && isGenericPage(match.sourceUrl) && describesSpecificStory(ev.claim)) {
+      issues.push(
+        `Dropped "${shortClaim}": ${match.sourceUrl} is a homepage or index, not the source of a specific story.`
+      )
+      unsupportedClaims.push(ev.claim)
+      continue
+    }
+
+    if (direct) directClaims.push(ev.claim)
+    else inferredClaims.push(ev.claim)
+    if (match.isFresh) citesRecentEvidence = true
+    keptEvidence.push({
+      ...ev,
+      factType: direct ? factTypeFor(match.origin) : 'inferred',
+      // Every source detail is the matched entry's; none is carried over
+      // from a citation that did not hold.
+      sourceUrl: match.sourceUrl,
+      sourceTitle: match.sourceTitle,
+      quote: match.quote,
+      sourceId: match.sourceId,
+      publishedAt: match.publishedAt,
+      confidence: direct ? Math.max(ev.confidence, 0.9) : 0.72
+    })
+    if (match.sourceId) sourceIds.push(match.sourceId)
   }
   idea.supportingEvidence = keptEvidence
+
+  // 6. Timeliness only with a recent source cited for it.
+  const timely = findTimelinessClaims(prose)
+  if (timely.length > 0 && !citesRecentEvidence) {
+    hasUnsupportedTimeliness = true
+    reject(
+      `It presents something as current ("${timely[0]}") without citing a recent source.`
+    )
+  }
+
+  // 6b. Evidence localised for another market than the readers'.
+  const readers = fit?.region
+  if (readers?.code) {
+    for (const ev of keptEvidence) {
+      const country = ev.sourceUrl ? countryOfUrl(ev.sourceUrl) : undefined
+      if (country && country !== readers.code) {
+        issues.push(
+          `Evidence from ${ev.sourceUrl} describes ${countryName(country) ?? country.toUpperCase()}, not ${readers.name}, where the readers are.`
+        )
+      }
+    }
+  }
 
   // 7. Scores
   const scored =
@@ -496,9 +772,10 @@ export function validateIdea(
   // Surface the problems on the card so the approval gate is informed.
   idea.risks = Array.from(new Set([...(idea.risks || []), ...issues]))
 
-  // Only fabrication is disqualifying. Thin grounding is a judgement call the
-  // human makes at the gate, which is what the gate is for.
-  const isValid = !hasFabricatedAnecdote && !hasUnsupportedNumbers
+  // Fabrication (an anecdote, a figure, a product, news that is not news) and
+  // missing the brief are disqualifying. Thin grounding is a judgement call
+  // the human makes at the gate, which is what the gate is for.
+  const isValid = !rejectionReason
 
   return {
     idea,
@@ -512,6 +789,10 @@ export function validateIdea(
     sourceIds: idea.sourceIds,
     hasFabricatedAnecdote,
     hasUnsupportedNumbers,
+    hasUnsupportedTimeliness,
+    unknownProducts,
+    offBrief,
+    rejectionReason,
     claimDetails
   }
 }
@@ -548,19 +829,26 @@ export function replaceEvidenceLabels(
  * Expands a generated idea into the full item. Source details come from the
  * corpus entry the model cited, never from the model's own typing. A citation
  * that points outside the corpus keeps its claim but gets no source, so the
- * validator judges it on the text alone.
+ * validator judges it on the text alone. The reader group is resolved the
+ * same way, from its label; an unknown label leaves the idea without one.
  */
 export function resolveGeneratedIdea(
   generated: IdeaGenerationItem,
-  corpus: CorpusEvidenceSource[]
+  corpus: CorpusEvidenceSource[],
+  /** The reader groups the prompt listed, in label order. */
+  audiences: string[] = []
 ): GeneratedIdeaItem {
   const clean = (text: string) => replaceEvidenceLabels(text, corpus)
+  const audienceIndex = /^\s*\[?A\s*(\d+)\]?\s*$/i.exec(generated.audienceRef || '')
   return {
     title: generated.title,
     thesis: generated.thesis,
     perspectiveAngle: generated.perspectiveAngle,
     angle: generated.angle,
     pillar: generated.pillar,
+    targetAudience: audienceIndex
+      ? audiences[Number(audienceIndex[1]) - 1]
+      : undefined,
     format: generated.format,
     whyNow: clean(generated.whyNow),
     hookConcept: generated.hookConcept,
@@ -576,6 +864,7 @@ export function resolveGeneratedIdea(
         sourceUrl: source?.sourceUrl,
         sourceTitle: source?.sourceTitle,
         quote: source?.quote,
+        publishedAt: source?.publishedAt,
         // Confidence is decided by the validator's grounding check.
         confidence: 0.9
       }

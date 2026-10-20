@@ -248,37 +248,110 @@ export function renderIdentityBlock(ctx: GenerationContext): string {
  */
 const DEFAULT_SOPHISTICATION = 'practitioner'
 
+const sophisticationOf = (a: Audience) =>
+  a.sophisticationLevel && a.sophisticationLevel !== DEFAULT_SOPHISTICATION
+    ? a.sophisticationLevel
+    : null
+
+/** The structured details saved on an audience row, one per line. */
+function audienceDetails(a: Audience): string[] {
+  const lines: string[] = []
+  const titles = list(a.jobTitles)
+  if (titles) lines.push(`Job titles: ${titles}`)
+  const seniority = list(a.seniority)
+  if (seniority) lines.push(`Seniority: ${seniority}`)
+  const industries = list(a.industries)
+  if (industries) lines.push(`Industries: ${industries}`)
+  const pains = list(a.painPoints)
+  if (pains) lines.push(`Pain points: ${pains}`)
+  const desires = list(a.desires)
+  if (desires) lines.push(`Desires: ${desires}`)
+  const objections = list(a.objections)
+  if (objections) lines.push(`Objections: ${objections}`)
+  if (a.whatTheyDontBelieveYet) {
+    lines.push(
+      `Belief to move (aim the post at this, not at the topic): ${a.whatTheyDontBelieveYet}`
+    )
+  }
+  return lines
+}
+
 export function renderAudienceBlock(ctx: GenerationContext): string {
   if (ctx.audiences.length === 0) return 'Audience: not yet defined.'
 
   return ctx.audiences
     .map(a => {
-      const level =
-        a.sophisticationLevel && a.sophisticationLevel !== DEFAULT_SOPHISTICATION
-          ? ` (sophistication: ${a.sophisticationLevel})`
-          : ''
+      const level = sophisticationOf(a)
       // The profile saves the whole target-audience text as the name.
-      const lines = [`- ${multiline(a.name, '  ')}${level}`]
-      const titles = list(a.jobTitles)
-      if (titles) lines.push(`  Job titles: ${titles}`)
-      const seniority = list(a.seniority)
-      if (seniority) lines.push(`  Seniority: ${seniority}`)
-      const industries = list(a.industries)
-      if (industries) lines.push(`  Industries: ${industries}`)
-      const pains = list(a.painPoints)
-      if (pains) lines.push(`  Pain points: ${pains}`)
-      const desires = list(a.desires)
-      if (desires) lines.push(`  Desires: ${desires}`)
-      const objections = list(a.objections)
-      if (objections) lines.push(`  Objections: ${objections}`)
-      if (a.whatTheyDontBelieveYet) {
-        lines.push(
-          `  Belief to move (aim the post at this, not at the topic): ${a.whatTheyDontBelieveYet}`
-        )
-      }
+      const lines = [
+        `- ${multiline(a.name, '  ')}${level ? ` (sophistication: ${level})` : ''}`
+      ]
+      for (const detail of audienceDetails(a)) lines.push(`  ${detail}`)
       return lines.join('\n')
     })
     .join('\n')
+}
+
+/** One reader group an idea can be written for. */
+export interface AudienceSegment {
+  /** The group in the profile's own words. */
+  label: string
+  /** Details saved on its audience row, if any. */
+  details: string[]
+}
+
+/** More groups than this is a paragraph split wrongly, not a list. */
+const MAX_AUDIENCE_SEGMENTS = 8
+/** Lines, semicolons and inline bullets separate groups; commas do not. */
+const SEGMENT_BREAK = /\r?\n|;|\s+[•|]\s+/
+const LIST_MARKER = /^\s*(?:[-*•–]|\d+[.)])\s*/
+
+/**
+ * The reader groups in the account's audiences. The profile saves its whole
+ * target-audience text as one row, one group per line, and ideation used to
+ * show it as a single audience: a run for a brand selling to consumers and to
+ * IT buyers wrote ideas aimed at both at once. Header lines such as "Primary
+ * audiences:" introduce groups rather than name one.
+ */
+export function audienceSegments(
+  ctx: Pick<GenerationContext, 'audiences'>
+): AudienceSegment[] {
+  const segments: AudienceSegment[] = []
+  const seen = new Set<string>()
+  for (const a of ctx.audiences) {
+    const level = sophisticationOf(a)
+    const details = [
+      ...(level ? [`Sophistication: ${level}`] : []),
+      ...audienceDetails(a)
+    ]
+    for (const part of a.name.split(SEGMENT_BREAK)) {
+      const label = part.replace(LIST_MARKER, '').trim().replace(/[.,]+$/, '')
+      if (!label || label.endsWith(':') || seen.has(label.toLowerCase())) continue
+      seen.add(label.toLowerCase())
+      segments.push({ label, details })
+    }
+  }
+  return segments.slice(0, MAX_AUDIENCE_SEGMENTS)
+}
+
+/** The groups as ideation shows them, each with the label an idea cites. */
+export function renderAudienceSegmentsBlock(segments: AudienceSegment[]): string {
+  if (segments.length === 0) return 'Audience: not yet defined.'
+  return segments
+    .map((s, i) =>
+      [`[A${i + 1}] ${s.label}`, ...s.details.map(d => `    ${d}`)].join('\n')
+    )
+    .join('\n')
+}
+
+/**
+ * An idea's takeaway as saved, led by the reader group it was written for.
+ * Ideas have no column for the group; here the reviewer sees it on the card
+ * and the drafting brief reads it as the reader to write for.
+ */
+export function withReaderGroup(takeaway: string, group?: string): string {
+  const text = takeaway.trim()
+  return group ? `For ${group}: ${text}` : text
 }
 
 export function renderGoalBlock(goal: Goal | null): string {

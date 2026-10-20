@@ -2,6 +2,7 @@
 
 import {
   getSectionStatus,
+  officialSiteOf,
   SECTION_LABELS,
   SETUP_SECTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
@@ -146,6 +147,7 @@ export function FormReviewDialog({
               field={p.field}
               accountType={draft.accountType}
               item={itemFor(p.field)}
+              officialUrl={officialSiteOf(draft.suggestions)}
               current={p.change === 'new' ? undefined : p.current}
               checked={selected.includes(p.field)}
               selectable

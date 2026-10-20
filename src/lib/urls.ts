@@ -3,13 +3,43 @@
  * Client-safe: no network access.
  */
 
-/** Lowercase host, no scheme, no "www.", no trailing slash. */
+/** Query parameters that only record a click; the page is the same without them. */
+const TRACKING_PARAM =
+  /^(?:utm_[a-z]+|srsltid|gclid|fbclid|msclkid|mc_cid|mc_eid|_hsenc|_hsmi|igshid|trk)$/i
+
+function dropTrackingParams(url: URL): boolean {
+  const tracking = [...url.searchParams.keys()].filter(key =>
+    TRACKING_PARAM.test(key)
+  )
+  for (const key of tracking) url.searchParams.delete(key)
+  return tracking.length > 0
+}
+
+/**
+ * `raw` without click-tracking parameters, otherwise exactly as written.
+ * Google adds "?srsltid=…" to shop results, so a homepage came back as
+ * "https://www.samsung.com/in/?srsltid=AU7gw…" and was saved that way.
+ */
+export function stripTrackingParams(raw: string): string {
+  try {
+    const url = new URL(raw)
+    return dropTrackingParams(url) ? url.toString() : raw
+  } catch {
+    return raw
+  }
+}
+
+/**
+ * Lowercase host, no scheme, no "www.", no trailing slash, no click-tracking
+ * parameters: "https://www.samsung.com/in/?srsltid=…" is samsung.com/in.
+ */
 export function normalizeUrlForCompare(raw: string): string {
   const trimmed = raw.trim()
   try {
     const url = new URL(
       /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
     )
+    dropTrackingParams(url)
     const host = url.hostname.toLowerCase().replace(/^www\./, '')
     const path = url.pathname.replace(/\/+$/, '')
     return `${host}${path}${url.search}`
@@ -55,6 +85,64 @@ export function toWebUrl(raw: string): string | null {
 export function isSiteRoot(url: string): boolean {
   try {
     return new URL(url).pathname === '/'
+  } catch {
+    return false
+  }
+}
+
+/** A path part naming a locale ("us", "en-gb", "global"), not a page. */
+const LOCALE_SEGMENT = /^(?:[a-z]{2}(?:[-_][a-z]{2})?|global|intl)$/i
+/** A section that lists stories rather than telling one. */
+const INDEX_SEGMENT =
+  /^(?:news(?:room)?|press(?:room|-?releases?)?|media(?:-?(?:centre|center|room))?|blogs?|stories|articles|updates|latest|home|index\.(?:html?|php))$/i
+
+/** True for a site's root or a regional homepage ("/in/", "/en-gb/"). */
+export function isHomepage(url: string): boolean {
+  try {
+    return new URL(url).pathname
+      .split('/')
+      .filter(Boolean)
+      .every(part => LOCALE_SEGMENT.test(part))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * True for a homepage, a regional homepage ("/us/", "/en-gb/"), a section
+ * index ("/newsroom", "/global/news") or a site search ("/search?q=AI").
+ * These change daily and describe the whole site, so they can never stand as
+ * the source of one story.
+ */
+export function isGenericPage(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  const parts = parsed.pathname.split('/').filter(Boolean)
+  if (
+    /search/i.test(parts[parts.length - 1] ?? '') ||
+    ['q', 's', 'query'].some(key => parsed.searchParams.has(key))
+  ) {
+    return true
+  }
+  let i = 0
+  while (i < parts.length && LOCALE_SEGMENT.test(parts[i]!)) i++
+  const rest = parts.slice(i)
+  return rest.length === 0 || (rest.length === 1 && INDEX_SEGMENT.test(rest[0]!))
+}
+
+/**
+ * Encyclopedias are dated by their last edit, which says nothing about when
+ * anything they describe happened, so they are never recent news.
+ */
+export function isReferencePage(url: string): boolean {
+  try {
+    return /(^|\.)(?:wikipedia\.org|wikimedia\.org|britannica\.com)$/i.test(
+      new URL(url).hostname
+    )
   } catch {
     return false
   }

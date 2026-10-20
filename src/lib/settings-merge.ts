@@ -8,6 +8,7 @@ import type {
   ProfileSuggestions,
   VoiceSuggestions
 } from '@/lib/ai/skills/profile-setup/schema'
+import { hasGoalTitle } from '@/lib/goal-titles'
 import type { IdentityProfileField } from '@/lib/identity-profile'
 
 /**
@@ -208,6 +209,36 @@ export function goalSuggestionValues(
   goals: GoalSuggestions
 ): Partial<GoalValues> {
   return valuesOf(goals) as Partial<GoalValues>
+}
+
+export type GoalPlan = {
+  /** An existing goal with the same title, which the new one would repeat. */
+  duplicate: string | null
+  /** Whether the new goal should be active. */
+  activate: boolean
+  /** The goal new runs use today: the newest active one. */
+  activeGoalTitle: string | null
+}
+
+/**
+ * How an AI goal joins the account's goals. Runs use the newest active goal,
+ * so adding the AI's goal as active quietly took over from the goal the user
+ * had chosen, while the review said their goals were unchanged. With a goal
+ * already active, the new one is added paused; the user can switch in Goals.
+ */
+export function planNewGoal(
+  existing: Array<{ title: string; isActive: boolean; createdAt: Date }>,
+  title: string
+): GoalPlan {
+  const active = existing
+    .filter(goal => goal.isActive)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]
+  return {
+    duplicate:
+      existing.find(goal => hasGoalTitle([goal.title], title))?.title ?? null,
+    activate: !active,
+    activeGoalTitle: active?.title ?? null
+  }
 }
 
 export function buildGoalPayload(

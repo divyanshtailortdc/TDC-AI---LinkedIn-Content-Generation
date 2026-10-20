@@ -16,13 +16,16 @@ import {
 } from '~/lib/research/web-search'
 import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
+  audienceSegments,
   loadGenerationContext,
   pickWeightedPillars,
   renderIdeationHistoryBlock,
+  withReaderGroup,
   type GenerationContext
 } from '../context'
 import { retrieveKnowledgePassages } from '../embeddings'
 import { selectIdeas } from '../idea-selection'
+import { inferRegion } from '../region'
 import { recordStepUsage, refreshRunTotals } from '../run-accounting'
 import { failRun, keepRunAlive } from '../run-lifecycle'
 import { SkillError } from '../run-skill'
@@ -180,6 +183,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
           account: ctx.account.name,
           offerings: ctx.offerings.length,
           audiences: ctx.audiences.length,
+          readerGroups: audienceSegments(ctx).map(s => s.label),
+          region: inferRegion(ctx)?.name ?? null,
           knowledgeDocs: ctx.knowledgeDocs.length,
           activeGoals: ctx.activeGoals.length,
           primaryGoal: ctx.primaryGoal?.title ?? null,
@@ -249,6 +254,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
           mode: research.mode,
           queries: research.queries,
           webFindings: findings.length,
+          recentEvidence: corpus.verifiedClaims.filter(c => c.isFresh).length,
           knowledgeClaims: corpus.sources.knowledgeClaims,
           knowledgePassages: passages.length,
           documentSummaries: corpus.sources.documentSummaries,
@@ -390,7 +396,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   // saved on a run that then read as failed.
   await db.transaction(async tx => {
     await tx.insert(ideasTable).values(
-      selected.map((idea, index) => ({
+      selected.map(idea => ({
         accountId: ctx.account.id,
         runId,
         goalId: ctx.primaryGoal?.id ?? null,
@@ -399,12 +405,18 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
         perspectiveAngle: idea.perspectiveAngle,
         hook: idea.hookConcept,
         angle: idea.angle,
-        pillar: idea.pillar || assignedPillars[index]?.name || null,
+        // Checked against the configured pillars during validation. The old
+        // fallback read the candidate pillar list at the selected idea's
+        // position, which after selection belonged to another idea.
+        pillar: idea.pillar || null,
         format: idea.format,
         whyNow: idea.whyNow,
         hookConcept: idea.hookConcept,
         coreArgument: idea.coreArgument,
-        audienceTakeaway: idea.audienceTakeaway,
+        audienceTakeaway: withReaderGroup(
+          idea.audienceTakeaway,
+          idea.targetAudience
+        ),
         supportingEvidence: idea.supportingEvidence,
         // No image by default; one can be added per post on the review screen.
         // The brief is kept so that image starts from the idea's direction.

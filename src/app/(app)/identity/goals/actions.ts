@@ -21,6 +21,7 @@ import {
 } from '@/lib/setup-payloads'
 import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 
 /** Only what a user needs to steer a run: what to achieve and what to land. */
 export type GoalPayload = {
@@ -99,21 +100,31 @@ function revalidateGoals(accountId: string) {
   revalidatePath('/')
 }
 
+const CreateGoalOptionsSchema = z
+  .object({ active: z.boolean().optional() })
+  .optional()
+
+/**
+ * Creates an active goal unless `options.active` is false. AI setup adds its
+ * goal paused when another goal is active, so it never takes over silently.
+ */
 export async function createGoal(
   rawAccountId: string,
-  rawPayload: GoalPayload
+  rawPayload: GoalPayload,
+  rawOptions?: { active?: boolean }
 ) {
   const user = await requireUser()
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await requireOwnedAccount(user.id, accountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
+  const options = parseSetupPayload(CreateGoalOptionsSchema, rawOptions)
   validate(payload)
   await assertTitleIsNew(accountId, payload.title)
 
   await db.insert(goalsTable).values({
     accountId,
     ...toGoalColumns(payload),
-    isActive: true
+    isActive: options?.active ?? true
   })
 
   revalidateGoals(accountId)

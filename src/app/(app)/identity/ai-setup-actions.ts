@@ -23,6 +23,7 @@ import {
   buildPreferencesPayload,
   buildVoiceSaveInput,
   mergeValues,
+  planNewGoal,
   preferencesSuggestionValues,
   preferencesValuesFromRow,
   profileSuggestionValues,
@@ -34,7 +35,7 @@ import {
 } from '@/lib/settings-merge'
 import { AccountIdSchema } from '@/lib/setup-payloads'
 import { normalizeUrlForCompare } from '@/lib/urls'
-import { and, asc, eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { updateAccountAction } from './actions'
 import { createGoal } from './goals/actions'
@@ -71,6 +72,8 @@ export type IdentitySetupBaseline = {
   preferences: PreferencesValues
   hasPreferences: boolean
   goalTitles: string[]
+  /** The goal new runs use today; an AI goal is added paused beside it. */
+  activeGoalTitle: string | null
   knowledgeUrls: string[]
 }
 
@@ -98,7 +101,11 @@ export async function getIdentitySetupBaselineAction(
         where: eq(preferencesTable.accountId, id.data)
       }),
       db
-        .select({ title: goalsTable.title })
+        .select({
+          title: goalsTable.title,
+          isActive: goalsTable.isActive,
+          createdAt: goalsTable.createdAt
+        })
         .from(goalsTable)
         .where(eq(goalsTable.accountId, id.data)),
       db
@@ -116,6 +123,7 @@ export async function getIdentitySetupBaselineAction(
       preferences: preferencesValuesFromRow(preferences),
       hasPreferences: Boolean(preferences),
       goalTitles: goals.map(g => g.title),
+      activeGoalTitle: planNewGoal(goals, '').activeGoalTitle,
       knowledgeUrls: docs
         .map(d => d.sourceUrl)
         .filter((u): u is string => Boolean(u))
@@ -322,22 +330,29 @@ export async function applyIdentitySetupAction(
               message: `The goal still needs: ${labels('goals', built.missing).join(', ')}.`
             }
           } else {
-            const duplicate = await db.query.goalsTable.findFirst({
-              where: and(
-                eq(goalsTable.accountId, accountId),
-                eq(goalsTable.title, built.payload.title.trim())
-              )
-            })
-            if (duplicate) {
+            const existing = await db
+              .select({
+                title: goalsTable.title,
+                isActive: goalsTable.isActive,
+                createdAt: goalsTable.createdAt
+              })
+              .from(goalsTable)
+              .where(eq(goalsTable.accountId, accountId))
+            const plan = planNewGoal(existing, built.payload.title)
+            if (plan.duplicate) {
               results.goals = {
                 status: 'skipped',
-                message: `A goal named "${duplicate.title}" already exists, so no new goal was created.`
+                message: `A goal named "${plan.duplicate}" already exists, so no new goal was created.`
               }
             } else {
-              await createGoal(accountId, built.payload)
+              await createGoal(accountId, built.payload, {
+                active: plan.activate
+              })
               results.goals = {
                 status: 'applied',
-                message: `Created the goal "${built.payload.title}". Your existing goals were not changed.`
+                message: plan.activeGoalTitle
+                  ? `Added the goal "${built.payload.title}" as paused, so your active goal "${plan.activeGoalTitle}" still steers new runs. Turn it on in Goals to switch.`
+                  : `Created the goal "${built.payload.title}". New runs will use it.`
               }
             }
           }

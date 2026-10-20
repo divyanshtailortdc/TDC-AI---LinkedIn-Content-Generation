@@ -8,19 +8,23 @@ import {
 } from '@/app/(app)/identity/ai-setup-actions'
 import { showToast } from '@/components/toast-notification'
 import {
+  describeSource,
   EMPTY_SUGGESTIONS,
   FIELD_SPECS,
   fieldLabel,
   getSectionStatus,
   GoalSuggestionsSchema,
+  officialSiteOf,
   PreferencesSuggestionsSchema,
   ProfileSuggestionsSchema,
   SECTION_LABELS,
   VoiceSuggestionsSchema,
   type IdentitySetupSuggestions,
+  type LineBasis,
   type SectionStatus,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
+import { hasGoalTitle } from '@/lib/goal-titles'
 import { isEmptyValue } from '@/lib/settings-merge'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import {
@@ -65,6 +69,8 @@ export type Item = {
   source?: string
   /** Why the AI suggested it; an edited value has none. */
   note?: string
+  /** Audience and offerings: where each line came from. */
+  lines?: LineBasis[]
 }
 
 type Pillar = NonNullable<
@@ -111,14 +117,6 @@ function displayValue(
   if (spec?.type === 'scale' && typeof value === 'number') return `${value} / 5`
   const text = formatValue(value)
   return spec?.options ? text.replace(/_/g, ' ') : text
-}
-
-function provenanceLabel(item: Item): string {
-  if (item.source === 'edited') return 'Edited'
-  if (item.kind === 'recommendation') return 'AI recommendation'
-  return /^https?:\/\//i.test(item.source ?? '')
-    ? 'From a web page'
-    : 'From your info'
 }
 
 export function itemOf(
@@ -507,14 +505,43 @@ function ValueText({
   section,
   field,
   value,
-  muted = false
+  muted = false,
+  lines,
+  officialUrl
 }: {
   section: EntrySection
   field: string
   value: unknown
   muted?: boolean
+  /** Shown one per row with where each came from, when they still match `value`. */
+  lines?: LineBasis[]
+  officialUrl?: string
 }) {
   const [expanded, setExpanded] = useState(false)
+  // A list mixing stated lines and suggestions read as one "AI suggestion",
+  // hiding which lines the user or their own site actually state.
+  if (lines?.length && lines.map(l => l.text).join('\n') === formatValue(value)) {
+    return (
+      <ul className="space-y-1 text-sm">
+        {lines.map(line => (
+          <li key={line.text} className="flex items-baseline justify-between gap-3">
+            <span className="text-foreground min-w-0 wrap-break-word">
+              {line.text}
+            </span>
+            <span
+              className={`shrink-0 text-[11px] ${
+                line.kind === 'fact'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-muted'
+              }`}
+            >
+              {describeSource(line, officialUrl, true)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )
+  }
   if (field === 'pillars' && Array.isArray(value)) {
     return (
       <ul
@@ -622,6 +649,7 @@ export function SuggestionRow({
   editing,
   disabled,
   tag,
+  officialUrl,
   onToggle,
   onCommit
 }: {
@@ -630,6 +658,8 @@ export function SuggestionRow({
   /** The identity type the suggestion was written for; names the company field. */
   accountType?: 'personal' | 'company'
   item: Item
+  /** The business's own website, so a value from it is named as such. */
+  officialUrl?: string
   /** What is there now; undefined when the field is empty. */
   current: unknown
   checked: boolean
@@ -668,7 +698,13 @@ export function SuggestionRow({
       />
     )
   ) : (
-    <ValueText section={section} field={field} value={item.value} />
+    <ValueText
+      section={section}
+      field={field}
+      value={item.value}
+      lines={item.lines}
+      officialUrl={officialUrl}
+    />
   )
 
   return (
@@ -699,7 +735,9 @@ export function SuggestionRow({
           >
             {label}
           </label>
-          <span className="text-muted text-xs">{provenanceLabel(item)}</span>
+          <span className="text-muted text-xs">
+            {describeSource(item, officialUrl)}
+          </span>
           {selectable && (
             <span
               className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${
@@ -1018,12 +1056,16 @@ export function ReviewSuggestionsDialog({
   const goalReady = goalStatus.state === 'ready'
   const goalTitle = String(edited.goals.title?.value ?? '').trim()
   const goalExists = Boolean(
-    goalTitle &&
-    baseline?.goalTitles.some(
-      t => t.trim().toLowerCase() === goalTitle.toLowerCase()
-    )
+    goalTitle && baseline && hasGoalTitle(baseline.goalTitles, goalTitle)
   )
-  const includeGoal = goalReady && (goalPicked ?? !goalExists)
+  // A goal already steering runs is the user's choice: the AI's goal is then
+  // added paused, and is not ticked unless they want it. Without the saved
+  // goals to compare against, nothing is preselected.
+  const activeGoal = baseline?.activeGoalTitle ?? null
+  const includeGoal =
+    goalReady &&
+    (goalPicked ?? (Boolean(baseline) && !goalExists && !activeGoal))
+  const officialUrl = officialSiteOf(original)
 
   const savedKnowledge = new Set(
     (baseline?.knowledgeUrls || []).map(normalizeUrlForCompare)
@@ -1246,6 +1288,7 @@ export function ReviewSuggestionsDialog({
                 field={field}
                 accountType={draft.accountType}
                 item={itemOf(edited, section, field)}
+                officialUrl={officialUrl}
                 current={current}
                 checked={chosen[section].includes(field)}
                 selectable
@@ -1272,7 +1315,9 @@ export function ReviewSuggestionsDialog({
               ? `Not enough to create a goal yet (missing ${goalStatus.missingRequired.join(', ')}).`
               : goalExists
                 ? 'You already have a goal with this name.'
-                : 'Adds a goal. Your existing goals are not changed.'
+                : activeGoal
+                  ? `Added paused, so your active goal "${activeGoal}" keeps steering new runs. You can switch in Goals.`
+                  : 'Adds a goal, which new runs will use. Your other goals are not changed.'
           }
           selectAll={
             goalReady
@@ -1350,6 +1395,7 @@ export function ReviewSuggestionsDialog({
                     {source.title}
                   </span>
                   <span className="text-muted block truncate text-xs">
+                    {source.official && 'Your official site · '}
                     {url}
                     {!source.accessible && ' · read when added'}
                   </span>

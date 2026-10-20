@@ -5,7 +5,10 @@ import type {
   PROVENANCE,
   SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
-import { fieldLabel } from '@/lib/ai/skills/profile-setup/schema'
+import {
+  describeSource,
+  fieldLabel
+} from '@/lib/ai/skills/profile-setup/schema'
 import { Sparkles, Undo2 } from 'lucide-react'
 import type { SectionPrefill } from './use-section-prefill'
 
@@ -13,31 +16,28 @@ import type { SectionPrefill } from './use-section-prefill'
 export function ProvenanceBadge({
   kind,
   source,
-  confidence
+  confidence,
+  official
 }: {
   kind: (typeof PROVENANCE)[number]
   source?: string
   confidence?: (typeof CONFIDENCE)[number]
+  /** The source is on the business's own website. */
+  official?: boolean
 }) {
   const edited = source === 'edited'
   // A fact sourced to a page (one you linked, or one research found and read)
-  // is not the same as something you wrote, and the badge says so.
-  const fromPage = kind === 'fact' && /^https?:\/\//i.test(source ?? '')
-  const label = edited
-    ? 'Edited'
-    : kind === 'fact'
-      ? fromPage
-        ? 'From a web page'
-        : 'From your info'
-      : 'AI suggestion'
+  // is not the same as something you wrote, and the badge says which page:
+  // the business's own site, or someone else's.
+  const label = describeSource(
+    { kind, source },
+    official && source ? source : undefined
+  )
+  // The full address, for a page; the label already says the rest.
   const sourceLabel =
-    !source || edited
-      ? null
-      : source === 'description'
-        ? 'your description'
-        : source === 'provided'
-          ? 'you provided this'
-          : source
+    kind === 'fact' && !edited && /^https?:\/\//i.test(source ?? '')
+      ? source
+      : null
 
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">

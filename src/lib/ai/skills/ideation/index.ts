@@ -1,6 +1,7 @@
 import 'server-only'
 
-import type { GenerationContext } from '../../context'
+import { audienceSegments, type GenerationContext } from '../../context'
+import { inferRegion } from '../../region'
 import { runSkill } from '../../run-skill'
 import type { CallUsage } from '../../usage'
 import {
@@ -49,23 +50,30 @@ export async function generateIdeas(input: {
     schema: IdeaGenerationBatchSchema
   })
 
-  // Citations are resolved against exactly the evidence the prompt showed.
+  // Citations and reader groups are resolved against exactly what the prompt showed.
   const shownEvidence = input.corpus.verifiedClaims.slice(
     0,
     PROMPT_EVIDENCE_LIMIT
   )
+  const audiences = audienceSegments(input.ctx).map(s => s.label)
   const candidates = (output?.ideas || []).map(generated =>
-    resolveGeneratedIdea(generated, shownEvidence)
+    resolveGeneratedIdea(generated, shownEvidence, audiences)
   )
 
+  const fit = {
+    pillars: input.ctx.prefs.pillars.map(p => p.name),
+    audiences,
+    region: inferRegion(input.ctx)
+  }
   const valid: GeneratedIdeaItem[] = []
   const discarded: Array<{ title: string; reason: string }> = []
   for (const candidate of candidates) {
-    const result = validateIdea(candidate, input.corpus)
+    const result = validateIdea(candidate, input.corpus, fit)
     if (!result.isValid) {
       discarded.push({
         title: candidate.title,
-        reason: result.issues[0] || 'Failed grounding checks'
+        reason:
+          result.rejectionReason || result.issues[0] || 'Failed grounding checks'
       })
       continue
     }
