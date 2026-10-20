@@ -35,8 +35,8 @@ export default async function DashboardPage() {
     return (
       <div className="flex h-[calc(100vh-4rem)] flex-col">
         <PageHeader title="Dashboard" description="Your LinkedIn content generation workspace" />
-        <div className="flex-1 overflow-y-auto bg-background p-4">
-          <div className="space-y-6">
+        <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
+          <div className="mx-auto max-w-5xl space-y-6">
             <CapabilityPanel capabilities={capabilities} />
             <EmptyState />
           </div>
@@ -72,8 +72,8 @@ export default async function DashboardPage() {
         description="Your LinkedIn content generation workspace"
       />
 
-      <div className="flex-1 overflow-y-auto bg-background p-4">
-        <div className="space-y-8">
+      <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
+        <div className="mx-auto space-y-8">
           <UsageSummaryCards {...usage} />
 
           <section>
