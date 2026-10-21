@@ -37,7 +37,7 @@ function idea(evidenceClaim: string): GeneratedIdeaItem {
     thesis: 'Founders should expect their numbers sooner than they do today.',
     perspectiveAngle: 'common_misconception',
     angle: 'Speed of close',
-    pillar: 'Finance',
+    goalId: 'goal-1',
     format: 'thought_leadership',
     whyNow: 'Structural, not news.',
     hookConcept: 'Why wait for your numbers?',
@@ -89,9 +89,9 @@ describe('evidence is shown to the model as data', () => {
       offerings: [],
       audiences: [],
       knowledgeDocs: [],
-      activeGoals: [],
+      selectedGoals: [],
       primaryGoal: null,
-      prefs: { pillars: [], constraints: {}, guardrails: {} },
+      prefs: { constraints: {}, guardrails: {} },
       voice: null,
       history: { drafts: [], ideas: [] }
     } as never)

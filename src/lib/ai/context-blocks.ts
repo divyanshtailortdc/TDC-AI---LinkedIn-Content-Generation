@@ -1,9 +1,10 @@
 import type {
   Account,
   Audience,
-  ContentPillar,
   Goal,
+  GoalSnapshot,
   Guardrails,
+  Idea,
   KnowledgeDocument,
   Offering,
   PostConstraints,
@@ -11,10 +12,10 @@ import type {
   SamplePost,
   VoiceConfig
 } from '@/db/schema'
+import type { ResolvedBrandTheme } from '@/lib/brand/theme'
 import { parseHashtagPolicy, type HashtagRange } from './hashtags'
-import { pickWeightedPillars } from './pillars'
 
-export { parseHashtagPolicy, pickWeightedPillars }
+export { parseHashtagPolicy }
 
 /**
  * The pure half of ./context: the resolved settings shape and the prompt
@@ -83,8 +84,11 @@ export type ResolvedPostConstraints = PostConstraints &
     hashtags: HashtagRange | null
   }
 
+/**
+ * Content pillars are gone: what a run writes about comes from the goals
+ * picked for it. Saved pillars stay in the database but are not read here.
+ */
 export interface ResolvedPreferences {
-  pillars: ContentPillar[]
   ideasPerRun: number
   research: typeof RESEARCH_SETTINGS
   constraints: ResolvedPostConstraints
@@ -130,12 +134,21 @@ export interface GenerationContext {
   audiences: Audience[]
   knowledgeDocs: KnowledgeDocument[]
   samplePosts: SamplePost[]
+  /** Every goal the account has. Only goal suggestions read it, to avoid repeats. */
   goals: Goal[]
-  activeGoals: Goal[]
+  /**
+   * The goals this generation serves, and the only ones any prompt sees: the
+   * goals picked for the run during ideation, the idea's own goal during
+   * drafting.
+   */
+  selectedGoals: Goal[]
+  /** The first selected goal; drafting has exactly one. */
   primaryGoal: Goal | null
   preferencesId: string | null
   prefs: ResolvedPreferences
   history: ReviewHistory
+  /** How generated images look. Absent means the defaults (nothing saved). */
+  brand?: ResolvedBrandTheme
 }
 
 /**
@@ -174,7 +187,6 @@ export function resolvePreferences(
   const hashtagPolicy = voice?.hashtagPolicy?.trim() || DEFAULT_HASHTAG_POLICY
 
   return {
-    pillars: Array.isArray(row?.pillars) ? row.pillars : [],
     ideasPerRun: row?.ideasPerRun ?? DEFAULT_IDEAS_PER_RUN,
     research: RESEARCH_SETTINGS,
     constraints: {
@@ -355,7 +367,7 @@ export function withReaderGroup(takeaway: string, group?: string): string {
 }
 
 export function renderGoalBlock(goal: Goal | null): string {
-  if (!goal) return 'No active goal. Default to building credible authority.'
+  if (!goal) return 'No goal was set for this post. Aim for credible authority.'
 
   const lines = [
     `Title: ${goal.title}`,
@@ -366,6 +378,85 @@ export function renderGoalBlock(goal: Goal | null): string {
   ]
   if (goal.desiredAction) lines.push(`Desired reader action: ${goal.desiredAction}`)
   return lines.join('\n')
+}
+
+/** The label a prompt shows for the goal at `index`, which ideas cite. */
+export const goalLabel = (index: number) => `G${index + 1}`
+
+/**
+ * The goals a run serves, each under the label an idea cites as goalRef. The
+ * link is left out: ideation decides what to argue, drafting places links.
+ */
+export function renderGoalsBlock(goals: Goal[]): string {
+  if (goals.length === 0) return 'No goals were selected.'
+  return goals
+    .map((goal, i) =>
+      [
+        `[${goalLabel(i)}] ${goal.title}`,
+        `    Objective: ${goal.objective}`,
+        goal.keyMessage
+          ? `    The one message to land: ${goal.keyMessage}`
+          : '    Key message: not specified.',
+        ...(goal.desiredAction
+          ? [`    Desired reader action: ${goal.desiredAction}`]
+          : [])
+      ].join('\n')
+    )
+    .join('\n')
+}
+
+/** The words a goal is stated in: what research and retrieval look for. */
+export function goalText(goal: Goal): string {
+  return [goal.title, goal.keyMessage, goal.desiredAction]
+    .map(part => part?.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** What an idea keeps of the goal it was made for. */
+export function snapshotGoal(goal: Goal): GoalSnapshot {
+  return {
+    title: goal.title,
+    objective: goal.objective,
+    keyMessage: goal.keyMessage,
+    desiredAction: goal.desiredAction,
+    targetUrl: goal.targetUrl,
+    linkStrategy: goal.linkStrategy === 'body' ? 'body' : 'first_comment'
+  }
+}
+
+/**
+ * The context for writing up one idea: the idea's goal and no other. The live
+ * goal is used when it still exists, so a corrected link or call to action
+ * reaches the post; once it is deleted, the copy kept on the idea stands in.
+ * An idea made without a goal is written without one, never with whichever
+ * goal happens to be active now.
+ */
+export function withIdeaGoal(
+  ctx: GenerationContext,
+  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalSnapshot'>
+): GenerationContext {
+  const live = idea.goalId
+    ? ctx.goals.find(g => g.id === idea.goalId)
+    : undefined
+  const snapshot = idea.goalSnapshot
+  const goal: Goal | null = live
+    ? live
+    : snapshot
+      ? {
+          ...snapshot,
+          id: idea.goalId ?? `snapshot-${idea.id}`,
+          accountId: idea.accountId,
+          isActive: false,
+          createdAt: new Date(0),
+          updatedAt: new Date(0)
+        }
+      : null
+  return {
+    ...ctx,
+    selectedGoals: goal ? [goal] : [],
+    primaryGoal: goal
+  }
 }
 
 /** Renders the voice settings and the rubric derived from real posts. */

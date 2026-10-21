@@ -3,8 +3,8 @@ import 'server-only'
 import { db } from '@/db'
 import { goalsTable, ideasTable, runsTable } from '@/db/schema'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
-import { and, count, desc, eq, inArray } from 'drizzle-orm'
-import { accountNameAtRunSql } from '../runs/runs-data'
+import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
+import { accountNameAtRunSql, runGoalTitlesSql } from '../runs/runs-data'
 import { statusFilterCounts, type StatusFilter } from './status-filter'
 
 /**
@@ -42,7 +42,10 @@ export async function loadIdeasPage(
             thesis: ideasTable.thesis,
             perspectiveAngle: ideasTable.perspectiveAngle,
             angle: ideasTable.angle,
-            pillar: ideasTable.pillar,
+            // The goal as titled now; once deleted, as it was when the idea was made.
+            goalTitle: sql<
+              string | null
+            >`coalesce(${goalsTable.title}, ${ideasTable.goalSnapshot}->>'title')`,
             whyNow: ideasTable.whyNow,
             hookConcept: ideasTable.hookConcept,
             coreArgument: ideasTable.coreArgument,
@@ -63,11 +66,11 @@ export async function loadIdeasPage(
             runId: ideasTable.runId,
             runCreatedAt: runsTable.createdAt,
             runAccountName: accountNameAtRunSql,
-            runGoalTitle: goalsTable.title
+            runGoalTitles: runGoalTitlesSql
           })
           .from(ideasTable)
           .leftJoin(runsTable, eq(runsTable.id, ideasTable.runId))
-          .leftJoin(goalsTable, eq(goalsTable.id, runsTable.goalId))
+          .leftJoin(goalsTable, eq(goalsTable.id, ideasTable.goalId))
           .where(shown)
           .orderBy(desc(ideasTable.createdAt), desc(ideasTable.id))
           .offset(offset)

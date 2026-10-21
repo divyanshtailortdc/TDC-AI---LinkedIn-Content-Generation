@@ -140,7 +140,6 @@ describe('goal-suggestions guard', () => {
   it('tells the model when there are no links it may use', () => {
     const prompt = buildGoalPrompt({
       profile: 'Name: Acme',
-      pillars: [],
       existingGoals: [],
       allowedUrls: []
     })

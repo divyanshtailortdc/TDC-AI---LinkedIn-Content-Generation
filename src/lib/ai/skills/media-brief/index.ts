@@ -1,5 +1,9 @@
 import 'server-only'
 
+import {
+  cleanProviderMessage,
+  isAuthFailureMessage
+} from '@/lib/media/image-errors'
 import { runSkill, SkillError } from '../../run-skill'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '../../usage'
 import { clamp, guardMediaBrief, normalizeOverlay } from './guard'
@@ -26,7 +30,8 @@ export type * from './schema'
  * fake numbers, and overlays too dense to read on a phone.
  */
 export async function deriveMediaBrief(
-  input: DeriveMediaBriefInput
+  input: DeriveMediaBriefInput,
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<DeriveMediaBriefResult> {
   let usage: CallUsage = EMPTY_USAGE
 
@@ -36,7 +41,11 @@ export async function deriveMediaBrief(
         stage: 'media_brief',
         instructions: INSTRUCTIONS,
         prompt,
-        schema: MediaBriefSchema
+        // A reference image is looked at, not described: its layout and look
+        // are what the brief carries over.
+        images: input.referenceImage ? [input.referenceImage] : undefined,
+        schema: MediaBriefSchema,
+        abortSignal: options.abortSignal
       })
       usage = addUsage(usage, result.usage)
       return result.output
@@ -59,19 +68,41 @@ export async function deriveMediaBrief(
     visualType: output.visualType,
     textOverlay: normalizeOverlay(output.textOverlay),
     avoidConcepts,
-    whyItFits: output.whyItFits
+    whyItFits: output.whyItFits,
+    howItDiffers: output.howItDiffers || undefined
   })
+
+  const guardOptions = {
+    // A reference image sets the visual form, so a new image from the same
+    // reference may keep it; its subject must still change.
+    previousVisualTypes: input.referenceImage
+      ? []
+      : (input.previousVersions || [])
+          .map(v => v.visualType)
+          .filter((t): t is string => Boolean(t)),
+    extraSourceText: [input.goal?.keyMessage, input.goal?.desiredAction]
+      .filter(Boolean)
+      .join('\n')
+  }
 
   try {
     let output = await attempt(buildPrompt(input))
-    if (!output) return { derived: null, guard: null, usage }
+    if (!output) {
+      return {
+        derived: null,
+        guard: null,
+        usage,
+        error: 'The model returned no image brief.'
+      }
+    }
 
     let brief = toBrief(output, [])
     let guard = guardMediaBrief(
       brief,
       output.imagePrompt,
       input.postText,
-      input.accountName
+      input.accountName,
+      guardOptions
     )
 
     // One corrective pass. Beyond that the cost outweighs the benefit.
@@ -85,7 +116,8 @@ export async function deriveMediaBrief(
           retryBrief,
           retry.imagePrompt,
           input.postText,
-          input.accountName
+          input.accountName,
+          guardOptions
         )
         if (retryGuard.relevanceScore > guard.relevanceScore) {
           output = retry
@@ -108,6 +140,30 @@ export async function deriveMediaBrief(
     if (!(err instanceof SkillError && err.reason === 'not_configured')) {
       console.warn('Media brief generation failed:', err)
     }
-    return { derived: null, guard: null, usage }
+    return {
+      derived: null,
+      guard: null,
+      usage,
+      error: describeBriefFailure(err)
+    }
   }
+}
+
+/** Why no brief came back, in words a reviewer can act on. */
+function describeBriefFailure(err: unknown): string {
+  if (err instanceof SkillError) {
+    switch (err.reason) {
+      case 'not_configured':
+        return 'No AI provider is configured. Add AI_GATEWAY_API_KEY (or ANTHROPIC_API_KEY) to design images.'
+      case 'quota_exceeded':
+        return 'The AI provider budget is used up, so the image could not be designed.'
+      case 'timeout':
+        return 'Designing the image took too long. Try again.'
+    }
+  }
+  const message = cleanProviderMessage(err instanceof Error ? err.message : '')
+  if (isAuthFailureMessage(message)) {
+    return 'The AI Gateway rejected the API key, so the image could not be designed. Check AI_GATEWAY_API_KEY.'
+  }
+  return `The image could not be designed${message ? `: ${message}` : '.'}`
 }

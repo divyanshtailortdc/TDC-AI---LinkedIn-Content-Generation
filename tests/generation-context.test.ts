@@ -180,7 +180,7 @@ function context(parts: {
     knowledgeDocs: parts.docs ?? [],
     samplePosts: [],
     goals: primary ? [primary] : [],
-    activeGoals: primary ? [primary] : [],
+    selectedGoals: primary ? [primary] : [],
     primaryGoal: primary,
     preferencesId: null,
     prefs: resolvePreferences(
@@ -294,7 +294,7 @@ function allPrompts(ctx: GenerationContext): string {
       corpus: buildGroundingCorpus(ctx, []),
       history: renderIdeationHistoryBlock(ctx),
       candidateCount: 5,
-      assignedPillars: [],
+      assignedGoals: ['G1'],
       hookMaxChars: 200
     }),
     draftingPrompt.buildInstructions(ctx),
@@ -312,6 +312,7 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
     accountId: 'acc',
     runId: 'run',
     goalId: null,
+    goalSnapshot: null,
     offeringId: null,
     title: 'An idea',
     hook: 'A hook',
@@ -457,7 +458,7 @@ describe('review history in ideation', () => {
       corpus: { verifiedClaims: [] },
       history: renderIdeationHistoryBlock(ctx, 'run-now'),
       candidateCount: 3,
-      assignedPillars: [],
+      assignedGoals: ['G1'],
       hookMaxChars: 200
     })
     assert.match(prompt, /Outsourcing is a cost play/)

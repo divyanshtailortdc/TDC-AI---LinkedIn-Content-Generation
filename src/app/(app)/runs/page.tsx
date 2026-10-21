@@ -1,4 +1,5 @@
 import { parsePage } from '@/lib/pagination'
+import { loadRunPicker } from '@/lib/run-picker'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from './runs-client'
 import { loadRunsPage } from './runs-data'
@@ -19,9 +20,10 @@ export default async function RunsPage({
   }
 
   const page = parsePage((await searchParams).page)
-  const [{ rows, pageInfo }, spend] = await Promise.all([
+  const [{ rows, pageInfo }, spend, picker] = await Promise.all([
     loadRunsPage(identity.id, page),
-    getRunSpendSummary(identity.id)
+    getRunSpendSummary(identity.id),
+    loadRunPicker(identity.id)
   ])
 
   const formattedRuns = rows.map(r => ({
@@ -34,7 +36,7 @@ export default async function RunsPage({
     <RunsClient
       initialRuns={formattedRuns}
       pageInfo={pageInfo}
-      identity={identity}
+      picker={picker}
       spend={spend}
     />
   )

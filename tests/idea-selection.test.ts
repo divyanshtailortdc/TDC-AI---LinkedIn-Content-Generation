@@ -35,7 +35,7 @@ function candidates(): GeneratedIdeaItem[] {
     thesis: argument,
     perspectiveAngle: ANGLES[i]!,
     angle: title,
-    pillar: 'Finance',
+    goalId: 'goal-1',
     format: 'thought_leadership',
     whyNow: 'Founders ask about this every month.',
     hookConcept: hook!,

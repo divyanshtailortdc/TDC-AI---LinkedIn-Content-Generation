@@ -486,7 +486,6 @@ describe(
       it('shows each user only their own identity', async () => {
         for (const path of [
           '/identity',
-          '/identity/goals',
           '/identity/knowledge',
           '/identity/voice',
           '/identity/preferences',
@@ -498,6 +497,14 @@ describe(
           const html = await res.text()
           assert.ok(html.includes(`Alice Identity ${tag}`), path)
           assert.ok(!html.includes(`Bob Identity ${tag}`), path)
+          assert.ok(!html.includes(`Bob secret hook ${tag}`), path)
+        }
+        // Goals and Schedule name no identity; they must not show Bob's goal or posts.
+        for (const path of ['/goals', '/schedule', '/runs']) {
+          const res = await a.browser.fetch(path)
+          assert.strictEqual(res.status, 200, path)
+          const html = await res.text()
+          assert.ok(!html.includes('Bob goal'), path)
           assert.ok(!html.includes(`Bob secret hook ${tag}`), path)
         }
       })
@@ -564,7 +571,9 @@ describe(
             ids.accountB
           ]),
           // Another user's goal cannot steer the caller's run.
-          triggerNewRun: await callActionAsAlice('triggerNewRun', [ids.goalB])
+          triggerNewRun: await callActionAsAlice('triggerNewRun', [
+            [ids.goalB]
+          ])
         }
         for (const [name, res] of Object.entries(results)) {
           assert.match(res.text, /"success":false/, name)
@@ -587,7 +596,6 @@ describe(
         await callActionAsAlice('savePreferences', [
           ids.accountB,
           {
-            pillars: [],
             ideasPerRun: 5,
             post_constraints: { cta_required: false },
             guardrails: { banned_topics: [], compliance_notes: '' }
@@ -660,7 +668,7 @@ describe(
           ['rejectIdea', [ids.ideaB, 'nope']],
           ['editIdea', [ids.ideaB, { angle: 'pwned' }]],
           ['approveRunIdeas', [ids.runB, [ids.ideaB]]],
-          ['draftApprovedIdeas', [{ runId: ids.runB }]],
+          ['draftSelectedIdeas', [{ runId: ids.runB, ideaIds: [ids.ideaB] }]],
           ['approveAllIdeas', [[ids.ideaB]]],
           ['fetchRunStatus', [ids.runB]],
           ['updateDraft', [ids.draftB, { hook: 'pwned' }]],
@@ -868,7 +876,6 @@ describe(
       it('serves every setup page', async () => {
         for (const step of [
           '',
-          '/goals',
           '/knowledge',
           '/voice',
           '/preferences',
@@ -877,11 +884,13 @@ describe(
           const res = await owner.browser.fetch(`/identity${step}`)
           assert.strictEqual(res.status, 200, step)
         }
-        const schedule = await owner.browser.fetch('/identity/schedule')
-        assert.match(
-          schedule.headers.get('location') ?? '',
-          /\/identity\/preferences#schedule$/
-        )
+        // Goals and Schedule left Account Setup; their old links redirect.
+        for (const page of ['/goals', '/schedule']) {
+          const res = await owner.browser.fetch(page)
+          assert.strictEqual(res.status, 200, page)
+          const moved = await owner.browser.fetch(`/identity${page}`)
+          assert.match(moved.headers.get('location') ?? '', new RegExp(`${page}$`))
+        }
         assert.ok(
           (await (await owner.browser.fetch('/')).text()).includes(name)
         )
@@ -1012,10 +1021,8 @@ describe(
             await act('savePreferences', [
               accountId,
               {
-                pillars: [
-                  { name: 'Close', weight_pct: 1 },
-                  { name: 'Audit', weight_pct: 3 }
-                ],
+                // An old client still sending pillars is accepted; they are not saved.
+                pillars: [{ name: 'Close', weight_pct: 1 }],
                 ideasPerRun: 5,
                 post_constraints: { cta_required: true },
                 guardrails: {
@@ -1031,10 +1038,7 @@ describe(
           .select()
           .from(schema.preferencesTable)
           .where(eq(schema.preferencesTable.accountId, accountId))
-        assert.deepStrictEqual(
-          prefs!.pillars!.map(p => p.weight_pct),
-          [25, 75]
-        )
+        assert.deepStrictEqual(prefs!.pillars, [])
         assert.deepStrictEqual(prefs!.guardrails!.banned_topics, ['Crypto'])
 
         assert.strictEqual(
@@ -1207,7 +1211,48 @@ describe(
           dashboard.includes('ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY'),
           'AI looks configured; not starting a run'
         )
-        const res = value(await callAction(owner.browser, 'triggerNewRun', []))
+        // A run needs at least one goal.
+        const none = value(
+          await callAction(owner.browser, 'triggerNewRun', [[]])
+        )
+        assert.strictEqual(none.success, false)
+        assert.match(none.error, /at least one goal/)
+
+        const goalPayload = {
+          title: `Run goal ${tag}`,
+          objectiveType: 'authority',
+          keyMessage: 'Close the books in days, not weeks.',
+          linkStrategy: 'first_comment'
+        }
+        for (const active of [false, true]) {
+          assert.strictEqual(
+            value(
+              await callAction(owner.browser, 'createGoal', [
+                accountId,
+                { ...goalPayload, title: `${goalPayload.title} ${active}` },
+                { active }
+              ])
+            ).success,
+            true
+          )
+        }
+        const goals = await db
+          .select({ id: schema.goalsTable.id, isActive: schema.goalsTable.isActive })
+          .from(schema.goalsTable)
+          .where(eq(schema.goalsTable.accountId, accountId))
+        const paused = goals.find(g => !g.isActive)!
+        const active = goals.find(g => g.isActive)!
+
+        // A paused goal never steers a run.
+        const refused = value(
+          await callAction(owner.browser, 'triggerNewRun', [[paused.id]])
+        )
+        assert.strictEqual(refused.success, false)
+        assert.match(refused.error, /paused/)
+
+        const res = value(
+          await callAction(owner.browser, 'triggerNewRun', [[active.id]])
+        )
         assert.strictEqual(res.success, true, JSON.stringify(res))
         const [run] = await db
           .select()
@@ -1215,6 +1260,7 @@ describe(
           .where(eq(schema.runsTable.id, res.runId))
         assert.strictEqual(run!.accountId, accountId)
         assert.strictEqual(run!.trigger, 'manual')
+        assert.deepStrictEqual(run!.goalIds, [active.id])
       })
 
       it('reaches the API routes for the user’s own data', async () => {

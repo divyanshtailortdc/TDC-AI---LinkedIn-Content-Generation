@@ -4,9 +4,14 @@ import { db } from '@/db'
 import { feedbackTable, ideasTable } from '@/db/schema'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { requireIdentityId } from '@/lib/identity'
+import { isUuid } from '@/lib/ids'
 import { requireUser } from '@/lib/session'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import {
+  describeDraftSelection,
+  draftSelection
+} from '~/lib/ai/pipeline/draft-selection'
 import {
   executeDraftingForIdea,
   settleRunAfterDrafting,
@@ -138,80 +143,59 @@ export async function editIdea(
   }
 }
 
-export async function draftApprovedIdeas(options: {
+/**
+ * Writes posts for the selected ideas: only those that are approved, and only
+ * the identity's own (a run's own, when `runId` is given). Selected ideas that
+ * are not approved are skipped and counted, never drafted.
+ */
+export async function draftSelectedIdeas(options: {
+  ideaIds: string[]
   runId?: string
-  ideaIds?: string[]
 }) {
   const user = await requireUser()
   try {
-    let targetIdeaIds: string[] = []
-
-    if (options.ideaIds && options.ideaIds.length > 0) {
-      // The ideaIds path is only ever called from the /ideas list, so scope
-      // it to the user's identity defensively against stale ids.
-      const identityId = await requireIdentityId()
-      const owned = await db.query.ideasTable.findMany({
-        where: and(
-          inArray(ideasTable.id, options.ideaIds),
-          eq(ideasTable.accountId, identityId)
-        )
-      })
-      targetIdeaIds = owned.map(i => i.id)
-    } else if (options.runId) {
-      const run = await requireOwnedRun(user.id, options.runId)
-      // The runId path is called from a run's own detail page.
-      // Ideas being drafted are included so a claim left by a crashed request
-      // can be taken over once stale; executeDraftingForIdea decides.
-      const approvedIdeas = await db.query.ideasTable.findMany({
-        where: and(
-          eq(ideasTable.runId, run.id),
-          inArray(ideasTable.status, ['approved', 'drafting'])
-        )
-      })
-      targetIdeaIds = approvedIdeas.map(i => i.id)
-    }
-
-    if (targetIdeaIds.length === 0) {
-      return { success: false, error: 'No approved ideas found to draft' }
-    }
-
-    // Each idea is claimed before it is drafted, so one already drafted or
-    // being drafted by another request (a retry, a double click) is skipped
-    // rather than drafted again.
-    const results = []
-    try {
-      for (const id of targetIdeaIds) {
-        const res = await executeDraftingForIdea(id)
-        if (res) results.push(res)
+    // A server action's arguments come from the browser, whatever the types say.
+    const ideaIds = Array.isArray(options?.ideaIds)
+      ? options.ideaIds.filter(isUuid)
+      : []
+    if (ideaIds.length === 0) {
+      return {
+        success: false,
+        error: 'Select the approved ideas to turn into posts.'
       }
-    } finally {
-      // Whether it finished or failed part-way, each run it touched is put
-      // back to a status that matches its ideas.
-      const touched = await db
-        .select({ runId: ideasTable.runId })
-        .from(ideasTable)
-        .where(inArray(ideasTable.id, targetIdeaIds))
-      const runIds = new Set(
-        touched.map(t => t.runId).filter((r): r is string => Boolean(r))
-      )
-      await Promise.all(
-        [...runIds].map(runId =>
-          settleRunAfterDrafting(runId).catch(err =>
-            console.error(`Could not settle run ${runId}:`, err)
-          )
-        )
-      )
     }
+    const accountId = await requireIdentityId()
+    const runId = options.runId
+      ? (await requireOwnedRun(user.id, options.runId)).id
+      : null
+
+    const outcome = await draftSelection(
+      db,
+      { accountId, ideaIds, runId },
+      { draft: executeDraftingForIdea, settleRun: settleRunAfterDrafting }
+    )
 
     revalidatePath('/ideas')
     revalidatePath('/posts')
     revalidatePath('/runs')
 
-    return { success: true, draftedCount: results.length }
+    if (outcome.drafted === 0) {
+      return {
+        success: false,
+        error:
+          describeDraftSelection(outcome) || 'No approved ideas found to draft'
+      }
+    }
+    return {
+      success: true,
+      draftedCount: outcome.drafted,
+      // Why some selected ideas did not become posts, if any did not.
+      note: describeDraftSelection(outcome) || null
+    }
   } catch (err: any) {
     return {
       success: false,
-      error: err.message || 'Failed to draft approved ideas'
+      error: err.message || 'Failed to draft the selected ideas'
     }
   }
 }

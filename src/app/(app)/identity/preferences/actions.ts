@@ -3,7 +3,6 @@
 import { db } from '@/db'
 import {
   preferencesTable,
-  type ContentPillar,
   type Guardrails,
   type PostConstraints
 } from '@/db/schema'
@@ -18,14 +17,13 @@ import {
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
-export type PillarConfig = ContentPillar
-
 /**
  * Emoji, hashtags and banned words live in Voice, and link placement on each
- * goal beside its link; nothing here repeats them.
+ * goal beside its link; nothing here repeats them. What to write about comes
+ * from the goals picked for each run; content pillars are gone, and saving
+ * leaves the pillars an account saved before untouched.
  */
 export type PreferencesPayload = {
-  pillars: PillarConfig[]
   ideasPerRun: number
   post_constraints: PostConstraints
   guardrails: Guardrails
@@ -33,39 +31,6 @@ export type PreferencesPayload = {
 
 const MIN_IDEAS_PER_RUN = 3
 const MAX_IDEAS_PER_RUN = 12
-
-/**
- * Rescales pillar weights to sum to exactly 100 (largest remainder), so users
- * set relative importance instead of doing arithmetic. All-zero weights split
- * evenly.
- */
-function normalizePillarWeights(pillars: PillarConfig[]): PillarConfig[] {
-  const named = pillars
-    .map(p => ({
-      name: p.name.trim(),
-      weight_pct: Math.max(0, Number(p.weight_pct) || 0),
-      example_topics: (p.example_topics || [])
-        .map(t => t.trim())
-        .filter(Boolean)
-    }))
-    .filter(p => p.name.length > 0)
-  if (named.length === 0) return []
-
-  const total = named.reduce((sum, p) => sum + p.weight_pct, 0)
-  const exact = named.map(p =>
-    total > 0 ? (p.weight_pct / total) * 100 : 100 / named.length
-  )
-  const rounded = exact.map(Math.floor)
-  let remaining = 100 - rounded.reduce((a, b) => a + b, 0)
-  const order = exact
-    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
-    .sort((a, b) => b.remainder - a.remainder)
-  for (let i = 0; remaining > 0; i++, remaining--) {
-    rounded[order[i % order.length]!.index]! += 1
-  }
-
-  return named.map((p, i) => ({ ...p, weight_pct: rounded[i]! }))
-}
 
 function validate(payload: PreferencesPayload) {
   const ideas = Number(payload.ideasPerRun)
@@ -91,7 +56,6 @@ export async function savePreferences(
   validate(payload)
 
   const columns = {
-    pillars: normalizePillarWeights(payload.pillars),
     ideasPerRun: Number(payload.ideasPerRun),
     postConstraints: {
       cta_required: Boolean(payload.post_constraints.cta_required)

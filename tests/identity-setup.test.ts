@@ -2,7 +2,6 @@ import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import {
   applyGuidance,
-  normalizeWeights,
   sanitizeIdentitySetup,
   tidyIndustry,
   tidyProfileList,
@@ -213,13 +212,11 @@ describe('sanitizeIdentitySetup: valid output', () => {
     )
   })
 
-  it('normalizes pillar weights to 100', () => {
-    const pillars = suggestions.preferences.pillars?.value ?? []
-    assert.strictEqual(
-      pillars.reduce((sum, p) => sum + p.weight_pct, 0),
-      100
-    )
-    assert.deepStrictEqual(pillars[0]?.example_topics, ['Month-end'])
+  it('drops content pillars the model still writes: goals replaced them', () => {
+    assert.ok(!('pillars' in suggestions.preferences))
+    assert.deepStrictEqual(suggestions.preferences.bannedTopics?.value, [
+      'tax evasion'
+    ])
   })
 
   it('marks a profile URL from the form as a provided fact', () => {
@@ -270,11 +267,10 @@ describe('sanitizeIdentitySetup: partial and incorrect output', () => {
     assert.strictEqual(suggestions.voice.formality, undefined)
     assert.strictEqual(suggestions.voice.tone, undefined)
     assert.strictEqual(suggestions.voice.directness, undefined)
-    assert.strictEqual(suggestions.preferences.pillars, undefined)
+    assert.ok(!('pillars' in suggestions.preferences))
     assert.ok(warnings.some(w => w.includes('Writing style')))
     // A field the product no longer has is reported, not saved.
     assert.ok(warnings.some(w => w.includes('"humor"')))
-    assert.ok(warnings.some(w => w.includes('Content pillars')))
   })
 
   it('treats placeholder values as missing rather than as answers', () => {
@@ -554,23 +550,6 @@ describe('Advanced analysis guidance', () => {
   })
 })
 
-describe('normalizeWeights', () => {
-  it('always sums to 100', () => {
-    for (const weights of [
-      [50, 30, 30],
-      [1, 1, 1],
-      [0, 0],
-      [33.3, 33.3, 33.3],
-      [NaN, 10]
-    ]) {
-      assert.strictEqual(
-        normalizeWeights(weights).reduce((a, b) => a + b, 0),
-        100
-      )
-    }
-  })
-})
-
 describe('mergeValues: existing data is preserved', () => {
   const { suggestions } = sanitizeIdentitySetup(fullModelOutput(), context)
 
@@ -643,7 +622,6 @@ describe('mergeValues: existing data is preserved', () => {
 
   it('keeps saved preferences and only adds what is empty', () => {
     const row = {
-      pillars: [{ name: 'My pillar', weight_pct: 100 }],
       postConstraints: { cta_required: false },
       guardrails: { banned_topics: [], compliance_notes: '' }
     }
@@ -654,14 +632,14 @@ describe('mergeValues: existing data is preserved', () => {
     )
     const payload = buildPreferencesPayload(
       {
-        pillars: row.pillars,
         ideasPerRun: 8,
         post_constraints: row.postConstraints,
         guardrails: row.guardrails
       },
       merged.values
     )
-    assert.deepStrictEqual(payload.pillars, row.pillars)
+    // Saved pillars are left in the database: the payload never carries them.
+    assert.ok(!('pillars' in payload))
     assert.strictEqual(payload.post_constraints.cta_required, false)
     assert.strictEqual(payload.ideasPerRun, 8)
     assert.deepStrictEqual(payload.guardrails.banned_topics, ['tax evasion'])
@@ -704,17 +682,13 @@ describe('applying suggestions', () => {
     )
     const payload = buildPreferencesPayload(
       {
-        pillars: [],
         ideasPerRun: 5,
         post_constraints: { cta_required: true },
         guardrails: { banned_topics: [], compliance_notes: '' }
       },
       merged.values
     )
-    assert.strictEqual(
-      payload.pillars.reduce((sum, p) => sum + p.weight_pct, 0),
-      100
-    )
+    assert.deepStrictEqual(payload.guardrails.banned_topics, ['tax evasion'])
     assert.strictEqual(payload.ideasPerRun, 5)
     assert.strictEqual(payload.post_constraints.cta_required, true)
   })
@@ -786,11 +760,11 @@ describe('undoing a prefill', () => {
   it('compares with the form as shown, not the raw suggestion', () => {
     // Topics are edited as comma-separated text, so a suggested topic with a
     // comma reads back as two. Untouched, it still goes back.
-    const pillarsBefore = { pillars: [] as Array<{ name: string; example_topics: string[] }> }
-    const shown = {
-      pillars: [{ name: 'Pricing', example_topics: ['Bundles', 'discounts'] }]
-    }
-    assert.deepStrictEqual(undoValues(pillarsBefore, shown, shown), { pillars: [] })
+    const topicsBefore = { bannedTopics: [] as string[] }
+    const shown = { bannedTopics: ['Bundles', 'discounts'] }
+    assert.deepStrictEqual(undoValues(topicsBefore, shown, shown), {
+      bannedTopics: []
+    })
   })
 
   it('has nothing to undo once every change was edited', () => {

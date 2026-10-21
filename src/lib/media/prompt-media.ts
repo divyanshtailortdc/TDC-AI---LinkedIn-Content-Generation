@@ -5,12 +5,15 @@ import { postDraftsTable, postMediaTable } from '@/db/schema'
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
+import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
+import { loadBrandRendering } from './brand-assets'
 import { generateCustomImage } from './index'
 
 export type PromptMediaOutcome =
   | { status: 'created'; media: PromptMediaRecord }
   | { status: 'draft_not_found' }
+  | { status: 'reference_not_found' }
   | { status: 'aborted' }
 
 export interface PromptMediaRecord {
@@ -28,11 +31,15 @@ export interface PromptMediaRecord {
   fallbackApplied: false
   seed: number
   regenerationAttempt: number
+  hasLogo: boolean
 }
 
 /**
- * Generates a visual from a user-authored prompt (plus optional reference images)
- * and makes it the post's active media.
+ * Generates a visual from a user-authored prompt, or edits one of the post's
+ * own images with it, and makes the result the post's active media. Either way
+ * the brand colours are the default palette and the logo is laid over it.
+ * (An uploaded reference image goes through createPostMedia instead: it
+ * guides a new image designed from the post.)
  *
  * The provider call runs before any database write, and the abort signal is
  * checked again right before saving, so a failed or stopped generation leaves the
@@ -43,7 +50,11 @@ export async function createPromptMediaForDraft(input: {
   /** The identity the request is made as; the post must belong to it. */
   accountId: string
   prompt: string
-  referenceImages?: string[]
+  /**
+   * "Use current image": one of this post's own images, edited as it was
+   * generated, before the logo went on, so the logo is never redrawn.
+   */
+  referenceMediaId?: string
   abortSignal?: AbortSignal
 }): Promise<PromptMediaOutcome> {
   // The same check every other post action makes: a post of someone else's
@@ -57,6 +68,25 @@ export async function createPromptMediaForDraft(input: {
   })
   if (!draft) return { status: 'draft_not_found' }
 
+  let editImage: string | undefined
+  if (input.referenceMediaId) {
+    const reference = await db.query.postMediaTable.findFirst({
+      where: and(
+        eq(postMediaTable.id, input.referenceMediaId),
+        eq(postMediaTable.draftId, input.draftId)
+      ),
+      columns: { imageUrl: true, baseImageUrl: true }
+    })
+    const image = reference?.baseImageUrl || reference?.imageUrl
+    if (!image) return { status: 'reference_not_found' }
+    editImage = image
+  }
+
+  const brand = await loadBrandRendering(
+    input.accountId,
+    await loadBrandTheme(input.accountId)
+  )
+
   // Every image the provider billed is charged to the post's run, including
   // ones that fail, are discarded, or finish after the reviewer cancelled.
   let spent: CallUsage = EMPTY_USAGE
@@ -64,7 +94,8 @@ export async function createPromptMediaForDraft(input: {
   try {
     generated = await generateCustomImage({
       prompt: input.prompt,
-      referenceImages: input.referenceImages,
+      editImage,
+      brand,
       abortSignal: input.abortSignal,
       onUsage: usage => {
         spent = addUsage(spent, usage)
@@ -120,11 +151,12 @@ export async function createPromptMediaForDraft(input: {
         regenerationAttempt: (existingMedia?.regenerationAttempt || 0) + 1,
         mode: 'ai_generated',
         imageUrl: generated.imageUrl,
+        baseImageUrl: generated.baseImageUrl ?? null,
         altText: generated.altText,
         promptOrQuery: generated.promptOrQuery,
         metadata: {
-          // Reference images are intentionally not persisted — they can be several
-          // megabytes of base64 and are only needed for the single generation call.
+          // The edited image is not copied here: it is the post's own earlier
+          // version, which the history keeps.
           source: 'user_prompt',
           workflow: generated.workflow,
           modelId: generated.modelId,
@@ -134,6 +166,7 @@ export async function createPromptMediaForDraft(input: {
           bytes: generated.bytes,
           referenceImageCount: generated.referenceImageCount,
           seed: generated.seed,
+          logo: generated.logo,
           fallbackApplied: false
         }
       })
@@ -161,7 +194,8 @@ export async function createPromptMediaForDraft(input: {
       height: generated.height,
       fallbackApplied: false,
       seed: generated.seed,
-      regenerationAttempt: newMedia.regenerationAttempt
+      regenerationAttempt: newMedia.regenerationAttempt,
+      hasLogo: Boolean(generated.logo)
     }
   }
 }

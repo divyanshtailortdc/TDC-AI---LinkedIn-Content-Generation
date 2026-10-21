@@ -1,17 +1,17 @@
 import { buildSearchQueries } from '@/lib/research/findings'
 import {
   renderAudienceBlock,
-  renderGoalBlock,
+  renderGoalsBlock,
   renderIdentityBlock,
   type GenerationContext
-} from '../../context'
+} from '../../context-blocks'
 import { inferRegion } from '../../region'
 import { MAX_FINDINGS, MAX_PAGE_READS, MAX_SEARCHES } from './limits'
 
 export const INSTRUCTIONS = `You research evidence for one account's upcoming LinkedIn posts. Your findings become the only facts the writer may use, so they must be real, specific and checkable.
 
 How to work:
-1. Plan targeted search queries from the account's content pillars and goal. Anchor each query to this account: developments involving the brand itself (its announcements, programmes, partnerships) or its industry, in the readers' country when one is given. Search for specific facts (data, studies, named developments, concrete examples), never for the goal sentence or a bare pillar name, which only find generic advice.
+1. Plan targeted search queries for the goals this run serves, and for each of them; no other subject. Anchor each query to this account: developments involving the brand itself (its announcements, programmes, partnerships) or its industry, in the readers' country when one is given. Search for specific facts (data, studies, named developments, concrete examples) that bear on a goal's message, never for the goal sentence itself, which only finds generic advice.
 2. Use searchWeb (at most ${MAX_SEARCHES} searches). Read the most promising results with readPage (at most ${MAX_PAGE_READS} pages).
 3. Return up to ${MAX_FINDINGS} findings. Each is a quote copied character for character from a search result snippet or a page you read, with that page's URL.
 
@@ -26,12 +26,6 @@ export function buildPrompt(
   ctx: GenerationContext,
   freshnessDays: number
 ): string {
-  const pillars = ctx.prefs.pillars
-    .map(p => {
-      const topics = (p.example_topics || []).join(', ')
-      return `- ${p.name}${topics ? ` (topics: ${topics})` : ''}`
-    })
-    .join('\n')
   const region = inferRegion(ctx)
   const starters = buildSearchQueries(ctx, MAX_SEARCHES, region)
 
@@ -40,8 +34,9 @@ ${renderIdentityBlock(ctx)}
 
 ${renderAudienceBlock(ctx)}
 
-${renderGoalBlock(ctx.primaryGoal)}
-${pillars ? `\nContent pillars:\n${pillars}\n` : ''}</account>
+Goals this run serves:
+${renderGoalsBlock(ctx.selectedGoals)}
+</account>
 
 Readers are in: ${region ? `${region.name}. Prefer sources about this market.` : 'not stated.'}
 Queries that would start well: ${starters.map(q => `"${q}"`).join(', ')}

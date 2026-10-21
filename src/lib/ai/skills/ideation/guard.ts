@@ -68,7 +68,7 @@ export interface ValidationResult {
   hasUnsupportedTimeliness: boolean
   /** Product or model names that no source or account detail mentions. */
   unknownProducts: string[]
-  /** Outside the account's pillars, or written for no reader group in the profile. */
+  /** Serves none of the run's goals, or is written for no reader group in the profile. */
   offBrief: boolean
   /** Why the idea was disqualified, when it was. */
   rejectionReason?: string
@@ -445,37 +445,14 @@ export function factTypeFor(
   return origin === 'web' ? 'sourced' : 'verified'
 }
 
-/** What the idea must fit besides its evidence: the account's brief. */
+/** What the idea must fit besides its evidence: the run's brief. */
 export interface IdeaFit {
-  /** The account's content pillars; when set, an idea must belong to one. */
-  pillars: string[]
+  /** Ids of the goals picked for the run; when set, an idea must serve one. */
+  goals: string[]
   /** The profile's reader groups; when set, an idea must be for one. */
   audiences: string[]
   /** Where the readers are; evidence localised for another market is flagged. */
   region?: Region | null
-}
-
-const pillarKey = (name: string) =>
-  name
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-
-/**
- * The configured pillar an idea names, tolerating case and punctuation
- * ("innovation & tech" for "Innovation and Tech"), or null when it names none.
- */
-export function matchPillar(name: string, pillars: string[]): string | null {
-  const key = pillarKey(name || '')
-  if (!key) return null
-  const exact = pillars.find(p => pillarKey(p) === key)
-  if (exact) return exact
-  const close = pillars.filter(p => {
-    const other = pillarKey(p)
-    return other.includes(key) || key.includes(other)
-  })
-  return close.length === 1 ? close[0]! : null
 }
 
 /** The corpus entries from the source an evidence item cites. */
@@ -528,14 +505,12 @@ export function validateIdea(
     .join(' ')
     .toLowerCase()
 
-  // 0. The brief: one of the account's pillars, one of its reader groups.
-  if (fit && fit.pillars.length > 0) {
-    const pillar = matchPillar(idea.pillar, fit.pillars)
-    if (pillar) {
-      idea.pillar = pillar
-    } else {
+  // 0. The brief: one of the run's goals, one of the account's reader groups.
+  if (fit && fit.goals.length > 0) {
+    if (!idea.goalId && fit.goals.length === 1) idea.goalId = fit.goals[0]
+    if (!idea.goalId || !fit.goals.includes(idea.goalId)) {
       offBrief = true
-      reject(`"${idea.pillar}" is not one of this account's content pillars.`)
+      reject('It serves none of the goals selected for this run.')
     }
   }
   if (fit && fit.audiences.length > 0) {
@@ -825,30 +800,38 @@ export function replaceEvidenceLabels(
   })
 }
 
+/** The item a label such as "A2" or "[G1]" points to in its list, if any. */
+function byLabel<T>(prefix: 'A' | 'G', ref: string | undefined, items: T[]) {
+  const match = new RegExp(`^\\s*\\[?${prefix}\\s*(\\d+)\\]?\\s*$`, 'i').exec(
+    ref || ''
+  )
+  return match ? items[Number(match[1]) - 1] : undefined
+}
+
 /**
  * Expands a generated idea into the full item. Source details come from the
  * corpus entry the model cited, never from the model's own typing. A citation
  * that points outside the corpus keeps its claim but gets no source, so the
- * validator judges it on the text alone. The reader group is resolved the
- * same way, from its label; an unknown label leaves the idea without one.
+ * validator judges it on the text alone. The reader group and the goal are
+ * resolved the same way, from their labels; an unknown label leaves the idea
+ * without one, and the validator then turns it away.
  */
 export function resolveGeneratedIdea(
   generated: IdeaGenerationItem,
   corpus: CorpusEvidenceSource[],
   /** The reader groups the prompt listed, in label order. */
-  audiences: string[] = []
+  audiences: string[] = [],
+  /** Ids of the goals the prompt listed, in label order. */
+  goals: string[] = []
 ): GeneratedIdeaItem {
   const clean = (text: string) => replaceEvidenceLabels(text, corpus)
-  const audienceIndex = /^\s*\[?A\s*(\d+)\]?\s*$/i.exec(generated.audienceRef || '')
   return {
     title: generated.title,
     thesis: generated.thesis,
     perspectiveAngle: generated.perspectiveAngle,
     angle: generated.angle,
-    pillar: generated.pillar,
-    targetAudience: audienceIndex
-      ? audiences[Number(audienceIndex[1]) - 1]
-      : undefined,
+    goalId: byLabel('G', generated.goalRef, goals),
+    targetAudience: byLabel('A', generated.audienceRef, audiences),
     format: generated.format,
     whyNow: clean(generated.whyNow),
     hookConcept: generated.hookConcept,

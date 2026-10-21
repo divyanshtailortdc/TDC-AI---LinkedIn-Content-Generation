@@ -32,6 +32,7 @@ export type AIStage =
   | 'ideation'
   | 'drafting'
   | 'media_brief'
+  | 'media_review'
   | 'voice_analysis'
   | 'identity_setup'
   | 'extraction'
@@ -59,6 +60,9 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   ideation: { model: defaultModel, effort: 'high' },
   drafting: { model: defaultModel, effort: 'high' },
   media_brief: { model: defaultModel, effort: 'medium' },
+  // Looks at a generated image for misspelt text, drawn logos and drift from
+  // the brief: careful reading, little reasoning.
+  media_review: { model: defaultModel, effort: 'low' },
   voice_analysis: { model: defaultModel, effort: 'medium' },
   // Interactive: the user waits on this, so it trades depth for speed.
   identity_setup: { model: defaultModel, effort: 'low' },

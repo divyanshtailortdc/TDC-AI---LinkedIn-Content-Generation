@@ -120,6 +120,27 @@
       "when": 1792404501759,
       "tag": "0016_one_identity_per_user",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792568172020,
+      "tag": "0017_goal_runs_and_post_planning",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792568408168,
+      "tag": "0018_brand_themes",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792574821257,
+      "tag": "0019_simplify_brand_theme",
+      "breakpoints": true
     }
   ]
 }

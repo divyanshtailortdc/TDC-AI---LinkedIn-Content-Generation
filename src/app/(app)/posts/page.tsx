@@ -2,6 +2,8 @@ import { PostsClient } from './posts-client'
 import { countPosts, loadPostsPage } from './posts-data'
 import { getIdentity, toIdentitySummary } from '@/lib/identity'
 import { NoIdentity } from '@/components/no-identity'
+import { loadBrandTheme } from '~/lib/ai/context'
+import { brandColors } from '~/lib/brand/theme'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -24,9 +26,10 @@ export default async function PostsPage({
     ? (rawRunId as string)
     : null
 
-  const [{ posts, nextCursor }, total] = await Promise.all([
+  const [{ posts, nextCursor }, total, brand] = await Promise.all([
     loadPostsPage(identity.id, { runId }),
-    countPosts(identity.id)
+    countPosts(identity.id),
+    loadBrandTheme(identity.id)
   ])
 
   // Keying on the run forces a remount when it changes, so this client
@@ -39,6 +42,10 @@ export default async function PostsPage({
       initialNextCursor={nextCursor}
       totalCount={total}
       identity={toIdentitySummary(identity)}
+      brand={{
+        hasLogo: brand.hasLogo,
+        colors: brandColors(brand).map(c => c.hex)
+      }}
     />
   )
 }

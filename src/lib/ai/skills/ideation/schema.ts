@@ -60,7 +60,10 @@ export const IdeaItemSchema = z.object({
     .describe('The underlying root proposition or defensible claim'),
   perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).default('practitioner_lesson'),
   angle: z.string().describe('The distinctive POV or contrarian thesis lens'),
-  pillar: z.string().describe('Which content pillar this belongs to'),
+  goalId: z
+    .string()
+    .optional()
+    .describe('The id of the one goal picked for the run that this idea serves'),
   targetAudience: z
     .string()
     .optional()
@@ -150,7 +153,9 @@ export const IdeaGenerationItemSchema = z.object({
   thesis: IdeaItemSchema.shape.thesis,
   perspectiveAngle: IdeaItemSchema.shape.perspectiveAngle,
   angle: IdeaItemSchema.shape.angle,
-  pillar: IdeaItemSchema.shape.pillar,
+  goalRef: z
+    .string()
+    .describe('The label of the one goal this idea serves, e.g. "G1".'),
   audienceRef: z
     .string()
     .describe(

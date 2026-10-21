@@ -10,63 +10,57 @@ import {
 } from '@/db/schema'
 import { RESEARCH_SETTINGS } from '@/lib/ai/context'
 import { defaultModel } from '@/lib/models'
-import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
+import { checkRunGoals } from './run-goals'
 import { insertRunUnlessActive } from './run-guard'
 
 export interface EnqueueRunOptions {
   accountId: string
-  goalId?: string | null
+  /**
+   * The goals the run serves, in the order picked. Every one must be this
+   * identity's and active. Scheduled runs pass the active goals.
+   */
+  goalIds: string[]
   trigger?: 'manual' | 'schedule'
 }
 
 /**
- * Queues a run for the account, or returns the run it already has in progress
- * (`created: false`). Two runs at once for one identity research the same
- * ground and return near-identical ideas, so a second Launch (another tab, a
- * double click, a scheduled tick) joins the first instead.
+ * Queues a run for the account serving the given goals. Refused with
+ * RunInProgressError while the identity has a run queued or in progress: two
+ * runs at once research the same ground and return near-identical ideas.
  */
 export async function enqueueRun(opts: EnqueueRunOptions) {
-  const [account, preference, defaultGoal] = await Promise.all([
+  const [account, preference, goals] = await Promise.all([
     db.query.accountsTable.findFirst({
       where: eq(accountsTable.id, opts.accountId)
     }),
     db.query.preferencesTable.findFirst({
       where: eq(preferencesTable.accountId, opts.accountId)
     }),
-    opts.goalId
-      ? // Only this identity's goal: a goal id from elsewhere must not steer its run.
-        db.query.goalsTable.findFirst({
-          where: and(
-            eq(goalsTable.id, opts.goalId),
-            eq(goalsTable.accountId, opts.accountId)
-          )
-        })
-      : // Newest active goal, so a paused goal never steers a run.
-        db.query.goalsTable.findFirst({
-          where: and(
-            eq(goalsTable.accountId, opts.accountId),
-            eq(goalsTable.isActive, true)
-          ),
-          orderBy: desc(goalsTable.createdAt)
-        })
+    // Only this identity's goals: a goal id from elsewhere must not steer its run.
+    db
+      .select({
+        id: goalsTable.id,
+        title: goalsTable.title,
+        isActive: goalsTable.isActive
+      })
+      .from(goalsTable)
+      .where(eq(goalsTable.accountId, opts.accountId))
   ])
 
   if (!account) {
     throw new Error(`Account ${opts.accountId} not found`)
   }
-  if (opts.goalId && !defaultGoal) {
-    throw new Error('Goal not found')
-  }
+  const goalIds = checkRunGoals(opts.goalIds, goals)
 
   // Freeze the research settings that produced this run so "why did it write
   // that?" stays answerable if they change later.
   const researchConfig = { ...RESEARCH_SETTINGS }
 
-  // Refused while this identity has a run queued or in progress.
-  const newRun = await insertRunUnlessActive(db, {
+  const run = await insertRunUnlessActive(db, {
     accountId: opts.accountId,
-    goalId: defaultGoal?.id || null,
+    goalId: goalIds[0]!,
+    goalIds,
     preferenceSetId: preference?.id || null,
     workflow: 'standard',
     // Recorded up front: the database default is a leftover placeholder.
@@ -88,53 +82,7 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
       }
     ]
   })
-  return db.transaction(async tx => {
-    // Serialises enqueues for this account until commit, so concurrent calls
-    // cannot all pass the check below. The partial unique index on runs is
-    // the backstop.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${opts.accountId}::text))`
-    )
-
-    const activeRun = await tx.query.runsTable.findFirst({
-      where: and(
-        eq(runsTable.accountId, opts.accountId),
-        inArray(runsTable.status, ACTIVE_RUN_STATUSES)
-      ),
-      orderBy: [asc(runsTable.createdAt)]
-    })
-    if (activeRun) return { run: activeRun, created: false }
-
-    const [newRun] = await tx
-      .insert(runsTable)
-      .values({
-        accountId: opts.accountId,
-        goalId: defaultGoal?.id || null,
-        preferenceSetId: preference?.id || null,
-        workflow: 'standard',
-        // Recorded up front: the database default is a leftover placeholder.
-        model: defaultModel,
-        trigger: opts.trigger || 'manual',
-        status: 'queued',
-        currentStep: 0,
-        totalSteps: 3,
-        researchConfig,
-        timings: {},
-        tokenCounts: {},
-        costUsd: '0',
-        logs: [
-          {
-            step: 'queued',
-            status: 'pending',
-            timestamp: new Date().toISOString(),
-            message: 'Run placed in execution queue'
-          }
-        ]
-      })
-      .returning()
-
-    return { run: newRun, created: true }
-  })
+  return { run }
 }
 
 /**
@@ -191,5 +139,36 @@ export async function getRunDetails(runId: string) {
     })
   ])
 
-  return { run, steps, findings, ideas }
+  // Goals as titled now; a deleted one by the title its ideas kept.
+  const goals = run
+    ? await db
+        .select({ id: goalsTable.id, title: goalsTable.title })
+        .from(goalsTable)
+        .where(eq(goalsTable.accountId, run.accountId))
+    : []
+  const titleOf = (id: string | null | undefined) =>
+    goals.find(g => g.id === id)?.title
+  const runGoalIds =
+    run?.goalIds && run.goalIds.length > 0
+      ? run.goalIds
+      : run?.goalId
+        ? [run.goalId]
+        : []
+
+  return {
+    run: run
+      ? {
+          ...run,
+          goalTitles: runGoalIds
+            .map(titleOf)
+            .filter((t): t is string => Boolean(t))
+        }
+      : run,
+    steps,
+    findings,
+    ideas: ideas.map(idea => ({
+      ...idea,
+      goalTitle: titleOf(idea.goalId) ?? idea.goalSnapshot?.title ?? null
+    }))
+  }
 }

@@ -18,7 +18,10 @@ import {
   ArrowRight,
   Search,
   BookOpen,
-  FileText
+  FileText,
+  SquareCheck,
+  Target,
+  X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
@@ -33,10 +36,10 @@ import {
   approveRunIdeas,
   rejectIdea,
   editIdea,
-  draftApprovedIdeas
+  draftSelectedIdeas
 } from '../../ideas/actions'
 import { AiDraftingStatus, DraftingStatus } from '~/components/ai-drafting-status'
-import { RunIdeaCard } from '~/components/run-idea-card'
+import { isSelectableIdea, RunIdeaCard } from '~/components/run-idea-card'
 
 interface RunDetailProps {
   initialRun: any
@@ -163,6 +166,10 @@ export function RunDetailClient({
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>('idle')
   const [draftError, setDraftError] = useState<string | null>(null)
   const [showAllSources, setShowAllSources] = useState(false)
+  // The ideas ticked for posts; only ones still at the gate count.
+  const [ticked, setTicked] = useState<string[]>([])
+  // The ideas behind the latest drafting attempt, so Try again retries exactly those.
+  const [draftTargetIds, setDraftTargetIds] = useState<string[]>([])
 
   const isRunning = ACTIVE_STATUSES.includes(run.status)
 
@@ -285,6 +292,25 @@ export function RunDetailClient({
     }
   }
 
+  const handleApproveSelected = async () => {
+    const ids = selection.filter((id) =>
+      ideas.some((i) => i.id === id && i.status === 'proposed')
+    )
+    if (ids.length === 0) return
+    setIsApprovingAll(true)
+    try {
+      const res = await approveRunIdeas(run.id, ids)
+      if (!res.success) {
+        showToast({ title: 'Approve failed', message: res.error, type: 'error' })
+        return
+      }
+      const done = res.approvedIds ?? []
+      setIdeas((prev) => prev.map((i) => (done.includes(i.id) ? { ...i, status: 'approved' } : i)))
+    } finally {
+      setIsApprovingAll(false)
+    }
+  }
+
   // Takes the run and its ideas from the server. After a failed attempt some
   // ideas may already be drafted, so putting them all back to approved here
   // would show the wrong thing.
@@ -296,8 +322,13 @@ export function RunDetailClient({
     }
   }
 
-  const handleDraftApproved = async () => {
-    const approvedIds = ideas.filter((i) => i.status === 'approved').map((i) => i.id)
+  // Posts are made only from the given ideas, and of those only approved ones.
+  const handleDraftSelected = async (targetIds: string[]) => {
+    const approvedIds = ideas
+      .filter((i) => i.status === 'approved' && targetIds.includes(i.id))
+      .map((i) => i.id)
+    if (approvedIds.length === 0) return
+    setDraftTargetIds(approvedIds)
 
     // Optimistically flip the drafted ideas to their terminal state right away so
     // the list reflects the action immediately, instead of sitting unchanged for
@@ -310,12 +341,13 @@ export function RunDetailClient({
     )
 
     try {
-      const res = await draftApprovedIdeas({ runId: run.id })
+      const res = await draftSelectedIdeas({ runId: run.id, ideaIds: approvedIds })
       if (res.success) {
         setDraftStatus('success')
+        setTicked((prev) => prev.filter((id) => !approvedIds.includes(id)))
         showToast({
           title: 'Posts generated',
-          message: `${res.draftedCount} post${res.draftedCount === 1 ? '' : 's'} drafted and ready for review.`,
+          message: `${res.draftedCount} post${res.draftedCount === 1 ? '' : 's'} drafted and ready for review.${res.note ? ` ${res.note}` : ''}`,
           type: 'success'
         })
         router.push(`/posts?runId=${run.id}`)
@@ -359,6 +391,16 @@ export function RunDetailClient({
   const approvedCount = statusCount('approved')
   const proposedCount = statusCount('proposed')
   const isBusy = isDrafting || isApprovingAll
+
+  const selection = ticked.filter((id) =>
+    ideas.some((i) => i.id === id && isSelectableIdea(i.status))
+  )
+  const selectedApproved = selection.filter((id) =>
+    ideas.some((i) => i.id === id && i.status === 'approved')
+  )
+  const selectedProposed = selection.length - selectedApproved.length
+  const setTick = (id: string, on: boolean) =>
+    setTicked((prev) => (on ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)))
 
   // While the run is active and no step is mid-flight, the first stage with
   // nothing recorded yet is the one starting. Drafting only starts after
@@ -404,12 +446,66 @@ export function RunDetailClient({
           </Link>
         }
         actions={
-          canDecide && (proposedCount > 0 || approvedCount > 0 || isDrafting) ? (
+          isDrafting ? (
+            <span
+              aria-busy
+              className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 text-white text-[13px] font-semibold opacity-75 shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              Generating posts…
+            </span>
+          ) : canDecide && selection.length > 0 ? (
+            // With ideas ticked, posts are made from the selection only.
+            <>
+              <span className="text-foreground inline-flex h-8 items-center gap-1 text-[13px] font-medium tabular-nums">
+                {/* The count is on the buttons too; phones keep one row. */}
+                <span className="hidden sm:inline">{selection.length} selected</span>
+                <button
+                  type="button"
+                  onClick={() => setTicked([])}
+                  aria-label={`Clear selection (${selection.length} selected)`}
+                  className="text-muted hover:text-foreground hover:bg-surface-hover ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+              {selectedProposed > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleApproveSelected()}
+                  disabled={isBusy}
+                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                >
+                  {isApprovingAll ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CheckCheck className="h-3.5 w-3.5" />
+                  )}
+                  <span>Approve {selectedProposed}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleDraftSelected(selection)}
+                disabled={isBusy || selectedApproved.length === 0}
+                title={
+                  selectedApproved.length === 0
+                    ? 'Approve the selected ideas first'
+                    : undefined
+                }
+                className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </>
+          ) : canDecide && (proposedCount > 0 || approvedCount > 0) ? (
             <>
               {proposedCount > 0 && (
                 <ConfirmPopover
                   title={`Approve all ${proposedCount} ideas?`}
-                  description="Every idea in this run waiting for review moves to Approved."
+                  description="Every idea in this run waiting for review moves to Approved. No posts are written until you select ideas and create them."
                   confirmLabel="Approve all"
                   tone="success"
                   onConfirm={handleApproveAll}
@@ -429,17 +525,17 @@ export function RunDetailClient({
                   </button>
                 </ConfirmPopover>
               )}
-              {(approvedCount > 0 || isDrafting) && (
+              {approvedCount > 0 && (
                 <button
                   type="button"
-                  onClick={handleDraftApproved}
+                  onClick={() =>
+                    setTicked(ideas.filter((i) => i.status === 'approved').map((i) => i.id))
+                  }
                   disabled={isBusy}
-                  aria-busy={isDrafting}
-                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-75"
+                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <Sparkles className={cn('w-3.5 h-3.5', isDrafting && 'animate-pulse')} />
-                  <span>{isDrafting ? 'Generating posts…' : `Create ${approvedCount} post${approvedCount === 1 ? '' : 's'}`}</span>
-                  {!isDrafting && <ArrowRight className="w-3.5 h-3.5" />}
+                  <SquareCheck className="w-3.5 h-3.5" />
+                  <span>Select {approvedCount} approved</span>
                 </button>
               )}
             </>
@@ -447,16 +543,31 @@ export function RunDetailClient({
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-surface-hover/30">
+      <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 bg-surface-hover/30">
         <div className="space-y-6">
           <AiDraftingStatus
             status={draftStatus}
-            subject="this run's approved ideas"
+            subject={`${draftTargetIds.length} selected idea${draftTargetIds.length === 1 ? '' : 's'}`}
             successMessage="Posts generated! Opening the review queue…"
             errorMessage={draftError}
-            onRetry={handleDraftApproved}
+            onRetry={() => void handleDraftSelected(draftTargetIds)}
             retryDisabled={isDrafting}
           />
+
+          {run.goalTitles && run.goalTitles.length > 0 && (
+            <p className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <Target className="h-3.5 w-3.5 shrink-0" />
+              <span>{run.goalTitles.length === 1 ? 'Goal:' : 'Goals:'}</span>
+              {run.goalTitles.map((title: string) => (
+                <span
+                  key={title}
+                  className="bg-surface border-border text-foreground rounded-full border px-2 py-0.5 font-medium"
+                >
+                  {title}
+                </span>
+              ))}
+            </p>
+          )}
 
           {run.error && (
             <div
@@ -568,6 +679,8 @@ export function RunDetailClient({
                     onReject={handleRejectIdea}
                     onEditSave={handleEditIdeaSave}
                     isBusy={ideaActionBusyId === idea.id || isBusy}
+                    selected={selection.includes(idea.id)}
+                    onSelectChange={canDecide ? setTick : undefined}
                   />
                 ))}
               </div>

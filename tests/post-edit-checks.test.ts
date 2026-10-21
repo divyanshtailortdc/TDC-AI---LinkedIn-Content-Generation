@@ -16,7 +16,7 @@ const ctx = {
   knowledgeDocs: [],
   samplePosts: [],
   goals: [],
-  activeGoals: [],
+  selectedGoals: [],
   primaryGoal: null,
   preferencesId: null,
   prefs: resolvePreferences(

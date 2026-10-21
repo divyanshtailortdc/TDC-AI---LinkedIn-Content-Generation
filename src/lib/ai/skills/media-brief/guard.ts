@@ -1,3 +1,4 @@
+import { HEADLINE_MAX_WORDS } from '@/lib/brand/theme'
 import { extractNumbers, mentionsFigure } from '../ideation/guard'
 import type { BriefGuardResult, MediaBrief, TextOverlaySpec } from './schema'
 
@@ -160,6 +161,13 @@ function mentionsAffirmatively(text: string, term: string): boolean {
   }
 }
 
+export interface BriefGuardOptions {
+  /** Visual types of the earlier images, newest first. */
+  previousVisualTypes?: string[]
+  /** Text whose figures the image may also quote, such as the goal's message. */
+  extraSourceText?: string
+}
+
 /**
  * Enforces the rules that hold regardless of subject, and scores how much of
  * the brief's vocabulary actually comes from the post.
@@ -168,11 +176,32 @@ export function guardMediaBrief(
   brief: MediaBrief,
   imagePrompt: string,
   postText: string,
-  accountName?: string
+  accountName?: string,
+  options: BriefGuardOptions = {}
 ): BriefGuardResult {
   const issues: string[] = []
   const haystack =
     `${brief.primaryConcept} ${brief.visualMetaphor} ${imagePrompt} ${brief.textOverlay?.headline || ''}`.toLowerCase()
+
+  // The real logo is composited by code; one the model draws is always wrong.
+  for (const mark of ['logo', 'wordmark', 'brand mark']) {
+    if (mentionsAffirmatively(imagePrompt.toLowerCase(), mark)) {
+      issues.push(`Asks the image model to draw a ${mark}; the real one is added afterwards.`)
+      break
+    }
+  }
+
+  const headlineWords = (brief.textOverlay?.headline || '').trim().split(/\s+/).filter(Boolean)
+  if (headlineWords.length > HEADLINE_MAX_WORDS) {
+    issues.push(`Headline is longer than ${HEADLINE_MAX_WORDS} words.`)
+  }
+
+  const lastType = options.previousVisualTypes?.[0]
+  if (lastType && brief.visualType === lastType) {
+    issues.push(
+      `Uses the same visual form (${lastType.replace(/_/g, ' ')}) as the image it replaces.`
+    )
+  }
 
   // The account may name itself; anyone else's mark may not appear.
   const ownName = (accountName || '').toLowerCase()
@@ -201,9 +230,10 @@ export function guardMediaBrief(
     .join(' ')
 
   // Whole figures only: a substring test let "5%" pass on a post saying "25%".
-  const postFigures = new Set(extractNumbers(postText))
+  const sourceText = [postText, options.extraSourceText].filter(Boolean).join('\n')
+  const postFigures = new Set(extractNumbers(sourceText))
   for (const figure of extractNumbers(overlayText)) {
-    if (!postFigures.has(figure) && !mentionsFigure(postText, figure)) {
+    if (!postFigures.has(figure) && !mentionsFigure(sourceText, figure)) {
       issues.push(
         `Renders a figure ("${figure}") that does not appear in the post.`
       )

@@ -1,7 +1,7 @@
 import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import { EMPTY_HISTORY, describeCta, recentCtasOf } from '../src/lib/ai/context-blocks'
-import { balanceByPillar, selectIdeas } from '../src/lib/ai/idea-selection'
+import { balanceByGoal, selectIdeas } from '../src/lib/ai/idea-selection'
 import { buildPostLintOptions } from '../src/lib/ai/pipeline/post-lint'
 import {
   replaceEvidenceLabels,
@@ -292,10 +292,10 @@ describe('drafting instructions', () => {
     knowledgeDocs: [],
     samplePosts: [],
     goals: [],
-    activeGoals: [],
+    selectedGoals: [],
     primaryGoal: null,
     preferencesId: null,
-    prefs: { constraints: { cta_required: true, hashtags: null, hashtag_policy: '0-3', emoji_level: 'none', hook_max_chars: 200, target_chars: 1300, max_chars: 3000, variants_per_post: 2 }, guardrails: { banned_topics: [], compliance_notes: '' }, pillars: [] },
+    prefs: { constraints: { cta_required: true, hashtags: null, hashtag_policy: '0-3', emoji_level: 'none', hook_max_chars: 200, target_chars: 1300, max_chars: 3000, variants_per_post: 2 }, guardrails: { banned_topics: [], compliance_notes: '' } },
     history: {
       ...EMPTY_HISTORY,
       drafts: [{ hook: 'The review step nobody owned.', originalHook: 'The review step nobody owned.', body: 'b', cta: null, status: 'approved' }]
@@ -396,8 +396,8 @@ function ctxForIdeation() {
   return {
     account: { name: 'A', accountType: 'person', headline: 'h' },
     voice: null, offerings: [], audiences: [], knowledgeDocs: [], samplePosts: [],
-    goals: [], activeGoals: [], primaryGoal: null, preferencesId: null,
-    prefs: { constraints: { cta_required: true, hashtags: null, hashtag_policy: '', emoji_level: 'none', hook_max_chars: 200, target_chars: 1300, max_chars: 3000, variants_per_post: 2 }, guardrails: { banned_topics: [], compliance_notes: '' }, pillars: [] },
+    goals: [], selectedGoals: [], primaryGoal: null, preferencesId: null,
+    prefs: { constraints: { cta_required: true, hashtags: null, hashtag_policy: '', emoji_level: 'none', hook_max_chars: 200, target_chars: 1300, max_chars: 3000, variants_per_post: 2 }, guardrails: { banned_topics: [], compliance_notes: '' } },
     history: EMPTY_HISTORY
   } as never
 }
@@ -410,7 +410,7 @@ describe('dates in ideation', () => {
     hasFreshEvidence: true
   }
   const build = (today: Date) =>
-    ideationPrompt({ corpus, history: '', candidateCount: 3, assignedPillars: [], hookMaxChars: 200, today })
+    ideationPrompt({ corpus, history: '', candidateCount: 3, assignedGoals: ['G1', 'G1', 'G1'], hookMaxChars: 200, today })
 
   it("gives the model today's date and each item's publication date", () => {
     const text = build(new Date('2026-10-19T10:00:00Z'))
@@ -423,52 +423,47 @@ describe('dates in ideation', () => {
   })
 })
 
-describe('pillar weights in the final selection', () => {
-  const pillars = [
-    { name: 'Research', weight_pct: 35, example_topics: [] },
-    { name: 'Safety', weight_pct: 30, example_topics: [] },
-    { name: 'Products', weight_pct: 35, example_topics: [] }
-  ]
-  const idea = (title: string, pillar: string, score: number) =>
-    ({ title, pillar, estimatedStrength: score, groundingScore: score, originalityScore: score }) as never
+describe('goal shares in the final selection', () => {
+  const goals = ['research', 'safety', 'products']
+  const idea = (title: string, goalId: string, score: number) =>
+    ({ title, goalId, estimatedStrength: score, groundingScore: score, originalityScore: score }) as never
 
-  // The best scores all sit in one pillar, as in the app's output.
+  // The best scores all sit under one goal, as model output tends to.
   const ranked = [
-    idea('p1', 'Products', 95), idea('p2', 'Products', 94), idea('p3', 'Products', 93),
-    idea('s1', 'Safety', 90), idea('r1', 'Research', 89), idea('r2', 'Research', 88),
-    idea('s2', 'Safety', 80)
+    idea('p1', 'products', 95), idea('p2', 'products', 94), idea('p3', 'products', 93),
+    idea('s1', 'safety', 90), idea('r1', 'research', 89), idea('r2', 'research', 88),
+    idea('s2', 'safety', 80)
   ]
-  const counts = (items: Array<{ pillar: string }>) =>
-    items.reduce<Record<string, number>>((m, i) => ({ ...m, [i.pillar]: (m[i.pillar] ?? 0) + 1 }), {})
+  const counts = (items: Array<{ goalId: string }>) =>
+    items.reduce<Record<string, number>>((m, i) => ({ ...m, [i.goalId]: (m[i.goalId] ?? 0) + 1 }), {})
 
-  it('gives each pillar its share, not the top scorers', () => {
-    const picked = balanceByPillar(ranked, pillars, 5)
+  it('gives each selected goal an equal share, not the top scorers', () => {
+    const picked = balanceByGoal(ranked, goals, 5)
     assert.equal(picked.length, 5)
-    assert.deepStrictEqual(counts(picked), { Products: 2, Safety: 1, Research: 2 })
+    // 5 over 3 goals: the first two listed take the remainder.
+    assert.deepStrictEqual(counts(picked as never), { products: 1, safety: 2, research: 2 })
   })
 
-  it('hands a short pillar\'s places to the best of the rest', () => {
-    const noSafety = ranked.filter(i => (i as { pillar: string }).pillar !== 'Safety')
-    const picked = balanceByPillar(noSafety, pillars, 5)
+  it("hands a short goal's places to the best of the rest", () => {
+    const noSafety = ranked.filter(i => (i as { goalId: string }).goalId !== 'safety')
+    const picked = balanceByGoal(noSafety, goals, 5)
     assert.equal(picked.length, 5)
-    assert.equal((counts(picked) as Record<string, number>).Safety, undefined)
+    assert.equal((counts(picked as never) as Record<string, number>).safety, undefined)
   })
 
   it('keeps the ranking order within the chosen set', () => {
-    const titles = balanceByPillar(ranked, pillars, 5).map(i => (i as { title: string }).title)
-    assert.deepStrictEqual(titles, ['p1', 'p2', 's1', 'r1', 'r2'])
+    const titles = balanceByGoal(ranked, goals, 5).map(i => (i as { title: string }).title)
+    assert.deepStrictEqual(titles, ['p1', 's1', 'r1', 'r2', 's2'])
   })
 
-  it('does nothing for an account with one pillar or none', () => {
-    assert.equal(balanceByPillar(ranked, [], 3).length, 3)
-    assert.equal(balanceByPillar(ranked, pillars.slice(0, 1), 3).length, 3)
+  it('does nothing for a run with one goal', () => {
     assert.deepStrictEqual(
-      balanceByPillar(ranked, [], 3).map(i => (i as { title: string }).title),
+      balanceByGoal(ranked, ['products'], 3).map(i => (i as { title: string }).title),
       ['p1', 'p2', 'p3']
     )
   })
 
-  it('reaches selectIdeas, and restores the configured spelling of a pillar', () => {
+  it('reaches selectIdeas: every selected goal is represented', () => {
     const subjects = [
       ['Payout reconciliation', 'Reconcile settlement ledgers weekly because marketplace payouts arrive net of fees.'],
       ['Warehouse shrinkage', 'Cycle counts beat annual stocktakes since shelf errors compound silently.'],
@@ -480,13 +475,13 @@ describe('pillar weights in the final selection', () => {
     const pool = subjects.map(([title, text], i) => ({
       title, thesis: text, coreArgument: text, hookConcept: `Hook about ${title}`,
       perspectiveAngle: (['process', 'data', 'story', 'how_to', 'case', 'trend'] as const)[i],
-      pillar: i < 4 ? 'products' : i === 4 ? 'SAFETY' : 'Research',
+      goalId: i < 4 ? 'products' : i === 4 ? 'safety' : 'research',
       estimatedStrength: 95 - i, groundingScore: 95 - i, originalityScore: 95 - i
     })) as never[]
-    const { selected } = selectIdeas(pool, [], 3, pillars)
+    const { selected } = selectIdeas(pool, [], 3, goals)
     assert.deepStrictEqual(
-      selected.map(i => i.pillar).sort(),
-      ['Products', 'Research', 'Safety']
+      selected.map(i => i.goalId).sort(),
+      ['products', 'research', 'safety']
     )
   })
 })

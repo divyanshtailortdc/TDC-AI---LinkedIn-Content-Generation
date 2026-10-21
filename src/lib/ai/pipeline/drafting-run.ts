@@ -17,14 +17,20 @@ import {
   type LintFinding,
   type LintOptions
 } from '~/lib/lint/run-linter'
-import { createMediaPlan } from '~/lib/media'
+import { DEFAULT_BRAND_THEME } from '@/lib/brand/theme'
+import { createMediaPlan, type MediaPlanResult } from '~/lib/media'
+import { loadBrandRendering } from '~/lib/media/brand-assets'
+import { buildMediaBriefContext } from '~/lib/media/brief-context'
+import {
+  FAILED_MEDIA_STATUS,
+  mediaPlanMetadata
+} from '~/lib/media/plan-record'
 import { postCharCount, postFullText } from '@/lib/post-text'
 import { buildPostLintOptions } from './post-lint'
 import {
   collectBannedWords,
-  loadGenerationContext,
+  loadIdeaContext,
   recentCtasOf,
-  renderMediaContext,
   resolveLinkPlacement
 } from '../context'
 import { refreshRunTotals } from '../run-accounting'
@@ -152,9 +158,9 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   if (!idea) throw new Error(`Idea ${ideaId} not found`)
 
   const runId = idea.runId
-  const ctx = await loadGenerationContext(idea.accountId, {
-    goalId: idea.goalId
-  })
+  // The idea's own goal and no other, so the post lands the message the idea
+  // was made for.
+  const ctx = await loadIdeaContext(idea)
 
   const constraints = ctx.prefs.constraints
   const linkPlacement = resolveLinkPlacement(ctx.primaryGoal)
@@ -276,24 +282,26 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
     mode?: 'ai_generated' | 'stock' | 'none'
     brief?: string
   }
-  // The idea carries the human's per-idea override from the approval gate;
-  // otherwise no image, and one can be added from the review screen.
+  // Posts start text only unless the idea asks for an image; one can be added
+  // on the review screen. Every generated image gets the brand colours and logo.
   const mediaMode = suggested.mode || 'none'
   const fullPostText = postFullText(draft)
 
   const mediaStart = Date.now()
-  const mediaPlan = await createMediaPlan({
-    mode: mediaMode,
-    brief: suggested.brief || null,
-    topic: idea.pillar || idea.title,
-    hook: draft.hook,
-    postText: fullPostText,
-    thesis: idea.thesis || idea.coreArgument || idea.title,
-    coreArgument: idea.coreArgument || undefined,
-    evidence,
-    accountName: ctx.account.name,
-    accountContext: renderMediaContext(ctx)
-  })
+  const mediaPlan: MediaPlanResult =
+    mediaMode === 'none'
+      ? { mode: 'none' }
+      : await createMediaPlan({
+          mode: mediaMode,
+          postText: fullPostText,
+          context: buildMediaBriefContext(ctx, idea),
+          brand: await loadBrandRendering(
+            ctx.account.id,
+            ctx.brand ?? DEFAULT_BRAND_THEME
+          ),
+          // The idea's own visual direction, written at ideation.
+          direction: suggested.brief || undefined
+        })
 
   if (mediaMode !== 'none') {
     await recordStep({
@@ -308,10 +316,12 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
       costUsd: (mediaPlan.usage?.costUsd ?? 0).toFixed(4),
       responseJson: {
         mode: mediaPlan.mode,
-        fallbackApplied: mediaPlan.fallbackApplied || false,
         relevanceScore: mediaPlan.relevanceScore,
         concept: mediaPlan.mediaBrief?.primaryConcept,
         imageAttempts: mediaPlan.imageAttempts ?? 0,
+        model: mediaPlan.modelId,
+        review: mediaPlan.review,
+        logo: mediaPlan.logo,
         usage: mediaPlan.usage ?? EMPTY_USAGE
       }
     })
@@ -380,15 +390,20 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
         draftId: saved.id,
         mode: mediaPlan.mode,
         imageUrl: mediaPlan.imageUrl,
+        baseImageUrl: mediaPlan.baseImageUrl ?? null,
         altText: mediaPlan.altText || null,
         promptOrQuery: mediaPlan.promptOrQuery || null,
-        metadata: {
-          sourcePageUrl: mediaPlan.sourcePageUrl,
-          fallbackApplied: mediaPlan.fallbackApplied || false,
-          relevanceScore: mediaPlan.relevanceScore,
-          relevanceExplanation: mediaPlan.relevanceExplanation,
-          mediaBrief: mediaPlan.mediaBrief
-        }
+        metadata: mediaPlanMetadata(mediaPlan)
+      })
+    } else if (mediaMode !== 'none') {
+      // No image, but the review screen should say why rather than show the
+      // post as if it never wanted one.
+      await tx.insert(postMediaTable).values({
+        draftId: saved.id,
+        mode: mediaMode,
+        status: FAILED_MEDIA_STATUS,
+        imageUrl: null,
+        metadata: { error: mediaPlan.error || 'No image was produced.' }
       })
     }
 

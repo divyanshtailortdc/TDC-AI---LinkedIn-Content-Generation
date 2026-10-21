@@ -1,7 +1,7 @@
-import type { GoalPayload } from '@/app/(app)/identity/goals/actions'
+import type { GoalPayload } from '@/app/(app)/goals/actions'
 import type { PreferencesPayload } from '@/app/(app)/identity/preferences/actions'
 import type { SaveVoiceInput } from '@/app/(app)/identity/voice/actions'
-import type { ContentPillar, Guardrails, PostConstraints } from '@/db/schema'
+import type { Guardrails, PostConstraints } from '@/db/schema'
 import type {
   GoalSuggestions,
   PreferencesSuggestions,
@@ -271,7 +271,6 @@ export function buildGoalPayload(
  * alone, and link placement is suggested with the goal it belongs to.
  */
 export type PreferencesValues = {
-  pillars: ContentPillar[]
   bannedTopics: string[]
   complianceNotes: string
 }
@@ -280,7 +279,6 @@ export type PreferencesValues = {
 export function preferencesValuesFromRow(
   row:
     | {
-        pillars?: ContentPillar[] | null
         postConstraints?: Partial<PostConstraints> | null
         guardrails?: Partial<Guardrails> | null
       }
@@ -288,7 +286,6 @@ export function preferencesValuesFromRow(
     | undefined
 ): PreferencesValues {
   return {
-    pillars: Array.isArray(row?.pillars) ? row.pillars : [],
     bannedTopics: row?.guardrails?.banned_topics || [],
     complianceNotes: row?.guardrails?.compliance_notes || ''
   }
@@ -310,7 +307,6 @@ export function buildPreferencesPayload(
   values: PreferencesValues
 ): PreferencesPayload {
   return {
-    pillars: values.pillars,
     ideasPerRun: current.ideasPerRun,
     post_constraints: current.post_constraints,
     guardrails: {

@@ -23,7 +23,8 @@ export interface IdeaCardData {
   thesis?: string | null
   coreArgument?: string | null
   noveltyNote?: string | null
-  pillar?: string | null
+  /** The goal the idea was made for, as titled now (or when it was made). */
+  goalTitle?: string | null
   perspectiveAngle?: string | null
   score?: number | null
   groundingScore?: number | null
@@ -258,14 +259,6 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                           <div className="text-muted">Strength score</div>
                           <div className="mt-0.5 text-sm font-semibold text-foreground">
                             {idea.score}/100
-                          </div>
-                        </div>
-                      )}
-                      {idea.pillar && (
-                        <div>
-                          <div className="text-muted">Pillar</div>
-                          <div className="mt-0.5 text-sm font-semibold text-foreground">
-                            {idea.pillar}
                           </div>
                         </div>
                       )}

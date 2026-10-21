@@ -164,11 +164,22 @@ function EmptyState() {
 
 type Account = typeof accountsTable.$inferSelect
 
+// Goals have their own page; the rest are Account Setup steps.
 const setupSteps = [
-  { key: 'voice', label: 'Voice', icon: Mic },
-  { key: 'knowledge', label: 'Knowledge', icon: BookOpen },
-  { key: 'goals', label: 'Goals', icon: Target },
-  { key: 'preferences', label: 'Preferences', icon: SlidersHorizontal }
+  { key: 'voice', label: 'Voice', icon: Mic, href: `${IDENTITY_PATH}/voice` },
+  {
+    key: 'knowledge',
+    label: 'Knowledge',
+    icon: BookOpen,
+    href: `${IDENTITY_PATH}/knowledge`
+  },
+  { key: 'goals', label: 'Goals', icon: Target, href: '/goals' },
+  {
+    key: 'preferences',
+    label: 'Preferences',
+    icon: SlidersHorizontal,
+    href: `${IDENTITY_PATH}/preferences`
+  }
 ]
 
 function AccountCard({
@@ -235,12 +246,12 @@ function AccountCard({
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {setupSteps.map(({ key, label, icon: Icon }) => {
+          {setupSteps.map(({ key, label, icon: Icon, href }) => {
             const done = !!completed[key]
             return (
               <Link
                 key={key}
-                href={`${IDENTITY_PATH}/${key}`}
+                href={href}
                 className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors ${
                   done
                     ? 'border-border bg-surface-hover/50 text-foreground hover:border-foreground/15'

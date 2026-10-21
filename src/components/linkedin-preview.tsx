@@ -14,6 +14,7 @@ import {
   ZoomIn
 } from 'lucide-react'
 import Image from 'next/image'
+import { linkedInHashtags, toLinkedInText } from '@/lib/post-text'
 
 interface LinkedInPreviewProps {
   authorName: string
@@ -67,10 +68,15 @@ export function LinkedInPreview({
   const [showHookOptions, setShowHookOptions] = useState(false)
   const [showFullComment, setShowFullComment] = useState(false)
   const canSwapHook = Boolean(onSelectHook) && hookOptions.length > 0
-  const comment = firstComment?.trim() || ''
+  // Every part is shown as Copy puts it on the clipboard, so the preview is
+  // what pastes into LinkedIn.
+  const comment = toLinkedInText(firstComment)
   const isCommentLong = comment.length > COMMENT_FOLD_CHARS
 
-  const cleanHook = hook.trim()
+  const cleanHook = toLinkedInText(hook)
+  const shownBody = toLinkedInText(body)
+  const shownCta = toLinkedInText(cta)
+  const shownHashtags = linkedInHashtags(hashtags)
   const isHookLongerThanFold = cleanHook.length > foldCharLimit
   const visibleHookBeforeFold = cleanHook.slice(0, foldCharLimit)
   const hookOverflowAfterFold = cleanHook.slice(foldCharLimit)
@@ -159,7 +165,8 @@ export function LinkedInPreview({
         {canSwapHook && showHookOptions && (
           <div className="mt-2 space-y-1.5 rounded-lg border border-neutral-200 bg-neutral-50 p-2 whitespace-normal dark:border-border dark:bg-surface-hover/60">
             {hookOptions.map(option => {
-              const current = option.content.trim() === cleanHook
+              const optionText = toLinkedInText(option.content)
+              const current = optionText === cleanHook
               return (
                 <button
                   key={`${option.label}-${option.content}`}
@@ -179,7 +186,7 @@ export function LinkedInPreview({
                     {option.label}
                     {current && ' · in use'}
                   </span>
-                  {option.content}
+                  {optionText}
                 </button>
               )
             })}
@@ -189,25 +196,22 @@ export function LinkedInPreview({
         {/* Post Body & CTA */}
         {(!isHookLongerThanFold || showFullPost) && (
           <div className="mt-3 space-y-3 text-neutral-800 dark:text-neutral-200">
-            <div>{body}</div>
-            {cta && <div className="font-medium text-neutral-900 dark:text-neutral-100">{cta}</div>}
+            <div>{shownBody}</div>
+            {shownCta && <div className="font-medium text-neutral-900 dark:text-neutral-100">{shownCta}</div>}
           </div>
         )}
 
         {/* Hashtags */}
-        {hashtags.length > 0 && (
+        {shownHashtags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {hashtags.map((tag, i) => {
-              const formatted = tag.startsWith('#') ? tag : `#${tag}`
-              return (
-                <span
-                  key={i}
-                  className="text-[#0a66c2] dark:text-[#70b5f9] font-semibold text-[13px] hover:underline cursor-pointer"
-                >
-                  {formatted}
-                </span>
-              )
-            })}
+            {shownHashtags.map(tag => (
+              <span
+                key={tag}
+                className="text-[#0a66c2] dark:text-[#70b5f9] font-semibold text-[13px] hover:underline cursor-pointer"
+              >
+                {tag}
+              </span>
+            ))}
           </div>
         )}
 

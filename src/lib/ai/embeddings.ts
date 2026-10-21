@@ -4,11 +4,12 @@ import {
   EMBEDDING_DIMENSIONS,
   type KnowledgeDocument
 } from '@/db/schema'
-import { embed, embedMany } from 'ai'
+import { embedMany } from 'ai'
 import { and, asc, cosineDistance, eq, inArray, sql } from 'drizzle-orm'
 import { getEmbeddingModel } from '~/lib/ai'
 import { chunkText } from './chunking'
 import type { GenerationContext } from './context'
+import { buildRetrievalQueries, interleave } from './pipeline/grounding-corpus'
 
 const EMBED_TIMEOUT_MS = 60_000
 const MAX_BACKFILL_PER_RUN = 10
@@ -98,28 +99,14 @@ async function backfillMissingChunks(
   }
 }
 
-export function buildRetrievalQuery(ctx: GenerationContext): string {
-  const goal = ctx.primaryGoal
-  const parts = [
-    goal?.title,
-    goal?.keyMessage,
-    ...ctx.prefs.pillars.map(p =>
-      p.example_topics?.length
-        ? `${p.name}: ${p.example_topics.join(', ')}`
-        : p.name
-    )
-  ]
-  const query = parts.filter(Boolean).join('\n').trim()
-  return query || ctx.account.headline
-}
 export async function retrieveKnowledgePassages(
   ctx: GenerationContext,
   docs: IndexableDocument[],
   options: { limit?: number; minSimilarity?: number } = {}
 ): Promise<KnowledgePassage[]> {
   const handle = getEmbeddingModel()
-  const query = buildRetrievalQuery(ctx)
-  if (!handle || docs.length === 0 || !query) return []
+  const queries = buildRetrievalQueries(ctx)
+  if (!handle || docs.length === 0 || queries.length === 0) return []
 
   const limit = options.limit ?? 6
   const minSimilarity = options.minSimilarity ?? 0.35
@@ -127,34 +114,52 @@ export async function retrieveKnowledgePassages(
   try {
     await backfillMissingChunks(docs, handle.modelId)
 
-    const { embedding } = await embed({
+    const { embeddings } = await embedMany({
       model: handle.model,
-      value: query,
+      values: queries,
       abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
     })
 
-    const distance = cosineDistance(documentChunksTable.embedding, embedding)
-    const rows = await db
-      .select({
-        documentId: documentChunksTable.documentId,
-        content: documentChunksTable.content,
-        similarity: sql<number>`1 - (${distance})`.mapWith(Number)
+    const perGoal = await Promise.all(
+      embeddings.map(embedding => {
+        const distance = cosineDistance(documentChunksTable.embedding, embedding)
+        return db
+          .select({
+            id: documentChunksTable.id,
+            documentId: documentChunksTable.documentId,
+            content: documentChunksTable.content,
+            similarity: sql<number>`1 - (${distance})`.mapWith(Number)
+          })
+          .from(documentChunksTable)
+          .where(
+            and(
+              eq(documentChunksTable.accountId, ctx.account.id),
+              inArray(
+                documentChunksTable.documentId,
+                docs.map(d => d.id)
+              ),
+              eq(documentChunksTable.embeddingModel, handle.modelId)
+            )
+          )
+          .orderBy(asc(distance))
+          .limit(limit)
       })
-      .from(documentChunksTable)
-      .where(
-        and(
-          eq(documentChunksTable.accountId, ctx.account.id),
-          inArray(
-            documentChunksTable.documentId,
-            docs.map(d => d.id)
-          ),
-          eq(documentChunksTable.embeddingModel, handle.modelId)
-        )
-      )
-      .orderBy(asc(distance))
-      .limit(limit)
+    )
 
-    return rows.filter(row => row.similarity >= minSimilarity)
+    // Each goal's best passages in turn, so one goal cannot crowd out another;
+    // a passage two goals found is kept once.
+    const seen = new Set<string>()
+    const passages: KnowledgePassage[] = []
+    for (const row of interleave(perGoal)) {
+      if (row.similarity < minSimilarity || seen.has(row.id)) continue
+      seen.add(row.id)
+      passages.push({
+        documentId: row.documentId,
+        content: row.content,
+        similarity: row.similarity
+      })
+    }
+    return passages.slice(0, limit)
   } catch (err) {
     console.warn(
       'Knowledge retrieval failed, continuing without passages:',

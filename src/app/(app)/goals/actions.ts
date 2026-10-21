@@ -94,9 +94,12 @@ async function assertTitleIsNew(
 
 const GoalIdSchema = idSchema('Invalid goal identifier')
 
-function revalidateGoals(accountId: string) {
-  revalidatePath(`${IDENTITY_PATH}/goals`)
-  revalidatePath(IDENTITY_PATH)
+function revalidateGoals() {
+  revalidatePath('/goals')
+  // Run pickers list the active goals; the dashboard checks there is one.
+  revalidatePath('/runs')
+  revalidatePath(`${IDENTITY_PATH}/runs`)
+  revalidatePath('/schedule')
   revalidatePath('/')
 }
 
@@ -127,7 +130,7 @@ export async function createGoal(
     isActive: options?.active ?? true
   })
 
-  revalidateGoals(accountId)
+  revalidateGoals()
   return { success: true }
 }
 
@@ -150,7 +153,7 @@ export async function updateGoal(
     .set({ ...toGoalColumns(payload), updatedAt: new Date() })
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
 
-  revalidateGoals(accountId)
+  revalidateGoals()
   return { success: true }
 }
 
@@ -214,7 +217,7 @@ export async function toggleGoalActive(
     .set({ isActive, updatedAt: new Date() })
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
 
-  revalidateGoals(accountId)
+  revalidateGoals()
   return { success: true }
 }
 
@@ -227,6 +230,6 @@ export async function deleteGoal(rawGoalId: string, rawAccountId: string) {
     .delete(goalsTable)
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
 
-  revalidateGoals(accountId)
+  revalidateGoals()
   return { success: true }
 }

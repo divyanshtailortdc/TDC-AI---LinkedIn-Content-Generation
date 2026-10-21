@@ -1,4 +1,4 @@
-import type { GoalPayload } from '@/app/(app)/identity/goals/actions'
+import type { GoalPayload } from '@/app/(app)/goals/actions'
 import { z } from 'zod'
 import { GOAL_OBJECTIVES } from '../profile-setup/schema'
 
@@ -27,7 +27,7 @@ export const GoalSuggestionsModelSchema = z.object({
       basedOn: z
         .string()
         .describe(
-          'The offering, audience or pillar from the profile it builds on.'
+          'The offering or audience from the profile it builds on.'
         )
     })
   )

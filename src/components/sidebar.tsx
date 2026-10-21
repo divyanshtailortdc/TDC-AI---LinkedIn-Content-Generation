@@ -4,18 +4,22 @@ import { useMobileNav } from '@/components/mobile-nav'
 import { UserMenu } from '@/components/user-menu'
 import logoDark from '@/img/tdccommercelogo-dark.webp'
 import logoLight from '@/img/tdccommercelogo.webp'
+import { BRAND_THEME_PATH } from '@/lib/brand/theme'
 import { cn } from '@/lib/cn'
 import { IDENTITY_PATH } from '@/lib/identity-path'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   FileText,
   LayoutDashboard,
   Lightbulb,
+  Palette,
   Play,
   Plus,
   Settings,
+  Target,
   X
 } from 'lucide-react'
 import Image from 'next/image'
@@ -23,10 +27,14 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 
+// In the order work moves: what to achieve, the ideas and posts it produces,
+// then when each post goes out.
 const primaryNavItems = [
+  { href: '/goals', label: 'Goals', icon: Target },
   { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
   { href: '/runs', label: 'Run Details', icon: Play },
-  { href: '/posts', label: 'Posts', icon: FileText }
+  { href: '/posts', label: 'Posts', icon: FileText },
+  { href: '/schedule', label: 'Schedule', icon: CalendarDays }
 ]
 
 /** Heading above a group of nav links; a thin divider in the collapsed rail. */
@@ -314,6 +322,15 @@ export function Sidebar({
             active={pathname.startsWith(IDENTITY_PATH)}
             collapsed={collapsed}
           />
+          {hasIdentity && (
+            <NavLink
+              href={BRAND_THEME_PATH}
+              label="Brand Theme"
+              icon={Palette}
+              active={pathname.startsWith(BRAND_THEME_PATH)}
+              collapsed={collapsed}
+            />
+          )}
         </nav>
 
         <div

@@ -84,16 +84,30 @@ export function isRecent(
   return age >= -DAY_MS && age <= (days + 1) * DAY_MS
 }
 
+/** Longest key message used as a search subject, in words. */
+const SUBJECT_WORDS = 12
+
+/** A key message as a search subject: its first sentence, cut to a few words. */
+function asSubject(text: string): string {
+  const sentence = text.trim().split(/(?<=[.!?;:])\s/)[0] ?? ''
+  return sentence
+    .replace(/[.!?;:]+$/, '')
+    .split(/\s+/)
+    .slice(0, SUBJECT_WORDS)
+    .join(' ')
+}
+
 /**
  * Search queries for fixed research, each anchored to the account so results
- * are about this brand or its field. Previously the queries were the goal's
- * sentence and bare pillar names ("Innovation", "Brand trust"), which brought
- * back marketing advice any account could have been shown.
+ * are about this brand or its field. Bare subjects on their own ("Innovation",
+ * "Brand trust") brought back marketing advice any account could have been
+ * shown.
  *
- * Subjects are the pillars' first topics, heaviest pillar first, then the goal
- * and the audience's pains. Queries alternate between the brand (its own
- * developments) and its industry (new subjects around it), and name the
- * readers' country when there is one.
+ * Subjects come from the goals picked for the run, and from no other goal:
+ * every goal's title first, then their key messages, so even a few searches
+ * cover each goal; then the audience's pains. Queries alternate between the
+ * brand (its own developments) and its industry (new subjects around it), and
+ * name the readers' country when there is one.
  */
 export function buildSearchQueries(
   ctx: GenerationContext,
@@ -108,10 +122,11 @@ export function buildSearchQueries(
   const anchors = [brand, field].filter(Boolean)
   if (anchors.length === 0) anchors.push((a.headline || a.name).trim())
 
-  const subjects = [...ctx.prefs.pillars]
-    .sort((x, y) => (y.weight_pct || 0) - (x.weight_pct || 0))
-    .map(p => (p.example_topics || []).find(t => t.trim()) || p.name)
-  if (ctx.primaryGoal?.title) subjects.push(ctx.primaryGoal.title)
+  const goals = ctx.selectedGoals
+  const subjects = [
+    ...goals.map(g => g.title.trim()),
+    ...goals.map(g => (g.keyMessage ? asSubject(g.keyMessage) : ''))
+  ].filter(Boolean)
   for (const audience of ctx.audiences) {
     const pain = (audience.painPoints || [])[0]
     if (pain) subjects.push(pain)

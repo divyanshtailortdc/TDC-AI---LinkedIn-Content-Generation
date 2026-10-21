@@ -11,20 +11,22 @@ import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { processRunImmediately } from '~/jobs/worker'
 
 /**
- * Triggers a run for the signed-in user's identity, resolved here rather than
- * taken from the client.
+ * Starts a run for the signed-in user's identity (resolved here rather than
+ * taken from the client) serving the goals picked for it. Refused while the
+ * identity already has a run in progress.
  */
-export async function triggerNewRun(goalId?: string | null) {
+export async function triggerNewRun(goalIds: string[]) {
   await requireUser()
   try {
     const accountId = await requireIdentityId()
-    if (goalId && !isUuid(goalId)) throw new Error('Goal not found')
+    // A server action's arguments come from the browser, whatever the types say.
+    if (!Array.isArray(goalIds) || !goalIds.every(isUuid)) {
+      throw new Error('Goal not found.')
+    }
 
-    // A run already in progress for this identity is returned instead of a
-    // new one, so a second tab or a repeated click opens that run.
     const { run } = await enqueueRun({
       accountId,
-      goalId: goalId || null,
+      goalIds,
       trigger: 'manual'
     })
 

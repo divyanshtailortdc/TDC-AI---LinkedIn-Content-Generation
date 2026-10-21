@@ -448,28 +448,6 @@ function isEmptyValue(value: unknown): boolean {
   return false
 }
 
-/** Largest-remainder rounding so the weights land on exactly 100. */
-export function normalizeWeights(weights: number[]): number[] {
-  if (weights.length === 0) return []
-  const positive = weights.map(w => (Number.isFinite(w) && w > 0 ? w : 0))
-  const total = positive.reduce((a, b) => a + b, 0)
-  const shares =
-    total > 0
-      ? positive.map(w => (w / total) * 100)
-      : positive.map(() => 100 / weights.length)
-  const floored = shares.map(Math.floor)
-  let remainder = 100 - floored.reduce((a, b) => a + b, 0)
-  const order = shares
-    .map((share, index) => ({ index, fraction: share - Math.floor(share) }))
-    .sort((a, b) => b.fraction - a.fraction)
-  for (const { index } of order) {
-    if (remainder <= 0) break
-    floored[index] = (floored[index] ?? 0) + 1
-    remainder--
-  }
-  return floored
-}
-
 /**
  * Validates raw model output field by field and applies the honesty rules:
  *
@@ -917,37 +895,6 @@ export function sanitizeIdentitySetup(
     new Set([...modelMissing, ...notes].map(note => note.slice(0, 300)))
   ).slice(0, 15)
 
-  // Pillars: always recommendations, weights normalized to 100.
-  const prefsRaw = asRecord(root.preferences)
-  const pillarsRaw = asArray(prefsRaw?.pillars)
-    .map(asRecord)
-    .filter((p): p is Record<string, unknown> => Boolean(p && asString(p.name)))
-    .slice(0, 6)
-  if (pillarsRaw.length > 0) {
-    const weights = normalizeWeights(pillarsRaw.map(p => Number(p.weightPct)))
-    const pillars = pillarsRaw.map((p, index) => ({
-      name: asString(p.name).slice(0, 120),
-      weight_pct: weights[index] ?? 0,
-      example_topics: readListValue(p.topics).slice(0, 10)
-    }))
-    const parsed = PreferencesSuggestionsSchema.shape.pillars.safeParse({
-      value: pillars,
-      kind: 'recommendation',
-      confidence: 'medium'
-    })
-    if (parsed.success) {
-      preferences.pillars = parsed.data
-    } else {
-      warnings.push('Preferences → Content pillars: ignored an invalid value.')
-    }
-  } else if (
-    prefsRaw &&
-    prefsRaw.pillars !== undefined &&
-    !Array.isArray(prefsRaw.pillars)
-  ) {
-    warnings.push('Preferences → Content pillars: ignored an invalid value.')
-  }
-
   // Knowledge
   const knowledgeRaw = asRecord(root.knowledge)
   const suggestedAdditions = readListValue(knowledgeRaw?.suggestedAdditions)
@@ -1118,9 +1065,6 @@ function splitEntries(text: string): string[] {
   ).slice(0, 15)
 }
 
-/** The most content pillars a setup may have (see PreferencesSuggestionsSchema). */
-const MAX_PILLARS = 6
-
 const GUIDED_SCHEMAS = {
   profile: ProfileSuggestionsSchema,
   voice: VoiceSuggestionsSchema,
@@ -1251,41 +1195,6 @@ export function applyGuidance(
           new Set([...kept, ...(next.preferences.bannedTopics?.value ?? [])])
         ).slice(0, 15)
       )
-    }
-  }
-
-  // Topics they chose to focus on are pillars. A topic no pillar covers is
-  // added as a pillar of its own with an equal share, up to the six allowed.
-  if (guidance.focusTopics) {
-    const pillars = [...(next.preferences.pillars?.value ?? [])]
-    const covered = (topic: string) =>
-      pillars.some(p => backedBy([p.name, ...p.example_topics].join('\n'))(topic))
-    const added: string[] = []
-    for (const topic of splitEntries(guidance.focusTopics)) {
-      if (covered(topic)) continue
-      if (pillars.length >= MAX_PILLARS) {
-        warnings.push(
-          `${SECTION_LABELS.preferences} → ${fieldLabel('preferences', 'pillars')}: your focus topic "${topic.slice(0, 60)}" was not added; there are already ${MAX_PILLARS} pillars.`
-        )
-        continue
-      }
-      const name = topic.slice(0, 120)
-      pillars.push({ name, weight_pct: 0, example_topics: [] })
-      added.push(name)
-    }
-    if (added.length > 0) {
-      const share = 100 / pillars.length
-      const weights = normalizeWeights(
-        pillars.map(p => (added.includes(p.name) ? share : p.weight_pct))
-      )
-      const value = pillars.map((p, i) => ({ ...p, weight_pct: weights[i]! }))
-      const item = { value, kind: 'recommendation' as const, confidence: 'medium' as const }
-      if (PreferencesSuggestionsSchema.shape.pillars.safeParse(item).success) {
-        next.preferences.pillars = item
-        warnings.push(
-          `${SECTION_LABELS.preferences} → ${fieldLabel('preferences', 'pillars')}: added your focus topic${added.length === 1 ? '' : 's'} ${added.map(t => `"${t}"`).join(', ')}, which the AI's pillars did not cover.`
-        )
-      }
     }
   }
 

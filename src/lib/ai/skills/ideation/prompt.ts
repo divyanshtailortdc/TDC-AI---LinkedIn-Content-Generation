@@ -2,7 +2,7 @@ import { isGenericPage } from '@/lib/urls'
 import {
   audienceSegments,
   renderAudienceSegmentsBlock,
-  renderGoalBlock,
+  renderGoalsBlock,
   renderGuardrailsBlock,
   renderIdentityBlock,
   renderVoiceBlock,
@@ -72,26 +72,12 @@ export function renderCorpusForPrompt(
 
 /** Who the ideas are for and the rules they must follow; the same all run. */
 export function buildInstructions(ctx: GenerationContext): string {
-  const pillarBrief =
-    ctx.prefs.pillars.length > 0
-      ? ctx.prefs.pillars
-          .map(
-            p =>
-              `- ${p.name} (${p.weight_pct}% of output)${
-                (p.example_topics || []).length > 0
-                  ? `\n    Example topics: ${(p.example_topics || []).join(', ')}`
-                  : ''
-              }`
-          )
-          .join('\n')
-      : 'No pillars configured — infer sensible themes from the identity and goal.'
-
   const guardrails = renderGuardrailsBlock(ctx)
   const region = inferRegion(ctx)
 
   return `You are a senior editorial strategist who plans LinkedIn content for one specific person or company.
 
-Every fact you use must be true of THIS account and traceable to THIS evidence or the account details below; you have no knowledge of this business beyond them. Topics are a different matter: the account details say who is speaking, not what to talk about. Find subjects in the evidence (the research is there to bring in subjects the profile does not mention) and in what these readers are dealing with, rather than restating the account's description.
+Every fact you use must be true of THIS account and traceable to THIS evidence or the account details below; you have no knowledge of this business beyond them. Topics are a different matter: the goals below decide what this run is about, and the account details only say who is speaking. Find subjects that advance those goals in the evidence (the research was gathered for them) and in what these readers are dealing with, rather than restating the account's description.
 
 WHO YOU ARE WRITING FOR (context, not a list of topics)
 ${renderIdentityBlock(ctx)}
@@ -106,14 +92,11 @@ ${
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
 
-THE GOAL THIS RUN SERVES: every idea must move its reader toward this, not merely share its subject
-${renderGoalBlock(ctx.primaryGoal)}
+THE GOALS THIS RUN SERVES: these and no others. Write each idea for exactly one of them and give its label as goalRef. An idea must move its reader toward that goal's message, not merely share its subject.
+${renderGoalsBlock(ctx.selectedGoals)}
 
 HOW THIS AUTHOR SOUNDS
 ${renderVoiceBlock(ctx)}
-
-CONTENT PILLARS: each idea belongs to its assigned pillar, named exactly as here
-${pillarBrief}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 RULES THAT OVERRIDE EVERYTHING ELSE
@@ -125,7 +108,7 @@ RULES THAT OVERRIDE EVERYTHING ELSE
 5. Cite an evidence item only for what that item itself says. A homepage or index supports general facts about the brand, never a specific story, launch, date or figure.
 6. Be specific to this account (its field, its readers' situation, its market) without promoting it. A subject any company in any industry could post about is too generic; an idea that ends in "choose our product" is an advert. A product may appear only as an example the evidence covers, never as the conclusion.
 7. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".
-8. Evidence labels (E1, E2...) belong only in evidenceRef, and reader-group labels (A1, A2...) only in audienceRef. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.`
+8. Evidence labels (E1, E2...) belong only in evidenceRef, reader-group labels (A1, A2...) only in audienceRef, and goal labels (G1, G2...) only in goalRef. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.`
 }
 
 /** This run's evidence, history and the exact ideas to produce. */
@@ -134,8 +117,8 @@ export function buildPrompt(input: {
   /** Earlier work and the reviewer's verdicts, from renderIdeationHistoryBlock. */
   history: string
   candidateCount: number
-  /** One pillar name per idea, in order. */
-  assignedPillars: string[]
+  /** One goal label per idea, in order. */
+  assignedGoals: string[]
   hookMaxChars: number
   /** Today, for judging which evidence is recent; defaults to now. */
   today?: Date
@@ -157,20 +140,20 @@ ${anglesList}
 
 Produce exactly ${candidateCount} distinct post ideas.
 
-Assign pillars in this distribution (one per idea, in order): ${input.assignedPillars.join(' | ') || 'your own judgement'}
+Assign goals in this distribution (one per idea, in order): ${input.assignedGoals.join(' | ')}
 
 For each idea provide:
 - title: a specific, non-generic working title
 - thesis: the defensible proposition in one or two sentences
 - perspectiveAngle: the lens from the list above (each idea must use a different one)
 - angle: the distinctive point of view in a phrase
-- pillar: the assigned pillar, spelled exactly as listed
+- goalRef: the label of the goal assigned to this idea, e.g. "G1"
 - audienceRef: the label of the one reader group this idea is for, e.g. "A2"
 - format: the post format that fits best
 - whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"
 - hookConcept: the idea for the first ${input.hookMaxChars} characters, before the fold. A concept, not final copy.
 - coreArgument: the "so what", in full
-- audienceTakeaway: what that reader does or believes differently afterwards, moving them toward the goal
+- audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message
 - supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
 - mediaBrief: one sentence of visual direction for the image
 - noveltyNote: why this is not the generic take on the subject

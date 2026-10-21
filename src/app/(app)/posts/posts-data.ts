@@ -10,6 +10,7 @@ import {
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
+import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
 import { and, count, desc, eq, inArray, type SQL } from 'drizzle-orm'
 import type { PostDetail } from './posts-client'
@@ -81,7 +82,7 @@ export async function loadPostsPage(
   )
   const draftIds = draftsRaw.map((d) => d.id)
 
-  const [allVariants, allCitationCounts, allMedia] = await Promise.all([
+  const [allVariants, allCitationCounts, allMedia, failedMedia] = await Promise.all([
     draftIds.length > 0
       ? db
           .select()
@@ -122,6 +123,22 @@ export async function loadPostsPage(
             )
           )
           .orderBy(desc(postMediaTable.version), desc(postMediaTable.createdAt))
+      : Promise.resolve([]),
+    // An image drafting tried and failed to make: the review says why.
+    draftIds.length > 0
+      ? db
+          .select({
+            draftId: postMediaTable.draftId,
+            metadata: postMediaTable.metadata
+          })
+          .from(postMediaTable)
+          .where(
+            and(
+              inArray(postMediaTable.draftId, draftIds),
+              eq(postMediaTable.status, FAILED_MEDIA_STATUS)
+            )
+          )
+          .orderBy(desc(postMediaTable.createdAt))
       : Promise.resolve([])
   ])
 
@@ -134,6 +151,13 @@ export async function loadPostsPage(
   // Newest version first, so the first row seen for a draft is the one to show.
   const mediaByDraft = new Map<string, (typeof allMedia)[number]>()
   for (const m of allMedia) if (!mediaByDraft.has(m.draftId)) mediaByDraft.set(m.draftId, m)
+  const mediaFailureByDraft = new Map<string, string>()
+  for (const f of failedMedia) {
+    const error = (f.metadata as { error?: unknown } | null)?.error
+    if (typeof error === 'string' && !mediaFailureByDraft.has(f.draftId)) {
+      mediaFailureByDraft.set(f.draftId, error)
+    }
+  }
 
   const fullPosts: PostDetail[] = draftsRaw.map((draft) => {
     const variants = (variantsByDraft.get(draft.id) ?? []).map((v) => ({
@@ -183,9 +207,13 @@ export async function loadPostsPage(
             mediaBrief: (media.metadata as any)?.mediaBrief,
             providerRequestId: (media.metadata as any)?.providerRequestId,
             seed: (media.metadata as any)?.seed,
-            regenerationAttempt: media.regenerationAttempt || 0
+            regenerationAttempt: media.regenerationAttempt || 0,
+            hasLogo: Boolean((media.metadata as any)?.logo),
+            reviewChecked: Boolean((media.metadata as any)?.review?.checked),
+            usedReference: Boolean((media.metadata as any)?.usedReference)
           }
         : null,
+      mediaFailure: media ? null : (mediaFailureByDraft.get(draft.id) ?? null),
       lintFindings: (draft.lintFindings as any[]) || []
     }
   })

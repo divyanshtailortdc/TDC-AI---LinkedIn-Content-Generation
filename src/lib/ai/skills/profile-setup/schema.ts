@@ -138,24 +138,8 @@ export const GoalSuggestionsSchema = z.object({
   missing
 })
 
-/** Same shape as the ContentPillar stored in preferences.pillars. */
-export const PillarSuggestionSchema = z.object({
-  name: text(120),
-  weight_pct: z.number().int().min(0).max(100),
-  example_topics: z.array(z.string().trim().min(1).max(200)).max(10).default([])
-})
-
+/** What to write about comes from goals now; content pillars are gone. */
 export const PreferencesSuggestionsSchema = z.object({
-  pillars: suggested(
-    z
-      .array(PillarSuggestionSchema)
-      .min(1)
-      .max(6)
-      .refine(
-        pillars => pillars.reduce((sum, p) => sum + p.weight_pct, 0) === 100,
-        'Pillar weights must sum to 100'
-      )
-  ).optional(),
   bannedTopics: suggested(list).optional(),
   complianceNotes: suggested(text(1000)).optional(),
   missing
@@ -360,7 +344,6 @@ export function fieldLabel(
   field: string,
   accountType?: 'personal' | 'company'
 ): string {
-  if (field === 'pillars') return 'Content pillars'
   if (section === 'profile' && field === 'company' && accountType) {
     return accountType === 'company'
       ? 'Parent company / brand'
@@ -428,13 +411,6 @@ export const IdentitySetupModelSchema = z.object({
   }),
   preferences: z.object({
     fields: z.array(entrySchema('preferences')),
-    pillars: z.array(
-      z.object({
-        name: z.string(),
-        weightPct: z.number(),
-        topics: z.array(z.string())
-      })
-    ),
     missing: modelMissing
   }),
   knowledge: z.object({
@@ -539,7 +515,7 @@ const REQUIRED_FIELDS: Record<SetupSection, string[]> = {
   // Every voice setting has a default, so these two are what make it the user's.
   voice: ['tone', 'derivedStyleRubric'],
   goals: ['title', 'keyMessage'],
-  preferences: ['pillars'],
+  preferences: [],
   knowledge: []
 }
 

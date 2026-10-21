@@ -24,7 +24,7 @@ export class GoalSuggestionError extends Error {
 }
 
 /**
- * Skill: the account's saved profile (offerings, audience, pillars) in, a few
+ * Skill: the account's saved profile (offerings, audience) in, a few
  * goals out. Nothing is written: the user picks one, it fills the New Goal
  * form, and only Save creates it.
  */
@@ -54,7 +54,6 @@ export async function suggestGoals(
     instructions: INSTRUCTIONS,
     prompt: buildPrompt({
       profile: `${renderIdentityBlock(ctx)}\n\n${renderAudienceBlock(ctx)}`,
-      pillars: ctx.prefs.pillars.map(p => p.name).filter(Boolean),
       existingGoals,
       allowedUrls: [...allowedUrls.values()]
     }),

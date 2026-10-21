@@ -1,46 +1,92 @@
-import crypto from 'crypto'
 import { generateImage } from 'ai'
+import crypto from 'crypto'
 import { env } from '~/env'
 import { gatewayClient } from '~/lib/ai'
-import {
-  addUsage,
-  EMPTY_USAGE,
-  readImageCost,
-  type CallUsage
-} from '~/lib/ai/usage'
-import { guardMediaBrief } from '~/lib/ai/skills/media-brief/guard'
+import type { ImageReviewVerdict } from '~/lib/ai/skills/image-review'
+import { reviewImage } from '~/lib/ai/skills/image-review'
+import { retryInstructions } from '~/lib/ai/skills/image-review/guard'
 import {
   deriveMediaBrief,
-  type BriefGuardResult,
-  type EvidenceSource,
   type MediaBrief,
+  type PriorVisual,
   type VisualType
 } from '~/lib/ai/skills/media-brief'
+import { addUsage, readImageCost, type CallUsage } from '~/lib/ai/usage'
+import {
+  imagePromptSuffix,
+  referenceImageInstruction
+} from '~/lib/brand/prompt'
+import {
+  brandColors,
+  cornerWords,
+  LOGO_PLACEMENT,
+  logoBox,
+  logoClearSpaceInstruction,
+  type LogoPlacement
+} from '~/lib/brand/theme'
+import type { BrandRendering } from './brand-assets'
+import {
+  compositeLogo,
+  downscaleForReview,
+  fitToSize,
+  imageSize,
+  prepareReferenceImage,
+  toDataUrl
+} from './brand-logo'
+import type { MediaBriefContext } from './brief-context'
+import { describeImageFailure, isAccountFailure } from './image-errors'
+
+export { describeImageFailure }
 
 export interface MediaPlanRequest {
   mode: 'ai_generated' | 'stock' | 'none'
-  brief?: string | null
-  topic?: string | null
-  hook?: string | null
-  postText?: string | null
-  coreArgument?: string | null
-  thesis?: string | null
-  evidence?: EvidenceSource[]
+  postText: string
+  /** Goal, idea, knowledge, offerings, audience and brand, from buildMediaBriefContext. */
+  context: MediaBriefContext
+  /** The brand colours, and the logo file when one was uploaded. */
+  brand: BrandRendering
   aspectRatio?: '1:1' | '16:9' | '4:5'
-  imagePrompt?: string | null
-  /** The account's configured house style for generated images. */
-  styleGuidance?: string
-  accountName?: string
-  /** Who posts and who sees it, from renderMediaContext. */
-  accountContext?: string
+  /** Visual direction: the reviewer's words, or the approved idea's. */
+  direction?: string
+  /** Earlier images for this post, newest first. */
+  previousVersions?: PriorVisual[]
+  rejectionReason?: string
+  /** Stock only: images already used, so a search returns something new. */
+  excludeUrls?: string[]
+  attempt?: number
+  seed?: number
+  /**
+   * An image the reviewer attached: the new image takes its composition and
+   * style, the post's subject and the brand's colours. AI images only.
+   */
+  referenceImage?: Buffer
+  /** Stops the model calls; the caller checks it before saving anything. */
+  abortSignal?: AbortSignal
+}
+
+export interface MediaLogoInfo {
+  placement: LogoPlacement
+  plate: 'none' | 'light' | 'dark'
+}
+
+export interface MediaReviewInfo {
+  /** False when the vision check could not run; the image is then unchecked. */
+  checked: boolean
+  passed: boolean
+  summary?: string
+  /** Images generated to get here: 2 when the first one failed the check. */
+  images: number
 }
 
 export interface MediaPlanResult {
   mode: 'ai_generated' | 'stock' | 'none'
   imageUrl?: string
+  /** The generated image before the logo went on; only when a logo did. */
+  baseImageUrl?: string
   altText?: string
   promptOrQuery?: string
   sourcePageUrl?: string
+  /** Always false now: an AI request no longer falls back to stock. Kept for old rows. */
   fallbackApplied?: boolean
   mediaBrief?: MediaBrief
   visualType?: VisualType
@@ -48,22 +94,28 @@ export interface MediaPlanResult {
   relevanceExplanation?: string
   alignedConcepts?: string[]
   textOverlay?: MediaBrief['textOverlay']
-  /** Problems the guard found with the brief, surfaced in the review UI. */
+  /** Problems found with the brief or the image, surfaced in the review UI. */
   issues?: string[]
-  /** Set when no image could be produced, so the run step can say why. */
+  /** Set when no image could be produced, so the reviewer and the run step can say why. */
   error?: string
-  /** Model calls behind this plan: the brief, its retry, and every image attempt. */
+  /** Model calls behind this plan: the brief, its retry, every image and review. */
   usage?: CallUsage
-  /** Image attempts made, including ones discarded for returning the wrong size. */
+  /** Image attempts made, including ones discarded for the wrong shape. */
   imageAttempts?: number
+  modelId?: string
+  width?: number
+  height?: number
+  seed?: number
+  logo?: MediaLogoInfo | null
+  review?: MediaReviewInfo
+  /** True when an attached reference image guided the composition and style. */
+  usedReference?: boolean
 }
 
 /**
- * Searches stock photography with the Serper Google Images API.
- *
- * When search is unavailable or finds nothing this returns no image and says
- * why. It used to fall back to a fixed set of technology and corporate photos,
- * which put a circuit board or a boardroom on posts from every field.
+ * Searches stock photography with the Serper Google Images API. Used only when
+ * stock was asked for: an AI request that fails says so rather than quietly
+ * attaching a photo nobody chose.
  */
 export async function searchStockImage(
   query: string,
@@ -81,7 +133,8 @@ export async function searchStockImage(
     return {
       mode: 'none',
       promptOrQuery: cleanQuery,
-      error: 'Stock image search is not configured. Add SERPER_API_KEY to enable it.'
+      error:
+        'Stock image search is not configured. Add SERPER_API_KEY to enable it.'
     }
   }
 
@@ -95,40 +148,55 @@ export async function searchStockImage(
       body: JSON.stringify({
         q: `${cleanQuery} minimal aesthetic high quality professional`,
         num: 10
-      })
+      }),
+      signal: AbortSignal.timeout(20_000)
     })
 
-    if (res.ok) {
-      const data = await res.json()
-      const images = data.images as Array<{
-        imageUrl?: string
-        link?: string
-        domain?: string
-        title?: string
-      }>
+    if (!res.ok) {
+      return {
+        mode: 'none',
+        promptOrQuery: cleanQuery,
+        error: `Stock image search failed (HTTP ${res.status}).`
+      }
+    }
+    const data = await res.json()
+    const images = data.images as Array<{
+      imageUrl?: string
+      link?: string
+      domain?: string
+      title?: string
+    }>
 
-      if (Array.isArray(images) && images.length > 0) {
-        const freshImages = images.filter(
-          img => img.imageUrl && !excludeUrls.some(u => img.imageUrl?.includes(u.split('?')[0] || '___'))
-        )
-        const pool = freshImages.length > 0 ? freshImages : images
-        const selectedImage = pool[attempt % pool.length] || pool[0]
-        if (selectedImage?.imageUrl) {
-          // Stored exactly as the provider gave it: many image hosts 404 a URL
-          // with query parameters they do not expect. The version and attempt
-          // live in the media plan's own fields.
-          return {
-            mode: 'stock',
-            imageUrl: selectedImage.imageUrl,
-            sourcePageUrl: selectedImage.link || selectedImage.domain,
-            altText: selectedImage.title || altText,
-            promptOrQuery: cleanQuery
-          }
+    if (Array.isArray(images) && images.length > 0) {
+      const freshImages = images.filter(
+        img =>
+          img.imageUrl &&
+          !excludeUrls.some(u =>
+            img.imageUrl?.includes(u.split('?')[0] || '___')
+          )
+      )
+      const pool = freshImages.length > 0 ? freshImages : images
+      const selectedImage = pool[attempt % pool.length] || pool[0]
+      if (selectedImage?.imageUrl) {
+        // Stored exactly as the provider gave it: many image hosts 404 a URL
+        // with query parameters they do not expect. The version and attempt
+        // live in the media plan's own fields.
+        return {
+          mode: 'stock',
+          imageUrl: selectedImage.imageUrl,
+          sourcePageUrl: selectedImage.link || selectedImage.domain,
+          altText: selectedImage.title || altText,
+          promptOrQuery: cleanQuery
         }
       }
     }
   } catch (err) {
     console.warn('Serper images search error:', err)
+    return {
+      mode: 'none',
+      promptOrQuery: cleanQuery,
+      error: 'Stock image search could not be reached. Try again.'
+    }
   }
 
   return {
@@ -147,23 +215,13 @@ export async function searchStockImage(
  * request like 2400x1256 is silently rounded to 2400x1248 and loses the ratio.
  */
 export const LINKEDIN_IMAGE = { width: 2048, height: 1072 } as const
-const LINKEDIN_IMAGE_SIZE =
-  `${LINKEDIN_IMAGE.width}x${LINKEDIN_IMAGE.height}` as const
 
-/**
- * True when decoded dimensions are exactly the LinkedIn size.
- *
- * Checked on the returned bytes rather than trusted from the request: models
- * silently return something else when asked (kontext downscales to 1024,
- * flux-pro-1.1-ultra ignores size and returns 2816x1472), so asking is not
- * the same as getting.
- */
 /**
  * Concrete pixel sizes per configured aspect ratio.
  *
  * `aspectRatio` is silently ignored by the flux models, so `size` is the only
- * control that works — the same lesson generateCustomImage already encodes.
- * Every dimension is a multiple of 16 or the model rounds it and loses the ratio.
+ * control that works. Every dimension is a multiple of 16 or the model rounds
+ * it and loses the ratio.
  */
 const ASPECT_SIZES = {
   '16:9': { width: 2048, height: 1072 },
@@ -171,9 +229,10 @@ const ASPECT_SIZES = {
   '4:5': { width: 1152, height: 1440 }
 } as const
 
-export function sizeForAspectRatio(
-  aspectRatio?: '1:1' | '16:9' | '4:5'
-): { width: number; height: number } {
+export function sizeForAspectRatio(aspectRatio?: '1:1' | '16:9' | '4:5'): {
+  width: number
+  height: number
+} {
   return ASPECT_SIZES[aspectRatio || '16:9']
 }
 
@@ -188,18 +247,28 @@ export function isLinkedInImageSize(dimensions: {
 }
 
 /**
- * Models verified to return exactly 2048x1072 through the gateway.
- *
- * `aspectRatio` is silently ignored by these models, so `size` is the only
- * control that works.
+ * Models verified to return 2048x1072 through the gateway, best first. The
+ * gateway warns that `size` becomes an aspect ratio for these; the bytes are
+ * measured and fitted either way (see fitToSize).
  */
-const TEXT_TO_IMAGE_MODELS = ['bfl/flux-2-pro', 'bfl/flux-2-max', 'bfl/flux-2-flex']
+const TEXT_TO_IMAGE_MODELS = [
+  'bfl/flux-2-pro',
+  'bfl/flux-2-flex',
+  'bfl/flux-2-max'
+]
 
 /**
  * Reference-guided editing, restricted to models verified to hold 2048x1072 with
  * a reference attached — including square references reframed to landscape.
  */
-const IMAGE_EDIT_MODELS = ['bfl/flux-2-pro', 'bfl/flux-2-max', 'bfl/flux-2-flex']
+const IMAGE_EDIT_MODELS = [
+  'bfl/flux-2-pro',
+  'bfl/flux-2-max',
+  'bfl/flux-2-flex'
+]
+
+/** One image call; a provider that hangs must not hold a reviewer's screen for minutes. */
+const IMAGE_CALL_TIMEOUT_MS = 120_000
 
 /**
  * Reads pixel dimensions straight from encoded image bytes.
@@ -272,106 +341,549 @@ export function readImageDimensions(
   return null
 }
 
+/** Thrown when generation is cancelled through `abortSignal`, so callers can skip saving. */
+export class ImageGenerationAbortedError extends Error {
+  constructor() {
+    super('Image generation was stopped.')
+    this.name = 'ImageGenerationAbortedError'
+  }
+}
+
+/** No model produced a usable image; the message says why in plain words. */
+export class ImageGenerationError extends Error {
+  constructor(
+    message: string,
+    readonly attempts: number
+  ) {
+    super(message)
+    this.name = 'ImageGenerationError'
+  }
+}
+
+const randomSeed = () => crypto.randomInt(1, 1_000_000)
+
+interface RenderedImage {
+  buffer: Buffer
+  mediaType: string
+  modelId: string
+  width: number
+  height: number
+  seed: number
+  attempts: number
+}
+
 /**
- * Generates an image from the brief's prompt through the AI Gateway, falling
- * back to a stock search for the brief's concept when no model delivers.
+ * One image from the gateway, trying each model in turn, at exactly `target`.
+ * Throws ImageGenerationError with the reasons when none delivers.
  */
-export async function generateAIImage(
-  req: MediaPlanRequest & {
-    excludeUrls?: string[]
-    attempt?: number
-    seed?: number
+async function renderImage(req: {
+  prompt: string
+  /** Reference images switch to the edit models. */
+  references?: Array<string | Buffer>
+  target: { width: number; height: number }
+  seed: number
+  abortSignal?: AbortSignal
+  /** Called with each billed call as soon as it is known. */
+  onUsage: (usage: CallUsage) => void
+}): Promise<RenderedImage> {
+  if (!gatewayClient || !env.AI_GATEWAY_API_KEY) {
+    throw new ImageGenerationError(
+      'Image generation is not configured. Add AI_GATEWAY_API_KEY to enable it.',
+      0
+    )
   }
-): Promise<MediaPlanResult> {
-  const prompt = req.imagePrompt?.trim()
-  if (!prompt) {
-    return { mode: 'none', error: 'No image prompt was written for this post.' }
-  }
-  const query = req.brief || req.topic || req.hook || ''
-  const attempt = req.attempt || 0
-  const seed = req.seed ?? Math.floor(Math.random() * 1_000_000)
-  const target = sizeForAspectRatio(req.aspectRatio)
-  const size = `${target.width}x${target.height}` as const
+  const references = req.references?.length ? req.references : undefined
+  const models = references ? IMAGE_EDIT_MODELS : TEXT_TO_IMAGE_MODELS
+  const size = `${req.target.width}x${req.target.height}` as const
+  const failures: string[] = []
+  let attempts = 0
 
-  // Every attempt is billed, including images discarded below for the wrong size.
-  let usage: CallUsage = EMPTY_USAGE
-  let imageAttempts = 0
-
-  if (gatewayClient && env.AI_GATEWAY_API_KEY) {
-    for (const modelId of TEXT_TO_IMAGE_MODELS) {
-      try {
-        imageAttempts++
-        const result = await generateImage({
-          model: gatewayClient.imageModel(modelId),
-          prompt,
-          size,
-          seed
-        })
-
-        usage = addUsage(usage, readImageCost(result))
-
-        const first = result.images?.[0]
-        if (!first?.base64) continue
-
-        // Verify the bytes rather than trusting the request: these models
-        // silently return a different size when they feel like it.
-        const dimensions = readImageDimensions(Buffer.from(first.base64, 'base64'))
-        if (
-          dimensions &&
-          (dimensions.width !== target.width || dimensions.height !== target.height)
-        ) {
-          console.warn(
-            `Discarding "${modelId}" result: got ${dimensions.width}x${dimensions.height}, need ${size}.`
+  for (const modelId of models) {
+    if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
+    attempts++
+    try {
+      const result = await generateImage({
+        model: gatewayClient.imageModel(modelId),
+        prompt: references
+          ? { text: req.prompt, images: references }
+          : req.prompt,
+        size,
+        seed: req.seed,
+        maxRetries: 1,
+        abortSignal: AbortSignal.any(
+          [AbortSignal.timeout(IMAGE_CALL_TIMEOUT_MS), req.abortSignal].filter(
+            (s): s is AbortSignal => Boolean(s)
           )
-          continue
-        }
-
-        const mediaType = first.mediaType || 'image/png'
-        return {
-          mode: 'ai_generated',
-          imageUrl: `data:${mediaType};base64,${first.base64}`,
-          // The caller supplies alt text written from the brief, which
-          // describes the actual composition far better than the query does.
-          altText: `Illustration for: ${query}`,
-          promptOrQuery: prompt,
-          usage,
-          imageAttempts
-        }
-      } catch (err: any) {
-        console.warn(
-          `AI image generation failed on "${modelId}":`,
-          err?.message || err
         )
+      })
+      req.onUsage(readImageCost(result))
+
+      const first = result.images?.[0]
+      if (!first?.base64) {
+        failures.push(`${modelId} returned no image`)
+        continue
       }
+      // Measured rather than trusted: these models sometimes return another size.
+      const fitted = await fitToSize(
+        Buffer.from(first.base64, 'base64'),
+        req.target
+      )
+      if (!fitted) {
+        failures.push(`${modelId} returned an image of the wrong shape`)
+        continue
+      }
+      return {
+        buffer: fitted.buffer,
+        mediaType: fitted.resized
+          ? 'image/jpeg'
+          : first.mediaType || 'image/png',
+        modelId,
+        width: fitted.width,
+        height: fitted.height,
+        seed: req.seed,
+        attempts
+      }
+    } catch (err) {
+      // The gateway surfaces an abort as a GatewayResponseError, not an AbortError,
+      // so check the signal itself. Falling through would start the next model.
+      if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
+      const reason = describeImageFailure(err)
+      console.warn(`Image generation failed on "${modelId}":`, reason)
+      failures.push(reason)
+      if (isAccountFailure(err)) break
     }
   }
 
-  // Falling back to stock. Report it as stock — labelling a stock photo
-  // "ai_generated" made the review UI and the run log both lie about it.
-  console.info('AI image generation unavailable; falling back to stock search.')
-  const stockResult = await searchStockImage(query, {
-    excludeUrls: req.excludeUrls,
-    attempt
-  })
+  const reasons = Array.from(new Set(failures))
+  throw new ImageGenerationError(
+    `Image generation failed: ${reasons.join('; ') || 'no image model is available'}.`,
+    attempts
+  )
+}
+
+interface LogoPlan {
+  cornerWords: string
+  clearSpace: string
+}
+
+/** Where the logo will sit, worked out before the image so its corner stays clear. */
+async function planLogo(
+  brand: BrandRendering,
+  target: { width: number; height: number }
+): Promise<LogoPlan | null> {
+  if (!brand.logo) return null
+  const dimensions = await imageSize(brand.logo)
+  if (!dimensions) return null
+  const box = logoBox(target, dimensions, LOGO_PLACEMENT)
   return {
-    ...stockResult,
-    fallbackApplied: true,
-    promptOrQuery: prompt,
-    ...(stockResult.imageUrl
-      ? {}
-      : {
-          error: `No image model returned a usable image, and the stock fallback found none: ${stockResult.error}`
-        }),
-    usage,
-    imageAttempts
+    cornerWords: cornerWords(LOGO_PLACEMENT).replace('-', ' '),
+    clearSpace: logoClearSpaceInstruction(target, box, LOGO_PLACEMENT)
   }
+}
+
+/** Lays the logo over a finished image; the image is kept as-is if that fails. */
+async function applyLogo(
+  rendered: { buffer: Buffer; mediaType: string },
+  brand: BrandRendering
+): Promise<{
+  buffer: Buffer
+  mediaType: string
+  logo: MediaLogoInfo | null
+  baseImageUrl?: string
+  error?: string
+}> {
+  if (!brand.logo) return { ...rendered, logo: null }
+  try {
+    const composed = await compositeLogo(rendered.buffer, {
+      logo: brand.logo,
+      placement: LOGO_PLACEMENT
+    })
+    return {
+      buffer: composed.buffer,
+      mediaType: composed.mediaType,
+      logo: { placement: LOGO_PLACEMENT, plate: composed.plate },
+      baseImageUrl: toDataUrl(rendered.buffer, rendered.mediaType)
+    }
+  } catch (err) {
+    console.warn('Could not add the brand logo:', err)
+    return {
+      ...rendered,
+      logo: null,
+      error: 'The brand logo could not be added to this image.'
+    }
+  }
+}
+
+type BrandedImage = Awaited<ReturnType<typeof applyLogo>>
+
+interface ProducedImage {
+  rendered: RenderedImage
+  /** The image as published: with the logo laid over it when there is one. */
+  branded: BrandedImage
+  prompt: string
+  verdict: ImageReviewVerdict | null
+  reviewChecked: boolean
+  images: number
+  /** Every model call, including ones that returned nothing usable. */
+  attempts: number
+}
+
+/**
+ * Generates the image for a brief, lays the logo over it, and has a vision
+ * model check the result as it will be published. An image that fails the
+ * check (misspelt or stray lettering, a logo the model drew, the real logo
+ * covering the headline, drift from the post) is generated once more with the
+ * problems spelled out and a new seed; the better of the two is kept, and
+ * anything still wrong is reported rather than hidden.
+ */
+async function produceCheckedImage(opts: {
+  prompt: string
+  target: { width: number; height: number }
+  seed: number
+  postText: string
+  concept: string
+  headline: string
+  brandSummary?: string
+  brand: BrandRendering
+  /** "top left" and so on, when the logo goes on. */
+  logoCorner?: string
+  /** A reference image guiding composition and style, as the image model gets it. */
+  references?: Buffer[]
+  /** The same reference in colour, for the review to compare against. */
+  reviewReference?: Buffer
+  abortSignal?: AbortSignal
+  onUsage: (usage: CallUsage) => void
+}): Promise<ProducedImage> {
+  const tries: Array<{
+    rendered: RenderedImage
+    branded: BrandedImage
+    prompt: string
+    verdict: ImageReviewVerdict | null
+  }> = []
+  let attempts = 0
+  let prompt = opts.prompt
+
+  for (let pass = 0; pass < 2; pass++) {
+    let rendered: RenderedImage
+    try {
+      rendered = await renderImage({
+        prompt,
+        references: opts.references,
+        target: opts.target,
+        seed: pass === 0 ? opts.seed : randomSeed(),
+        abortSignal: opts.abortSignal,
+        onUsage: opts.onUsage
+      })
+    } catch (err) {
+      // A retry that fails leaves the first image standing; a stop does not.
+      if (tries.length > 0 && !(err instanceof ImageGenerationAbortedError))
+        break
+      throw err
+    }
+    attempts += rendered.attempts
+
+    const branded = await applyLogo(rendered, opts.brand)
+    const review = await reviewImage({
+      image: await downscaleForReview(branded.buffer),
+      mediaType: 'image/jpeg',
+      postText: opts.postText,
+      concept: opts.concept,
+      headline: opts.headline,
+      brand: opts.brandSummary,
+      logoCorner: branded.logo ? opts.logoCorner : undefined,
+      reference: opts.reviewReference
+        ? { data: opts.reviewReference, mediaType: 'image/jpeg' }
+        : undefined,
+      abortSignal: opts.abortSignal
+    })
+    opts.onUsage(review.usage)
+    tries.push({ rendered, branded, prompt, verdict: review.verdict })
+    if (!review.verdict || review.verdict.passed) break
+
+    const fixes = review.review
+      ? retryInstructions(review.review, {
+          headline: opts.headline,
+          logoCorner: opts.logoCorner
+        })
+      : ''
+    prompt = fixes ? `${opts.prompt}\n\n${fixes}` : opts.prompt
+  }
+
+  // Passing beats failing; then fewer problems; then the more relevant image.
+  const rank = (t: (typeof tries)[number]) =>
+    t.verdict
+      ? (t.verdict.passed ? 0 : 1000 + t.verdict.issues.length * 100) -
+        t.verdict.relevanceScore
+      : 500
+  const best = [...tries].sort((a, b) => rank(a) - rank(b))[0]!
+  return {
+    rendered: best.rendered,
+    branded: best.branded,
+    prompt: best.prompt,
+    verdict: best.verdict,
+    reviewChecked: best.verdict !== null,
+    images: tries.length,
+    attempts
+  }
+}
+
+/**
+ * Plans and makes the image for a post: the art director writes a brief from
+ * the post, its goal and idea, the facts behind it, the audience and the brand
+ * colours; the image model renders it with the brand rules appended; the real
+ * logo is laid over it; a vision check of the result catches bad lettering,
+ * drawn logos and a logo covering the headline.
+ *
+ * With a reference image, the art director looks at it and carries its
+ * composition and style into the brief, and the image model gets it too, in
+ * greyscale when the brand has colours so that only the brand's colours are
+ * left to use.
+ */
+export async function createMediaPlan(
+  req: MediaPlanRequest
+): Promise<MediaPlanResult> {
+  if (req.mode === 'none' || !req.mode) {
+    return { mode: 'none' }
+  }
+
+  const postText = req.postText.trim()
+  if (!postText) {
+    return { mode: 'none', error: 'No post content to illustrate.' }
+  }
+
+  const target = sizeForAspectRatio(req.aspectRatio)
+  const logoPlan =
+    req.mode === 'ai_generated' ? await planLogo(req.brand, target) : null
+
+  let reference: Awaited<ReturnType<typeof prepareReferenceImage>> | null =
+    null
+  if (req.mode === 'ai_generated' && req.referenceImage) {
+    try {
+      reference = await prepareReferenceImage(req.referenceImage)
+    } catch (err) {
+      return {
+        mode: 'none',
+        error:
+          err instanceof Error
+            ? err.message
+            : 'The reference image could not be read.'
+      }
+    }
+  }
+  const hasBrandColors = brandColors(req.brand.theme).length > 0
+
+  const derived = await deriveMediaBrief(
+    {
+      ...req.context,
+      postText,
+      aspectRatio: req.aspectRatio,
+      direction: req.direction,
+      previousVersions: req.previousVersions,
+      rejectionReason: req.rejectionReason,
+      logoCorner: logoPlan?.cornerWords,
+      referenceImage: reference
+        ? { data: reference.colour, mediaType: 'image/jpeg' }
+        : undefined
+    },
+    { abortSignal: req.abortSignal }
+  )
+
+  if (!derived.derived || !derived.guard) {
+    // Without a brief an image would be decoration at best; say so rather than
+    // attaching something unrelated.
+    return {
+      mode: 'none',
+      error:
+        derived.error || 'Could not design a visual concept for this post.',
+      usage: derived.usage
+    }
+  }
+
+  const { brief, imagePrompt, altText } = derived.derived
+  const guard = derived.guard
+  const described = {
+    mediaBrief: brief,
+    visualType: brief.visualType,
+    textOverlay: brief.textOverlay,
+    alignedConcepts: guard.alignedConcepts
+  }
+
+  if (req.mode === 'stock') {
+    const stock = await searchStockImage(
+      brief.primaryConcept || brief.postTopic,
+      {
+        excludeUrls: req.excludeUrls,
+        attempt: req.attempt
+      }
+    )
+    return {
+      ...stock,
+      ...described,
+      // A stock image is whatever the search returned, so its own caption is
+      // the honest description.
+      altText: stock.altText || altText,
+      relevanceScore: guard.relevanceScore,
+      relevanceExplanation: guard.explanation,
+      issues: guard.issues,
+      usage: derived.usage
+    }
+  }
+
+  const theme = req.brand.theme
+  const headline = brief.textOverlay.headline.trim()
+  const prompt = [
+    reference ? referenceImageInstruction(theme) : '',
+    imagePrompt.trim(),
+    imagePromptSuffix({
+      theme,
+      headline,
+      clearSpace: logoPlan?.clearSpace,
+      logoPlacement: logoPlan ? LOGO_PLACEMENT : undefined
+    })
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  let usage = derived.usage
+  const seed = req.seed ?? randomSeed()
+  let produced: ProducedImage
+  try {
+    produced = await produceCheckedImage({
+      prompt,
+      target,
+      seed,
+      postText,
+      concept: `${brief.primaryConcept} ${brief.visualMetaphor}`.trim(),
+      headline,
+      brandSummary: req.context.brand,
+      brand: req.brand,
+      logoCorner: logoPlan?.cornerWords,
+      references: reference
+        ? [hasBrandColors ? reference.greyscale : reference.colour]
+        : undefined,
+      reviewReference: reference?.colour,
+      abortSignal: req.abortSignal,
+      onUsage: u => {
+        usage = addUsage(usage, u)
+      }
+    })
+  } catch (err) {
+    return {
+      mode: 'none',
+      ...described,
+      promptOrQuery: prompt,
+      error:
+        err instanceof ImageGenerationError
+          ? err.message
+          : `Image generation failed: ${describeImageFailure(err)}.`,
+      imageAttempts: err instanceof ImageGenerationError ? err.attempts : 1,
+      usage
+    }
+  }
+
+  const branded = produced.branded
+  const verdict = produced.verdict
+  return {
+    mode: 'ai_generated',
+    imageUrl: toDataUrl(branded.buffer, branded.mediaType),
+    baseImageUrl: branded.baseImageUrl,
+    // The brief's alt text describes the composition it asked for.
+    altText,
+    promptOrQuery: produced.prompt,
+    fallbackApplied: false,
+    ...described,
+    relevanceScore: verdict?.relevanceScore ?? guard.relevanceScore,
+    relevanceExplanation: verdict?.summary || guard.explanation,
+    issues: [
+      ...guard.issues,
+      ...(verdict?.issues ?? []),
+      ...(branded.error ? [branded.error] : [])
+    ],
+    usage,
+    imageAttempts: produced.attempts,
+    modelId: produced.rendered.modelId,
+    width: produced.rendered.width,
+    height: produced.rendered.height,
+    seed: produced.rendered.seed,
+    logo: branded.logo,
+    review: {
+      checked: produced.reviewChecked,
+      passed: verdict?.passed ?? false,
+      summary: verdict?.summary,
+      images: produced.images
+    },
+    usedReference: Boolean(reference)
+  }
+}
+
+export interface RegenerateMediaPlanRequest extends Omit<
+  MediaPlanRequest,
+  'mode'
+> {
+  mode?: 'ai_generated' | 'stock'
+  /** A stock query the reviewer typed; searched exactly as written. */
+  searchQuery?: string
+  previousMediaId?: string
+  regenerationAttempt?: number
+  version?: number
+}
+
+export interface RegenerateMediaPlanResult extends MediaPlanResult {
+  version: number
+  regenerationAttempt: number
+  previousMediaId?: string
+  rejectionReason?: string
+  providerRequestId?: string
+}
+
+/**
+ * Produces a genuinely different visual: the brief sees every earlier image
+ * for the post, must pick a different visual form from the latest one, and
+ * the image gets a fresh seed.
+ */
+export async function regenerateMediaPlan(
+  req: RegenerateMediaPlanRequest
+): Promise<RegenerateMediaPlanResult> {
+  const attempt = (req.regenerationAttempt ?? 0) + 1
+  const version = (req.version ?? 0) + 1
+  const bookkeeping = {
+    version,
+    regenerationAttempt: attempt,
+    previousMediaId: req.previousMediaId,
+    rejectionReason: req.rejectionReason,
+    providerRequestId: crypto.randomUUID()
+  }
+
+  // The reviewer said what to search for, so search exactly that. A brief the
+  // model wrote would describe some other image than the one search returns.
+  if (req.mode === 'stock' && req.searchQuery?.trim()) {
+    const stock = await searchStockImage(req.searchQuery, {
+      excludeUrls: req.excludeUrls,
+      attempt
+    })
+    return { ...stock, ...bookkeeping }
+  }
+
+  const plan = await createMediaPlan({
+    ...req,
+    mode: req.mode || 'ai_generated',
+    attempt,
+    seed: randomSeed()
+  })
+  return { ...plan, ...bookkeeping }
 }
 
 export interface CustomImageRequest {
   /** Exactly what the user asked for, used verbatim as the generation prompt. */
   prompt: string
-  /** Optional reference images as data URLs or public http(s) URLs. Presence switches to edit mode. */
-  referenceImages?: string[]
+  /**
+   * "Use current image": one of the post's own images, as a data URL, before
+   * its logo went on. Its presence switches to edit mode. (A reference image
+   * the reviewer uploads goes through createMediaPlan instead.)
+   */
+  editImage?: string
+  /** The brand colours as a default, and the logo laid over the result. */
+  brand?: BrandRendering
   seed?: number
   /** Cancels the in-flight provider call; no further models are tried once it fires. */
   abortSignal?: AbortSignal
@@ -384,19 +896,13 @@ export interface CustomImageRequest {
   onUsage?: (usage: CallUsage) => void
 }
 
-/** Thrown when generation is cancelled through `abortSignal`, so callers can skip saving. */
-export class ImageGenerationAbortedError extends Error {
-  constructor() {
-    super('Image generation was stopped.')
-    this.name = 'ImageGenerationAbortedError'
-  }
-}
-
 export interface CustomImageResult {
   imageUrl: string
+  /** The image before the logo went on; only when a logo did. */
+  baseImageUrl?: string
   altText: string
   promptOrQuery: string
-  /** 'generate' from a prompt alone, 'edit' when reference images were supplied. */
+  /** 'generate' from a prompt alone, 'edit' when an image to edit was supplied. */
   workflow: 'generate' | 'edit'
   modelId: string
   /** Measured from the returned bytes, not the size that was requested. */
@@ -406,6 +912,7 @@ export interface CustomImageResult {
   bytes: number
   referenceImageCount: number
   seed: number
+  logo: MediaLogoInfo | null
 }
 
 /**
@@ -414,11 +921,15 @@ export interface CustomImageResult {
  *
  * The instruction is quoted rather than merged so a style request ("make it
  * watercolour") still wins — only elements the instruction does not mention are
- * pinned. Without this, edit models tend to redraw the whole scene.
+ * pinned. Without this, edit models tend to redraw the whole scene. They also
+ * took a quoted instruction for text to render: "create the image based on the
+ * post" became the image's headline, misspelt.
  */
 function buildEditPrompt(instruction: string): string {
   return [
     `Edit the provided reference image. Apply only this change: "${instruction}".`,
+    'That quoted instruction describes the change; it is not text to place in the image.',
+    'Add or change lettering only where the instruction gives the exact words in quotation marks.',
     'Keep every element the instruction does not mention exactly as it appears in the reference:',
     'composition, layout, proportions, colours, typography, lighting and background.',
     'Do not redraw, restyle or reinterpret unchanged areas, and reproduce any text you were',
@@ -434,14 +945,15 @@ function buildEditPrompt(instruction: string): string {
 /**
  * Two workflows over one entry point:
  *
- * - generate: a prompt alone produces a new HD image.
- * - edit: a prompt plus reference images modifies that image in place, preserving
- *   the original design (see buildEditPrompt).
+ * - generate: a prompt alone produces a new HD image, with the brand colours
+ *   as its default palette.
+ * - edit: a prompt plus the post's own image modifies that image in place,
+ *   preserving the original design (see buildEditPrompt).
  *
- * Unlike createMediaPlan/regenerateMediaPlan this skips media-brief derivation and
- * semantic validation — the user stated what they want, so the prompt is honoured
- * as written. It also never falls back to stock imagery: an unrelated stock photo
- * is not a useful answer to an explicit prompt, so failures surface as errors.
+ * Unlike createMediaPlan this skips the brief and the review — the user stated
+ * what they want, so the prompt is honoured as written. It never falls back to
+ * stock imagery: an unrelated stock photo is not a useful answer to an explicit
+ * prompt, so failures surface as errors. The logo is laid over either.
  */
 export async function generateCustomImage(
   req: CustomImageRequest
@@ -451,324 +963,58 @@ export async function generateCustomImage(
     throw new Error('Describe the image you want before generating.')
   }
 
-  if (!gatewayClient || !env.AI_GATEWAY_API_KEY) {
+  const references = req.editImage?.trim() ? [req.editImage] : []
+  const workflow: 'generate' | 'edit' =
+    references.length > 0 ? 'edit' : 'generate'
+  const seed = req.seed ?? randomSeed()
+  const target = LINKEDIN_IMAGE
+
+  let finalPrompt = workflow === 'edit' ? buildEditPrompt(prompt) : prompt
+  if (workflow === 'generate' && req.brand) {
+    const logoPlan = await planLogo(req.brand, target)
+    finalPrompt = `${prompt}\n\n${imagePromptSuffix({
+      theme: req.brand.theme,
+      clearSpace: logoPlan?.clearSpace,
+      userPrompt: true
+    })}`
+  }
+
+  let rendered: RenderedImage
+  try {
+    rendered = await renderImage({
+      prompt: finalPrompt,
+      references: workflow === 'edit' ? references : undefined,
+      target,
+      seed,
+      abortSignal: req.abortSignal,
+      onUsage: usage => req.onUsage?.(usage)
+    })
+  } catch (err) {
+    if (err instanceof ImageGenerationAbortedError) throw err
+    const reason = err instanceof Error ? err.message : 'the request failed'
     throw new Error(
-      'Image generation is not configured. Add AI_GATEWAY_API_KEY to enable it.'
+      workflow === 'edit'
+        ? `Could not edit the reference image. ${reason}`
+        : `Could not generate an image from your prompt. ${reason}`
     )
   }
 
-  const references = (req.referenceImages || []).filter(
-    (img): img is string => typeof img === 'string' && img.trim().length > 0
-  )
-  const workflow: 'generate' | 'edit' = references.length > 0 ? 'edit' : 'generate'
-  const models = workflow === 'edit' ? IMAGE_EDIT_MODELS : TEXT_TO_IMAGE_MODELS
-  const seed = req.seed ?? Math.floor(Math.random() * 1000000)
-
-  const finalPrompt = workflow === 'edit' ? buildEditPrompt(prompt) : prompt
-
-  let firstFailure: string | undefined
-
-  for (const modelId of models) {
-    if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
-
-    try {
-      const result = await generateImage({
-        model: gatewayClient.imageModel(modelId),
-        prompt:
-          workflow === 'edit'
-            ? { text: finalPrompt, images: references }
-            : finalPrompt,
-        size: LINKEDIN_IMAGE_SIZE,
-        seed,
-        abortSignal: req.abortSignal
-      })
-      req.onUsage?.(readImageCost(result))
-
-      const first = result.images?.[0]
-      if (!first?.base64) {
-        firstFailure = firstFailure || `${modelId} returned no image`
-        continue
-      }
-
-      const buffer = Buffer.from(first.base64, 'base64')
-      const dimensions = readImageDimensions(buffer)
-
-      // A model that returned any other size has not met the brief; move to the next.
-      if (dimensions && !isLinkedInImageSize(dimensions)) {
-        const got = `${dimensions.width}x${dimensions.height}`
-        console.warn(
-          `Discarding "${modelId}" result: got ${got}, need exactly ${LINKEDIN_IMAGE_SIZE}.`
-        )
-        firstFailure = firstFailure || `${modelId} returned ${got}, not ${LINKEDIN_IMAGE_SIZE}`
-        continue
-      }
-
-      if (!dimensions) {
-        console.warn(
-          `Could not verify dimensions of "${first.mediaType}" from "${modelId}"; accepting the requested ${LINKEDIN_IMAGE_SIZE}.`
-        )
-      }
-
-      const mediaType = first.mediaType || 'image/png'
-      return {
-        imageUrl: `data:${mediaType};base64,${first.base64}`,
-        altText: prompt.slice(0, 300),
-        promptOrQuery: prompt,
-        workflow,
-        modelId,
-        width: dimensions?.width ?? null,
-        height: dimensions?.height ?? null,
-        mediaType,
-        bytes: buffer.length,
-        referenceImageCount: references.length,
-        seed
-      }
-    } catch (err: any) {
-      // The gateway surfaces an abort as a GatewayResponseError, not an AbortError,
-      // so check the signal itself. Falling through would start the next model.
-      if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
-
-      const message = err?.message || 'request failed'
-      firstFailure = firstFailure || `${modelId}: ${message}`
-      console.warn(`Custom image ${workflow} failed on "${modelId}":`, message)
-    }
-  }
-
-  throw new Error(
-    workflow === 'edit'
-      ? `Could not edit the reference image. ${firstFailure || ''}`.trim()
-      : `Could not generate an image from your prompt. ${firstFailure || ''}`.trim()
-  )
-}
-
-/**
- * Plans the image for a post.
- *
- * The brief is written by the model from the post itself and then checked by a
- * small domain-neutral guard. The old flow derived the brief from a fixed
- * keyword table and demanded a 90/100 keyword-overlap score, which almost every
- * post failed, so nearly every image came from the same generic fallback set.
- */
-export async function createMediaPlan(
-  req: MediaPlanRequest
-): Promise<MediaPlanResult> {
-  if (req.mode === 'none' || !req.mode) {
-    return { mode: 'none' }
-  }
-
-  const postContent = (
-    req.postText || `${req.hook || ''}\n\n${req.coreArgument || ''}`
-  ).trim()
-
-  if (!postContent) {
-    return { mode: 'none', error: 'No post content to illustrate.' }
-  }
-
-  const derived = await deriveMediaBrief({
-    postText: postContent,
-    thesis: req.thesis,
-    hook: req.hook,
-    evidence: req.evidence,
-    styleGuidance: req.styleGuidance,
-    aspectRatio: req.aspectRatio,
-    accountName: req.accountName,
-    accountContext: req.accountContext,
-    direction: req.brief || undefined
-  })
-
-  if (!derived.derived || !derived.guard) {
-    // Without a brief an image would be decoration at best; say so rather than
-    // attaching something unrelated.
-    return {
-      mode: 'none',
-      error:
-        'Could not derive a visual concept for this post. Check that an AI provider key is configured.',
-      usage: derived.usage
-    }
-  }
-
-  const { brief, imagePrompt, altText } = derived.derived
-  const guard = derived.guard
-
-  const searchQuery = brief.primaryConcept || brief.postTopic
-
-  let result: MediaPlanResult
-  if (req.mode === 'stock') {
-    result = await searchStockImage(searchQuery)
-  } else {
-    result = await generateAIImage({
-      ...req,
-      imagePrompt,
-      brief: brief.primaryConcept,
-      topic: brief.postTopic
-    })
-  }
-
+  const branded = req.brand
+    ? await applyLogo(rendered, req.brand)
+    : { buffer: rendered.buffer, mediaType: rendered.mediaType, logo: null }
   return {
-    ...result,
-    // A generated image was made from the brief, so the brief's alt text
-    // describes it accurately. A stock image is whatever the search returned,
-    // so its own caption is the honest description.
-    altText: result.mode === 'ai_generated' ? altText : result.altText || altText,
-    mediaBrief: brief,
-    visualType: brief.visualType,
-    textOverlay: brief.textOverlay,
-    relevanceScore: guard.relevanceScore,
-    relevanceExplanation: guard.explanation,
-    alignedConcepts: guard.alignedConcepts,
-    issues: guard.issues,
-    usage: addUsage(derived.usage, result.usage)
-  }
-}
-
-export interface RegenerateMediaPlanRequest {
-  draftId?: string
-  postText?: string
-  thesis?: string
-  previousMediaId?: string
-  previousConcept?: string
-  previousImagePrompt?: string
-  previousImageUrl?: string
-  rejectionReason?: string
-  blockedConcepts?: string[]
-  regenerationAttempt?: number
-  version?: number
-  evidence?: EvidenceSource[]
-  aspectRatio?: '1:1' | '16:9' | '4:5'
-  styleGuidance?: string
-  accountName?: string
-  /** Who posts and who sees it, from renderMediaContext. */
-  accountContext?: string
-  /** The reviewer's own visual direction for the new concept. */
-  direction?: string
-  /** A stock query the reviewer typed; searched exactly as written. */
-  searchQuery?: string
-  mode?: 'ai_generated' | 'stock'
-}
-
-export interface RegenerateMediaPlanResult extends MediaPlanResult {
-  version: number
-  regenerationAttempt: number
-  previousMediaId?: string
-  rejectionReason?: string
-  providerRequestId?: string
-  seed?: number
-}
-
-/**
- * Produces a genuinely different visual after a rejection, seeding the brief
- * with what was rejected and why so the model does not land in the same place.
- */
-export async function regenerateMediaPlan(
-  req: RegenerateMediaPlanRequest
-): Promise<RegenerateMediaPlanResult> {
-  const postContent = (req.postText || '').trim()
-  const attempt = (req.regenerationAttempt ?? 0) + 1
-  const version = (req.version ?? 1) + 1
-  const seed = Math.floor(Math.random() * 1_000_000)
-  const providerRequestId = crypto.randomUUID()
-
-  const excludeUrls = req.previousImageUrl ? [req.previousImageUrl] : []
-
-  // The reviewer said what to search for, so search exactly that. A brief the
-  // model wrote would describe some other image than the one search returns.
-  if (req.mode === 'stock' && req.searchQuery?.trim()) {
-    const stock = await searchStockImage(req.searchQuery, {
-      excludeUrls,
-      attempt
-    })
-    return {
-      ...stock,
-      version,
-      regenerationAttempt: attempt,
-      previousMediaId: req.previousMediaId,
-      rejectionReason: req.rejectionReason,
-      providerRequestId,
-      seed
-    }
-  }
-
-  const rejected = [
-    ...(req.blockedConcepts || []),
-    req.previousConcept || ''
-  ].filter(Boolean)
-
-  const steer = [
-    rejected.length > 0
-      ? `These concepts were already rejected, do not return to them: ${rejected.join('; ')}.`
-      : '',
-    req.rejectionReason ? `The reviewer said: "${req.rejectionReason}".` : '',
-    'Choose a different visual form and a different central metaphor.'
-  ]
-    .filter(Boolean)
-    .join(' ')
-
-  const derived = await deriveMediaBrief({
-    postText: postContent,
-    thesis: req.thesis,
-    evidence: req.evidence,
-    aspectRatio: req.aspectRatio,
-    accountName: req.accountName,
-    accountContext: req.accountContext,
-    direction: req.direction,
-    styleGuidance: [req.styleGuidance, steer].filter(Boolean).join(' ')
-  })
-
-  if (!derived.derived || !derived.guard) {
-    return {
-      mode: 'none',
-      version,
-      regenerationAttempt: attempt,
-      previousMediaId: req.previousMediaId,
-      rejectionReason: req.rejectionReason,
-      providerRequestId,
-      seed,
-      error: 'Could not derive a new visual concept.',
-      usage: derived.usage
-    }
-  }
-
-  const { brief, imagePrompt, altText } = derived.derived
-  const guard = derived.guard
-
-  const imageResult =
-    req.mode === 'stock'
-      ? await searchStockImage(brief.primaryConcept || brief.postTopic, {
-          excludeUrls,
-          attempt
-        })
-      : await generateAIImage({
-          mode: 'ai_generated',
-          brief: brief.primaryConcept,
-          topic: brief.postTopic,
-          postText: postContent,
-          thesis: req.thesis,
-          imagePrompt,
-          aspectRatio: req.aspectRatio,
-          excludeUrls,
-          attempt,
-          seed
-        })
-
-  return {
-    ...imageResult,
-    altText:
-      imageResult.mode === 'ai_generated'
-        ? altText
-        : imageResult.altText || altText,
-    version,
-    regenerationAttempt: attempt,
-    previousMediaId: req.previousMediaId,
-    rejectionReason: req.rejectionReason,
-    providerRequestId,
+    imageUrl: toDataUrl(branded.buffer, branded.mediaType),
+    baseImageUrl: 'baseImageUrl' in branded ? branded.baseImageUrl : undefined,
+    altText: prompt.slice(0, 300),
+    promptOrQuery: prompt,
+    workflow,
+    modelId: rendered.modelId,
+    width: rendered.width,
+    height: rendered.height,
+    mediaType: branded.mediaType,
+    bytes: branded.buffer.length,
+    referenceImageCount: references.length,
     seed,
-    mediaBrief: brief,
-    visualType: brief.visualType,
-    textOverlay: brief.textOverlay,
-    relevanceScore: guard.relevanceScore,
-    relevanceExplanation: guard.explanation,
-    alignedConcepts: guard.alignedConcepts,
-    issues: guard.issues,
-    usage: addUsage(derived.usage, imageResult.usage)
+    logo: branded.logo
   }
 }

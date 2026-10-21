@@ -3,18 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Play, ArrowRight } from 'lucide-react'
 import {
-  Play,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  DollarSign,
-  ArrowRight,
-  RefreshCw,
-  Plus
-} from 'lucide-react'
-import { triggerNewRun } from './actions'
+  GenerateRunDialog,
+  type RunPickerData
+} from '@/components/generate-run-dialog'
 import { PageHeader } from '@/components/page-header'
 import type { RunSpendSummary } from '@/lib/run-spend'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
@@ -42,20 +35,22 @@ interface RunSummary {
   } | null
   error: string | null
   createdAt: Date | string
+  /** The goals the run was started for. */
+  goalTitles?: string[] | null
 }
 
 export function RunsClient({
   initialRuns,
   pageInfo,
-  identity,
+  picker,
   hideHeader,
   spend
 }: {
   /** One page of runs; pageInfo says which. */
   initialRuns: RunSummary[]
   pageInfo: PageInfo
-  /** The signed-in user's identity, which runs are started for. */
-  identity: { id: string; name: string }
+  /** The goals a new run can serve, and how many ideas it makes. */
+  picker: RunPickerData
   hideHeader?: boolean
   /** Spend windows computed server-side; see getRunSpendSummary. */
   spend?: RunSpendSummary
@@ -64,14 +59,8 @@ export function RunsClient({
   const hasMounted = useHasMounted()
   // Rendered straight from props so router.refresh() below shows fresh rows.
   const runs = initialRuns
-  const [isTriggering, setIsTriggering] = useState(false)
   const [showModal, setShowModal] = useState(false)
-  const [triggerError, setTriggerError] = useState<string | null>(null)
-
-  const openModal = () => {
-    setTriggerError(null)
-    setShowModal(true)
-  }
+  const openModal = () => setShowModal(true)
 
   // Re-fetch the server data (runs + spend) so progress and newly scheduled
   // runs show up without a reload: fast while a run is moving, slow otherwise.
@@ -85,25 +74,6 @@ export function RunsClient({
     )
     return () => clearInterval(interval)
   }, [hasActiveRun, router])
-
-  const handleGenerateNow = async () => {
-    setIsTriggering(true)
-    setTriggerError(null)
-    try {
-      const res = await triggerNewRun()
-      if (res.success && res.runId) {
-        setShowModal(false)
-        router.push(`/runs/${res.runId}`)
-      } else {
-        setTriggerError(res.error || 'Failed to trigger run')
-      }
-    } catch (err) {
-      // The action catches its own errors, so this is the request itself failing.
-      setTriggerError(err instanceof Error ? err.message : 'Failed to trigger run')
-    } finally {
-      setIsTriggering(false)
-    }
-  }
 
   // Spend over time is what shows whether a cost change actually worked.
   const formatUsd = (value: number) =>
@@ -157,57 +127,11 @@ export function RunsClient({
           ))}
         </div>
       )}
-      {/* Generate Now Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-xl space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">
-              Trigger New Content Run
-            </h3>
-            <p className="text-xs text-muted">
-              This initiates Stage 1 (Context synthesis &amp; research), generates fresh candidate ideas, and parks at the Idea Gate for your approval.
-            </p>
-
-            <div>
-              <label className="block text-xs font-medium text-muted mb-1.5">
-                Identity
-              </label>
-              <div className="w-full rounded-xl border border-border bg-surface-hover p-2.5 text-xs text-foreground">
-                {identity.name}
-              </div>
-            </div>
-
-            {triggerError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400"
-              >
-                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>{triggerError}</span>
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="h-8 rounded-lg px-3.5 text-[13px] font-medium text-muted hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerateNow}
-                disabled={isTriggering}
-                className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-xs transition-colors disabled:opacity-60"
-              >
-                {isTriggering && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Launch Run</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <GenerateRunDialog
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        picker={picker}
+      />
 
       {/* Inline Header (Only when PageHeader is hidden) */}
       {hideHeader && (
@@ -230,7 +154,7 @@ export function RunsClient({
           <Play className="w-8 h-8 text-muted mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-foreground">No runs executed yet</h3>
           <p className="text-xs text-muted mt-1 max-w-sm mx-auto">
-            Click &quot;Generate Now&quot; above to fire your first background research and ideation run.
+            Click &quot;Generate Now&quot; above and pick the goals to write toward.
           </p>
         </div>
       ) : (
@@ -271,6 +195,16 @@ export function RunsClient({
                       {run.id.slice(0, 8)}
                     </span>
                   </p>
+
+                  {run.goalTitles && run.goalTitles.length > 0 && (
+                    <p
+                      className="text-xs text-muted truncate"
+                      title={run.goalTitles.join(', ')}
+                    >
+                      {run.goalTitles.length === 1 ? 'Goal' : 'Goals'}:{' '}
+                      <span className="text-foreground">{run.goalTitles.join(', ')}</span>
+                    </p>
+                  )}
 
                   {run.error && (
                     <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{run.error}</p>

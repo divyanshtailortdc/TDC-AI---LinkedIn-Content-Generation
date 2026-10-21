@@ -73,10 +73,6 @@ export type Item = {
   lines?: LineBasis[]
 }
 
-type Pillar = NonNullable<
-  IdentitySetupSuggestions['preferences']['pillars']
->['value'][number]
-
 const inputClass =
   'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand'
 
@@ -132,10 +128,7 @@ function suggestedFieldNames(
   suggestions: IdentitySetupSuggestions
 ): string[] {
   const data = suggestions[section] as Record<string, unknown>
-  return [
-    ...(section === 'preferences' ? ['pillars'] : []),
-    ...Object.keys(FIELD_SPECS[section])
-  ].filter(field => data[field])
+  return Object.keys(FIELD_SPECS[section]).filter(field => data[field])
 }
 
 function savedValueFor(
@@ -405,97 +398,6 @@ function FieldEditor({
   )
 }
 
-function PillarsEditor({
-  pillars,
-  onCommit
-}: {
-  pillars: Pillar[]
-  onCommit: (value: unknown) => string | null
-}) {
-  const [rows, setRows] = useState(pillars)
-  const [error, setError] = useState<string | null>(null)
-  const total = rows.reduce((sum, p) => sum + (Number(p.weight_pct) || 0), 0)
-
-  const change = (next: Pillar[]) => {
-    setRows(next)
-    setError(onCommit(next))
-  }
-
-  return (
-    <div className="space-y-2">
-      {rows.map((pillar, index) => (
-        <div
-          key={index}
-          className="border-border grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_5rem]"
-        >
-          <input
-            value={pillar.name}
-            onChange={e =>
-              change(
-                rows.map((p, i) =>
-                  i === index ? { ...p, name: e.target.value } : p
-                )
-              )
-            }
-            className={inputClass}
-            aria-label="Pillar name"
-          />
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={pillar.weight_pct}
-              onChange={e =>
-                change(
-                  rows.map((p, i) =>
-                    i === index
-                      ? {
-                          ...p,
-                          weight_pct: Math.round(Number(e.target.value) || 0)
-                        }
-                      : p
-                  )
-                )
-              }
-              className={inputClass}
-              aria-label="Pillar weight"
-            />
-            <span className="text-muted text-xs">%</span>
-          </div>
-          <textarea
-            rows={2}
-            value={pillar.example_topics.join('\n')}
-            onChange={e =>
-              change(
-                rows.map((p, i) =>
-                  i === index
-                    ? {
-                        ...p,
-                        example_topics: e.target.value
-                          .split('\n')
-                          .map(t => t.trim())
-                          .filter(Boolean)
-                      }
-                    : p
-                )
-              )
-            }
-            placeholder="Topics, one per line"
-            className={`${inputClass} resize-y sm:col-span-2`}
-          />
-        </div>
-      ))}
-      <p className={`text-xs ${total === 100 ? 'text-muted' : 'text-red-500'}`}>
-        Weights total {total}% (must be 100%).
-      </p>
-      {error && total === 100 && (
-        <p className="text-xs text-red-500">{error}</p>
-      )}
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Showing values
 // ---------------------------------------------------------------------------
@@ -542,22 +444,7 @@ function ValueText({
       </ul>
     )
   }
-  if (field === 'pillars' && Array.isArray(value)) {
-    return (
-      <ul
-        className={`space-y-0.5 text-sm ${muted ? 'text-muted' : 'text-foreground'}`}
-      >
-        {(value as Pillar[]).map(pillar => (
-          <li key={pillar.name} className="flex justify-between gap-3">
-            <span className="min-w-0 truncate">{pillar.name}</span>
-            <span className="text-muted shrink-0 tabular-nums">
-              {pillar.weight_pct}%
-            </span>
-          </li>
-        ))}
-      </ul>
-    )
-  }
+
   const text = displayValue(section, field, value)
   const long = text.length > 180
   return (
@@ -680,23 +567,16 @@ export function SuggestionRow({
     label: hasCurrent ? 'Replaces current' : 'New',
     tone: hasCurrent ? 'replace' : 'new'
   }
-  const label =
-    field === 'pillars'
-      ? 'Content pillars'
-      : fieldLabel(section, field, accountType)
+  const label = fieldLabel(section, field, accountType)
 
   const suggestion = editing ? (
-    field === 'pillars' ? (
-      <PillarsEditor pillars={item.value as Pillar[]} onCommit={onCommit} />
-    ) : (
-      <FieldEditor
-        id={editorId}
-        section={section}
-        field={field}
-        value={item.value}
-        onCommit={onCommit}
-      />
-    )
+    <FieldEditor
+      id={editorId}
+      section={section}
+      field={field}
+      value={item.value}
+      onCommit={onCommit}
+    />
   ) : (
     <ValueText
       section={section}

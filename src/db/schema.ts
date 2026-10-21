@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -286,10 +287,24 @@ export const goalsTable = pgTable('goals', {
   ]
 )
 
+/** What an idea keeps of its goal; see ideas.goalSnapshot. */
+export type GoalSnapshot = {
+  title: string
+  objective: string
+  keyMessage: string | null
+  desiredAction: string | null
+  targetUrl: string | null
+  linkStrategy: 'body' | 'first_comment'
+}
+
 // ---------------------------------------------------------------------------
 // 8. Preferences (1:1 with Account) — what to write about and how
 // ---------------------------------------------------------------------------
 
+/**
+ * Legacy: content pillars, replaced by goals. Nothing reads or writes them
+ * any more; the type stays so the rows accounts saved still type-check.
+ */
 export type ContentPillar = {
   name: string
   weight_pct: number
@@ -317,6 +332,7 @@ export const preferencesTable = pgTable('preferences', {
     .notNull()
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  // Legacy (see ContentPillar): kept so saved pillars are not lost.
   pillars: jsonb('pillars').$type<ContentPillar[]>().default([]),
   ideasPerRun: integer('ideas_per_run').default(5).notNull(),
   postConstraints: jsonb('post_constraints').$type<PostConstraints | null>(),
@@ -335,9 +351,12 @@ export const runsTable = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    // The first of goalIds, for runs read by code that knows one goal.
     goalId: uuid('goal_id').references(() => goalsTable.id, {
       onDelete: 'set null'
     }),
+    // The goals picked for this run, in the order they were listed. Ideation
+    // sees these and no others.
     goalIds: jsonb('goal_ids').$type<string[]>().default([]),
     preferenceSetId: uuid('preference_set_id').references(
       () => preferencesTable.id,
@@ -462,15 +481,21 @@ export const ideasTable = pgTable('ideas', {
   runId: uuid('run_id').references(() => runsTable.id, {
     onDelete: 'set null'
   }),
+  // The one goal this idea serves.
   goalId: uuid('goal_id').references(() => goalsTable.id, {
     onDelete: 'set null'
   }),
+  // That goal as it was when the idea was made. Drafting uses the live goal,
+  // and this only once the goal is deleted, so the post still lands the
+  // message its idea was made for.
+  goalSnapshot: jsonb('goal_snapshot').$type<GoalSnapshot | null>(),
   offeringId: uuid('offering_id').references(() => offeringsTable.id, {
     onDelete: 'set null'
   }),
   title: text('title').default(''),
   hook: text('hook').notNull(),
   angle: text('angle'),
+  // Legacy: the content pillar of ideas made before goals replaced pillars.
   pillar: text('pillar'),
   format: varchar('format', { length: 50 }).default('thought_leadership'),
   thesis: text('thesis'),
@@ -565,12 +590,17 @@ export const postDraftsTable = pgTable('post_drafts', {
   status: varchar('status', { length: 20 }).default('draft').notNull(),
   editedBody: text('edited_body'),
   approvedAt: commonFieldDefs.date('approved_at'),
+  // The day the reviewer plans to publish it, set on the Schedule page.
+  // Nothing is published automatically: the reviewer posts it on LinkedIn
+  // and then marks it posted, which sets postedAt.
+  plannedFor: date('planned_for', { mode: 'string' }),
   postedAt: commonFieldDefs.date('posted_at'),
   ...commonFieldDefs.dates
 },
   table => [
     index('post_drafts_account_created_idx').on(table.accountId, table.createdAt),
-    index('post_drafts_idea_idx').on(table.ideaId)
+    index('post_drafts_idea_idx').on(table.ideaId),
+    index('post_drafts_account_planned_idx').on(table.accountId, table.plannedFor)
   ]
 )
 
@@ -628,6 +658,10 @@ export const postMediaTable = pgTable('post_media', {
   rejectionReason: text('rejection_reason'),
   mode: varchar('mode', { length: 20 }).notNull(), // 'ai_generated' | 'stock' | 'none'
   imageUrl: text('image_url'),
+  // The generated image before the brand logo was laid over it; null when no
+  // logo was added. "Use current image" edits this one, so an edit model
+  // never redraws (and misdraws) the logo. Never selected for lists.
+  baseImageUrl: text('base_image_url'),
   altText: text('alt_text'),
   promptOrQuery: text('prompt_or_query'),
   metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
@@ -672,6 +706,25 @@ export const feedbackTable = pgTable('feedback', {
   originalBody: text('original_body'),
   finalBody: text('final_body'),
   editDistance: integer('edit_distance').default(0),
+  ...commonFieldDefs.dates
+})
+
+// ---------------------------------------------------------------------------
+// 17. Brand Themes (1:1 with Account) — how generated images look
+// ---------------------------------------------------------------------------
+
+export const brandThemesTable = pgTable('brand_themes', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .unique()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  // A PNG data URL, re-encoded on upload. Composited onto every generated
+  // image by code, never described to the image model.
+  logoImage: text('logo_image'),
+  // Lower-case #rrggbb; see src/lib/brand/theme.ts.
+  primaryColor: text('primary_color'),
+  secondaryColor: text('secondary_color'),
   ...commonFieldDefs.dates
 })
 
@@ -763,3 +816,6 @@ export type NewSchedule = typeof schedulesTable.$inferInsert
 
 export type Feedback = typeof feedbackTable.$inferSelect
 export type NewFeedback = typeof feedbackTable.$inferInsert
+
+export type BrandTheme = typeof brandThemesTable.$inferSelect
+export type NewBrandTheme = typeof brandThemesTable.$inferInsert

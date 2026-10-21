@@ -81,8 +81,8 @@ function sameValue(a: unknown, b: unknown): boolean {
  * analysis can update it; anything the user typed is kept unless they choose
  * otherwise.
  *
- * `isBlank` lets a form treat placeholder defaults (for example the example
- * pillars shown before preferences are saved) as empty.
+ * `isBlank` lets a form treat placeholder defaults (for example the default
+ * settings shown before preferences are saved) as empty.
  */
 export function useSectionPrefill<T extends Values>({
   draftKey,

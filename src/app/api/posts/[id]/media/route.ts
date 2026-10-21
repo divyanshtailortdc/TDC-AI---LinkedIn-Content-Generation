@@ -2,11 +2,11 @@ import { ImageGenerationAbortedError, readImageDimensions } from '~/lib/media'
 import {
   MAX_REFERENCE_IMAGES,
   REFERENCE_IMAGE_MAX_BYTES,
-  IMAGE_URL_MAX_LENGTH,
   parseReferenceDataUrl,
   validateImagePrompt,
   validateReferenceDimensions
 } from '~/lib/media/image-input'
+import { createPostMedia } from '~/lib/media/post-media'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
 import { requireIdentityId } from '@/lib/identity'
 import { getSessionUser } from '@/lib/session'
@@ -14,12 +14,17 @@ import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
 
 /**
- * Prompt-driven image generation for a post draft.
+ * Image generation for a post draft from the reviewer's own input:
  *
- * A route handler rather than a server action because generation must be
- * stoppable: when the browser aborts its fetch, `request.signal` fires and the
- * provider call is cancelled before anything is saved. Server actions expose no
- * such signal.
+ * - a reference image (prompt optional): a new image designed from the post,
+ *   in the reference's composition and style and the brand's colours;
+ * - referenceMediaId ("Use current image") and a prompt: that image edited;
+ * - a prompt alone: an image of exactly that, in the brand's colours.
+ *
+ * Every one gets the brand logo. A route handler rather than a server action
+ * because generation must be stoppable: when the browser aborts its fetch,
+ * `request.signal` fires and the provider calls are cancelled before anything
+ * is saved. Server actions expose no such signal.
  */
 
 // One base64-encoded reference at the size cap, plus room for the prompt and JSON.
@@ -27,12 +32,17 @@ const MAX_BODY_BYTES = Math.ceil((REFERENCE_IMAGE_MAX_BYTES * 4) / 3) + 64 * 102
 
 const bodySchema = z.object(
   {
-    prompt: z.string({ error: 'Describe the image you want.' }),
+    prompt: z.string({ error: 'Describe the image you want.' }).default(''),
     referenceImages: z
-      .array(z.string({ error: 'Reference images must be image data or a URL.' }), {
+      .array(z.string({ error: 'Reference images must be image data.' }), {
         error: 'Reference images must be a list.'
       })
       .max(MAX_REFERENCE_IMAGES, `Attach at most ${MAX_REFERENCE_IMAGES} reference image.`)
+      .optional(),
+    // "Use current image": the server loads it, before its logo went on.
+    referenceMediaId: z
+      .string()
+      .refine(isUuid, 'Invalid image reference.')
       .optional()
   },
   { error: 'Request body must be a JSON object.' }
@@ -42,25 +52,28 @@ function fail(status: number, error: string) {
   return Response.json({ success: false, error }, { status })
 }
 
-/** Returns a problem with one reference image, or null when it is usable. */
-function validateReference(reference: string): string | null {
-  // "Use current image" can send a stock photo's URL. The provider fetches it,
-  // not this server, so there is nothing to decode here.
-  if (/^https?:\/\//i.test(reference)) {
-    return reference.length > IMAGE_URL_MAX_LENGTH ? 'Reference image URL is too long.' : null
-  }
-
+/**
+ * Decodes an uploaded reference image, or says what is wrong with it. Only
+ * image data is accepted: this server reads the bytes, and fetching a URL the
+ * browser sent would let anyone make it request any address.
+ */
+function decodeReference(reference: string): { bytes: Buffer } | { error: string } {
   const parsed = parseReferenceDataUrl(reference)
-  if (!parsed) return 'Reference image must be a PNG, JPEG or WebP.'
+  if (!parsed) return { error: 'Reference image must be a PNG, JPEG or WebP.' }
 
   const bytes = Buffer.from(parsed.base64, 'base64')
-  if (bytes.length === 0) return 'Reference image is empty.'
-  if (bytes.length > REFERENCE_IMAGE_MAX_BYTES) return 'Reference image must be under 3 MB.'
+  if (bytes.length === 0) return { error: 'Reference image is empty.' }
+  if (bytes.length > REFERENCE_IMAGE_MAX_BYTES) {
+    return { error: 'Reference image must be under 3 MB.' }
+  }
 
   // The declared type proves nothing; the bytes must decode as a real image.
   const dimensions = readImageDimensions(bytes)
-  if (!dimensions) return 'Reference image could not be read — the file may be corrupt.'
-  return validateReferenceDimensions(dimensions.width, dimensions.height)
+  if (!dimensions) {
+    return { error: 'Reference image could not be read — the file may be corrupt.' }
+  }
+  const sizeError = validateReferenceDimensions(dimensions.width, dimensions.height)
+  return sizeError ? { error: sizeError } : { bytes }
 }
 
 export async function POST(
@@ -111,27 +124,53 @@ export async function POST(
     return fail(400, parsed.error.issues[0]?.message || 'Invalid request.')
   }
 
-  const promptError = validateImagePrompt(parsed.data.prompt)
-  if (promptError) return fail(400, promptError)
+  const prompt = parsed.data.prompt.trim()
+  const referenceMediaId = parsed.data.referenceMediaId
+  const upload = !referenceMediaId ? parsed.data.referenceImages?.[0] : undefined
 
-  const referenceImages = parsed.data.referenceImages?.length
-    ? parsed.data.referenceImages
-    : undefined
-  for (const reference of referenceImages || []) {
-    const referenceError = validateReference(reference)
-    if (referenceError) return fail(400, referenceError)
+  // A reference image guides a design from the post, so words are optional
+  // there; an edit or a plain prompt needs them.
+  if (prompt || !upload) {
+    const promptError = validateImagePrompt(prompt)
+    if (promptError) return fail(400, promptError)
+  }
+
+  if (upload) {
+    const reference = decodeReference(upload)
+    if ('error' in reference) return fail(400, reference.error)
+    try {
+      const outcome = await createPostMedia({
+        draftId: id,
+        accountId,
+        mode: 'ai_generated',
+        customPrompt: prompt || undefined,
+        referenceImage: reference.bytes,
+        abortSignal: request.signal
+      })
+      if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
+      if (outcome.status === 'aborted') return fail(499, 'Image generation was stopped.')
+      if (outcome.status === 'failed') return fail(502, outcome.error)
+      return Response.json({ success: true, media: outcome.media })
+    } catch (err: any) {
+      if (request.signal.aborted) return fail(499, 'Image generation was stopped.')
+      console.error('Error generating post media from a reference image:', err)
+      return fail(502, err?.message || 'Failed to generate image.')
+    }
   }
 
   try {
     const outcome = await createPromptMediaForDraft({
       draftId: id,
       accountId,
-      prompt: parsed.data.prompt.trim(),
-      referenceImages,
+      prompt,
+      referenceMediaId,
       abortSignal: request.signal
     })
 
     if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
+    if (outcome.status === 'reference_not_found') {
+      return fail(404, 'The image to edit is no longer on this post.')
+    }
     // 499: client closed the request. Nobody reads this, but nothing was saved.
     if (outcome.status === 'aborted') return fail(499, 'Image generation was stopped.')
 

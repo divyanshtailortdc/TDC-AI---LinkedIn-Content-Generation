@@ -17,14 +17,15 @@ import {
 import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
   audienceSegments,
+  goalLabel,
   loadGenerationContext,
-  pickWeightedPillars,
   renderIdeationHistoryBlock,
+  snapshotGoal,
   withReaderGroup,
   type GenerationContext
 } from '../context'
 import { retrieveKnowledgePassages } from '../embeddings'
-import { selectIdeas } from '../idea-selection'
+import { selectIdeas, spreadGoals } from '../idea-selection'
 import { inferRegion } from '../region'
 import { recordStepUsage, refreshRunTotals } from '../run-accounting'
 import { failRun, keepRunAlive } from '../run-lifecycle'
@@ -37,6 +38,10 @@ import { buildGroundingCorpus } from './grounding-corpus'
  * agent), assemble the evidence corpus, run the ideation skill, then keep the
  * ideas that are diverse and new for this account. Every stage is recorded as
  * a run step; ideas wait for human approval before anything is drafted.
+ *
+ * The goals picked for the run steer all of it: research searches for them,
+ * retrieval looks for them, and each idea serves one of them and is saved
+ * with it. No other goal reaches any prompt.
  *
  * The run ends either awaiting approval with all of its ideas, or failed with
  * none of them and no step left running. Spend is saved as soon as it is
@@ -150,9 +155,24 @@ export async function executeResearchAndIdeate(
   }
 }
 
+/** The run's goals; a run queued before goal_ids existed has only goal_id. */
+export function goalIdsOfRun(run: Pick<Run, 'goalIds' | 'goalId'>): string[] {
+  if (run.goalIds && run.goalIds.length > 0) return run.goalIds
+  return run.goalId ? [run.goalId] : []
+}
+
 async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   const runId = run.id
-  const ctx = await loadGenerationContext(run.accountId, { goalId: run.goalId })
+  const ctx = await loadGenerationContext(run.accountId, {
+    goalIds: goalIdsOfRun(run)
+  })
+  // A goal deleted after the run was queued drops out; with none left there
+  // is nothing to write toward. The caller fails the run with this message.
+  if (ctx.selectedGoals.length === 0) {
+    throw new Error(
+      'None of the goals picked for this run exist any more. Start a new run and pick at least one goal.'
+    )
+  }
 
   let ideationUsage: CallUsage = EMPTY_USAGE
 
@@ -166,7 +186,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
       status: 'running',
       startedAt: new Date(),
       requestSummary:
-        'Consolidating identity, offerings, audiences, knowledge base and goals'
+        'Consolidating identity, offerings, audiences, knowledge base and the selected goals'
     })
     .returning()
 
@@ -186,9 +206,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
           readerGroups: audienceSegments(ctx).map(s => s.label),
           region: inferRegion(ctx)?.name ?? null,
           knowledgeDocs: ctx.knowledgeDocs.length,
-          activeGoals: ctx.activeGoals.length,
-          primaryGoal: ctx.primaryGoal?.title ?? null,
-          pillars: ctx.prefs.pillars.map(p => p.name),
+          goals: ctx.selectedGoals.map(g => g.title),
           targetIdeas
         }
       })
@@ -295,7 +313,12 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
 
   // Over-generate so grounding and diversity filters have something to cut.
   const candidateCount = Math.min(targetIdeas + 3, 15)
-  const assignedPillars = pickWeightedPillars(ctx.prefs.pillars, candidateCount)
+  // Each candidate is asked for one goal, the goals in turn, so every goal
+  // picked for the run gets candidates of its own.
+  const assignedGoals = spreadGoals(
+    ctx.selectedGoals.map((_, i) => goalLabel(i)),
+    candidateCount
+  )
 
   // Earlier posts and ideas, so "fresh angle" means fresh for this account.
   // Ideas count whatever their status: re-proposing one the reviewer rejected
@@ -321,7 +344,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
       corpus,
       history: renderIdeationHistoryBlock(ctx, runId),
       candidateCount,
-      assignedPillars: assignedPillars.map(p => p.name)
+      assignedGoals
     })
     ideationUsage = ideation.usage
     candidates = ideation.candidates
@@ -342,7 +365,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
     validated,
     pastWork,
     targetIdeas,
-    ctx.prefs.pillars
+    ctx.selectedGoals.map(g => g.id)
   )
   const selected = picked.selected
   discarded.push(...picked.discarded)
@@ -366,6 +389,10 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
       selected: selected.length,
       discarded,
       perspectiveAngles: selected.map(i => i.perspectiveAngle),
+      ideasPerGoal: ctx.selectedGoals.map(g => ({
+        goal: g.title,
+        ideas: selected.filter(i => i.goalId === g.id).length
+      })),
       averageGroundingScore: averageGrounding,
       model: handle.modelId,
       usage: ideationUsage
@@ -394,21 +421,22 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   // One transaction: inserting ideas row by row meant a failure part-way
   // (a model-written value too long for its column, say) left some ideas
   // saved on a run that then read as failed.
+  const goalsById = new Map(ctx.selectedGoals.map(g => [g.id, g]))
   await db.transaction(async tx => {
     await tx.insert(ideasTable).values(
-      selected.map(idea => ({
+      selected.map(idea => {
+        // Validation guarantees one of the run's goals.
+        const goal = goalsById.get(idea.goalId!)!
+        return {
         accountId: ctx.account.id,
         runId,
-        goalId: ctx.primaryGoal?.id ?? null,
+        goalId: goal.id,
+        goalSnapshot: snapshotGoal(goal),
         title: idea.title,
         thesis: idea.thesis,
         perspectiveAngle: idea.perspectiveAngle,
         hook: idea.hookConcept,
         angle: idea.angle,
-        // Checked against the configured pillars during validation. The old
-        // fallback read the candidate pillar list at the selected idea's
-        // position, which after selection belonged to another idea.
-        pillar: idea.pillar || null,
         format: idea.format,
         whyNow: idea.whyNow,
         hookConcept: idea.hookConcept,
@@ -432,7 +460,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
         sourceIds: idea.sourceIds || [],
         risks: idea.risks || [],
         status: 'proposed'
-      }))
+        }
+      })
     )
 
     if (ideationStep) {

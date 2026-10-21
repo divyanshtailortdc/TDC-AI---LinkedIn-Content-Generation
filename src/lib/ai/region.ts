@@ -93,12 +93,13 @@ export function countryOfUrl(url: string): string | undefined {
 }
 
 export function inferRegion(
-  ctx: Pick<GenerationContext, 'audiences' | 'primaryGoal' | 'account'>
+  ctx: Pick<GenerationContext, 'audiences' | 'selectedGoals' | 'account'>
 ): Region | null {
   const audienceText = ctx.audiences
     .flatMap(a => [a.geography ?? '', a.name])
     .join('\n')
-  const goalText = [ctx.primaryGoal?.title, ctx.primaryGoal?.keyMessage]
+  const goalText = ctx.selectedGoals
+    .flatMap(g => [g.title, g.keyMessage])
     .filter(Boolean)
     .join('\n')
   const named = countriesNamed(audienceText)

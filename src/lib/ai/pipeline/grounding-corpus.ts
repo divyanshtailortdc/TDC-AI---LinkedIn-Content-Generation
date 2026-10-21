@@ -1,7 +1,7 @@
 import { isRecent } from '~/lib/research/findings'
 import type { Finding } from '~/lib/research/web-search'
 import { isGenericPage, isReferencePage } from '~/lib/urls'
-import type { GenerationContext } from '../context-blocks'
+import { goalText, type GenerationContext } from '../context-blocks'
 import type { KnowledgePassage } from '../embeddings'
 import type { GroundingCorpus } from '../skills/ideation/guard'
 
@@ -14,9 +14,10 @@ const NOT_A_PRODUCT_LINE = new Set([
 ])
 
 /**
- * The account's own words: what it says about itself, its offerings and its
- * pillars. Figures and product names stated here are the account's, so the
- * ideation guard accepts them as it accepts the evidence.
+ * The account's own words: what it says about itself, its offerings and the
+ * goals this run serves. Figures and product names stated here are the
+ * account's, so the ideation guard accepts them as it accepts the evidence.
+ * Goals that were not picked are left out, so their figures are not grounded.
  */
 function accountTextOf(ctx: GenerationContext): string {
   const a = ctx.account
@@ -35,7 +36,7 @@ function accountTextOf(ctx: GenerationContext): string {
       ...(o.differentiators || []),
       ...(o.proofPoints || []).flatMap(p => [p.label, p.detail])
     ]),
-    ...ctx.prefs.pillars.flatMap(p => [p.name, ...(p.example_topics || [])])
+    ...ctx.selectedGoals.map(goalText)
   ]
     .filter(Boolean)
     .join('\n')
@@ -83,6 +84,17 @@ export function interleave<T>(lists: T[][]): T[] {
 }
 
 
+/**
+ * What retrieval searches the knowledge base for: one query per goal the run
+ * serves, so each goal finds the passages about it, and none for a goal that
+ * was not picked. Without goals, the account's headline.
+ */
+export function buildRetrievalQueries(ctx: GenerationContext): string[] {
+  const queries = ctx.selectedGoals.map(goalText).filter(Boolean)
+  if (queries.length > 0) return queries
+  return ctx.account.headline ? [ctx.account.headline] : []
+}
+
 export interface CorpusSources {
   offeringFacts: number
   knowledgePassages: number
@@ -104,7 +116,16 @@ export function buildGroundingCorpus(
   passages: KnowledgePassage[] = [],
   now = new Date()
 ): GroundingCorpus & { sources: CorpusSources } {
-  const docs = ctx.knowledgeDocs
+  // Documents a goal's retrieval matched come first, closest first, so their
+  // summaries and claims lead the slice the prompt shows; the rest keep their
+  // order after them. Without retrieval, nothing moves.
+  const closeness = new Map<string, number>()
+  for (const p of passages) {
+    closeness.set(p.documentId, Math.max(closeness.get(p.documentId) ?? 0, p.similarity))
+  }
+  const docs = [...ctx.knowledgeDocs].sort(
+    (a, b) => (closeness.get(b.id) ?? -1) - (closeness.get(a.id) ?? -1)
+  )
   const fresh = (url: string | undefined, publishedAt: string | undefined) =>
     !(url && (isGenericPage(url) || isReferencePage(url))) &&
     isRecent(publishedAt, ctx.prefs.research.freshness_days, now)
@@ -135,7 +156,7 @@ export function buildGroundingCorpus(
     }
   }
 
-  // Verbatim passages retrieved for this goal, so the quote is the passage.
+  // Verbatim passages retrieved for this run's goals, so the quote is the passage.
   const docsById = new Map(docs.map(d => [d.id, d]))
   const retrieved: Claim[] = []
   for (const passage of passages) {

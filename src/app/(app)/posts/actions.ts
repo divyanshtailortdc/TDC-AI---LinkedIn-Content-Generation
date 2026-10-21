@@ -9,22 +9,18 @@ import {
   postMediaTable
 } from '@/db/schema'
 import { requireIdentityId } from '@/lib/identity'
-import {
-  REVIEWER_SEARCH_SOURCE,
-  REVIEWER_URL_SOURCE
-} from '@/lib/media/media-source'
+import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
 import { postCharCount } from '@/lib/post-text'
 import { requireUser } from '@/lib/session'
-import { and, count, desc, eq } from 'drizzle-orm'
+import { and, count, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { loadGenerationContext, renderMediaContext } from '~/lib/ai/context'
+import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
-import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { runLinter } from '~/lib/lint/run-linter'
-import { createMediaPlan, regenerateMediaPlan } from '~/lib/media'
 import { validateImageUrl } from '~/lib/media/image-input'
+import { createPostMedia } from '~/lib/media/post-media'
 import { loadPostsPage } from './posts-data'
 
 /** The next page of the identity's posts, after the post with `cursorId`. */
@@ -87,9 +83,10 @@ export async function updateDraft(
             where: eq(ideasTable.id, existing.ideaId)
           })
         : null
-      const ctx = await loadGenerationContext(existing.accountId, {
-        goalId: idea?.goalId
-      })
+      // Checked against the post's own goal, as when it was drafted.
+      const ctx = idea
+        ? await loadIdeaContext(idea)
+        : await loadGenerationContext(existing.accountId, { goalIds: [] })
       const citations = idea
         ? (idea.supportingEvidence?.length ?? 0)
         : ((
@@ -305,327 +302,44 @@ export async function removePostMediaAction(draftId: string) {
 }
 
 /**
- * The account name lets the brief allow the account's own brand; the context
- * (field and audience) keeps the image in their world.
+ * Makes a new image for a post, from its text, or from a stock query the
+ * reviewer typed. The first image and every regeneration go through here:
+ * each one sees all the post's earlier images and must differ from them.
+ * (A reference image goes through the media route, which can be stopped.)
  */
-async function loadMediaSettings(accountId: string) {
-  const ctx = await loadGenerationContext(accountId)
-  return {
-    accountName: ctx.account.name,
-    accountContext: renderMediaContext(ctx)
-  }
-}
-
-export async function generatePostMediaAction(
-  draftId: string,
-  options?: {
-    mode?: 'ai_generated' | 'stock'
-    customPrompt?: string
-  }
-) {
-  await requireUser()
-  try {
-    const identityId = await requireIdentityId()
-
-    const draft = await db.query.postDraftsTable.findFirst({
-      where: and(
-        eq(postDraftsTable.id, draftId),
-        eq(postDraftsTable.accountId, identityId)
-      )
-    })
-    if (!draft) throw new Error('Post draft not found')
-
-    let topic: string | undefined = undefined
-    let coreArgument: string | undefined = undefined
-    let thesis: string | undefined = undefined
-    let evidence: any[] = []
-
-    if (draft.ideaId) {
-      const idea = await db.query.ideasTable.findFirst({
-        where: eq(ideasTable.id, draft.ideaId)
-      })
-      if (idea) {
-        topic = idea.pillar || idea.title || undefined
-        coreArgument = idea.coreArgument || undefined
-        thesis = idea.thesis || idea.coreArgument || undefined
-        evidence = (idea.supportingEvidence as any[]) || []
-      }
-    }
-
-    const mode = options?.mode || 'ai_generated'
-    // The post text already carries the hook; only the reviewer's own words add direction.
-    const brief = options?.customPrompt?.trim() || undefined
-    const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
-
-    const mediaSettings = await loadMediaSettings(draft.accountId)
-
-    const mediaPlan = await createMediaPlan({
-      mode,
-      brief,
-      topic,
-      hook: draft.hook,
-      postText: fullPostContent,
-      thesis: thesis || coreArgument || topic,
-      coreArgument,
-      evidence,
-      ...mediaSettings
-    })
-
-    // Charged to the post's run whether or not an image came back.
-    await recordReviewMediaSpend(draftId, mediaPlan.usage, {
-      summary: `Media plan (${mediaPlan.mode}) (post review)`,
-      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
-    })
-
-    if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
-      const [insertedMedia] = await db
-        .insert(postMediaTable)
-        .values({
-          draftId,
-          version: 1,
-          status: 'active',
-          regenerationAttempt: 0,
-          mode: mediaPlan.mode,
-          imageUrl: mediaPlan.imageUrl,
-          altText: mediaPlan.altText || null,
-          promptOrQuery: mediaPlan.promptOrQuery || null,
-          metadata: {
-            sourcePageUrl: mediaPlan.sourcePageUrl,
-            fallbackApplied: mediaPlan.fallbackApplied || false,
-            visualType: mediaPlan.visualType,
-            relevanceScore: mediaPlan.relevanceScore,
-            relevanceExplanation: mediaPlan.relevanceExplanation,
-            alignedConcepts: mediaPlan.alignedConcepts,
-            textOverlay: mediaPlan.textOverlay,
-            mediaBrief: mediaPlan.mediaBrief,
-            // Generated outside a run, so its spend is recorded here instead.
-            usage: mediaPlan.usage
-          }
-        })
-        .returning()
-
-      if (!insertedMedia)
-        throw new Error('Failed to insert initial media record')
-
-      revalidatePath('/posts')
-      revalidatePath(`/posts/${draftId}`)
-      return {
-        success: true,
-        media: {
-          id: insertedMedia.id,
-          version: insertedMedia.version,
-          status: insertedMedia.status,
-          mode: mediaPlan.mode,
-          imageUrl: mediaPlan.imageUrl,
-          altText: mediaPlan.altText,
-          promptOrQuery: mediaPlan.promptOrQuery,
-          fallbackApplied: mediaPlan.fallbackApplied,
-          visualType: mediaPlan.visualType,
-          relevanceScore: mediaPlan.relevanceScore
-        }
-      }
-    }
-
-    return {
-      success: false,
-      error: mediaPlan.error || 'Could not generate a visual for this post'
-    }
-  } catch (err: any) {
-    console.error('Error generating post media:', err)
-    return {
-      success: false,
-      error: err?.message || 'Failed to generate media'
-    }
-  }
-}
-
 export async function regeneratePostMediaAction(
   draftId: string,
   options?: {
     mode?: 'ai_generated' | 'stock'
     customPrompt?: string
     rejectionReason?: string
-    previousMediaId?: string
   }
 ) {
   await requireUser()
   try {
-    const identityId = await requireIdentityId()
-
-    const draft = await db.query.postDraftsTable.findFirst({
-      where: and(
-        eq(postDraftsTable.id, draftId),
-        eq(postDraftsTable.accountId, identityId)
-      )
-    })
-    if (!draft) throw new Error('Post draft not found')
-
-    let topic: string | undefined = undefined
-    let coreArgument: string | undefined = undefined
-    let thesis: string | undefined = undefined
-    let evidence: any[] = []
-
-    if (draft.ideaId) {
-      const idea = await db.query.ideasTable.findFirst({
-        where: eq(ideasTable.id, draft.ideaId)
-      })
-      if (idea) {
-        topic = idea.pillar || idea.title || undefined
-        coreArgument = idea.coreArgument || undefined
-        thesis = idea.thesis || idea.coreArgument || undefined
-        evidence = (idea.supportingEvidence as any[]) || []
-      }
-    }
-
-    // 1. Fetch the existing media record for negative context
-    const existingMedia =
-      (await db.query.postMediaTable.findFirst({
-        where: and(
-          eq(postMediaTable.draftId, draftId),
-          eq(postMediaTable.status, 'active')
-        ),
-        orderBy: desc(postMediaTable.createdAt)
-      })) ||
-      (await db.query.postMediaTable.findFirst({
-        where: eq(postMediaTable.draftId, draftId),
-        orderBy: desc(postMediaTable.createdAt)
-      }))
-
-    const previousConcept =
-      (existingMedia?.metadata as any)?.mediaBrief?.primaryConcept ||
-      existingMedia?.promptOrQuery ||
-      undefined
-    const previousImagePrompt = existingMedia?.promptOrQuery || undefined
-    const previousImageUrl = existingMedia?.imageUrl || undefined
-    const currentVersion = existingMedia?.version || 1
-    const currentAttempt = existingMedia?.regenerationAttempt || 0
-
-    const fullPostContent = `${draft.hook}\n\n${draft.body}\n\n${draft.cta || ''}`
-    const mode = options?.mode || 'ai_generated'
-    const customPrompt = options?.customPrompt?.trim() || undefined
-    // Only the reviewer's own words go to the model as their reason; the brief
-    // already asks for a different concept from the rejected one.
-    const reviewerReason = options?.rejectionReason?.trim() || undefined
-    // A typed stock query is searched as written, so the image is the reviewer's
-    // own pick; it was not scored against the post.
-    const mediaSource =
-      mode === 'stock' && customPrompt ? REVIEWER_SEARCH_SOURCE : undefined
-
-    // 2. Produce the new visual before touching the current one, so a failed
-    //    search or generation leaves the post's image in place.
-    const mediaPlan = await regenerateMediaPlan({
+    const outcome = await createPostMedia({
       draftId,
-      mode,
-      // A typed stock query is searched as written; for a generated image the
-      // reviewer's words steer the new concept.
-      searchQuery: mode === 'stock' ? customPrompt : undefined,
-      direction: mode === 'ai_generated' ? customPrompt : undefined,
-      postText: fullPostContent,
-      thesis: thesis || coreArgument || topic,
-      previousMediaId: existingMedia?.id,
-      previousConcept,
-      previousImagePrompt,
-      previousImageUrl,
-      rejectionReason: reviewerReason,
-      regenerationAttempt: currentAttempt,
-      version: currentVersion,
-      evidence,
-      ...(await loadMediaSettings(draft.accountId))
+      accountId: await requireIdentityId(),
+      mode: options?.mode,
+      customPrompt: options?.customPrompt,
+      rejectionReason: options?.rejectionReason
     })
-
-    // Charged to the post's run whether or not an image came back.
-    await recordReviewMediaSpend(draftId, mediaPlan.usage, {
-      summary: `New media (${mediaPlan.mode}) (post review)`,
-      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
-    })
-
-    if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
-      // 3. Supersede and insert together: never return or overwrite existing media.
-      const newMedia = await db.transaction(async tx => {
-        if (existingMedia) {
-          await tx
-            .update(postMediaTable)
-            .set({
-              status: 'superseded',
-              rejectionReason:
-                reviewerReason ||
-                'User triggered media regeneration for new concept',
-              updatedAt: new Date()
-            })
-            .where(eq(postMediaTable.id, existingMedia.id))
-        }
-
-        const [inserted] = await tx
-          .insert(postMediaTable)
-          .values({
-            draftId,
-            version: mediaPlan.version,
-            status: 'active',
-            previousMediaId: existingMedia?.id || null,
-            regenerationAttempt: mediaPlan.regenerationAttempt,
-            rejectionReason: reviewerReason || null,
-            mode: mediaPlan.mode,
-            imageUrl: mediaPlan.imageUrl,
-            altText: mediaPlan.altText || null,
-            promptOrQuery: mediaPlan.promptOrQuery || null,
-            metadata: {
-              ...(mediaSource ? { source: mediaSource } : {}),
-              sourcePageUrl: mediaPlan.sourcePageUrl,
-              fallbackApplied: mediaPlan.fallbackApplied || false,
-              visualType: mediaPlan.visualType,
-              relevanceScore: mediaPlan.relevanceScore,
-              relevanceExplanation: mediaPlan.relevanceExplanation,
-              alignedConcepts: mediaPlan.alignedConcepts,
-              textOverlay: mediaPlan.textOverlay,
-              mediaBrief: mediaPlan.mediaBrief,
-              issues: mediaPlan.issues,
-              providerRequestId: mediaPlan.providerRequestId,
-              seed: mediaPlan.seed,
-              usage: mediaPlan.usage
-            }
-          })
-          .returning()
-
-        if (!inserted)
-          throw new Error('Failed to insert regenerated media record')
-        return inserted
-      })
-
-      revalidatePath('/posts')
-      revalidatePath(`/posts/${draftId}`)
-
-      return {
-        success: true,
-        media: {
-          id: newMedia.id,
-          version: newMedia.version,
-          status: newMedia.status,
-          mode: mediaPlan.mode,
-          imageUrl: mediaPlan.imageUrl,
-          altText: mediaPlan.altText,
-          promptOrQuery: mediaPlan.promptOrQuery,
-          source: mediaSource,
-          fallbackApplied: mediaPlan.fallbackApplied,
-          visualType: mediaPlan.visualType,
-          relevanceScore: mediaPlan.relevanceScore,
-          relevanceExplanation: mediaPlan.relevanceExplanation,
-          issues: mediaPlan.issues,
-          mediaBrief: mediaPlan.mediaBrief,
-          providerRequestId: mediaPlan.providerRequestId,
-          seed: mediaPlan.seed,
-          regenerationAttempt: newMedia.regenerationAttempt
-        }
-      }
+    if (outcome.status === 'created') {
+      return { success: true as const, media: outcome.media }
     }
-
     return {
-      success: false,
-      error: mediaPlan.error || 'Could not generate visual for this post'
+      success: false as const,
+      error:
+        outcome.status === 'failed'
+          ? outcome.error
+          : outcome.status === 'draft_not_found'
+            ? 'Post draft not found'
+            : 'Image generation was stopped.'
     }
   } catch (err: any) {
     console.error('Error regenerating post media:', err)
     return {
-      success: false,
+      success: false as const,
       error: err?.message || 'Failed to regenerate media'
     }
   }

@@ -40,22 +40,6 @@ export const GoalPayloadSchema = z.object({
 })
 
 export const PreferencesPayloadSchema = z.object({
-  pillars: z
-    .array(
-      z.object({
-        name: text(200, 'Pillar name'),
-        weight_pct: z
-          .number()
-          .finite()
-          .min(0, 'Pillar weight cannot be negative')
-          .max(1000, 'Pillar weight must be 1,000 or less'),
-        example_topics: z
-          .array(text(300, 'Example topic'))
-          .max(30, 'Use at most 30 example topics per pillar.')
-          .optional()
-      })
-    )
-    .max(20, 'Use at most 20 content pillars.'),
   ideasPerRun: z.number(),
   post_constraints: z.object({ cta_required: z.boolean() }),
   guardrails: z.object({

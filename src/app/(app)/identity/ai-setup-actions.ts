@@ -38,7 +38,7 @@ import { normalizeUrlForCompare } from '@/lib/urls'
 import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { updateAccountAction } from './actions'
-import { createGoal } from './goals/actions'
+import { createGoal } from '../goals/actions'
 import { fetchUrlPreview, saveKnowledgeDocument } from './knowledge/actions'
 import { savePreferences } from './preferences/actions'
 import { saveVoiceConfigAction } from './voice/actions'
@@ -392,7 +392,6 @@ export async function applyIdentitySetupAction(
               accountId,
               buildPreferencesPayload(
                 {
-                  pillars: current.pillars,
                   ideasPerRun: current.ideasPerRun,
                   post_constraints: {
                     cta_required: current.constraints.cta_required

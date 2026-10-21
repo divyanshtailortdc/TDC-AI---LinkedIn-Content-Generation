@@ -4,12 +4,14 @@ import {
   Mic,
   Play,
   SlidersHorizontal,
-  Target,
   User,
   type LucideIcon
 } from 'lucide-react'
 
-/** The account setup steps, in order. */
+/**
+ * The account setup steps, in order: who is writing and how. Goals and the
+ * schedule have pages of their own in the sidebar.
+ */
 export type SetupStep = {
   key: string
   label: string
@@ -48,20 +50,12 @@ export const SETUP_STEPS: SetupStep[] = [
       'Add sources so posts are grounded in facts you can stand behind.'
   },
   {
-    key: 'goals',
-    label: 'Goals',
-    path: '/goals',
-    icon: Target,
-    title: 'Goals',
-    description: 'What your posts should achieve and the one message to land.'
-  },
-  {
     key: 'preferences',
     label: 'Preferences',
     path: '/preferences',
     icon: SlidersHorizontal,
     title: 'Preferences',
-    description: 'What to post about, and an optional schedule.'
+    description: 'How many ideas a run proposes, and what to stay away from.'
   },
   {
     key: 'runs',

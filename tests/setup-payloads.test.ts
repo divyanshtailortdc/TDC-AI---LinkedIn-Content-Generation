@@ -18,7 +18,6 @@ const goal = {
   linkStrategy: 'first_comment'
 }
 const prefs = {
-  pillars: [{ name: 'Close', weight_pct: 50, example_topics: ['a'] }],
   ideasPerRun: 5,
   post_constraints: { cta_required: true },
   guardrails: { banned_topics: ['x'], compliance_notes: '' }
@@ -43,9 +42,9 @@ describe('setup payloads', () => {
       () =>
         parseSetupPayload(PreferencesPayloadSchema, {
           ...prefs,
-          pillars: [{ name: 'Close', weight_pct: -20 }]
+          guardrails: { banned_topics: ['x'.repeat(301)], compliance_notes: '' }
         }),
-      /Pillar weight cannot be negative/
+      /Banned topic must be 300 characters or fewer/
     )
   })
 
@@ -53,6 +52,17 @@ describe('setup payloads', () => {
     parseSetupPayload(AccountIdSchema, id)
     parseSetupPayload(GoalPayloadSchema, goal)
     parseSetupPayload(PreferencesPayloadSchema, prefs)
+    // Pillars are gone; a stale form that still sends them is not refused,
+    // and they are dropped rather than saved.
+    assert.ok(
+      !(
+        'pillars' in
+        parseSetupPayload(PreferencesPayloadSchema, {
+          ...prefs,
+          pillars: [{ name: 'Close', weight_pct: 50 }]
+        })
+      )
+    )
     parseSetupPayload(KnowledgeDocumentSchema, doc)
     // A saved artifact has no source URL.
     parseSetupPayload(KnowledgeDocumentSchema, { ...doc, sourceType: 'artifact', sourceUrl: undefined })
@@ -72,9 +82,6 @@ describe('setup payloads', () => {
   })
 
   it('rejects malformed preferences', () => {
-    bad(PreferencesPayloadSchema, { ...prefs, pillars: 'all' })
-    bad(PreferencesPayloadSchema, { ...prefs, pillars: [{ name: 'a', weight_pct: Infinity }] })
-    bad(PreferencesPayloadSchema, { ...prefs, pillars: Array(21).fill(prefs.pillars[0]) })
     bad(PreferencesPayloadSchema, { ...prefs, guardrails: { banned_topics: 'x', compliance_notes: '' } })
     bad(PreferencesPayloadSchema, { ...prefs, post_constraints: {} })
     bad(PreferencesPayloadSchema, { ...prefs, ideasPerRun: '5' })

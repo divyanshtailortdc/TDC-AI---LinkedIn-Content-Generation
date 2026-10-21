@@ -1,10 +1,15 @@
 'use client'
 
+import type { Schedule } from '@/db/schema'
 import {
-  useStepSave,
-  useStepView
-} from '@/components/account-setup/setup-frame'
-import { Calendar, CheckCircle2, Clock } from 'lucide-react'
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  Wand2
+} from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveSchedule } from './actions'
 
@@ -18,13 +23,22 @@ const DAYS = [
   { id: 0, label: 'Sun' }
 ]
 
+/**
+ * When runs start on their own. A scheduled run generates ideas for the
+ * active goals and waits for review like any other run; it never publishes.
+ */
 export function ScheduleForm({
   accountId,
-  initialSchedule
+  initialSchedule,
+  activeGoalCount
 }: {
   accountId: string
-  initialSchedule?: any
+  initialSchedule: Schedule | null
+  /** Scheduled runs serve every active goal; with none they are skipped. */
+  activeGoalCount: number
 }) {
+  const router = useRouter()
+  const [isSaving, setIsSaving] = useState(false)
   const [enabled, setEnabled] = useState<boolean>(
     initialSchedule?.enabled ?? false
   )
@@ -47,7 +61,7 @@ export function ScheduleForm({
     }
   }
 
-  // Untouched settings are not saved, so visiting Preferences never creates a
+  // Untouched settings are not saved, so visiting the page never creates a
   // schedule the user did not ask for.
   const initialKey = JSON.stringify({
     enabled: initialSchedule?.enabled ?? false,
@@ -61,37 +75,35 @@ export function ScheduleForm({
       time: timeOfDay
     }) !== initialKey
 
-  // Runs from the header's Save (after Preferences); false keeps the
-  // user on this step.
-  const save = async (): Promise<boolean> => {
-    if (!isDirty) return true
+  const save = async () => {
+    if (!isDirty) return
+    setIsSaving(true)
     setSavedSuccess(false)
     setError(null)
-    const res = await saveSchedule(accountId, {
-      daysOfWeek: selectedDays,
-      timeOfDay,
-      enabled
-    })
-    if (!res.success) {
-      setError(res.error || 'Failed to save schedule')
-      return false
+    try {
+      const res = await saveSchedule(accountId, {
+        daysOfWeek: selectedDays,
+        timeOfDay,
+        enabled
+      })
+      if (!res.success) {
+        setError(res.error || 'Failed to save schedule')
+        return
+      }
+      setSavedSuccess(true)
+      router.refresh()
+    } finally {
+      setIsSaving(false)
     }
-    setSavedSuccess(true)
-    return true
   }
-  useStepSave(save)
 
-  // The header's Cancel puts the schedule back to what is saved.
-  useStepView({
-    dirty: isDirty,
-    onCancel: () => {
-      setEnabled(initialSchedule?.enabled ?? false)
-      setSelectedDays((initialSchedule?.daysOfWeek as number[]) || [1, 3, 5])
-      setTimeOfDay(initialSchedule?.timeOfDay || '09:00')
-      setSavedSuccess(false)
-      setError(null)
-    }
-  })
+  const reset = () => {
+    setEnabled(initialSchedule?.enabled ?? false)
+    setSelectedDays((initialSchedule?.daysOfWeek as number[]) || [1, 3, 5])
+    setTimeOfDay(initialSchedule?.timeOfDay || '09:00')
+    setSavedSuccess(false)
+    setError(null)
+  }
 
   return (
     <form
@@ -101,39 +113,47 @@ export function ScheduleForm({
       }}
       className="space-y-6"
     >
-      {savedSuccess && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>Schedule saved.</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-xs text-rose-600 dark:text-rose-400">
-          {error}
-        </div>
-      )}
-
       {/* Main Schedule Card */}
       <div
-        id="schedule"
+        id="automatic-runs"
         className="border-border bg-surface scroll-mt-4 space-y-5 rounded-2xl border p-5 shadow-xs"
       >
         <div>
           <h2 className="text-foreground flex items-center gap-2.5 text-base font-semibold">
             <span className="bg-accent/10 rounded-lg p-1.5">
-              <Calendar className="text-accent h-4 w-4" />
+              <Wand2 className="text-accent h-4 w-4" />
             </span>
-            Schedule
+            Automatic idea generation
             <span className="rounded bg-amber-100 px-1.5 text-[10px] leading-4 font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
               Optional
             </span>
           </h2>
+          <p className="text-muted mt-1 text-xs leading-relaxed">
+            Starts a run on the days below for every active goal. Its ideas wait
+            for your review like any other run. Nothing is published to
+            LinkedIn.
+          </p>
         </div>
+
+        {enabled && activeGoalCount === 0 && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              You have no active goals, so scheduled runs are skipped.{' '}
+              <Link href="/goals" className="font-medium underline">
+                Add or resume a goal
+              </Link>
+              .
+            </span>
+          </div>
+        )}
 
         {/* Enable Schedule Toggle */}
         <div className="border-border flex items-center justify-between border-b pb-5">
-          <span className="text-foreground text-sm font-semibold">
+          <span
+            id="schedule-enabled-label"
+            className="text-foreground text-sm font-semibold"
+          >
             Generate ideas automatically
           </span>
 
@@ -142,6 +162,7 @@ export function ScheduleForm({
               type="checkbox"
               checked={enabled}
               onChange={e => setEnabled(e.target.checked)}
+              aria-labelledby="schedule-enabled-label"
               className="peer sr-only"
             />
             <div className="bg-surface-hover border-border peer peer-checked:after:border-background after:bg-background after:border-border peer-checked:bg-accent h-6 w-11 rounded-full border peer-focus:outline-none after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:border after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
@@ -150,9 +171,9 @@ export function ScheduleForm({
 
         {/* Days of week selector */}
         <div>
-          <label className="text-foreground mb-2 block text-xs font-semibold">
+          <p className="text-foreground mb-2 block text-xs font-semibold">
             Days
-          </label>
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             {DAYS.map(day => {
               const isSelected = selectedDays.includes(day.id)
@@ -160,6 +181,7 @@ export function ScheduleForm({
                 <button
                   key={day.id}
                   type="button"
+                  aria-pressed={isSelected}
                   onClick={() => toggleDay(day.id)}
                   className={`h-8 w-11 cursor-pointer rounded-lg border text-xs font-semibold transition-all ${
                     isSelected
@@ -176,11 +198,15 @@ export function ScheduleForm({
 
         {/* Time of day */}
         <div className="max-w-xs">
-          <label className="text-foreground mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
+          <label
+            htmlFor="schedule-time"
+            className="text-foreground mb-1.5 flex items-center gap-1.5 text-xs font-semibold"
+          >
             <Clock className="text-muted h-3.5 w-3.5" />
             Time
           </label>
           <input
+            id="schedule-time"
             type="time"
             value={timeOfDay}
             onChange={e => setTimeOfDay(e.target.value)}
@@ -189,6 +215,42 @@ export function ScheduleForm({
           <p className="text-muted mt-1 text-[11px]">
             Uses the server&apos;s time zone.
           </p>
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400"
+          >
+            {error}
+          </div>
+        )}
+
+        <div className="border-border flex items-center justify-end gap-2 border-t pt-4">
+          {savedSuccess && !isDirty && (
+            <span className="mr-auto flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Schedule saved.
+            </span>
+          )}
+          {isDirty && (
+            <button
+              type="button"
+              onClick={reset}
+              disabled={isSaving}
+              className="text-muted hover:text-foreground h-8 rounded-lg px-3.5 text-[13px] font-medium disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={!isDirty || isSaving}
+            className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Save schedule
+          </button>
         </div>
       </div>
     </form>

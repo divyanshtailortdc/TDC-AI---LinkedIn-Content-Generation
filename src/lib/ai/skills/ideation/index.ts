@@ -27,7 +27,8 @@ export async function generateIdeas(input: {
   /** Earlier work and the reviewer's verdicts, already rendered. */
   history: string
   candidateCount: number
-  assignedPillars: string[]
+  /** One goal label per candidate, in order (see spreadGoals). */
+  assignedGoals: string[]
 }): Promise<{
   /** Everything the model proposed, before the grounding check. */
   candidates: GeneratedIdeaItem[]
@@ -44,24 +45,26 @@ export async function generateIdeas(input: {
       corpus: input.corpus,
       history: input.history,
       candidateCount: input.candidateCount,
-      assignedPillars: input.assignedPillars,
+      assignedGoals: input.assignedGoals,
       hookMaxChars: input.ctx.prefs.constraints.hook_max_chars
     }),
     schema: IdeaGenerationBatchSchema
   })
 
-  // Citations and reader groups are resolved against exactly what the prompt showed.
+  // Citations, reader groups and goals are resolved against exactly what the
+  // prompt showed.
   const shownEvidence = input.corpus.verifiedClaims.slice(
     0,
     PROMPT_EVIDENCE_LIMIT
   )
   const audiences = audienceSegments(input.ctx).map(s => s.label)
+  const goals = input.ctx.selectedGoals.map(g => g.id)
   const candidates = (output?.ideas || []).map(generated =>
-    resolveGeneratedIdea(generated, shownEvidence, audiences)
+    resolveGeneratedIdea(generated, shownEvidence, audiences, goals)
   )
 
   const fit = {
-    pillars: input.ctx.prefs.pillars.map(p => p.name),
+    goals,
     audiences,
     region: inferRegion(input.ctx)
   }

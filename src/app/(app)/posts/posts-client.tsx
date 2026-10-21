@@ -8,7 +8,7 @@ import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import type { IdentitySummary } from '@/lib/identity'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { toUnicodeBold } from '@/lib/post-text'
+import { linkedInPostText, toLinkedInText } from '@/lib/post-text'
 import {
   IMAGE_PROMPT_MAX_WORDS,
   countWords,
@@ -23,6 +23,8 @@ import {
   reviewerSourceLabel
 } from '@/lib/media/media-source'
 import { getUserFacingRelevance } from '@/lib/media/relevance-label'
+import { BRAND_THEME_PATH } from '@/lib/brand/theme'
+import Link from 'next/link'
 import {
   AlertTriangle,
   Check,
@@ -43,6 +45,7 @@ import {
   ListFilter,
   Loader2,
   MessageSquare,
+  Palette,
   Paperclip,
   Quote,
   Search,
@@ -114,8 +117,23 @@ export interface PostDetail {
     providerRequestId?: string
     seed?: number
     regenerationAttempt?: number
+    /** The brand logo was laid over this image. */
+    hasLogo?: boolean
+    /** A vision check looked at this image for bad lettering and drawn logos. */
+    reviewChecked?: boolean
+    /** An uploaded reference image guided its composition and style. */
+    usedReference?: boolean
   } | null
+  /** Why drafting could not make this post's image, when it tried and failed. */
+  mediaFailure?: string | null
   lintFindings: LintFinding[]
+}
+
+/** What every generated image gets from the Brand Theme. */
+export interface BrandSummary {
+  hasLogo: boolean
+  /** Hex colours, the primary first. */
+  colors: string[]
 }
 
 const LINT_RULE_LABELS: Record<string, string> = {
@@ -304,13 +322,15 @@ export function PostsClientInner({
   initialPosts,
   initialNextCursor,
   totalCount,
-  identity
+  identity,
+  brand
 }: {
   initialPosts: PostDetail[]
   /** Where the next page starts; null when every post is already loaded. */
   initialNextCursor: string | null
   totalCount: number
   identity: IdentitySummary
+  brand: BrandSummary
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -495,6 +515,11 @@ export function PostsClientInner({
   const [referenceImageName, setReferenceImageName] = useState<string | null>(
     null
   )
+  // "Use current image" sends this id, and the server edits that image as it
+  // was before its logo went on, so the edit never redraws the logo. Without
+  // it, an attached image is a reference: it guides the layout and style of a
+  // new image designed from the post.
+  const [referenceMediaId, setReferenceMediaId] = useState<string | null>(null)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
@@ -524,6 +549,7 @@ export function PostsClientInner({
     setImagePrompt('')
     setReferenceImage(null)
     setReferenceImageName(null)
+    setReferenceMediaId(null)
     setImageLoadFailure(null)
   }
 
@@ -548,6 +574,8 @@ export function PostsClientInner({
   const shownComment = isEditing
     ? editedComment
     : activePost?.firstComment || ''
+  // Copy, like Approve, takes the saved comment, in the form the preview shows.
+  const copyableComment = toLinkedInText(activePost?.firstComment)
   // Compared whether or not the editor is open: closing it to look at the
   // preview keeps the edits in the buffer, and they are still unsaved.
   const hasUnsavedEdits =
@@ -660,6 +688,7 @@ export function PostsClientInner({
   const clearReferenceImage = () => {
     setReferenceImage(null)
     setReferenceImageName(null)
+    setReferenceMediaId(null)
     if (referenceInputRef.current) referenceInputRef.current.value = ''
   }
 
@@ -768,6 +797,7 @@ export function PostsClientInner({
         }
         setReferenceImage(dataUrl)
         setReferenceImageName(file.name || 'Pasted image')
+        setReferenceMediaId(null)
         setMediaError(null)
       }
       probe.onerror = () =>
@@ -785,6 +815,7 @@ export function PostsClientInner({
     if (!current) return
     setReferenceImage(current)
     setReferenceImageName(`Current image (v${activePost?.media?.version || 1})`)
+    setReferenceMediaId(activePost?.media?.id ?? null)
     setMediaError(null)
   }
 
@@ -809,7 +840,12 @@ export function PostsClientInner({
   const handleGenerateFromPrompt = async () => {
     if (!activePost || isMediaLoading) return
 
-    const promptProblem = validateImagePrompt(imagePrompt)
+    // With a reference image the post supplies the subject, so words are optional.
+    const guidedByReference = Boolean(referenceImage) && !referenceMediaId
+    const promptProblem =
+      guidedByReference && !imagePrompt.trim()
+        ? null
+        : validateImagePrompt(imagePrompt)
     if (promptProblem) {
       setMediaError(promptProblem)
       return
@@ -823,9 +859,11 @@ export function PostsClientInner({
     setMediaPostId(postId)
     setIsGenerating(true)
     setMediaLoadingText(
-      referenceImage
-        ? 'Editing your reference image in HD...'
-        : 'Generating your image in HD...'
+      guidedByReference
+        ? 'Designing a visual from the post in the layout and style of your reference, in your brand colours. This takes about a minute.'
+        : referenceMediaId
+          ? 'Editing your image in HD...'
+          : 'Generating your image in HD...'
     )
     setMediaError(null)
     setMediaNotice(null)
@@ -837,7 +875,9 @@ export function PostsClientInner({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: imagePrompt.trim(),
-          referenceImages: referenceImage ? [referenceImage] : undefined
+          ...(referenceMediaId
+            ? { referenceMediaId }
+            : { referenceImages: referenceImage ? [referenceImage] : undefined })
         }),
         signal: controller.signal
       })
@@ -888,7 +928,9 @@ export function PostsClientInner({
     const postId = activePost.id
     setIsMediaLoading(true)
     setMediaPostId(postId)
-    setMediaLoadingText('Reading the post and designing a matching visual...')
+    setMediaLoadingText(
+      'Designing a visual from the post, then checking its text and branding. This takes about a minute.'
+    )
     setMediaError(null)
     setMediaNotice(null)
     setMediaMenuOpen(false)
@@ -1174,17 +1216,11 @@ export function PostsClientInner({
 
   const handleCopyPost = async () => {
     if (!activePost) return
-    const tagsString = (activePost.hashtags || [])
-      .map(t => (t.startsWith('#') ? t : `#${t}`))
-      .join(' ')
     // Always the saved post: that is the text Approve stores, so what is copied
-    // is what is approved. Edits not saved yet are not part of either. The hook
-    // is copied in Unicode bold, the only bold that survives pasting into LinkedIn.
-    const fullContent = `${toUnicodeBold(activePost.hook)}\n\n${activePost.body}${
-      activePost.cta ? `\n\n${activePost.cta}` : ''
-    }${tagsString ? `\n\n${tagsString}` : ''}`
-
-    const success = await copyTextToClipboard(fullContent)
+    // is what is approved. Edits not saved yet are not part of either. It is
+    // the text the preview shows, with the hook in Unicode bold; the first
+    // comment has its own button, since it is pasted after publishing.
+    const success = await copyTextToClipboard(linkedInPostText(activePost))
     if (success) {
       setCopiedPost(true)
       showToast({
@@ -1205,15 +1241,17 @@ export function PostsClientInner({
   }
 
   const handleCopyComment = async () => {
-    const savedComment = activePost?.firstComment || ''
-    if (!savedComment) return
-    const success = await copyTextToClipboard(savedComment)
+    if (!copyableComment) return
+    const success = await copyTextToClipboard(copyableComment)
     if (success) {
       setCopiedComment(true)
       showToast({
         type: 'success',
         title: 'Comment Copied!',
-        message: 'First comment text copied to clipboard.'
+        message:
+          editedComment !== (activePost?.firstComment || '')
+            ? 'Copied the saved comment. Your unsaved edits are not included; save them to copy them.'
+            : 'First comment copied, ready to paste under the published post.'
       })
       setTimeout(() => setCopiedComment(false), 2500)
     } else {
@@ -1465,10 +1503,17 @@ export function PostsClientInner({
   // user has typed something, so an untouched field is not shown as an error.
   const promptError = validateImagePrompt(imagePrompt)
   const showPromptError = imagePrompt.trim().length > 0 && promptError !== null
-  // With nothing typed, "Regenerate" redesigns the existing image from the post
-  // text instead of sitting disabled waiting for a prompt.
-  const regenerateFromPost =
-    !imagePrompt.trim() && !referenceImage && Boolean(activePost?.media?.imageUrl)
+  // With nothing typed, the main button designs an image from the post text
+  // (a new concept each time) instead of sitting disabled waiting for a prompt.
+  const regenerateFromPost = !imagePrompt.trim() && !referenceImage
+  // An uploaded reference also designs from the post, so a prompt is optional
+  // and unsaved edits would make the image miss the post.
+  const guidedByReference = Boolean(referenceImage) && !referenceMediaId
+  const mainButtonBlocked = regenerateFromPost
+    ? isEditing
+    : guidedByReference
+      ? isEditing || showPromptError
+      : promptError !== null
   const stockQueryError = validateStockQuery(stockSearchQuery)
   const customUrlError = validateImageUrl(customImageUrl)
 
@@ -1661,7 +1706,7 @@ export function PostsClientInner({
                   C
                 </kbd>
               </button>
-              {shownComment ? (
+              {copyableComment ? (
                 <button
                   type="button"
                   onClick={handleCopyComment}
@@ -2160,12 +2205,24 @@ export function PostsClientInner({
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                           <div>
                             <p className="font-semibold">
-                              Media may not match this post
+                              {activePost.media.issues?.length
+                                ? 'Check this image before posting'
+                                : 'Media may not match this post'}
                             </p>
-                            <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                              {relevanceInfo.warningMessage ||
-                                'Generated media appears to introduce a different topic.'}
-                            </p>
+                            {/* Every problem the checks found, not just the first: a
+                                misspelt label and a covered headline need different fixes. */}
+                            {activePost.media.issues?.length ? (
+                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
+                                {activePost.media.issues.map(issue => (
+                                  <li key={issue}>{issue}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
+                                {relevanceInfo.warningMessage ||
+                                  'Generated media appears to introduce a different topic.'}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 pt-1">
@@ -2342,7 +2399,16 @@ export function PostsClientInner({
                           Retry
                         </button>
                       </div>
-                    ):null}
+                    ) : activePost.mediaFailure ? (
+                      // Drafting tried to make an image for this post and could not.
+                      <div className="flex items-start gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          The image for this post could not be made during
+                          drafting: {activePost.mediaFailure} Generate one below.
+                        </span>
+                      </div>
+                    ) : null}
 
                     {/* Stock search input */}
                     {showStockInput && !mediaBusyHere && (
@@ -2435,9 +2501,11 @@ export function PostsClientInner({
                             htmlFor="image-prompt"
                             className="text-foreground block text-[11px] font-semibold"
                           >
-                            {referenceImage
+                            {referenceMediaId
                               ? 'Describe the change you want'
-                              : 'Describe the image you want'}
+                              : referenceImage
+                                ? 'Add direction (optional)'
+                                : 'Describe the image you want'}
                           </label>
                           {(imagePrompt || referenceImage) && (
                             <button
@@ -2456,9 +2524,11 @@ export function PostsClientInner({
                           onPaste={handleReferencePaste}
                           rows={5}
                           placeholder={
-                            referenceImage
+                            referenceMediaId
                               ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
-                              : 'e.g. A minimal isometric illustration of two paths splitting, muted blues, lots of negative space'
+                              : referenceImage
+                                ? 'e.g. Show the moment the team first sees the results'
+                                : 'e.g. A minimal isometric illustration of two paths splitting, lots of negative space'
                           }
                           aria-invalid={showPromptError}
                           aria-describedby="image-prompt-hint"
@@ -2498,7 +2568,9 @@ export function PostsClientInner({
                                 {referenceImageName}
                               </p>
                               <p className="text-muted text-[10px]">
-                                Will be edited — unchanged parts are preserved
+                                {referenceMediaId
+                                  ? 'Will be edited — unchanged parts are preserved'
+                                  : 'Guides layout and style. The subject comes from the post, the colours from your brand.'}
                               </p>
                             </div>
                             <button
@@ -2518,7 +2590,7 @@ export function PostsClientInner({
                               className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium"
                             >
                               <Paperclip className="h-3 w-3" />
-                              Attach a reference image (or paste one above)
+                              Attach a reference image for layout and style
                             </button>
                             {activePost.media?.imageUrl && (
                               <button
@@ -2548,8 +2620,9 @@ export function PostsClientInner({
                       </div>
                     )}
 
-                    {/* Generation from the post's own text */}
-                    {!mediaBusyHere && (
+                    {/* Generation from the post's own text; with a reference
+                        attached, the main button already does this. */}
+                    {!mediaBusyHere && !guidedByReference && (
                       <div className="space-y-1">
                         <button
                           type="button"
@@ -2575,6 +2648,42 @@ export function PostsClientInner({
                       </div>
                     )}
 
+                    {/* Every generated image gets these; set on the Brand Theme page */}
+                    {!mediaBusyHere && (
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        {brand.hasLogo || brand.colors.length > 0 ? (
+                          <span className="text-muted inline-flex min-w-0 items-center gap-1.5">
+                            {brand.colors.map(color => (
+                              <span
+                                key={color}
+                                aria-hidden
+                                className="border-border h-3 w-3 shrink-0 rounded-full border"
+                                style={{ background: color }}
+                              />
+                            ))}
+                            <span className="truncate">
+                              {brand.hasLogo && brand.colors.length > 0
+                                ? 'Your logo and brand colours go on every image.'
+                                : brand.hasLogo
+                                  ? 'Your logo goes on every image.'
+                                  : 'Your brand colours go into every image.'}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-muted">
+                            No logo or brand colours yet.
+                          </span>
+                        )}
+                        <Link
+                          href={BRAND_THEME_PATH}
+                          className="text-accent inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
+                        >
+                          <Palette className="h-3 w-3" />
+                          Brand Theme
+                        </Link>
+                      </div>
+                    )}
+
                     {/* Primary & Secondary Media Actions */}
                     <div className="flex items-center gap-2 pt-1">
                       {isGenerating && mediaBusyHere ? (
@@ -2589,19 +2698,15 @@ export function PostsClientInner({
                       ) : (
                         <button
                           type="button"
-                          disabled={
-                            isMediaLoading ||
-                            (regenerateFromPost
-                              ? isEditing
-                              : promptError !== null)
-                          }
+                          disabled={isMediaLoading || mainButtonBlocked}
                           onClick={
                             regenerateFromPost
                               ? handleGenerateFromPost
                               : handleGenerateFromPrompt
                           }
                           title={
-                            regenerateFromPost && isEditing
+                            (regenerateFromPost || guidedByReference) &&
+                            isEditing
                               ? 'Save your edits first so the image matches the post'
                               : undefined
                           }
@@ -3033,12 +3138,14 @@ export function PostsClient({
   initialPosts,
   initialNextCursor,
   totalCount,
-  identity
+  identity,
+  brand
 }: {
   initialPosts: PostDetail[]
   initialNextCursor: string | null
   totalCount: number
   identity: IdentitySummary
+  brand: BrandSummary
 }) {
   return (
     <Suspense
@@ -3056,6 +3163,7 @@ export function PostsClient({
         initialNextCursor={initialNextCursor}
         totalCount={totalCount}
         identity={identity}
+        brand={brand}
       />
     </Suspense>
   )

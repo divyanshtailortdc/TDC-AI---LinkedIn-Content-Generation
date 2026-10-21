@@ -12,6 +12,7 @@ import {
   Flame,
   Loader2,
   Sparkles,
+  Target,
   X
 } from 'lucide-react'
 import Link from 'next/link'
@@ -29,7 +30,8 @@ export interface RunIdeaCardData {
   title: string | null
   angle: string | null
   perspectiveAngle?: string | null
-  pillar?: string | null
+  /** The goal the idea was made for, as titled now (or when it was made). */
+  goalTitle?: string | null
   groundingScore?: number | null
   whyNow: string | null
   thesis?: string | null
@@ -58,6 +60,14 @@ interface RunIdeaCardProps {
   isBusy: boolean
   /** Hide the status badge where the surrounding list already filters by it. */
   showStatus?: boolean
+  /** Ticked for "Create posts"; with onSelectChange, the card shows a checkbox. */
+  selected?: boolean
+  onSelectChange?: (id: string, selected: boolean) => void
+}
+
+/** Only ideas still at the gate can be picked for posts. */
+export function isSelectableIdea(status: string) {
+  return status === 'proposed' || status === 'approved'
 }
 
 // Same rule as the Idea Gate: approve/reject only make sense while the idea
@@ -133,7 +143,9 @@ export function RunIdeaCard({
   onEditSave,
   onDraft,
   isBusy,
-  showStatus = true
+  showStatus = true,
+  selected = false,
+  onSelectChange
 }: RunIdeaCardProps) {
   const actionsDisabled = isBusy
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -169,6 +181,7 @@ export function RunIdeaCard({
     summaryField !== 'audienceTakeaway' ? idea.audienceTakeaway : null
   const showViewPost = idea.status === 'drafted'
   const collapsed = mode === 'view' && !showDetails
+  const showCheckbox = !!onSelectChange && isSelectableIdea(idea.status)
 
   const evidence = Array.isArray(idea.supportingEvidence)
     ? (idea.supportingEvidence as EvidenceItem[]).filter(e => e?.claim)
@@ -217,14 +230,32 @@ export function RunIdeaCard({
     // lets just that card grow.
     <article
       className={cn(
-        'border-border bg-surface hover:border-foreground/15 flex min-w-0 flex-col rounded-2xl border p-5 shadow-xs transition-colors',
+        'bg-surface flex min-w-0 flex-col rounded-2xl border p-5 shadow-xs transition-colors',
+        selected && showCheckbox
+          ? 'border-brand/60 ring-brand/20 ring-2'
+          : 'border-border hover:border-foreground/15',
         collapsed ? 'h-64' : 'min-h-64'
       )}
     >
-      {(idea.pillar || weakSources || showStatus) && (
-        <div className="mb-2 flex items-center gap-2 text-xs">
-          {idea.pillar && (
-            <span className="text-muted truncate">{idea.pillar}</span>
+      {(showCheckbox || idea.goalTitle || weakSources || showStatus) && (
+        <div className="mb-2 flex min-w-0 items-center gap-2 text-xs">
+          {showCheckbox && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={e => onSelectChange?.(idea.id, e.target.checked)}
+              aria-label={`Select "${title}" for posts`}
+              className="accent-accent h-4 w-4 shrink-0 cursor-pointer"
+            />
+          )}
+          {idea.goalTitle && (
+            <span
+              title={`Goal: ${idea.goalTitle}`}
+              className="text-muted inline-flex min-w-0 items-center gap-1"
+            >
+              <Target className="h-3 w-3 shrink-0" />
+              <span className="truncate">{idea.goalTitle}</span>
+            </span>
           )}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {weakSources && (

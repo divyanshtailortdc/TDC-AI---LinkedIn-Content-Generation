@@ -77,6 +77,8 @@ export async function runSkill<S extends z.ZodType>(opts: {
    */
   cacheInstructions?: boolean
   prompt: string
+  /** Images the model should look at, sent after the prompt text. */
+  images?: Array<{ data: Uint8Array; mediaType: string }>
   schema: S
   /** Omit for no limit: the long pipeline stages run without one. */
   timeoutMs?: number
@@ -108,7 +110,21 @@ export async function runSkill<S extends z.ZodType>(opts: {
             }
           ]
         : opts.instructions,
-      prompt: opts.prompt,
+      prompt: opts.images?.length
+        ? [
+            {
+              role: 'user' as const,
+              content: [
+                { type: 'text' as const, text: opts.prompt },
+                ...opts.images.map(image => ({
+                  type: 'file' as const,
+                  mediaType: image.mediaType,
+                  data: image.data
+                }))
+              ]
+            }
+          ]
+        : opts.prompt,
       output: Output.object({ schema: opts.schema }),
       ...(opts.timeoutMs || opts.abortSignal
         ? {

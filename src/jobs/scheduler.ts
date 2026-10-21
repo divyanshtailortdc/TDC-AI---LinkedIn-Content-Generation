@@ -1,7 +1,7 @@
 import cron from 'node-cron'
 import { db } from '@/db'
-import { schedulesTable } from '@/db/schema'
-import { and, eq, isNull, lt, or } from 'drizzle-orm'
+import { goalsTable } from '@/db/schema'
+import { and, desc, eq } from 'drizzle-orm'
 import { enqueueRun } from './queue'
 import { RunInProgressError } from './run-guard'
 import { claimScheduleSlot, findRunnableSchedules } from './schedule-claim'
@@ -32,8 +32,6 @@ export function startScheduler() {
       const activeSchedules = await findRunnableSchedules(db)
 
       const now = new Date()
-      const startOfToday = new Date(now)
-      startOfToday.setHours(0, 0, 0, 0)
       const currentDay = now.getDay()
       const nowMinutes = now.getHours() * 60 + now.getMinutes()
 
@@ -53,28 +51,36 @@ export function startScheduler() {
         // Without this a restart inside the window would enqueue a second run.
         if (ranToday(sched.lastRunAt, now)) continue
 
-        // Claim the slot before enqueueing. The claim only succeeds for one
-        // caller, so a second tick or process cannot double up.
-        if (!(await claimScheduleSlot(db, sched, now))) continue
-        // Claim today's slot before enqueueing. Every `next dev` on the shared
+        // Claim the slot before enqueueing. Every `next dev` on the shared
         // database runs its own scheduler, so the claim is conditional: only
-        // the process whose UPDATE lands first gets the row back.
-        const [claimed] = await db
-          .update(schedulesTable)
-          .set({ lastRunAt: now, updatedAt: new Date() })
+        // one caller's write lands, and a second tick or process cannot double
+        // up. (A second claim used to follow this one; it could never match
+        // the row the first had just written, so no scheduled run started.)
+        if (!(await claimScheduleSlot(db, sched, now))) continue
+
+        // A scheduled run serves every active goal, newest first; a paused
+        // goal never steers a run.
+        const activeGoals = await db
+          .select({ id: goalsTable.id })
+          .from(goalsTable)
           .where(
             and(
-              eq(schedulesTable.id, sched.id),
-              or(isNull(schedulesTable.lastRunAt), lt(schedulesTable.lastRunAt, startOfToday))
+              eq(goalsTable.accountId, sched.accountId),
+              eq(goalsTable.isActive, true)
             )
           )
-          .returning()
-
-        if (!claimed) continue
+          .orderBy(desc(goalsTable.createdAt))
+        if (activeGoals.length === 0) {
+          console.warn(
+            `Skipped the scheduled run for account ${sched.accountId}: it has no active goals.`
+          )
+          continue
+        }
 
         try {
           await enqueueRun({
             accountId: sched.accountId,
+            goalIds: activeGoals.map(g => g.id),
             trigger: 'schedule'
           })
         } catch (err) {

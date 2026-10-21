@@ -16,7 +16,7 @@ import {
 } from '../src/lib/ai/idea-diversity'
 import type { GeneratedIdeaItem } from '../src/lib/ai/skills/ideation/schema'
 import { parseHashtagPolicy } from '../src/lib/ai/hashtags'
-import { pickWeightedPillars } from '../src/lib/ai/pillars'
+import { spreadGoals } from '../src/lib/ai/idea-selection'
 import { runLinter } from '../src/lib/lint/run-linter'
 import { checkNovelty } from '../src/lib/novelty'
 import { looksLikePlaceholderPage } from '../src/lib/scraper'
@@ -49,7 +49,7 @@ function makeIdea(overrides: Partial<GeneratedIdeaItem> = {}): GeneratedIdeaItem
     thesis: 'Retrieval quality, not model size, is the dominant driver of answer accuracy.',
     perspectiveAngle: 'common_misconception',
     angle: 'Where accuracy actually comes from',
-    pillar: 'AI Engineering',
+    goalId: 'goal-1',
     format: 'thought_leadership',
     whyNow: 'Teams keep reaching for bigger models before fixing retrieval.',
     hookConcept: 'Most teams upgrade the model when the retrieval layer is the problem.',
@@ -325,22 +325,14 @@ describe('calculateThesisSimilarity', () => {
   })
 })
 
-describe('pickWeightedPillars', () => {
-  it('allocates in proportion to the configured weights', () => {
-    const picked = pickWeightedPillars(
-      [
-        { name: 'A', weight_pct: 60 },
-        { name: 'B', weight_pct: 40 }
-      ],
-      10
-    )
-    assert.strictEqual(picked.length, 10)
-    assert.strictEqual(picked.filter(p => p.name === 'A').length, 6)
-    assert.strictEqual(picked.filter(p => p.name === 'B').length, 4)
+describe('spreadGoals', () => {
+  it('gives each selected goal an equal share, the first ones taking the remainder', () => {
+    const picked = spreadGoals(['G1', 'G2', 'G3'], 8)
+    assert.deepStrictEqual(picked, ['G1', 'G2', 'G3', 'G1', 'G2', 'G3', 'G1', 'G2'])
   })
 
-  it('returns nothing when no pillars are configured', () => {
-    assert.deepStrictEqual(pickWeightedPillars([], 5), [])
+  it('returns nothing when no goal is selected', () => {
+    assert.deepStrictEqual(spreadGoals([], 5), [])
   })
 })
 

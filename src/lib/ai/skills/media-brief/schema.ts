@@ -14,6 +14,7 @@ export type VisualType =
 
 export interface TextOverlaySpec {
   headline: string
+  /** Only on briefs written before overlays were cut to one headline. */
   supportingPoints?: string[]
   footer?: string
 }
@@ -30,6 +31,8 @@ export interface MediaBrief {
   textOverlay: TextOverlaySpec
   avoidConcepts: string[]
   whyItFits: string
+  /** How a regenerated concept differs from the earlier ones. */
+  howItDiffers?: string
 }
 
 export interface EvidenceSource {
@@ -87,19 +90,16 @@ export const MediaBriefSchema = z.object({
       headline: z
         .string()
         .describe(
-          'Aim for 70 characters or fewer so it stays legible on a phone. May be empty for a purely visual image.'
-        ),
-      supportingPoints: z
-        .array(z.string())
-        .default([])
-        .describe('Up to 3 labels, each around 40 characters or fewer.'),
-      footer: z.string().optional().describe('Optional short caption.')
+          'The one line of text the image may carry, up to 8 words, or empty for none. Follow the text rule in the request.'
+        )
     })
-    .describe('Any text rendered inside the image. Keep it sparse.'),
+    .describe(
+      'The only lettering in the image. Image models misspell anything smaller.'
+    ),
   imagePrompt: z
     .string()
     .describe(
-      'The full text-to-image prompt. Describe the composition, style, palette and any text to render. Never ask for logos, brand marks, watermarks or recognisable real people.'
+      'The scene for the image model: subject, composition, setting, lighting, style and colours. If there is a headline, quote it exactly once in double quotes and say where it sits. Describe no other lettering, and name objects by how they look rather than by words that would be printed on them ("a thick binder", not "a binder labelled Catalog"). Never mention a logo: the brand rules are appended to this prompt automatically.'
     ),
   altText: z
     .string()
@@ -108,22 +108,69 @@ export const MediaBriefSchema = z.object({
     ),
   whyItFits: z
     .string()
-    .describe('One sentence on how this visual carries the post argument.')
+    .describe('One sentence on how this visual carries the post argument.'),
+  howItDiffers: z
+    .string()
+    .default('')
+    .describe(
+      'When earlier images for this post are listed, one sentence on how this concept differs from them; otherwise empty.'
+    )
 })
+
+/** An image this post already had, so a new one can be told apart from it. */
+export interface PriorVisual {
+  concept: string
+  visualType?: string
+  metaphor?: string
+}
+
+/** The goal a post serves, as the art director needs it. */
+export interface MediaGoal {
+  title: string
+  objective?: string | null
+  keyMessage?: string | null
+  desiredAction?: string | null
+}
+
+/** The approved idea a post was written from. */
+export interface MediaIdea {
+  title?: string | null
+  angle?: string | null
+  hookConcept?: string | null
+  coreArgument?: string | null
+  audienceTakeaway?: string | null
+}
 
 export interface DeriveMediaBriefInput {
   postText: string
   thesis?: string | null
   hook?: string | null
   evidence?: EvidenceSource[]
-  /** The account's configured house style for generated images. */
-  styleGuidance?: string
   aspectRatio?: '1:1' | '16:9' | '4:5'
   accountName?: string
   /** Who posts and who sees it, from renderMediaContext. */
   accountContext?: string
   /** Visual direction already chosen for this post: the reviewer's, or the approved idea's. */
   direction?: string
+  goal?: MediaGoal | null
+  idea?: MediaIdea | null
+  /** Summaries of the knowledge documents the post's facts came from. */
+  knowledge?: string[]
+  /** What the account actually offers: the only products the image may show. */
+  offerings?: string[]
+  /** The brand theme as the art director reads it (renderBrandForArtDirector). */
+  brand?: string
+  /** Where the brand logo will be laid over the image, if it will. */
+  logoCorner?: string
+  /** Earlier images for this post, newest first; a new one must differ from them. */
+  previousVersions?: PriorVisual[]
+  /** What the reviewer said about the image being replaced. */
+  rejectionReason?: string
+  /**
+   * An image the reviewer attached to guide the composition and style. The
+   * art director sees it as it is; the subject still comes from the post.
+   */
+  referenceImage?: { data: Uint8Array; mediaType: string }
 }
 
 export interface DerivedMediaBrief {
@@ -137,4 +184,6 @@ export interface DeriveMediaBriefResult {
   guard: BriefGuardResult | null
   /** Every call made, including a failed one and the corrective retry. */
   usage: CallUsage
+  /** Why no brief came back, when it did not. */
+  error?: string
 }
