@@ -23,8 +23,8 @@ export interface IdeaCardData {
   thesis?: string | null
   coreArgument?: string | null
   noveltyNote?: string | null
-  /** The goal the idea was made for, as titled now (or when it was made). */
-  goalTitle?: string | null
+  /** Every goal the idea serves, its main goal first (see ideaGoalTitles). */
+  goalTitles?: string[] | null
   perspectiveAngle?: string | null
   score?: number | null
   groundingScore?: number | null

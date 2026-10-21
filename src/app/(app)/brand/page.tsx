@@ -16,7 +16,14 @@ export default async function BrandThemePage() {
     .select({
       logoImage: brandThemesTable.logoImage,
       primaryColor: brandThemesTable.primaryColor,
-      secondaryColor: brandThemesTable.secondaryColor
+      accentColor: brandThemesTable.accentColor,
+      backgroundColor: brandThemesTable.backgroundColor,
+      headingFont: brandThemesTable.headingFont,
+      bodyFont: brandThemesTable.bodyFont,
+      visualStyle: brandThemesTable.visualStyle,
+      backgroundPattern: brandThemesTable.backgroundPattern,
+      showLogo: brandThemesTable.showLogo,
+      footerText: brandThemesTable.footerText
     })
     .from(brandThemesTable)
     .where(eq(brandThemesTable.accountId, identity.id))
@@ -28,11 +35,9 @@ export default async function BrandThemePage() {
   return (
     <BrandThemeClient
       identityName={identity.name}
-      initialColors={{
-        primary: theme.primaryColor,
-        secondary: theme.secondaryColor
-      }}
+      initialTheme={theme}
       initialLogo={row?.logoImage ?? null}
+      websiteUrl={identity.websiteUrl}
     />
   )
 }

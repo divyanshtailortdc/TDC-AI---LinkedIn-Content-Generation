@@ -92,7 +92,7 @@ ${
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
 
-THE GOALS THIS RUN SERVES: these and no others. Write each idea for exactly one of them and give its label as goalRef. An idea must move its reader toward that goal's message, not merely share its subject.
+THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject.
 ${renderGoalsBlock(ctx.selectedGoals)}
 
 HOW THIS AUTHOR SOUNDS
@@ -108,7 +108,7 @@ RULES THAT OVERRIDE EVERYTHING ELSE
 5. Cite an evidence item only for what that item itself says. A homepage or index supports general facts about the brand, never a specific story, launch, date or figure.
 6. Be specific to this account (its field, its readers' situation, its market) without promoting it. A subject any company in any industry could post about is too generic; an idea that ends in "choose our product" is an advert. A product may appear only as an example the evidence covers, never as the conclusion.
 7. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".
-8. Evidence labels (E1, E2...) belong only in evidenceRef, reader-group labels (A1, A2...) only in audienceRef, and goal labels (G1, G2...) only in goalRef. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.`
+8. Evidence labels (E1, E2...) belong only in evidenceRef, reader-group labels (A1, A2...) only in audienceRef, and goal labels (G1, G2...) only in goalRefs. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.`
 }
 
 /** This run's evidence, history and the exact ideas to produce. */
@@ -147,7 +147,7 @@ For each idea provide:
 - thesis: the defensible proposition in one or two sentences
 - perspectiveAngle: the lens from the list above (each idea must use a different one)
 - angle: the distinctive point of view in a phrase
-- goalRef: the label of the goal assigned to this idea, e.g. "G1"
+- goalRefs: the label of the goal assigned to this idea first, then any other goal its argument also moves, e.g. ["G1"] or ["G2", "G1"]
 - audienceRef: the label of the one reader group this idea is for, e.g. "A2"
 - format: the post format that fits best
 - whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"

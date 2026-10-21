@@ -167,20 +167,16 @@ describe('laying the logo over a generated image', () => {
 })
 
 describe('preparing a reference image', () => {
-  it('scales it down and keeps a greyscale copy with no colour left in it', async () => {
+  it('scales it down to what a vision model needs, keeping its colours', async () => {
     const orange = await solid(2400, 1600, [228, 87, 46])
-    const { colour, greyscale } = await prepareReferenceImage(orange)
-
-    const colourMeta = await sharp(colour).metadata()
-    assert.deepEqual([colourMeta.width, colourMeta.height], [1280, 853])
-    const [r, , b] = await pixel(colour, 10, 10)
-    assert.ok(r! - b! > 120, 'the colour copy keeps the colour')
-
-    const grey = await pixel(greyscale, 10, 10)
-    assert.ok(
-      Math.max(...grey) - Math.min(...grey) <= 2,
-      `greyscale pixels have no hue, got ${grey}`
+    const prepared = await prepareReferenceImage(orange)
+    const meta = await sharp(prepared).metadata()
+    assert.deepEqual(
+      [meta.format, meta.width, meta.height],
+      ['jpeg', 1280, 853]
     )
+    const [r, , b] = await pixel(prepared, 10, 10)
+    assert.ok(r! - b! > 120, 'the colours are kept for the art director')
   })
 
   it('says so when the bytes are not an image', async () => {

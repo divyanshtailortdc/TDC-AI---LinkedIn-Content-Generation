@@ -16,6 +16,13 @@ import {
 
 const named = (hex: string) => `${hex} (${describeColor(hex)})`
 
+/**
+ * Image models give anything "paper" or "warm" a cream background, which then
+ * reads as a third brand colour; the background is pinned down in words.
+ */
+const BACKGROUND_RULE =
+  'The background is white, a cool light grey or one of the brand colours, never cream, beige or another warm tint.'
+
 /** "#e4572e (bright orange) as the dominant colour and …", or null without colours. */
 function paletteWords(theme: ResolvedBrandTheme): string | null {
   const [first, second] = brandColors(theme)
@@ -29,25 +36,12 @@ function paletteWords(theme: ResolvedBrandTheme): string | null {
 export function renderBrandForArtDirector(theme: ResolvedBrandTheme): string {
   const palette = paletteWords(theme)
   return palette
-    ? `Brand colours: ${palette}. Build the image from these, with white, greys and near-black as neutrals and no other strong colours.`
+    ? `Brand colours: ${palette}. Build the image from these, with white, greys and near-black as neutrals and no other strong colours. ${BACKGROUND_RULE}`
     : ''
 }
 
 /** The lettering rule, for the art director. */
-export const TEXT_RULE = `Text: at most one headline of up to ${HEADLINE_MAX_WORDS} words, in large type. Nothing else in the image is lettered: screens, documents, signs, labels and packaging show abstract lines and shapes, never words or numbers. Leave the headline empty when the image says it better without words.`
-
-/**
- * Opens the image prompt when a reference image is attached. The reference
- * lends its layout and look; the subject comes from the post, and with brand
- * colours set the reference reaches the image model in greyscale, so its own
- * colours have nothing to leak from.
- */
-export function referenceImageInstruction(theme: ResolvedBrandTheme): string {
-  const recolour = paletteWords(theme)
-    ? ' Do not copy its colours either: the colours come only from the palette below.'
-    : ''
-  return `Create a new image. The attached reference image is a guide to arrangement and rendering style only: where the main subject, the empty space and any headline sit, the framing and camera angle, the medium, line work, texture, lighting and level of detail. None of the objects, props, devices, icons, people, wording or logos in the reference may appear: what the image shows is described below.${recolour}`
-}
+export const TEXT_RULE = `Text: at most one headline of up to ${HEADLINE_MAX_WORDS} words, in large type. Nothing else in the image is lettered: screens, documents, signs, labels and packaging show abstract lines and shapes, never words or numbers. Leave out seals, stamps, badges, coins and book spines, which image models fill with fake lettering. Leave the headline empty when the image says it better without words.`
 
 /**
  * Fixed lines appended to the image prompt. `clearSpace` keeps the logo's
@@ -79,7 +73,7 @@ export function imagePromptSuffix(options: {
           ? ' Give the supporting colour a visible share too, such as the headline, outlines or a second large shape.'
           : ''
       lines.push(
-        `Colour palette: ${palette}, with white, light grey and near-black as neutrals.${supporting} No other strong colours.`
+        `Colour palette: ${palette}, with white, light grey and near-black as neutrals.${supporting} No other strong colours. ${BACKGROUND_RULE}`
       )
     }
     const headline = (options.headline || '').trim()

@@ -178,7 +178,7 @@ describe('which evidence the copy check reads', () => {
     ]
   } as never
   const ctx = {
-    account: { name: 'A' }, voice: null, offerings: [], audiences: [], primaryGoal: null,
+    account: { name: 'A' }, voice: null, offerings: [], audiences: [], primaryGoal: null, selectedGoals: [],
     prefs: { constraints: { cta_required: false, hashtags: null, emoji_level: 'liberal', hook_max_chars: 200, max_chars: 3000 }, guardrails: { banned_topics: [] }, research: { min_citations_per_post: 1 } },
     history: EMPTY_HISTORY
   } as never
@@ -506,7 +506,7 @@ describe('writing rules follow the voice and the author\'s own posts', () => {
 
   const ctxFor = (voice: unknown, samples: string[] = []) =>
     ({
-      account: { name: 'A' }, offerings: [], audiences: [], primaryGoal: null,
+      account: { name: 'A' }, offerings: [], audiences: [], primaryGoal: null, selectedGoals: [],
       voice, samplePosts: samples.map(content => ({ content })),
       prefs: { constraints: { cta_required: false, hashtags: null, emoji_level: 'liberal', hook_max_chars: 200, max_chars: 3000 }, guardrails: { banned_topics: [] }, research: { min_citations_per_post: 1 } },
       history: EMPTY_HISTORY

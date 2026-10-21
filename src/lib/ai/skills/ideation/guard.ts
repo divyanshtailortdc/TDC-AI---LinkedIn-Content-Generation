@@ -445,6 +445,12 @@ export function factTypeFor(
   return origin === 'web' ? 'sourced' : 'verified'
 }
 
+/**
+ * An idea serves one main goal and, where its argument genuinely moves theirs
+ * too, a couple more. Beyond that it is serving everything and so nothing.
+ */
+export const MAX_GOALS_PER_IDEA = 3
+
 /** What the idea must fit besides its evidence: the run's brief. */
 export interface IdeaFit {
   /** Ids of the goals picked for the run; when set, an idea must serve one. */
@@ -505,13 +511,23 @@ export function validateIdea(
     .join(' ')
     .toLowerCase()
 
-  // 0. The brief: one of the run's goals, one of the account's reader groups.
+  // 0. The brief: the run's goals, one of the account's reader groups. Only
+  // goals picked for the run count; the first that is one is the main goal.
   if (fit && fit.goals.length > 0) {
-    if (!idea.goalId && fit.goals.length === 1) idea.goalId = fit.goals[0]
-    if (!idea.goalId || !fit.goals.includes(idea.goalId)) {
+    const served = Array.from(
+      new Set(
+        [...(idea.goalIds ?? []), ...(idea.goalId ? [idea.goalId] : [])].filter(
+          id => fit.goals.includes(id)
+        )
+      )
+    ).slice(0, MAX_GOALS_PER_IDEA)
+    if (served.length === 0 && fit.goals.length === 1) served.push(fit.goals[0]!)
+    if (served.length === 0) {
       offBrief = true
       reject('It serves none of the goals selected for this run.')
     }
+    idea.goalId = served[0]
+    idea.goalIds = served
   }
   if (fit && fit.audiences.length > 0) {
     if (!idea.targetAudience && fit.audiences.length === 1) {
@@ -809,6 +825,25 @@ function byLabel<T>(prefix: 'A' | 'G', ref: string | undefined, items: T[]) {
 }
 
 /**
+ * The goals an idea names, from their labels, in the order given and once
+ * each. Labels that point at no goal are left out; the first goal left is the
+ * main one.
+ */
+export function resolveGoalRefs(
+  refs: string[] | undefined,
+  goals: string[]
+): { goalId?: string; goalIds: string[] } {
+  const goalIds = Array.from(
+    new Set(
+      (refs ?? [])
+        .map(ref => byLabel('G', ref, goals))
+        .filter((id): id is string => Boolean(id))
+    )
+  )
+  return { goalId: goalIds[0], goalIds }
+}
+
+/**
  * Expands a generated idea into the full item. Source details come from the
  * corpus entry the model cited, never from the model's own typing. A citation
  * that points outside the corpus keeps its claim but gets no source, so the
@@ -830,7 +865,7 @@ export function resolveGeneratedIdea(
     thesis: generated.thesis,
     perspectiveAngle: generated.perspectiveAngle,
     angle: generated.angle,
-    goalId: byLabel('G', generated.goalRef, goals),
+    ...resolveGoalRefs(generated.goalRefs, goals),
     targetAudience: byLabel('A', generated.audienceRef, audiences),
     format: generated.format,
     whyNow: clean(generated.whyNow),

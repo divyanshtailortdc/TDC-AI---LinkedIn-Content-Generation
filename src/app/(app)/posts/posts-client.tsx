@@ -2196,10 +2196,12 @@ export function PostsClientInner({
                     </div>
                   )}
 
-                  {/* MEDIA RELEVANCE WARNING (if weak or unrelated) */}
+                  {/* MEDIA RELEVANCE WARNING (if weak or unrelated). An image the
+                      reviewer described is not scored, but its lettering is. */}
                   {activePost.media?.imageUrl &&
-                    !isUserPromptedMedia &&
-                    !relevanceInfo.isPass && (
+                    (isUserPromptedMedia
+                      ? Boolean(activePost.media.issues?.length)
+                      : !relevanceInfo.isPass) && (
                       <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
                         <div className="flex items-start gap-2 font-medium text-amber-700 dark:text-amber-400">
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />

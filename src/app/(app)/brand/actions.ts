@@ -27,7 +27,14 @@ export async function saveBrandTheme(rawPayload: BrandThemePayload) {
 
     const columns = {
       primaryColor: payload.primaryColor,
-      secondaryColor: payload.secondaryColor,
+      accentColor: payload.accentColor ?? payload.secondaryColor ?? null,
+      backgroundColor: payload.backgroundColor ?? null,
+      headingFont: payload.headingFont ?? null,
+      bodyFont: payload.bodyFont ?? null,
+      visualStyle: payload.visualStyle ?? 'auto',
+      backgroundPattern: payload.backgroundPattern ?? 'dots',
+      showLogo: payload.showLogo ?? true,
+      footerText: payload.footerText ?? null,
       ...(payload.logo !== undefined && {
         logoImage: payload.logo && (await normalizeLogo(payload.logo)).dataUrl
       }),

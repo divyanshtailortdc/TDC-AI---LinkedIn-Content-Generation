@@ -30,8 +30,8 @@ export interface RunIdeaCardData {
   title: string | null
   angle: string | null
   perspectiveAngle?: string | null
-  /** The goal the idea was made for, as titled now (or when it was made). */
-  goalTitle?: string | null
+  /** Every goal the idea serves, its main goal first (see ideaGoalTitles). */
+  goalTitles?: string[] | null
   groundingScore?: number | null
   whyNow: string | null
   thesis?: string | null
@@ -182,6 +182,7 @@ export function RunIdeaCard({
   const showViewPost = idea.status === 'drafted'
   const collapsed = mode === 'view' && !showDetails
   const showCheckbox = !!onSelectChange && isSelectableIdea(idea.status)
+  const goals = idea.goalTitles ?? []
 
   const evidence = Array.isArray(idea.supportingEvidence)
     ? (idea.supportingEvidence as EvidenceItem[]).filter(e => e?.claim)
@@ -237,7 +238,7 @@ export function RunIdeaCard({
         collapsed ? 'h-64' : 'min-h-64'
       )}
     >
-      {(showCheckbox || idea.goalTitle || weakSources || showStatus) && (
+      {(showCheckbox || goals.length > 0 || weakSources || showStatus) && (
         <div className="mb-2 flex min-w-0 items-center gap-2 text-xs">
           {showCheckbox && (
             <input
@@ -248,13 +249,29 @@ export function RunIdeaCard({
               className="accent-accent h-4 w-4 shrink-0 cursor-pointer"
             />
           )}
-          {idea.goalTitle && (
+          {goals.length > 0 && (
+            // The main goal first, then any other goal the idea also moves.
             <span
-              title={`Goal: ${idea.goalTitle}`}
-              className="text-muted inline-flex min-w-0 items-center gap-1"
+              title={
+                goals.length === 1
+                  ? `Goal: ${goals[0]}`
+                  : `Goals: ${goals[0]} (main), ${goals.slice(1).join(', ')}`
+              }
+              className="text-muted flex min-w-0 items-center gap-1"
             >
               <Target className="h-3 w-3 shrink-0" />
-              <span className="truncate">{idea.goalTitle}</span>
+              {goals.map((goal, i) => (
+                <span
+                  key={goal}
+                  className={cn(
+                    'min-w-0 truncate',
+                    i === 0 && goals.length > 1 && 'text-foreground/80 font-medium'
+                  )}
+                >
+                  {i > 0 && '+ '}
+                  {goal}
+                </span>
+              ))}
             </span>
           )}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -366,6 +383,12 @@ export function RunIdeaCard({
 
           {showDetails && (
             <div className="border-border mt-4 space-y-3 border-t pt-4 text-sm">
+              {goals.length > 1 && (
+                <DetailRow label="Goals">
+                  {goals[0]} (main goal; sets the call to action), also{' '}
+                  {goals.slice(1).join(', ')}
+                </DetailRow>
+              )}
               {detailAngle && (
                 <DetailRow label="Angle">{detailAngle}</DetailRow>
               )}

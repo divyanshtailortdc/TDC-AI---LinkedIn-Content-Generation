@@ -10,20 +10,17 @@ const quoteList = (items: string[]) =>
     .join(', ')
 
 /**
- * Turns the model's observations into a verdict. The model only reports what
- * it sees; which of those things block an image is decided here, the same way
- * for every account.
+ * What is wrong with the lettering and the logos: a logo the model drew, stray
+ * or misspelt words, the real logo covering something, a misspelt headline.
+ * These hold for every image, including one the reviewer described.
  */
-export function judgeImageReview(
+export function letteringIssues(
   review: ImageReview,
-  options: { headline: string; brandGiven: boolean; referenceGiven?: boolean }
-): ImageReviewVerdict {
+  options: { headline: string }
+): string[] {
   const issues: string[] = []
   const brandMarks = review.brandMarks.map(m => m.trim()).filter(Boolean)
   const stray = review.unintendedText.map(t => t.trim()).filter(Boolean)
-  const unsupported = review.unsupportedDetails
-    .map(d => d.trim())
-    .filter(Boolean)
 
   if (brandMarks.length > 0) {
     issues.push(
@@ -46,6 +43,23 @@ export function judgeImageReview(
       `The headline is not spelled as intended ("${options.headline.trim()}").`
     )
   }
+  return issues
+}
+
+/**
+ * Turns the model's observations into a verdict. The model only reports what
+ * it sees; which of those things block an image is decided here, the same way
+ * for every account.
+ */
+export function judgeImageReview(
+  review: ImageReview,
+  options: { headline: string; brandGiven: boolean; referenceGiven?: boolean }
+): ImageReviewVerdict {
+  const issues = letteringIssues(review, options)
+  const unsupported = review.unsupportedDetails
+    .map(d => d.trim())
+    .filter(Boolean)
+
   if (unsupported.length > 0) {
     issues.push(
       `Shows details the post does not support: ${unsupported.slice(0, 3).join('; ')}.`

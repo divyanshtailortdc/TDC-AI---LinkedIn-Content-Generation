@@ -52,7 +52,10 @@ export async function reviewImage(
     }
   } catch (err) {
     const usage = err instanceof SkillError ? err.usage : EMPTY_USAGE
-    if (!(err instanceof SkillError && err.reason === 'not_configured')) {
+    if (
+      !input.abortSignal?.aborted &&
+      !(err instanceof SkillError && err.reason === 'not_configured')
+    ) {
       console.warn('Image review failed; keeping the image unchecked:', err)
     }
     return {

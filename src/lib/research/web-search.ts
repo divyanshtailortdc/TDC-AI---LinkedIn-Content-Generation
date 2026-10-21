@@ -4,7 +4,12 @@ import { env } from '~/env'
 import type { GenerationContext } from '~/lib/ai/context'
 import { inferRegion } from '~/lib/ai/region'
 import { stripTrackingParams } from '~/lib/urls'
-import { buildSearchQueries, normalizePublishedDate } from './findings'
+import { interleave } from '~/lib/ai/pipeline/grounding-corpus'
+import {
+  buildSearchQueries,
+  normalizePublishedDate,
+  searchCountFor
+} from './findings'
 
 /**
  * Web research over Serper (Google results). Plain code, no model: the fixed
@@ -94,7 +99,11 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
   })
 }
 
-/** Fixed research: the queries above, run one after another. */
+/**
+ * Fixed research: the queries above, run one after another, at least one per
+ * goal picked for the run. Results are taken from each query in turn, so the
+ * evidence the prompt shows covers every goal rather than the first query's.
+ */
 export async function runWebSearch(
   ctx: GenerationContext,
   onQuery: (q: string) => void
@@ -103,17 +112,16 @@ export async function runWebSearch(
   if (!policy.use_web_search) return []
   if (!env.SERPER_API_KEY) return []
 
-  const maxSearches = Math.max(1, Math.min(policy.max_searches_per_run || 3, 8))
   const region = inferRegion(ctx)
-  const findings: Finding[] = []
-  for (const query of buildSearchQueries(ctx, maxSearches, region)) {
+  const perQuery: Finding[][] = []
+  for (const query of buildSearchQueries(ctx, searchCountFor(ctx), region)) {
     onQuery(query)
-    findings.push(
-      ...(await searchWeb(query, {
+    perQuery.push(
+      await searchWeb(query, {
         freshnessDays: policy.freshness_days,
         country: region?.code
-      }))
+      })
     )
   }
-  return dedupeFindings(findings)
+  return dedupeFindings(interleave(perQuery))
 }

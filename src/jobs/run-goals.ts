@@ -1,5 +1,10 @@
-/** The most goals one run may serve; more than its ideas leaves some without one. */
-export const MAX_GOALS_PER_RUN = 12
+import { MAX_IDEAS_PER_RUN } from '../lib/ai/idea-selection'
+
+/**
+ * The most goals one run may serve: each leads at least one idea, and a run
+ * keeps at most MAX_IDEAS_PER_RUN.
+ */
+export const MAX_GOALS_PER_RUN = MAX_IDEAS_PER_RUN
 
 /** A run asked for goals it cannot use; the message is safe to show. */
 export class GoalSelectionError extends Error {

@@ -5,12 +5,18 @@ import { buildPrompt as buildResearchPrompt } from '../src/lib/ai/agents/researc
 import {
   EMPTY_HISTORY,
   goalText,
+  ideaGoalTitles,
   resolvePreferences,
   snapshotGoal,
   withIdeaGoal,
   type GenerationContext
 } from '../src/lib/ai/context-blocks'
-import { spreadGoals } from '../src/lib/ai/idea-selection'
+import {
+  coverEveryGoal,
+  ideaTarget,
+  selectIdeas,
+  spreadGoals
+} from '../src/lib/ai/idea-selection'
 import {
   buildGroundingCorpus,
   buildRetrievalQueries
@@ -20,13 +26,17 @@ import {
   planDraftSelection
 } from '../src/lib/ai/pipeline/draft-selection'
 import {
+  MAX_GOALS_PER_IDEA,
   resolveGeneratedIdea,
+  resolveGoalRefs,
   validateIdea
 } from '../src/lib/ai/skills/ideation/guard'
+import type { GeneratedIdeaItem } from '../src/lib/ai/skills/ideation/schema'
+import { collectFigureSources } from '../src/lib/ai/skills/post-drafting/guard'
 import * as ideationPrompt from '../src/lib/ai/skills/ideation/prompt'
 import type { IdeaGenerationItem } from '../src/lib/ai/skills/ideation/schema'
 import * as draftingPrompt from '../src/lib/ai/skills/post-drafting/prompt'
-import { buildSearchQueries } from '../src/lib/research/findings'
+import { buildSearchQueries, searchCountFor } from '../src/lib/research/findings'
 import { checkRunGoals, GoalSelectionError } from '../src/jobs/run-goals'
 
 /**
@@ -121,7 +131,7 @@ function generated(overrides: Partial<IdeaGenerationItem>): IdeaGenerationItem {
     thesis: 'Reconciling every day keeps month-end small.',
     perspectiveAngle: 'process_breakdown',
     angle: 'Close is a daily habit',
-    goalRef: 'G1',
+    goalRefs: ['G1'],
     audienceRef: '',
     format: 'thought_leadership',
     whyNow: 'Month-end keeps slipping for growing brands.',
@@ -177,39 +187,53 @@ describe('the goals picked for a run decide what ideation sees', () => {
       today: now
     })
     assert.match(prompt, /G1 \| G2 \| G1 \| G2 \| G1/)
-    assert.match(prompt, /goalRef/)
+    assert.match(prompt, /goalRefs/)
     assert.doesNotMatch(prompt, /pillar/i)
   })
 })
 
 describe('an idea is kept only when it serves a picked goal', () => {
   it('resolves its goal label to that goal and passes the brief', () => {
-    const result = check(generated({ goalRef: 'G2' }))
+    const result = check(generated({ goalRefs: ['G2'] }))
     assert.strictEqual(result.idea.goalId, gst.id)
     assert.strictEqual(result.offBrief, false)
   })
 
   it('turns away a label that points at no picked goal', () => {
-    const result = check(generated({ goalRef: 'G3' }))
+    const result = check(generated({ goalRefs: ['G3'] }))
     assert.strictEqual(result.isValid, false)
     assert.match(result.rejectionReason!, /none of the goals selected/)
   })
 
   it('turns away an idea naming no goal when several were picked', () => {
-    const result = check(generated({ goalRef: '' }))
+    const result = check(generated({ goalRefs: [] }))
     assert.strictEqual(result.isValid, false)
     assert.strictEqual(result.offBrief, true)
   })
 
   it('turns away an idea for a goal outside the run, however it got there', () => {
     const idea = resolveGeneratedIdea(generated({}), [], [], goalIds)
-    const result = validateIdea({ ...idea, goalId: hiring.id }, corpus, fit)
-    assert.strictEqual(result.isValid, false)
+    const outside = validateIdea(
+      { ...idea, goalId: hiring.id, goalIds: [hiring.id] },
+      corpus,
+      fit
+    )
+    assert.strictEqual(outside.isValid, false)
+
+    // Beside a picked goal, the outside one is dropped and never kept.
+    const mixed = validateIdea(
+      { ...idea, goalId: hiring.id, goalIds: [hiring.id, gst.id] },
+      corpus,
+      fit
+    )
+    assert.strictEqual(mixed.isValid, true)
+    assert.strictEqual(mixed.idea.goalId, gst.id)
+    assert.deepStrictEqual(mixed.idea.goalIds, [gst.id])
   })
 
   it('gives the only goal of a one-goal run to an idea that names none', () => {
     const single = [gst.id]
-    const idea = resolveGeneratedIdea(generated({ goalRef: '' }), [], [], single)
+    const idea = resolveGeneratedIdea(generated({ goalRefs: [] }), [], [], single)
     const result = validateIdea(idea, buildGroundingCorpus(context([gst]), []), {
       goals: single,
       audiences: []
@@ -308,6 +332,7 @@ function idea(overrides: Partial<Idea>): Idea {
     accountId: 'acc',
     runId: 'run-1',
     goalId: null,
+    goalIds: [],
     goalSnapshot: null,
     offeringId: null,
     title: 'Close the books daily',
@@ -467,5 +492,163 @@ describe('content pillars no longer reach generation', () => {
     ].join('\n')
     assert.ok(!everything.includes('Legacy pillar'))
     assert.ok(!everything.includes('Old topic'))
+  })
+})
+
+describe('a run for several goals represents every one of them', () => {
+  it('makes at least one idea per picked goal, between 3 and 12', () => {
+    assert.strictEqual(ideaTarget(5, 1), 5)
+    assert.strictEqual(ideaTarget(5, 3), 5)
+    assert.strictEqual(ideaTarget(5, 7), 7)
+    assert.strictEqual(ideaTarget(5, 20), 12)
+    assert.strictEqual(ideaTarget(2, 1), 3)
+  })
+
+  it('reads the main goal first and any other goal an idea also serves', () => {
+    assert.deepStrictEqual(resolveGoalRefs(['G2', 'G1', 'G2', 'G9'], ['a', 'b']), {
+      goalId: 'b',
+      goalIds: ['b', 'a']
+    })
+    assert.deepStrictEqual(resolveGoalRefs([], ['a']), { goalId: undefined, goalIds: [] })
+  })
+
+  it(`keeps only picked goals on an idea, main first, at most ${MAX_GOALS_PER_IDEA}`, () => {
+    const four = context([close, gst, hiring, goal('goal-d', { title: 'D' })])
+    const ids = four.selectedGoals.map(g => g.id)
+    const idea = resolveGeneratedIdea(generated({}), [], [], ids)
+    const result = validateIdea(
+      { ...idea, goalIds: ['goal-d', 'not-picked', close.id, gst.id, hiring.id] },
+      buildGroundingCorpus(four, []),
+      { goals: ids, audiences: [] }
+    )
+    assert.strictEqual(result.idea.goalId, 'goal-d')
+    assert.deepStrictEqual(result.idea.goalIds, ['goal-d', close.id, gst.id])
+  })
+
+  /** A candidate as selection sees it: written for `goalId`, ranked by `score`. */
+  const candidate = (title: string, goalId: string, thesis: string, score: number) =>
+    ({
+      title,
+      goalId,
+      goalIds: [goalId],
+      thesis,
+      coreArgument: thesis,
+      hookConcept: `Hook about ${title}`,
+      perspectiveAngle: 'process_breakdown',
+      estimatedStrength: score,
+      groundingScore: score,
+      originalityScore: score
+    }) as GeneratedIdeaItem
+
+  const a1 = candidate('a1', 'A', 'Weekly reconciliation keeps month-end close short.', 95)
+  const a2 = candidate('a2', 'A', 'Founders should read cash flow before profit.', 90)
+  const a3 = candidate('a3', 'A', 'Payroll errors start with unapproved timesheets.', 85)
+
+  it("gives a goal left without an idea its best spare, in place of another goal's extra", () => {
+    const spareB = candidate('b1', 'B', 'Freight invoices hide unclaimed input credit.', 60)
+    const { selected, added, uncovered } = coverEveryGoal([a1, a2, a3], [spareB], ['A', 'B'], 3)
+    assert.deepStrictEqual(selected.map(i => i.title), ['a1', 'a2', 'b1'])
+    assert.deepStrictEqual(added.map(i => i.title), ['b1'])
+    assert.deepStrictEqual(uncovered, [])
+  })
+
+  it('will not cover a goal with a near copy of an idea already picked', () => {
+    const copy = candidate('c1', 'C', 'Weekly reconciliation keeps month-end close short.', 99)
+    const { selected, uncovered } = coverEveryGoal([a1, a2, a3], [copy], ['A', 'C'], 3)
+    assert.deepStrictEqual(selected.map(i => i.title), ['a1', 'a2', 'a3'])
+    assert.deepStrictEqual(uncovered, ['C'])
+  })
+
+  it('reports the goals no candidate could cover, for the retry and the run page', () => {
+    const { uncovered } = selectIdeas([a1, a2], [], 3, ['A', 'B', 'C'])
+    assert.deepStrictEqual(uncovered, ['B', 'C'])
+  })
+
+  it('a one-goal run asks for every idea under that goal and needs no cover', () => {
+    assert.deepStrictEqual(spreadGoals(['G1'], 4), ['G1', 'G1', 'G1', 'G1'])
+    const { selected, uncovered } = selectIdeas([a1, a2, a3], [], 3, ['A'])
+    assert.strictEqual(selected.length, 3)
+    assert.deepStrictEqual(uncovered, [])
+  })
+
+  it('searches the web once for each picked goal, beyond the usual three', () => {
+    const five = context([
+      close,
+      gst,
+      hiring,
+      goal('goal-d', { title: 'Payroll accuracy' }),
+      goal('goal-e', { title: 'Inventory valuation' })
+    ])
+    assert.strictEqual(searchCountFor(five), 5)
+    assert.strictEqual(searchCountFor(run), 3)
+    const queries = buildSearchQueries(five, searchCountFor(five))
+    for (const title of five.selectedGoals.map(g => g.title)) {
+      assert.ok(queries.some(q => q.includes(title)), `${title}: ${queries.join(' | ')}`)
+    }
+  })
+})
+
+describe('an idea serving several goals', () => {
+  const both = idea({ goalId: close.id, goalIds: [close.id, gst.id] })
+
+  it("is drafted for its main goal's ask and link, reinforcing the other goal's message", () => {
+    const text = draftingText(both)
+    assert.match(text, /IT ALSO SUPPORTS these goals/)
+    assert.ok(text.includes(`- ${gst.title}: ${gst.keyMessage}`))
+    assert.ok(text.includes(close.keyMessage!))
+    assert.ok(text.includes(`Steer the reader toward: ${close.desiredAction}`))
+    assert.ok(text.includes(close.targetUrl!))
+    assert.ok(!text.includes(hiring.keyMessage!))
+  })
+
+  it("counts every one of its goals' messages as the author's own words", () => {
+    const ctx = withIdeaGoal(context([close, hiring, gst]), both)
+    const sources = collectFigureSources(ctx, both)
+    assert.ok(sources.includes(gst.keyMessage!))
+    assert.ok(!sources.includes(hiring.keyMessage!))
+  })
+
+  it('drops another goal deleted since, and keeps a deleted main goal from its copy', () => {
+    const goneOther = withIdeaGoal(
+      context([close, gst]),
+      idea({ goalId: close.id, goalIds: [close.id, 'deleted-goal'] })
+    )
+    assert.deepStrictEqual(goneOther.selectedGoals.map(g => g.id), [close.id])
+
+    const goneMain = withIdeaGoal(
+      context([close, gst]),
+      idea({
+        goalId: null,
+        goalIds: ['deleted-main', gst.id],
+        goalSnapshot: snapshotGoal({ ...hiring, id: 'deleted-main' })
+      })
+    )
+    assert.deepStrictEqual(
+      goneMain.selectedGoals.map(g => g.title),
+      [hiring.title, gst.title]
+    )
+    assert.strictEqual(goneMain.primaryGoal?.title, hiring.title)
+  })
+
+  it('lists its goals on the card, main first', () => {
+    const goals = [close, gst]
+    assert.deepStrictEqual(ideaGoalTitles(both, goals), [close.title, gst.title])
+    // Made before ideas could serve several goals.
+    assert.deepStrictEqual(
+      ideaGoalTitles({ goalId: close.id, goalIds: [], goalSnapshot: null }, goals),
+      [close.title]
+    )
+    // The main goal deleted: its kept title; another deleted goal is left out.
+    assert.deepStrictEqual(
+      ideaGoalTitles(
+        {
+          goalId: null,
+          goalIds: ['gone', 'also-gone', gst.id],
+          goalSnapshot: snapshotGoal({ ...hiring, id: 'gone' })
+        },
+        goals
+      ),
+      [hiring.title, gst.title]
+    )
   })
 })

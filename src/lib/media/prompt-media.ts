@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
+import { postFullText } from '@/lib/post-text'
 import { loadBrandRendering } from './brand-assets'
 import { generateCustomImage } from './index'
 
@@ -32,6 +33,9 @@ export interface PromptMediaRecord {
   seed: number
   regenerationAttempt: number
   hasLogo: boolean
+  /** Lettering and logo problems the vision check found. */
+  issues: string[]
+  reviewChecked: boolean
 }
 
 /**
@@ -64,10 +68,13 @@ export async function createPromptMediaForDraft(input: {
       eq(postDraftsTable.id, input.draftId),
       eq(postDraftsTable.accountId, input.accountId)
     ),
-    columns: { id: true }
+    columns: { id: true, hook: true, body: true, cta: true }
   })
   if (!draft) return { status: 'draft_not_found' }
 
+  // Words in quotes are the lettering the reviewer asked for.
+  const quoted = /["“]([^"”]{1,120})["”]/.exec(input.prompt)?.[1]?.trim()
+  let allowedText = quoted
   let editImage: string | undefined
   if (input.referenceMediaId) {
     const reference = await db.query.postMediaTable.findFirst({
@@ -75,11 +82,14 @@ export async function createPromptMediaForDraft(input: {
         eq(postMediaTable.id, input.referenceMediaId),
         eq(postMediaTable.draftId, input.draftId)
       ),
-      columns: { imageUrl: true, baseImageUrl: true }
+      columns: { imageUrl: true, baseImageUrl: true, metadata: true }
     })
     const image = reference?.baseImageUrl || reference?.imageUrl
     if (!image) return { status: 'reference_not_found' }
     editImage = image
+    // An edit keeps the image's own headline unless it says otherwise.
+    allowedText ||= (reference?.metadata as { textOverlay?: { headline?: string } } | null)
+      ?.textOverlay?.headline
   }
 
   const brand = await loadBrandRendering(
@@ -96,6 +106,8 @@ export async function createPromptMediaForDraft(input: {
       prompt: input.prompt,
       editImage,
       brand,
+      postText: postFullText(draft),
+      allowedText,
       abortSignal: input.abortSignal,
       onUsage: usage => {
         spent = addUsage(spent, usage)
@@ -167,6 +179,10 @@ export async function createPromptMediaForDraft(input: {
           referenceImageCount: generated.referenceImageCount,
           seed: generated.seed,
           logo: generated.logo,
+          // Shown with the image; the subject is the reviewer's own choice.
+          issues: generated.issues,
+          review: { checked: generated.reviewChecked },
+          ...(allowedText ? { textOverlay: { headline: allowedText } } : {}),
           fallbackApplied: false
         }
       })
@@ -195,7 +211,9 @@ export async function createPromptMediaForDraft(input: {
       fallbackApplied: false,
       seed: generated.seed,
       regenerationAttempt: newMedia.regenerationAttempt,
-      hasLogo: Boolean(generated.logo)
+      hasLogo: Boolean(generated.logo),
+      issues: generated.issues,
+      reviewChecked: generated.reviewChecked
     }
   }
 }

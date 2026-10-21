@@ -419,6 +419,10 @@ export function RunDetailClient({
   }))
   const totalDurationMs = stages.reduce((sum, s) => sum + s.durationMs, 0)
   const failedSteps = steps.filter((s) => s.status === 'failed' && s.error)
+  // Goals the run was for that lead no idea, with why (see ideation-run).
+  const uncoveredGoals: Array<{ goalId: string; goal: string; reason: string }> =
+    steps.find((s) => s.stage === 'generating_ideas' && s.status === 'completed')
+      ?.responseJson?.uncoveredGoals ?? []
 
   const ideaSummary = [
     proposedCount > 0 && `${proposedCount} to review`,
@@ -567,6 +571,33 @@ export function RunDetailClient({
                 </span>
               ))}
             </p>
+          )}
+
+          {uncoveredGoals.length > 0 && (
+            <div
+              role="status"
+              className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  {uncoveredGoals.length === 1
+                    ? 'One goal has no idea in this run'
+                    : `${uncoveredGoals.length} goals have no idea in this run`}
+                </p>
+                <ul className="mt-1 space-y-0.5 text-xs leading-relaxed">
+                  {uncoveredGoals.map((g) => (
+                    <li key={g.goalId} className="wrap-break-word">
+                      <span className="font-medium">{g.goal}</span>: {g.reason}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs">
+                  Start another run for {uncoveredGoals.length === 1 ? 'it' : 'them'}, or add
+                  knowledge base sources about {uncoveredGoals.length === 1 ? 'it' : 'them'}.
+                </p>
+              </div>
+            </div>
           )}
 
           {run.error && (

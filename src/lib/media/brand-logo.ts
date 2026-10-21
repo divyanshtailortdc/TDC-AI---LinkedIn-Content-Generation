@@ -160,7 +160,7 @@ async function regionTone(
 }
 
 /** Mean luminance (0–1) of a logo's visible pixels, weighted by opacity. */
-async function logoTone(logo: Buffer): Promise<number> {
+export async function logoTone(logo: Buffer): Promise<number> {
   const { data, info } = await sharp(logo)
     .resize(96, 96, { fit: 'inside' })
     .ensureAlpha()
@@ -174,6 +174,12 @@ async function logoTone(logo: Buffer): Promise<number> {
     weight += alpha
   }
   return weight > 0 ? sum / weight : 0.5
+}
+
+/** True when a logo is primarily white/light and needs a plate on light canvas */
+export async function isLightLogo(logo: Buffer): Promise<boolean> {
+  const lum = await logoTone(logo)
+  return lum > 0.65
 }
 
 /** Below this luminance difference a logo is hard to read against its corner. */
@@ -256,17 +262,12 @@ export async function compositeLogo(
 }
 
 /**
- * A reference image as the models receive it: upright, at most 1280px on its
- * long edge, as JPEG. The greyscale copy is what the image model gets when
- * brand colours are set: it keeps the layout and the look, and leaves the
- * model no colours of the reference's to carry over.
+ * A reference image as the art director and the review see it: upright, at
+ * most 1280px on its long edge, as JPEG.
  */
-export async function prepareReferenceImage(
-  buffer: Buffer
-): Promise<{ colour: Buffer; greyscale: Buffer }> {
-  let colour: Buffer
+export async function prepareReferenceImage(buffer: Buffer): Promise<Buffer> {
   try {
-    colour = await sharp(buffer)
+    return await sharp(buffer)
       .rotate()
       .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
       .flatten({ background: '#ffffff' })
@@ -275,11 +276,6 @@ export async function prepareReferenceImage(
   } catch {
     throw new Error('The reference image could not be read.')
   }
-  const greyscale = await sharp(colour)
-    .grayscale()
-    .jpeg({ quality: 88 })
-    .toBuffer()
-  return { colour, greyscale }
 }
 
 /** A smaller copy for a vision model to judge: enough to read a headline. */

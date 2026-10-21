@@ -2,6 +2,7 @@ import type { Idea } from '@/db/schema'
 import {
   describeCta,
   describeHashtags,
+  renderAlsoSupportsBlock,
   renderAudienceBlock,
   renderConstraintsBlock,
   renderGoalBlock,
@@ -43,6 +44,7 @@ export function buildInstructions(ctx: GenerationContext): string {
   const exemplars = renderExemplars(ctx)
   const guardrails = renderGuardrailsBlock(ctx)
   const feedback = renderReviewerFeedbackBlock(ctx)
+  const alsoSupports = renderAlsoSupportsBlock(ctx)
 
   return `You are a ghostwriter producing a finished LinkedIn post for one specific author. You write in their voice, not yours, and you never invent facts.
 
@@ -54,7 +56,7 @@ ${renderAudienceBlock(ctx)}
 
 GOAL THIS POST SERVES
 ${renderGoalBlock(goal)}
-
+${alsoSupports ? `\nIT ALSO SUPPORTS these goals: reinforce their messages where the argument meets them, with no second call to action or link:\n${alsoSupports}\n` : ''}
 VOICE — match this precisely
 ${renderVoiceBlock(ctx)}
 

@@ -2,7 +2,6 @@ import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import {
   imagePromptSuffix,
-  referenceImageInstruction,
   renderBrandForArtDirector,
   TEXT_RULE
 } from '../src/lib/brand/prompt'
@@ -235,6 +234,7 @@ describe('the brand theme in prompts', () => {
       /Colour palette: #e4572e \(bright red\) as the dominant colour and #1b2a4a/
     )
     assert.match(suffix, /Give the supporting colour a visible share too/)
+    assert.match(suffix, /never cream, beige or another warm tint/)
     assert.match(
       suffix,
       /The only text in the image is the headline "Slow quotes are a data problem"/
@@ -289,16 +289,4 @@ describe('the brand theme in prompts', () => {
     assert.match(suffix, /Never draw a logo/)
   })
 
-  it('takes only layout and style from a reference image, and its colours only without brand colours', () => {
-    const withBrand = referenceImageInstruction(branded)
-    assert.match(withBrand, /a guide to arrangement and rendering style only/)
-    assert.match(
-      withBrand,
-      /None of the objects, props, devices, icons, people, wording or logos in the reference may appear/
-    )
-    assert.match(withBrand, /colours come only from the palette below/)
-    assert.ok(
-      !referenceImageInstruction(DEFAULT_BRAND_THEME).includes('palette below')
-    )
-  })
 })

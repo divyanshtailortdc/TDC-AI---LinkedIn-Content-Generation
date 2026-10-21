@@ -108,7 +108,8 @@ export async function retrieveKnowledgePassages(
   const queries = buildRetrievalQueries(ctx)
   if (!handle || docs.length === 0 || queries.length === 0) return []
 
-  const limit = options.limit ?? 6
+  // Two passages for each goal, between 6 and 12 in all.
+  const limit = options.limit ?? Math.min(12, Math.max(6, queries.length * 2))
   const minSimilarity = options.minSimilarity ?? 0.35
 
   try {

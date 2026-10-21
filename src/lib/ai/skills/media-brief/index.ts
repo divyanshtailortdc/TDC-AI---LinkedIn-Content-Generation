@@ -66,7 +66,23 @@ export async function deriveMediaBrief(
     primaryConcept: output.primaryConcept,
     visualMetaphor: output.visualMetaphor,
     visualType: output.visualType,
-    textOverlay: normalizeOverlay(output.textOverlay),
+    copy: {
+      tagline: output.tagline,
+      headline: output.headline,
+      highlightWords: output.highlightWords,
+      subheadline: output.subheadline
+    },
+    visual: {
+      type: output.visualType,
+      hub: output.hub,
+      nodes: output.nodes,
+      badges: output.badges,
+      groups: output.groups,
+      illustrationPrompt: output.illustrationPrompt
+    },
+    textOverlay: {
+      headline: output.headline
+    },
     avoidConcepts,
     whyItFits: output.whyItFits,
     howItDiffers: output.howItDiffers || undefined
@@ -99,7 +115,7 @@ export async function deriveMediaBrief(
     let brief = toBrief(output, [])
     let guard = guardMediaBrief(
       brief,
-      output.imagePrompt,
+      output.illustrationPrompt || '',
       input.postText,
       input.accountName,
       guardOptions
@@ -114,7 +130,7 @@ export async function deriveMediaBrief(
         const retryBrief = toBrief(retry, [brief.primaryConcept])
         const retryGuard = guardMediaBrief(
           retryBrief,
-          retry.imagePrompt,
+          retry.illustrationPrompt || '',
           input.postText,
           input.accountName,
           guardOptions
@@ -130,14 +146,31 @@ export async function deriveMediaBrief(
     return {
       derived: {
         brief,
-        imagePrompt: output.imagePrompt,
+        copy: {
+          tagline: output.tagline,
+          headline: output.headline,
+          highlightWords: output.highlightWords,
+          subheadline: output.subheadline
+        },
+        visual: {
+          type: output.visualType,
+          hub: output.hub,
+          nodes: output.nodes,
+          badges: output.badges,
+          groups: output.groups,
+          illustrationPrompt: output.illustrationPrompt
+        },
         altText: clamp(output.altText, 300)
       },
       guard,
       usage
     }
   } catch (err) {
-    if (!(err instanceof SkillError && err.reason === 'not_configured')) {
+    // A stop the reviewer asked for is not a failure worth logging.
+    if (
+      !options.abortSignal?.aborted &&
+      !(err instanceof SkillError && err.reason === 'not_configured')
+    ) {
       console.warn('Media brief generation failed:', err)
     }
     return {

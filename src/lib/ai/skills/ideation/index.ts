@@ -34,7 +34,8 @@ export async function generateIdeas(input: {
   candidates: GeneratedIdeaItem[]
   /** Ideas that passed the grounding check, scored. */
   valid: GeneratedIdeaItem[]
-  discarded: Array<{ title: string; reason: string }>
+  /** With the goal each was written for, so an uncovered goal can be explained. */
+  discarded: Array<{ title: string; reason: string; goalId?: string }>
   usage: CallUsage
   modelId: string
 }> {
@@ -69,12 +70,14 @@ export async function generateIdeas(input: {
     region: inferRegion(input.ctx)
   }
   const valid: GeneratedIdeaItem[] = []
-  const discarded: Array<{ title: string; reason: string }> = []
+  const discarded: Array<{ title: string; reason: string; goalId?: string }> =
+    []
   for (const candidate of candidates) {
     const result = validateIdea(candidate, input.corpus, fit)
     if (!result.isValid) {
       discarded.push({
         title: candidate.title,
+        goalId: candidate.goalId,
         reason:
           result.rejectionReason || result.issues[0] || 'Failed grounding checks'
       })

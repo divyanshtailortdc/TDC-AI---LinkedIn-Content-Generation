@@ -384,7 +384,7 @@ export function renderGoalBlock(goal: Goal | null): string {
 export const goalLabel = (index: number) => `G${index + 1}`
 
 /**
- * The goals a run serves, each under the label an idea cites as goalRef. The
+ * The goals a run serves, each under the label an idea cites in goalRefs. The
  * link is left out: ideation decides what to argue, drafting places links.
  */
 export function renderGoalsBlock(goals: Goal[]): string {
@@ -426,37 +426,78 @@ export function snapshotGoal(goal: Goal): GoalSnapshot {
 }
 
 /**
- * The context for writing up one idea: the idea's goal and no other. The live
- * goal is used when it still exists, so a corrected link or call to action
- * reaches the post; once it is deleted, the copy kept on the idea stands in.
- * An idea made without a goal is written without one, never with whichever
- * goal happens to be active now.
+ * The context for writing up one idea: the idea's own goals and no others,
+ * its main goal first (primaryGoal), which sets the call to action and link.
+ * The live goal is used when it still exists, so a corrected link or call to
+ * action reaches the post; once the main goal is deleted, the copy kept on the
+ * idea stands in. An idea made without a goal is written without one, never
+ * with whichever goal happens to be active now.
  */
 export function withIdeaGoal(
   ctx: GenerationContext,
-  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalSnapshot'>
+  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalIds' | 'goalSnapshot'>
 ): GenerationContext {
   const live = idea.goalId
     ? ctx.goals.find(g => g.id === idea.goalId)
     : undefined
   const snapshot = idea.goalSnapshot
-  const goal: Goal | null = live
+  const main: Goal | null = live
     ? live
     : snapshot
       ? {
           ...snapshot,
-          id: idea.goalId ?? `snapshot-${idea.id}`,
+          id: idea.goalId ?? idea.goalIds?.[0] ?? `snapshot-${idea.id}`,
           accountId: idea.accountId,
           isActive: false,
           createdAt: new Date(0),
           updatedAt: new Date(0)
         }
       : null
+  // The other goals the idea also serves, as they are now; one deleted since
+  // is left out rather than guessed at.
+  const mainId = idea.goalId ?? idea.goalIds?.[0]
+  const others = (idea.goalIds ?? [])
+    .filter(id => id !== mainId)
+    .map(id => ctx.goals.find(g => g.id === id))
+    .filter((g): g is Goal => Boolean(g))
+  const goals = main ? [main, ...others] : others
   return {
     ...ctx,
-    selectedGoals: goal ? [goal] : [],
-    primaryGoal: goal
+    selectedGoals: goals,
+    primaryGoal: goals[0] ?? null
   }
+}
+
+/**
+ * The goals an idea serves besides the post's main one, for the drafting
+ * brief: messages to reinforce where the argument meets them. The main goal
+ * alone sets the call to action and the link.
+ */
+export function renderAlsoSupportsBlock(ctx: GenerationContext): string {
+  return ctx.selectedGoals
+    .filter(g => g.id !== ctx.primaryGoal?.id)
+    .map(g => `- ${g.title}${g.keyMessage ? `: ${g.keyMessage}` : ''}`)
+    .join('\n')
+}
+
+/**
+ * The titles of the goals an idea serves, main goal first, for its card. The
+ * main goal shows as titled now, or by the copy the idea kept once deleted;
+ * another goal deleted since is left out.
+ */
+export function ideaGoalTitles(
+  idea: Pick<Idea, 'goalId' | 'goalIds' | 'goalSnapshot'>,
+  goals: Array<Pick<Goal, 'id' | 'title'>>
+): string[] {
+  const titleOf = (id: string | null | undefined) =>
+    id ? goals.find(g => g.id === id)?.title : undefined
+  const mainId = idea.goalId ?? idea.goalIds?.[0]
+  const main = titleOf(mainId) ?? idea.goalSnapshot?.title
+  const others = (idea.goalIds ?? [])
+    .filter(id => id !== mainId)
+    .map(titleOf)
+    .filter((t): t is string => Boolean(t))
+  return Array.from(new Set([...(main ? [main] : []), ...others]))
 }
 
 /** Renders the voice settings and the rubric derived from real posts. */

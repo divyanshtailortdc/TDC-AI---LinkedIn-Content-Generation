@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import { EMPTY_HISTORY, resolvePreferences } from '../src/lib/ai/context-blocks'
 import {
   judgeImageReview,
+  letteringIssues,
   retryInstructions
 } from '../src/lib/ai/skills/image-review/guard'
 import { buildPrompt as buildReviewPrompt } from '../src/lib/ai/skills/image-review/prompt'
@@ -196,7 +197,7 @@ describe('the image brief prompt', () => {
     assert.match(prompt, /WHO POSTS IT AND WHO SEES IT\nPosted by: Ledgerline/)
     assert.match(
       prompt,
-      /BRAND THEME — follow it\nBrand colours: #0e7c86 \(dark teal\) as the dominant colour/
+      /BRAND THEME\nBrand colours: #0e7c86 \(dark teal\) as the dominant colour/
     )
   })
 
@@ -209,21 +210,25 @@ describe('the image brief prompt', () => {
       prompt,
       /- Earlier \(conceptual illustration\): Bridge between two screens/
     )
-    assert.match(prompt, /a visual form other than comparison/)
+    assert.match(prompt, /a visual type other than comparison/)
     assert.match(prompt, /The reviewer said about the last one: "Too busy"/)
   })
 
-  it('applies the text rule, keeps the logo corner clear and forbids drawn logos and generic imagery', () => {
-    assert.match(prompt, /Text: at most one headline of up to 8 words/)
-    assert.match(prompt, /logo is added afterwards in the top left corner/)
-    assert.match(prompt, /Never include a logo, wordmark, brand name/)
+  it('applies the layout rules and forbids generic imagery and photorealistic scenes', () => {
+    assert.match(prompt, /THE LAYOUT \(fixed, drawn by code\)/)
+    assert.match(prompt, /Left: the brand logo, then the tagline/)
+    assert.match(prompt, /Right: the visual, on a light background/)
     assert.match(
       prompt,
-      /Never fall back on generic business, AI or technology imagery/
+      /No generic business, AI or technology filler/
     )
     assert.match(
       prompt,
-      /Never render a statistic, date, venue, price or offer/
+      /Never state a statistic, date, venue, price or offer/
+    )
+    assert.match(
+      prompt,
+      /never text, labels, logos, screens full of words, real people's faces, hands, desks, coffee cups/
     )
   })
 
@@ -239,7 +244,7 @@ describe('the image brief prompt', () => {
     ]) {
       assert.ok(!bare.includes(heading), heading)
     }
-    assert.match(bare, /Text: at most one headline of up to 8 words/)
+    assert.match(bare, /THE LAYOUT \(fixed, drawn by code\)/)
     assert.ok(!bare.includes('REFERENCE IMAGE'))
   })
 
@@ -251,24 +256,9 @@ describe('the image brief prompt', () => {
       previousVersions: [{ concept: 'Booth', visualType: 'scene' }]
     })
     assert.match(withReference, /REFERENCE IMAGE \(attached\)/)
-    assert.match(withReference, /Take its arrangement and its look, never its objects/)
-    assert.match(withReference, /Fill those places with this post's own subject/)
-    assert.match(withReference, /Nothing it shows may reappear/)
-    assert.match(
-      withReference,
-      /none of its colours, its background tint included\. Name only the brand colours/
-    )
-    assert.match(withReference, /the image model also sees the reference, in greyscale/)
-    // The reference fixes the form, so a regeneration changes the subject only.
-    assert.match(withReference, /still in the layout and style of the reference image/)
-    assert.ok(!withReference.includes('a visual form other than'))
-
-    const noBrand = buildPrompt({
-      postText: 'A post.',
-      referenceImage: { data: new Uint8Array([1]), mediaType: 'image/jpeg' }
-    })
-    assert.match(noBrand, /Its colour mood may carry over/)
-    assert.ok(!noBrand.includes('in greyscale'))
+    assert.match(withReference, /Let it guide the choice of visual type/)
+    assert.match(withReference, /Take none of its objects, wording or logos/)
+    assert.match(withReference, /THE LAYOUT \(fixed, drawn by code\)/)
   })
 })
 
@@ -520,6 +510,21 @@ describe('the image review verdict', () => {
     )
     assert.match(fixes, /none of its objects, props, devices or icons appear/)
     assert.match(fixes, /white or very light grey background/)
+  })
+
+  it("checks only lettering and logos on an image the reviewer described", () => {
+    const issues = letteringIssues(
+      review({
+        unintendedText: ['Approvtuer'],
+        genericStock: true,
+        followsBrand: false,
+        relevanceScore: 20
+      }),
+      { headline: '' }
+    )
+    assert.deepEqual(issues, [
+      'Has stray or misspelt lettering: "Approvtuer".'
+    ])
   })
 
   it('shows the reviewer the reference second and says what may carry over', () => {

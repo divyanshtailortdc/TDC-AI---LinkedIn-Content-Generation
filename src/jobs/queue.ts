@@ -8,7 +8,7 @@ import {
   runsTable,
   runStepsTable
 } from '@/db/schema'
-import { RESEARCH_SETTINGS } from '@/lib/ai/context'
+import { ideaGoalTitles, RESEARCH_SETTINGS } from '@/lib/ai/context'
 import { defaultModel } from '@/lib/models'
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { checkRunGoals } from './run-goals'
@@ -168,7 +168,7 @@ export async function getRunDetails(runId: string) {
     findings,
     ideas: ideas.map(idea => ({
       ...idea,
-      goalTitle: titleOf(idea.goalId) ?? idea.goalSnapshot?.title ?? null
+      goalTitles: ideaGoalTitles(idea, goals)
     }))
   }
 }

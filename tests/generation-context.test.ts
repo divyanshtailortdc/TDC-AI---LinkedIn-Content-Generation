@@ -312,6 +312,7 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
     accountId: 'acc',
     runId: 'run',
     goalId: null,
+    goalIds: [],
     goalSnapshot: null,
     offeringId: null,
     title: 'An idea',

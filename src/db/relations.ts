@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm'
 import {
   accountsTable,
   audiencesTable,
+  brandThemesTable,
   documentChunksTable,
   feedbackTable,
   goalsTable,
@@ -22,6 +23,7 @@ import {
 } from './schema'
 
 export const accountsRelations = relations(accountsTable, ({ one, many }) => ({
+  brandTheme: one(brandThemesTable),
   voiceConfig: one(voiceConfigsTable),
   preferences: one(preferencesTable),
   schedule: one(schedulesTable),
@@ -218,5 +220,12 @@ export const feedbackRelations = relations(feedbackTable, ({ one }) => ({
   draft: one(postDraftsTable, {
     fields: [feedbackTable.draftId],
     references: [postDraftsTable.id]
+  })
+}))
+
+export const brandThemesRelations = relations(brandThemesTable, ({ one }) => ({
+  account: one(accountsTable, {
+    fields: [brandThemesTable.accountId],
+    references: [accountsTable.id]
   })
 }))

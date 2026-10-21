@@ -84,6 +84,26 @@ export function isRecent(
   return age >= -DAY_MS && age <= (days + 1) * DAY_MS
 }
 
+/** The most searches fixed research makes in one run. */
+const MAX_SEARCHES_PER_RUN = 12
+
+/**
+ * How many searches fixed research makes: the research setting, raised so
+ * every goal picked for the run gets a query of its own.
+ */
+export function searchCountFor(
+  ctx: Pick<GenerationContext, 'prefs' | 'selectedGoals'>
+): number {
+  return Math.min(
+    Math.max(
+      ctx.prefs.research.max_searches_per_run || 3,
+      ctx.selectedGoals.length,
+      1
+    ),
+    MAX_SEARCHES_PER_RUN
+  )
+}
+
 /** Longest key message used as a search subject, in words. */
 const SUBJECT_WORDS = 12
 

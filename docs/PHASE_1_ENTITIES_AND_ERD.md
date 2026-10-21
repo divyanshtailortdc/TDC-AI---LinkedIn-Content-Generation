@@ -192,7 +192,7 @@ Content campaign objectives.
 | `id` | `uuid` | PK, default gen_random_uuid() | Unique preference ID |
 | `account_id` | `uuid` | NOT NULL, UNIQUE, FK → `accounts(id)` ON DELETE CASCADE | 1:1 owner |
 | `posts_per_week` | `integer` | NOT NULL, default 3 | Target posting frequency |
-| `pillars` | `jsonb` | default '[]'::jsonb | Content pillars and weight percentages |
+| `pillars` | `jsonb` | default '[]'::jsonb | Legacy: content pillars. No longer read or written; goals picked per run decide what to write about |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
 | `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |
 
@@ -226,9 +226,11 @@ The Human Approval Gate: brainstormed angles and hooks.
 | `account_id` | `uuid` | NOT NULL, FK → `accounts(id)` ON DELETE CASCADE | Account owner |
 | `run_id` | `uuid` | NULL, FK → `runs(id)` ON DELETE SET NULL | Pipeline run source |
 | `offering_id` | `uuid` | NULL, FK → `offerings(id)` ON DELETE SET NULL | Linked product/service |
+| `goal_id` | `uuid` | NULL, FK → `goals(id)` ON DELETE SET NULL | The one goal picked for the run that this idea serves |
+| `goal_snapshot` | `jsonb` | NULL | That goal as it was when the idea was made; drafting falls back to it once the goal is deleted |
 | `hook` | `text` | NOT NULL | Opening 1–2 sentence hook |
 | `angle` | `text` | NULL | Unique angle or contrarian stance |
-| `pillar` | `text` | NULL | Content pillar category |
+| `pillar` | `text` | NULL | Legacy: the content pillar of ideas made before goals replaced pillars |
 | `score` | `integer` | NOT NULL, default 80 | Predicted engagement score (1–100) |
 | `status` | `varchar(20)` | NOT NULL, default 'suggested' | `'suggested'` \| `'approved'` \| `'rejected'` \| `'drafted'` |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
@@ -251,6 +253,7 @@ Final drafted LinkedIn post copy ready for copying and publishing.
 | `char_count` | `integer` | NOT NULL, default 0 | Character count (LinkedIn limit ~3,000) |
 | `status` | `varchar(20)` | NOT NULL, default 'draft' | `'draft'` \| `'approved'` \| `'scheduled'` \| `'published'` |
 | `scheduled_for`| `timestamptz` | NULL | Scheduled post date |
+| `planned_for` | `date` | NULL | Day the reviewer plans to post it (Schedule page); nothing publishes automatically |
 | `posted_at` | `timestamptz` | NULL | When user marked as posted |
 | `created_at` | `timestamptz` | NOT NULL, default now() | Creation timestamp |
 | `updated_at` | `timestamptz` | NOT NULL, default now() | Update timestamp |

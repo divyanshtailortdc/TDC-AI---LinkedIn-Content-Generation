@@ -39,7 +39,14 @@ export async function loadBrandTheme(accountId: string): Promise<ResolvedBrandTh
   const [row] = await db
     .select({
       primaryColor: t.primaryColor,
-      secondaryColor: t.secondaryColor,
+      accentColor: t.accentColor,
+      backgroundColor: t.backgroundColor,
+      headingFont: t.headingFont,
+      bodyFont: t.bodyFont,
+      visualStyle: t.visualStyle,
+      backgroundPattern: t.backgroundPattern,
+      showLogo: t.showLogo,
+      footerText: t.footerText,
       hasLogo: sql<boolean>`${t.logoImage} is not null`
     })
     .from(brandThemesTable)
@@ -183,12 +190,12 @@ export async function loadGenerationContext(
   }
 }
 
-/** The context for writing up one idea, with that idea's goal only. */
+/** The context for writing up one idea, with that idea's own goals only. */
 export async function loadIdeaContext(
-  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalSnapshot'>
+  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalIds' | 'goalSnapshot'>
 ): Promise<GenerationContext> {
   const ctx = await loadGenerationContext(idea.accountId, {
-    goalIds: idea.goalId ? [idea.goalId] : []
+    goalIds: idea.goalIds?.length ? idea.goalIds : idea.goalId ? [idea.goalId] : []
   })
   return withIdeaGoal(ctx, idea)
 }

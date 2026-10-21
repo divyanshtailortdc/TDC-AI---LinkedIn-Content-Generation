@@ -63,7 +63,11 @@ export const IdeaItemSchema = z.object({
   goalId: z
     .string()
     .optional()
-    .describe('The id of the one goal picked for the run that this idea serves'),
+    .describe('The id of the main goal, of those picked for the run, this idea serves'),
+  goalIds: z
+    .array(z.string())
+    .optional()
+    .describe('Every picked goal this idea serves, the main one first'),
   targetAudience: z
     .string()
     .optional()
@@ -153,9 +157,11 @@ export const IdeaGenerationItemSchema = z.object({
   thesis: IdeaItemSchema.shape.thesis,
   perspectiveAngle: IdeaItemSchema.shape.perspectiveAngle,
   angle: IdeaItemSchema.shape.angle,
-  goalRef: z
-    .string()
-    .describe('The label of the one goal this idea serves, e.g. "G1".'),
+  goalRefs: z
+    .array(z.string())
+    .describe(
+      'Labels of the goals this idea serves, its assigned (main) goal first, e.g. ["G1"] or ["G1", "G3"].'
+    ),
   audienceRef: z
     .string()
     .describe(

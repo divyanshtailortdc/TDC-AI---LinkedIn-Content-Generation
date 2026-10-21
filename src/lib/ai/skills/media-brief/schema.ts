@@ -1,22 +1,48 @@
 import { z } from 'zod'
+import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
+import type { CanvasNode, DiagramForm } from '@/lib/media/canvas/spec'
 import type { CallUsage } from '../../usage'
 
-export type VisualType =
-  | 'framework'
-  | 'comparison'
-  | 'process'
-  | 'decision_tree'
-  | 'conceptual_illustration'
-  | 'data_visual'
-  | 'quote_card'
-  | 'product_visual'
-  | 'none'
+/** What fills the image's right side: one of the diagram forms, or an illustration. */
+export type VisualType = DiagramForm | 'illustration'
+
+export const VISUAL_TYPES = [
+  'hub_spoke',
+  'flow',
+  'stack',
+  'cards',
+  'comparison',
+  'illustration'
+] as const satisfies readonly VisualType[]
 
 export interface TextOverlaySpec {
   headline: string
-  /** Only on briefs written before overlays were cut to one headline. */
+  /** Only on briefs written before the canvas layout. */
   supportingPoints?: string[]
   footer?: string
+}
+
+/** The words on the image's left side. */
+export interface CanvasCopySpec {
+  tagline: string
+  headline: string
+  highlightWords: string[]
+  subheadline: string
+}
+
+/** The image's right side. */
+export interface VisualSpec {
+  type: VisualType
+  /** The centre of a hub-and-spoke diagram. */
+  hub: CanvasNode | null
+  /** The diagram's nodes, or the badges over an illustration. */
+  nodes: CanvasNode[]
+  /** Outer badges (e.g. AI agents, chat pills, automated checks). */
+  badges?: CanvasNode[]
+  /** A comparison's two column titles. */
+  groups: string[]
+  /** What the image model draws, for an illustration; empty for a diagram. */
+  illustrationPrompt: string
 }
 
 export interface MediaBrief {
@@ -24,10 +50,13 @@ export interface MediaBrief {
   postTopic: string
   coreThesis: string
   readerTakeaway: string
-  /** The single visual idea the image should express. */
+  /** The single visual idea the image expresses. */
   primaryConcept: string
   visualMetaphor: string
   visualType: VisualType
+  copy?: CanvasCopySpec
+  visual?: VisualSpec
+  /** The headline, kept for the review screen and older readers. */
   textOverlay: TextOverlaySpec
   avoidConcepts: string[]
   whyItFits: string
@@ -53,6 +82,23 @@ export interface BriefGuardResult {
   explanation: string
 }
 
+const NodeSchema = z.object({
+  label: z
+    .string()
+    .describe(
+      'One to three words, the name of the thing (e.g. "Order sync", "Field sales"). Never a sentence.'
+    ),
+  icon: z
+    .enum(ICON_NAMES)
+    .describe('The listed icon that best shows the thing.'),
+  detail: z
+    .string()
+    .default('')
+    .describe(
+      'Optional second line, up to 6 words, saying what it does. Empty when the label says enough.'
+    )
+})
+
 export const MediaBriefSchema = z.object({
   postTopic: z
     .string()
@@ -66,45 +112,66 @@ export const MediaBriefSchema = z.object({
   primaryConcept: z
     .string()
     .describe(
-      'The single visual idea the image expresses. Concrete and specific to this post, never a generic business scene.'
+      "The single idea the image puts across: the post's specific point, never a generic business theme."
     ),
   visualMetaphor: z
     .string()
     .describe(
-      'How that idea is shown: the composition, the elements, the relationship between them.'
+      'How the right-hand visual shows that idea: what sits where and how the parts relate.'
     ),
-  visualType: z
-    .enum([
-      'framework',
-      'comparison',
-      'process',
-      'decision_tree',
-      'conceptual_illustration',
-      'data_visual',
-      'quote_card',
-      'product_visual'
-    ])
-    .describe('The form that best carries this particular argument.'),
-  textOverlay: z
-    .object({
-      headline: z
-        .string()
-        .describe(
-          'The one line of text the image may carry, up to 8 words, or empty for none. Follow the text rule in the request.'
-        )
-    })
-    .describe(
-      'The only lettering in the image. Image models misspell anything smaller.'
-    ),
-  imagePrompt: z
+  tagline: z
     .string()
     .describe(
-      'The scene for the image model: subject, composition, setting, lighting, style and colours. If there is a headline, quote it exactly once in double quotes and say where it sits. Describe no other lettering, and name objects by how they look rather than by words that would be printed on them ("a thick binder", not "a binder labelled Catalog"). Never mention a logo: the brand rules are appended to this prompt automatically.'
+      'The small category line above the headline: 2 to 4 words naming the kind of post or its theme (e.g. "Event announcement", "Integration guide"). No sentence, no full stop.'
+    ),
+  headline: z
+    .string()
+    .describe(
+      "The headline, 4 to 9 words: the post's point as a reader would say it. Plain words, no hashtags or emoji."
+    ),
+  highlightWords: z
+    .array(z.string())
+    .describe(
+      'Two or three words or short phrases copied exactly from the headline, set in the accent colour: the ones that carry the point.'
+    ),
+  subheadline: z
+    .string()
+    .describe(
+      'One sentence under the headline, at most 18 words, adding the why or the how. No claims the post does not make.'
+    ),
+  visualType: z
+    .enum(VISUAL_TYPES)
+    .describe('What fills the right side; follow the rules in the request.'),
+  hub: NodeSchema.nullable().describe(
+    'For hub_spoke only: the thing at the centre that the nodes connect to. Null for every other type.'
+  ),
+  nodes: z
+    .array(NodeSchema)
+    .describe(
+      "The labelled parts of the diagram, in reading order; for an illustration, 2 or 3 badges naming what it shows. Each comes from the post's own content."
+    ),
+  badges: z
+    .array(NodeSchema)
+    .default([])
+    .describe(
+      'Optional 2 to 3 outer accent badges (e.g. AI agents, chat pills, automated checks) that connect to satellite nodes.'
+    ),
+  groups: z
+    .array(z.string())
+    .default([])
+    .describe(
+      'For comparison only: the two column titles, 1 to 3 words each (e.g. "Before", "After"). The nodes list the left column first, then the right, the same number in each. Empty otherwise.'
+    ),
+  illustrationPrompt: z
+    .string()
+    .default('')
+    .describe(
+      'For illustration only: what the image model draws, as a flat vector illustration on a plain white background. Name objects by their look, never by words printed on them. Never ask for text, labels, logos or people\'s hands. Empty for a diagram.'
     ),
   altText: z
     .string()
     .describe(
-      'Plain description of the image for screen readers, ideally under 300 characters.'
+      'Plain description of the whole image for screen readers, the headline included, ideally under 300 characters.'
     ),
   whyItFits: z
     .string()
@@ -113,9 +180,11 @@ export const MediaBriefSchema = z.object({
     .string()
     .default('')
     .describe(
-      'When earlier images for this post are listed, one sentence on how this concept differs from them; otherwise empty.'
+      'When earlier images for this post are listed, one sentence on how this one differs from them; otherwise empty.'
     )
 })
+
+export type MediaBriefOutput = z.infer<typeof MediaBriefSchema>
 
 /** An image this post already had, so a new one can be told apart from it. */
 export interface PriorVisual {
@@ -141,12 +210,19 @@ export interface MediaIdea {
   audienceTakeaway?: string | null
 }
 
+/** The design being changed, when the reviewer asks for an edit. */
+export interface CurrentDesign {
+  copy: CanvasCopySpec
+  visual: VisualSpec
+  /** What the reviewer wants changed, in their words. */
+  change: string
+}
+
 export interface DeriveMediaBriefInput {
   postText: string
   thesis?: string | null
   hook?: string | null
   evidence?: EvidenceSource[]
-  aspectRatio?: '1:1' | '16:9' | '4:5'
   accountName?: string
   /** Who posts and who sees it, from renderMediaContext. */
   accountContext?: string
@@ -160,22 +236,25 @@ export interface DeriveMediaBriefInput {
   offerings?: string[]
   /** The brand theme as the art director reads it (renderBrandForArtDirector). */
   brand?: string
-  /** Where the brand logo will be laid over the image, if it will. */
-  logoCorner?: string
+  /** The visual types the brand theme allows; all of them when unset. */
+  allowedTypes?: readonly VisualType[]
   /** Earlier images for this post, newest first; a new one must differ from them. */
   previousVersions?: PriorVisual[]
   /** What the reviewer said about the image being replaced. */
   rejectionReason?: string
   /**
-   * An image the reviewer attached to guide the composition and style. The
-   * art director sees it as it is; the subject still comes from the post.
+   * An image the reviewer attached to guide the look. The art director sees
+   * it as it is; the subject still comes from the post.
    */
   referenceImage?: { data: Uint8Array; mediaType: string }
+  /** Set for an edit: the design as it is, and the change asked for. */
+  current?: CurrentDesign
 }
 
 export interface DerivedMediaBrief {
   brief: MediaBrief
-  imagePrompt: string
+  copy: CanvasCopySpec
+  visual: VisualSpec
   altText: string
 }
 

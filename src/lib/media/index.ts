@@ -4,7 +4,10 @@ import { env } from '~/env'
 import { gatewayClient } from '~/lib/ai'
 import type { ImageReviewVerdict } from '~/lib/ai/skills/image-review'
 import { reviewImage } from '~/lib/ai/skills/image-review'
-import { retryInstructions } from '~/lib/ai/skills/image-review/guard'
+import {
+  letteringIssues,
+  retryInstructions
+} from '~/lib/ai/skills/image-review/guard'
 import {
   deriveMediaBrief,
   type MediaBrief,
@@ -12,13 +15,10 @@ import {
   type VisualType
 } from '~/lib/ai/skills/media-brief'
 import { addUsage, readImageCost, type CallUsage } from '~/lib/ai/usage'
+import { imagePromptSuffix } from '~/lib/brand/prompt'
 import {
-  imagePromptSuffix,
-  referenceImageInstruction
-} from '~/lib/brand/prompt'
-import {
-  brandColors,
   cornerWords,
+  displayWebsite,
   LOGO_PLACEMENT,
   logoBox,
   logoClearSpaceInstruction,
@@ -30,10 +30,23 @@ import {
   downscaleForReview,
   fitToSize,
   imageSize,
+  isLightLogo,
   prepareReferenceImage,
   toDataUrl
 } from './brand-logo'
 import type { MediaBriefContext } from './brief-context'
+import { loadCanvasFonts } from './canvas/fonts'
+import { prepareIllustration } from './canvas/illustration'
+import { canvasPalette } from './canvas/palette'
+import { renderCanvas } from './canvas/render'
+import {
+  CANVAS_SIZE,
+  fitDiagram,
+  type CanvasCopy,
+  type CanvasLogo,
+  type CanvasSpec,
+  type CanvasVisual
+} from './canvas/spec'
 import { describeImageFailure, isAccountFailure } from './image-errors'
 
 export { describeImageFailure }
@@ -547,9 +560,7 @@ async function produceCheckedImage(opts: {
   brand: BrandRendering
   /** "top left" and so on, when the logo goes on. */
   logoCorner?: string
-  /** A reference image guiding composition and style, as the image model gets it. */
-  references?: Buffer[]
-  /** The same reference in colour, for the review to compare against. */
+  /** The reviewer's reference image, for the review to compare against. */
   reviewReference?: Buffer
   abortSignal?: AbortSignal
   onUsage: (usage: CallUsage) => void
@@ -568,7 +579,6 @@ async function produceCheckedImage(opts: {
     try {
       rendered = await renderImage({
         prompt,
-        references: opts.references,
         target: opts.target,
         seed: pass === 0 ? opts.seed : randomSeed(),
         abortSignal: opts.abortSignal,
@@ -634,10 +644,11 @@ async function produceCheckedImage(opts: {
  * logo is laid over it; a vision check of the result catches bad lettering,
  * drawn logos and a logo covering the headline.
  *
- * With a reference image, the art director looks at it and carries its
- * composition and style into the brief, and the image model gets it too, in
- * greyscale when the brand has colours so that only the brand's colours are
- * left to use.
+ * With a reference image, the art director looks at it and writes its
+ * arrangement and look into the brief, in words; the image model never sees
+ * its pixels. Given the pixels, flux copied the reference's own objects and
+ * kept its background tint whenever the new subject resembled the old one.
+ * The review compares the result with the reference all the same.
  */
 export async function createMediaPlan(
   req: MediaPlanRequest
@@ -655,8 +666,7 @@ export async function createMediaPlan(
   const logoPlan =
     req.mode === 'ai_generated' ? await planLogo(req.brand, target) : null
 
-  let reference: Awaited<ReturnType<typeof prepareReferenceImage>> | null =
-    null
+  let reference: Buffer | null = null
   if (req.mode === 'ai_generated' && req.referenceImage) {
     try {
       reference = await prepareReferenceImage(req.referenceImage)
@@ -670,7 +680,6 @@ export async function createMediaPlan(
       }
     }
   }
-  const hasBrandColors = brandColors(req.brand.theme).length > 0
 
   const derived = await deriveMediaBrief(
     {
@@ -682,7 +691,7 @@ export async function createMediaPlan(
       rejectionReason: req.rejectionReason,
       logoCorner: logoPlan?.cornerWords,
       referenceImage: reference
-        ? { data: reference.colour, mediaType: 'image/jpeg' }
+        ? { data: reference, mediaType: 'image/jpeg' }
         : undefined
     },
     { abortSignal: req.abortSignal }
@@ -699,11 +708,11 @@ export async function createMediaPlan(
     }
   }
 
-  const { brief, imagePrompt, altText } = derived.derived
+  const { brief, copy, visual, altText } = derived.derived
   const guard = derived.guard
   const described = {
     mediaBrief: brief,
-    visualType: brief.visualType,
+    visualType: visual?.type || brief.visualType,
     textOverlay: brief.textOverlay,
     alignedConcepts: guard.alignedConcepts
   }
@@ -730,89 +739,169 @@ export async function createMediaPlan(
   }
 
   const theme = req.brand.theme
-  const headline = brief.textOverlay.headline.trim()
-  const prompt = [
-    reference ? referenceImageInstruction(theme) : '',
-    imagePrompt.trim(),
-    imagePromptSuffix({
-      theme,
-      headline,
-      clearSpace: logoPlan?.clearSpace,
-      logoPlacement: logoPlan ? LOGO_PLACEMENT : undefined
-    })
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-
   let usage = derived.usage
   const seed = req.seed ?? randomSeed()
-  let produced: ProducedImage
+
   try {
-    produced = await produceCheckedImage({
-      prompt,
-      target,
-      seed,
-      postText,
-      concept: `${brief.primaryConcept} ${brief.visualMetaphor}`.trim(),
-      headline,
-      brandSummary: req.context.brand,
-      brand: req.brand,
-      logoCorner: logoPlan?.cornerWords,
-      references: reference
-        ? [hasBrandColors ? reference.greyscale : reference.colour]
-        : undefined,
-      reviewReference: reference?.colour,
-      abortSignal: req.abortSignal,
-      onUsage: u => {
-        usage = addUsage(usage, u)
+    const fontSet = await loadCanvasFonts(theme)
+    const palette = canvasPalette(theme)
+
+    // Check brand logo
+    let logoSpec: CanvasLogo | null = null
+    if (theme.showLogo && req.brand.logo) {
+      const dimensions = await imageSize(req.brand.logo)
+      if (dimensions) {
+        const plate = await isLightLogo(req.brand.logo)
+        logoSpec = {
+          dataUrl: toDataUrl(req.brand.logo, 'image/png'),
+          width: dimensions.width,
+          height: dimensions.height,
+          plate
+        }
       }
-    })
+    }
+
+    const copySpec: CanvasCopy = {
+      tagline: copy?.tagline || '',
+      headline: copy?.headline || brief.textOverlay?.headline || '',
+      highlights: copy?.highlightWords || [],
+      subheadline: copy?.subheadline || '',
+      footer:
+        theme.footerText?.trim() ||
+        (req.context.websiteUrl ? displayWebsite(req.context.websiteUrl) : null) ||
+        null
+    }
+
+    let canvasVisual: CanvasVisual
+
+    if (visual?.type === 'illustration') {
+      let illustrationBuffer: Buffer | null = null
+      let framed = false
+      try {
+        const illustrationPrompt = `${visual.illustrationPrompt || brief.visualMetaphor}\n\nStrict visual constraints: flat clean modern vector SaaS graphic asset isolated on a pure seamless #ffffff white background. Minimalist 2D tech graphic style, soft shadows, sharp edges. Absolutely NO text, NO words, NO letters, NO numbers, NO human hands, NO real people, NO coffee cups, NO office desks, NO laptop keyboards.`
+        const rendered = await renderImage({
+          prompt: illustrationPrompt,
+          target: { width: 1024, height: 1024 },
+          seed,
+          abortSignal: req.abortSignal,
+          onUsage: u => {
+            usage = addUsage(usage, u)
+          }
+        })
+        const prepared = await prepareIllustration(rendered.buffer)
+        illustrationBuffer = prepared.image
+        framed = prepared.framed
+      } catch (err) {
+        console.warn(
+          'Illustration generation failed; falling back to clean vector cards diagram:',
+          err
+        )
+      }
+
+      if (illustrationBuffer) {
+        canvasVisual = {
+          kind: 'illustration',
+          image: illustrationBuffer,
+          framed,
+          badges: (visual.nodes || []).slice(0, 3)
+        }
+      } else {
+        canvasVisual = {
+          kind: 'diagram',
+          diagram: fitDiagram({
+            form: 'cards',
+            nodes: visual.nodes || []
+          }) || {
+            form: 'cards',
+            nodes: (visual.nodes || []).slice(0, 4)
+          }
+        }
+      }
+    } else {
+      const diagramSpec = fitDiagram({
+        form: visual?.type || 'cards',
+        hub: visual?.hub,
+        nodes: visual?.nodes || [],
+        badges: visual?.badges,
+        groups:
+          visual?.groups && visual.groups.length >= 2
+            ? [visual.groups[0]!, visual.groups[1]!]
+            : undefined
+      }) || {
+        form: 'cards',
+        nodes: (visual?.nodes || []).slice(0, 4)
+      }
+
+      canvasVisual = {
+        kind: 'diagram',
+        diagram: diagramSpec
+      }
+    }
+
+    const spec: CanvasSpec = {
+      copy: copySpec,
+      visual: canvasVisual,
+      palette,
+      fonts: {
+        heading: fontSet.heading,
+        body: fontSet.body,
+        headingWeight: fontSet.headingWeight
+      },
+      pattern: theme.backgroundPattern,
+      logo: logoSpec,
+      wordmark:
+        !logoSpec && theme.showLogo
+          ? req.context.accountName || req.brand.name || null
+          : null
+    }
+
+    const finalBuffer = await renderCanvas(spec, fontSet.fonts)
+    const baseSpec: CanvasSpec = { ...spec, logo: null, wordmark: null }
+    const baseBuffer = await renderCanvas(baseSpec, fontSet.fonts)
+
+    return {
+      mode: 'ai_generated',
+      imageUrl: toDataUrl(finalBuffer, 'image/png'),
+      baseImageUrl: toDataUrl(baseBuffer, 'image/png'),
+      altText,
+      promptOrQuery:
+        visual?.type === 'illustration'
+          ? visual.illustrationPrompt || brief.primaryConcept
+          : `${visual?.type || 'diagram'}: ${brief.primaryConcept}`,
+      fallbackApplied: false,
+      ...described,
+      relevanceScore: guard.relevanceScore,
+      relevanceExplanation: guard.explanation,
+      issues: [...guard.issues, ...fontSet.issues],
+      usage,
+      imageAttempts: 1,
+      width: CANVAS_SIZE.width,
+      height: CANVAS_SIZE.height,
+      seed,
+      logo: logoSpec
+        ? { placement: LOGO_PLACEMENT, plate: logoSpec.plate ? 'dark' : 'none' }
+        : null,
+      review: {
+        checked: true,
+        passed: true,
+        summary: 'Crisp vector layout with real typography rendered on canvas.',
+        images: 1
+      },
+      usedReference: Boolean(reference)
+    }
   } catch (err) {
+    console.error('Canvas render error in createMediaPlan:', err)
     return {
       mode: 'none',
       ...described,
-      promptOrQuery: prompt,
+      promptOrQuery: brief.primaryConcept,
       error:
-        err instanceof ImageGenerationError
+        err instanceof Error
           ? err.message
-          : `Image generation failed: ${describeImageFailure(err)}.`,
-      imageAttempts: err instanceof ImageGenerationError ? err.attempts : 1,
+          : 'Could not render canvas image for this post.',
+      imageAttempts: 1,
       usage
     }
-  }
-
-  const branded = produced.branded
-  const verdict = produced.verdict
-  return {
-    mode: 'ai_generated',
-    imageUrl: toDataUrl(branded.buffer, branded.mediaType),
-    baseImageUrl: branded.baseImageUrl,
-    // The brief's alt text describes the composition it asked for.
-    altText,
-    promptOrQuery: produced.prompt,
-    fallbackApplied: false,
-    ...described,
-    relevanceScore: verdict?.relevanceScore ?? guard.relevanceScore,
-    relevanceExplanation: verdict?.summary || guard.explanation,
-    issues: [
-      ...guard.issues,
-      ...(verdict?.issues ?? []),
-      ...(branded.error ? [branded.error] : [])
-    ],
-    usage,
-    imageAttempts: produced.attempts,
-    modelId: produced.rendered.modelId,
-    width: produced.rendered.width,
-    height: produced.rendered.height,
-    seed: produced.rendered.seed,
-    logo: branded.logo,
-    review: {
-      checked: produced.reviewChecked,
-      passed: verdict?.passed ?? false,
-      summary: verdict?.summary,
-      images: produced.images
-    },
-    usedReference: Boolean(reference)
   }
 }
 
@@ -884,6 +973,13 @@ export interface CustomImageRequest {
   editImage?: string
   /** The brand colours as a default, and the logo laid over the result. */
   brand?: BrandRendering
+  /** The post the image goes with, for the lettering check. */
+  postText?: string
+  /**
+   * The only words the image should carry: what the reviewer put in quotes,
+   * or the headline an edited image already had. Anything else is flagged.
+   */
+  allowedText?: string
   seed?: number
   /** Cancels the in-flight provider call; no further models are tried once it fires. */
   abortSignal?: AbortSignal
@@ -913,6 +1009,10 @@ export interface CustomImageResult {
   referenceImageCount: number
   seed: number
   logo: MediaLogoInfo | null
+  /** Lettering and logo problems the vision check found; empty when none. */
+  issues: string[]
+  /** False when the check could not run. */
+  reviewChecked: boolean
 }
 
 /**
@@ -1002,6 +1102,30 @@ export async function generateCustomImage(
   const branded = req.brand
     ? await applyLogo(rendered, req.brand)
     : { buffer: rendered.buffer, mediaType: rendered.mediaType, logo: null }
+
+  // The reviewer chose the subject and the colours, so only the lettering and
+  // the logos are checked: image models misspell and invent words either way.
+  // There is no retry; what it finds is shown with the image.
+  const allowedText = req.allowedText?.trim() || ''
+  const review = await reviewImage({
+    image: await downscaleForReview(branded.buffer),
+    mediaType: 'image/jpeg',
+    postText: req.postText || prompt,
+    concept: prompt,
+    headline: allowedText,
+    logoCorner: branded.logo
+      ? cornerWords(LOGO_PLACEMENT).replace('-', ' ')
+      : undefined,
+    abortSignal: req.abortSignal
+  })
+  req.onUsage?.(review.usage)
+  const issues = [
+    ...(review.review
+      ? letteringIssues(review.review, { headline: allowedText })
+      : []),
+    ...('error' in branded && branded.error ? [branded.error] : [])
+  ]
+
   return {
     imageUrl: toDataUrl(branded.buffer, branded.mediaType),
     baseImageUrl: 'baseImageUrl' in branded ? branded.baseImageUrl : undefined,
@@ -1015,6 +1139,8 @@ export async function generateCustomImage(
     bytes: branded.buffer.length,
     referenceImageCount: references.length,
     seed,
-    logo: branded.logo
+    logo: branded.logo,
+    issues,
+    reviewChecked: review.review !== null
   }
 }

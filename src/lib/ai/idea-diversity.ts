@@ -125,17 +125,18 @@ export interface DiversityCheckResult {
  * 2. Enforces angle diversity (avoids stacking multiple ideas on the same perspective angle)
  * 3. Ranks by combined strength, groundingScore, and originalityScore
  */
+/** How ideas are ranked: grounding first, then originality and strength. */
+export function ideaQuality(idea: GeneratedIdeaItem): number {
+  // ?? not ||: a grounding score of 0 is a score, not a missing one.
+  return (idea.groundingScore ?? 80) * 0.4 + (idea.originalityScore ?? 80) * 0.3 + (idea.estimatedStrength ?? 80) * 0.3
+}
+
 export function filterDiverseIdeas(
   candidates: GeneratedIdeaItem[],
   targetCount = 5
 ): DiversityCheckResult {
   // Sort candidates by combined quality score descending
-  const sorted = [...candidates].sort((a, b) => {
-    // ?? not ||: a grounding score of 0 is a score, not a missing one.
-    const scoreA = (a.groundingScore ?? 80) * 0.4 + (a.originalityScore ?? 80) * 0.3 + (a.estimatedStrength ?? 80) * 0.3
-    const scoreB = (b.groundingScore ?? 80) * 0.4 + (b.originalityScore ?? 80) * 0.3 + (b.estimatedStrength ?? 80) * 0.3
-    return scoreB - scoreA
-  })
+  const sorted = [...candidates].sort((a, b) => ideaQuality(b) - ideaQuality(a))
 
   const selected: GeneratedIdeaItem[] = []
   const rejected: Array<{ idea: GeneratedIdeaItem; reason: string; similarToId?: string }> = []

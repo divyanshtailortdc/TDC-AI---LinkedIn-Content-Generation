@@ -1,8 +1,13 @@
-import { TEXT_RULE } from '@/lib/brand/prompt'
-import type { DeriveMediaBriefInput } from './schema'
+import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
+import { NODE_LIMITS } from '@/lib/media/canvas/spec'
+import {
+  VISUAL_TYPES,
+  type DeriveMediaBriefInput,
+  type VisualType
+} from './schema'
 
 export const INSTRUCTIONS =
-  "You are an art director for professional social content. You design one image per post, and the image always argues the post's specific point rather than decorating it."
+  "You are an art director for B2B social content. Every image you design has the same clean layout: the headline and its supporting text on the left, a visual on the right that explains the post's specific point at a glance. You write the words and choose and fill the visual; code draws it in the brand's colours and type."
 
 const section = (title: string, body: string | null | undefined) =>
   body?.trim() ? `${title}\n${body.trim()}\n\n` : ''
@@ -11,6 +16,18 @@ const field = (label: string, value: string | null | undefined) =>
   value?.trim() ? `${label}: ${value.trim()}` : ''
 
 const lines = (...values: string[]) => values.filter(Boolean).join('\n')
+
+const words = (type: string) => type.replace(/_/g, ' ')
+
+const TYPE_GUIDE: Record<VisualType, string> = {
+  hub_spoke: `hub_spoke: one thing at the centre (hub) connected to ${NODE_LIMITS.hub_spoke.min}-${NODE_LIMITS.hub_spoke.max} things around it. For a platform and what it connects, a team and who it serves, an event and what happens there.`,
+  flow: `flow: ${NODE_LIMITS.flow.min}-${NODE_LIMITS.flow.max} steps in order, top to bottom. For a process, a journey, how something gets from A to B.`,
+  stack: `stack: ${NODE_LIMITS.stack.min}-${NODE_LIMITS.stack.max} layers, the top first, each resting on the one below. For an architecture, a set of foundations, what builds on what.`,
+  cards: `cards: ${NODE_LIMITS.cards.min}-${NODE_LIMITS.cards.max} separate points side by side, each with a short detail. For key takeaways, reasons, features of an offer.`,
+  comparison: `comparison: two columns (groups) with the same number of rows each, 2-4. For before and after, old way and new way, a choice between two options.`,
+  illustration:
+    'illustration: a flat vector illustration from the image model, with 2-3 labelled badges laid over it. For a story, a scene, a moment or a feeling that a diagram would flatten.'
+}
 
 export function buildPrompt(input: DeriveMediaBriefInput): string {
   const evidence = (input.evidence || [])
@@ -37,25 +54,45 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
       )
     : ''
 
-  const earlier = (input.previousVersions || []).slice(0, 5)
-  // With a reference attached, the layout and look stay the reference's; the
-  // new image changes what it shows.
-  const mustChange = input.referenceImage
-    ? 'a different central subject or scene, still in the layout and style of the reference image'
-    : `a different central subject, a different composition${
-        earlier[0]?.visualType
-          ? `, and a visual form other than ${earlier[0].visualType.replace(/_/g, ' ')}`
-          : ''
-      }`
+  const allowed = input.allowedTypes?.length ? input.allowedTypes : VISUAL_TYPES
+  const earlier = input.current ? [] : (input.previousVersions || []).slice(0, 5)
+  const lastType = earlier[0]?.visualType
+  // A diagram form only counts as "used" when another one could be picked.
+  const mustChangeType =
+    lastType && allowed.length > 1 && (allowed as readonly string[]).includes(lastType)
   const earlierBlock = earlier.length
     ? `${earlier
         .map(
           (v, i) =>
-            `- ${i === 0 ? 'Most recent' : 'Earlier'}${v.visualType ? ` (${v.visualType.replace(/_/g, ' ')})` : ''}: ${v.concept.trim()}${v.metaphor ? ` — ${v.metaphor.trim()}` : ''}`
+            `- ${i === 0 ? 'Most recent' : 'Earlier'}${v.visualType ? ` (${words(v.visualType)})` : ''}: ${v.concept.trim()}${v.metaphor ? ` — ${v.metaphor.trim()}` : ''}`
         )
-        .join(
-          '\n'
-        )}\nThe new image must be a different idea, not a variation: ${mustChange}.${input.rejectionReason?.trim() ? `\nThe reviewer said about the last one: "${input.rejectionReason.trim()}".` : ''}`
+        .join('\n')}\nThe new image must be a different idea, not a variation: a different headline, different nodes${
+        mustChangeType ? `, and a visual type other than ${words(lastType!)}` : ''
+      }${
+        allowed.length === 1 && allowed[0] === 'illustration'
+          ? ', and an illustration of a different subject'
+          : ''
+      }.${input.rejectionReason?.trim() ? `\nThe reviewer said about the last one: "${input.rejectionReason.trim()}".` : ''}`
+    : ''
+
+  const current = input.current
+    ? `${JSON.stringify(
+        {
+          tagline: input.current.copy.tagline,
+          headline: input.current.copy.headline,
+          highlightWords: input.current.copy.highlightWords,
+          subheadline: input.current.copy.subheadline,
+          visualType: input.current.visual.type,
+          hub: input.current.visual.hub,
+          nodes: input.current.visual.nodes,
+          groups: input.current.visual.groups,
+          illustrationPrompt: input.current.visual.illustrationPrompt
+        },
+        null,
+        2
+      )}
+The reviewer asked for this change: "${input.current.change.trim()}"
+Apply only that change and return everything else exactly as it is, word for word. Keep illustrationPrompt identical unless the change is about the illustration itself: an unchanged prompt reuses the illustration already drawn.`
     : ''
 
   return `Design the image that will accompany this LinkedIn post.
@@ -75,41 +112,35 @@ ${section('THE ARGUMENT', input.thesis)}${section(
     'FROM THE KNOWLEDGE BASE THESE FACTS CAME FROM',
     (input.knowledge || []).map(k => `- ${k}`).join('\n')
   )}${section(
-    'WHAT THE ACCOUNT ACTUALLY OFFERS — the only products or services the image may show',
+    'WHAT THE ACCOUNT ACTUALLY OFFERS — the only products or services the image may name',
     (input.offerings || []).map(o => `- ${o}`).join('\n')
   )}${section('WHO POSTS IT AND WHO SEES IT', input.accountContext)}${section(
-    'BRAND THEME — follow it',
+    'BRAND THEME',
     input.brand
   )}${section(
-    'REFERENCE IMAGE (attached) — the reviewer chose it to guide the composition and style',
+    'REFERENCE IMAGE (attached) — the reviewer chose it to guide the look',
     input.referenceImage
-      ? `Take its arrangement and its look, never its objects.
-- Arrangement: where the main mass, the empty space and any headline sit, how much of the frame each takes, the framing and the camera angle. Fill those places with this post's own subject.
-- Look: the medium (photo, illustration, 3D), line work, texture, lighting and level of detail.
-- Nothing it shows may reappear: none of its objects, props, devices, icons, people, wording or logos, not even restyled. If it has a table on pillars, your image has no table and no pillars.
-- ${
-          input.brand?.trim()
-            ? 'Colours: none of its colours, its background tint included. Name only the brand colours, white, light grey and near-black.'
-            : 'Its colour mood may carry over.'
-        }
-In imagePrompt, describe the arrangement in abstract terms ("the main subject fills the right half, a low horizontal band on the left, headline top left"), then the new subject; the image model also sees the reference${input.brand?.trim() ? ', in greyscale' : ''}.`
+      ? 'Let it guide the choice of visual type and, for an illustration, its drawing style. Take none of its objects, wording or logos: what the image says comes from the post.'
       : ''
   )}${section('EARLIER IMAGES FOR THIS POST', earlierBlock)}${section(
-    'VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above:',
+    'VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above. Words in quotation marks are text the reviewer wants on the image: use them exactly, as the headline unless they say otherwise.',
     input.direction
-  )}The image ships at ${input.aspectRatio || '16:9'} and will be seen mostly on a phone, roughly the width of a thumb.
+  )}${section('THE CURRENT DESIGN — this is an edit', current)}THE LAYOUT (fixed, drawn by code)
+- Left: the brand logo, then the tagline, the headline with its highlighted words in the accent colour, the subheadline, and the website at the bottom.
+- Right: the visual, on a light background with a subtle dot or grid pattern.
+
+VISUAL TYPES you may use:
+${allowed.map(t => `- ${TYPE_GUIDE[t]}`).join('\n')}
+Pick the one whose shape matches how the post's point is built.
+
+ICONS for nodes and the hub: ${ICON_NAMES.join(', ')}.
 
 Requirements:
-- Show THIS post's specific point in the reader's own world: the people, objects, places and moments the post itself describes. Someone who has read the post should recognise it in the image at a glance.
-- Never fall back on generic business, AI or technology imagery (handshakes, glowing brains, robots, circuit boards, network globes, data streams, people pointing at dashboards) unless the post is literally about that thing.
-- Show only products, screens or features that the post or the offerings above describe, and nothing about them the post does not state. When the post is about software, show its effect on people's work rather than an invented interface.
-- ${TEXT_RULE}
-- Never render a statistic, date, venue, price or offer that the post and goal above do not state.
-- Never include a logo, wordmark, brand name, publication mark, watermark or recognisable real person.${
-    input.logoCorner
-      ? ` The brand's own logo is added afterwards in the ${input.logoCorner} corner, so keep that corner calm and empty and put any headline on the other side.`
-      : ''
-  }`
+- Every word must come from this post's own content: its people, systems, steps, places and outcomes, named as the post names them. Someone who has read the post should recognise it in the image at a glance.
+- No generic business, AI or technology filler (synergy, innovation, digital transformation, growth) unless the post is literally about that.
+- Never state a statistic, date, venue, price or offer that the post and goal above do not state. Product and service names only from the post or the offerings above.
+- Labels are 1-3 words and say what the thing is; details are at most 6 words.
+- An illustration is a clean flat vector scene with a plain white background. It shows objects and simple shapes, never text, labels, logos, screens full of words, real people's faces, hands, desks, coffee cups or anything photographic.`
 }
 
 /** The same request, plus why the previous concept was rejected. */
@@ -117,5 +148,5 @@ export function buildRetryPrompt(
   input: DeriveMediaBriefInput,
   rejection: string
 ): string {
-  return `${buildPrompt(input)}\n\nYour previous attempt was rejected:\n${rejection}\nProduce a different concept that resolves this.`
+  return `${buildPrompt(input)}\n\nYour previous attempt was rejected:\n${rejection}\nProduce a design that resolves this.`
 }

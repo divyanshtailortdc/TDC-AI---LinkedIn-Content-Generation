@@ -1,16 +1,64 @@
 import { z } from 'zod'
+import { DEFAULT_FONT, findFont } from './fonts'
 
 /**
- * An identity's brand theme: its logo and its two brand colours, applied to
- * every image generated for it.
+ * An identity's brand theme: its logo, colours, typefaces and the look of the
+ * visual side of every image generated for it.
+ *
+ * Every image is laid out the same way by the canvas renderer
+ * (src/lib/media/canvas): the text on the left, a diagram or illustration on
+ * the right, on a light background. The theme fills that layout in.
  *
  * Pure and free of Node APIs, so the Brand Theme form, the server actions and
  * the media prompt builders share one definition. The logo bytes are not part
- * of the theme: they are loaded only where an image is composited.
+ * of the theme: they are loaded only where an image is rendered.
  */
 
 /** Where the Brand Theme page lives. */
 export const BRAND_THEME_PATH = '/brand'
+
+export const VISUAL_STYLES = [
+  {
+    value: 'auto',
+    label: 'Decide per post',
+    description:
+      'A diagram when the post explains how things connect, an illustration when it tells a story.'
+  },
+  {
+    value: 'diagram',
+    label: 'Diagram',
+    description:
+      'Hub-and-spoke, flows, layers, cards or a comparison, drawn with exact labels.'
+  },
+  {
+    value: 'illustration',
+    label: 'Illustration',
+    description:
+      'A flat vector illustration drawn by the image model, with labelled badges.'
+  }
+] as const
+export type VisualStyle = (typeof VISUAL_STYLES)[number]['value']
+
+export const BACKGROUND_PATTERNS = [
+  { value: 'dots', label: 'Dots' },
+  { value: 'grid', label: 'Grid' },
+  { value: 'plain', label: 'Plain' }
+] as const
+export type BackgroundPattern = (typeof BACKGROUND_PATTERNS)[number]['value']
+
+/** Soft white: the background when the theme sets none. */
+export const DEFAULT_BACKGROUND = '#f8fafc'
+/** Diagrams and the tagline need a colour even before the brand has one. */
+export const DEFAULT_PRIMARY = '#2563eb'
+
+/**
+ * Text and diagrams are set on the background, so it has to be light: a
+ * relative luminance of at least this (#cbd5e1, a light slate, is about 0.66;
+ * #e2e8f0 about 0.79).
+ */
+export const MIN_BACKGROUND_LUMINANCE = 0.78
+
+export const FOOTER_MAX_LENGTH = 60
 
 export type LogoPlacement =
   | 'top_left'
@@ -19,7 +67,7 @@ export type LogoPlacement =
   | 'bottom_right'
 
 /**
- * Where the logo goes on every image. Bottom right leaves the left side, where
+ * Where the logo goes on generated images. Kept in the corner away from where
  * a reader starts, to the headline.
  */
 export const LOGO_PLACEMENT: LogoPlacement = 'bottom_right'
@@ -30,7 +78,20 @@ export const HEADLINE_MAX_WORDS = 8
 export interface ResolvedBrandTheme {
   /** Lower-case #rrggbb, or null when not set. */
   primaryColor: string | null
-  secondaryColor: string | null
+  accentColor: string | null
+  /** Alias for accentColor for backwards compatibility. */
+  secondaryColor?: string | null
+  /** Null for the default soft white. */
+  backgroundColor: string | null
+  /** Families from FONT_CHOICES. */
+  headingFont: string
+  bodyFont: string
+  visualStyle: VisualStyle
+  backgroundPattern: BackgroundPattern
+  /** Whether the logo goes on images; ignored until one is uploaded. */
+  showLogo: boolean
+  /** The website or handle in the corner; null to use the identity's website. */
+  footerText: string | null
   hasLogo: boolean
   /** False until the theme is first saved. */
   saved: boolean
@@ -38,7 +99,15 @@ export interface ResolvedBrandTheme {
 
 export const DEFAULT_BRAND_THEME: ResolvedBrandTheme = {
   primaryColor: null,
+  accentColor: null,
   secondaryColor: null,
+  backgroundColor: null,
+  headingFont: DEFAULT_FONT,
+  bodyFont: DEFAULT_FONT,
+  visualStyle: 'auto',
+  backgroundPattern: 'dots',
+  showLogo: true,
+  footerText: null,
   hasLogo: false,
   saved: false
 }
@@ -53,10 +122,44 @@ export function normalizeHex(value: string | null | undefined): string | null {
   return `#${hex.length === 3 ? [...hex].map(c => c + c).join('') : hex}`
 }
 
+/** WCAG relative luminance, 0 for black to 1 for white. */
+export function relativeLuminance(hex: string): number {
+  const n = normalizeHex(hex) ?? '#000000'
+  const [r, g, b] = [1, 3, 5].map(i => {
+    const c = parseInt(n.slice(i, i + 2), 16) / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+
+/** WCAG contrast ratio between two colours, 1 to 21. */
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort(
+    (x, y) => y - x
+  )
+  return (hi! + 0.05) / (lo! + 0.05)
+}
+
+export const isLightBackground = (hex: string) =>
+  relativeLuminance(hex) >= MIN_BACKGROUND_LUMINANCE
+
+const isOption = <T extends string>(
+  options: readonly { value: T }[],
+  value: string | null | undefined
+): value is T => options.some(o => o.value === value)
+
 /** The stored row, as far as resolving it is concerned. */
 export interface BrandThemeRecord {
   primaryColor?: string | null
   secondaryColor?: string | null
+  accentColor?: string | null
+  backgroundColor?: string | null
+  headingFont?: string | null
+  bodyFont?: string | null
+  visualStyle?: string | null
+  backgroundPattern?: string | null
+  showLogo?: boolean | null
+  footerText?: string | null
   hasLogo?: boolean | null
 }
 
@@ -64,9 +167,25 @@ export function resolveBrandTheme(
   row: BrandThemeRecord | null | undefined
 ): ResolvedBrandTheme {
   if (!row) return DEFAULT_BRAND_THEME
+  const background = normalizeHex(row.backgroundColor)
+  const accent = normalizeHex(row.accentColor ?? row.secondaryColor)
   return {
     primaryColor: normalizeHex(row.primaryColor),
-    secondaryColor: normalizeHex(row.secondaryColor),
+    accentColor: accent,
+    secondaryColor: accent,
+    // A dark background saved by hand would make the text unreadable.
+    backgroundColor:
+      background && isLightBackground(background) ? background : null,
+    headingFont: findFont(row.headingFont)?.family ?? DEFAULT_FONT,
+    bodyFont: findFont(row.bodyFont)?.family ?? DEFAULT_FONT,
+    visualStyle: isOption(VISUAL_STYLES, row.visualStyle)
+      ? row.visualStyle
+      : 'auto',
+    backgroundPattern: isOption(BACKGROUND_PATTERNS, row.backgroundPattern)
+      ? row.backgroundPattern
+      : 'dots',
+    showLogo: row.showLogo ?? true,
+    footerText: row.footerText?.trim() || null,
     hasLogo: Boolean(row.hasLogo),
     saved: true
   }
@@ -74,13 +193,28 @@ export function resolveBrandTheme(
 
 /** The brand colours that are set, the primary first. */
 export function brandColors(
-  theme: Pick<ResolvedBrandTheme, 'primaryColor' | 'secondaryColor'>
-): Array<{ role: 'primary' | 'secondary'; hex: string }> {
-  const colors: Array<{ role: 'primary' | 'secondary'; hex: string }> = []
+  theme: Pick<ResolvedBrandTheme, 'primaryColor'> & {
+    accentColor?: string | null
+    secondaryColor?: string | null
+  }
+): Array<{ role: 'primary' | 'accent' | 'secondary'; hex: string }> {
+  const colors: Array<{ role: 'primary' | 'accent' | 'secondary'; hex: string }> = []
   if (theme.primaryColor) colors.push({ role: 'primary', hex: theme.primaryColor })
-  if (theme.secondaryColor)
-    colors.push({ role: 'secondary', hex: theme.secondaryColor })
+  const second = theme.accentColor ?? theme.secondaryColor
+  if (second) colors.push({ role: 'secondary', hex: second })
   return colors
+}
+
+/**
+ * A website as the corner of an image shows it: without the scheme and the
+ * trailing slash, otherwise exactly as given.
+ */
+export function displayWebsite(url: string | null | undefined): string | null {
+  const shown = (url || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+  return shown && shown.length <= FOOTER_MAX_LENGTH ? shown : null
 }
 
 /**
@@ -151,6 +285,7 @@ export function describeColor(hex: string): string {
   return `${muted}${shade}${hue}`.replace(/\s+/g, ' ').trim()
 }
 
+
 // ---------------------------------------------------------------------------
 // The save payload
 // ---------------------------------------------------------------------------
@@ -180,9 +315,49 @@ const hexField = (label: string) =>
     )
     .transform(v => normalizeHex(v))
 
+/** Empty or missing means the default typeface. */
+const fontField = (label: string) =>
+  z
+    .string()
+    .nullable()
+    .optional()
+    .refine(
+      v => !v?.trim() || findFont(v) !== null,
+      `${label} must be one of the listed typefaces.`
+    )
+    .transform(v => findFont(v)?.family ?? null)
+
 export const BrandThemePayloadSchema = z.object({
   primaryColor: hexField('Primary colour'),
-  secondaryColor: hexField('Secondary colour'),
+  secondaryColor: hexField('Secondary colour').optional(),
+  accentColor: hexField('Accent colour').optional(),
+  backgroundColor: hexField('Background colour').refine(
+    v => v === null || isLightBackground(v),
+    'The background must be a light colour: the headline and diagram are set on it.'
+  ),
+  headingFont: fontField('Headline typeface'),
+  bodyFont: fontField('Body typeface'),
+  visualStyle: z
+    .enum(VISUAL_STYLES.map(s => s.value) as [VisualStyle, ...VisualStyle[]])
+    .default('auto'),
+  backgroundPattern: z
+    .enum(
+      BACKGROUND_PATTERNS.map(p => p.value) as [
+        BackgroundPattern,
+        ...BackgroundPattern[]
+      ]
+    )
+    .default('dots'),
+  showLogo: z.boolean().default(true),
+  footerText: z
+    .string()
+    .max(
+      FOOTER_MAX_LENGTH,
+      `Keep the website or handle under ${FOOTER_MAX_LENGTH} characters.`
+    )
+    .nullable()
+    .optional()
+    .transform(v => v?.trim() || null),
   /**
    * Undefined keeps the saved file, null removes it, a data URL replaces it.
    * The server re-reads and re-encodes the bytes either way.
@@ -280,3 +455,4 @@ export function logoClearSpaceInstruction(
   const [vertical, horizontal] = corner.split('-')
   return `Leave the ${corner} corner (about the ${horizontal}most ${across}% of the width and the ${vertical} ${down}% of the height) as calm, empty background with no text, faces or important objects: a logo is placed there afterwards.`
 }
+

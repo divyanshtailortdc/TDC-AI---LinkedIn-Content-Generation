@@ -9,6 +9,7 @@ import {
 import { eq } from 'drizzle-orm'
 import { env } from '~/env'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
+import { addUsage } from '~/lib/ai/usage'
 import {
   isWebSearchConfigured,
   runWebSearch,
@@ -25,7 +26,13 @@ import {
   type GenerationContext
 } from '../context'
 import { retrieveKnowledgePassages } from '../embeddings'
-import { selectIdeas, spreadGoals } from '../idea-selection'
+import {
+  coverEveryGoal,
+  ideaTarget,
+  selectIdeas,
+  spreadGoals
+} from '../idea-selection'
+import { checkNovelty } from '../../novelty'
 import { inferRegion } from '../region'
 import { recordStepUsage, refreshRunTotals } from '../run-accounting'
 import { failRun, keepRunAlive } from '../run-lifecycle'
@@ -190,7 +197,12 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
     })
     .returning()
 
-  const targetIdeas = Math.max(3, Math.min(ctx.prefs.ideasPerRun || 5, 12))
+  // Every goal picked leads at least one idea, so more goals than the usual
+  // ideas per run make a bigger run.
+  const targetIdeas = ideaTarget(
+    ctx.prefs.ideasPerRun,
+    ctx.selectedGoals.length
+  )
 
   if (contextStep) {
     await db
@@ -335,7 +347,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
 
   let candidates: GeneratedIdeaItem[] = []
   let validated: GeneratedIdeaItem[] = []
-  const discarded: Array<{ title: string; reason: string }> = []
+  const discarded: Array<{ title: string; reason: string; goalId?: string }> =
+    []
   let modelError: string | null = null
 
   try {
@@ -360,15 +373,71 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
 
   // ------------------------------------------------------------ selection
   // Repeats of earlier work go first, so they cannot take a place from a
-  // fresh idea; then the most varied set up to the target is kept.
-  const picked = selectIdeas(
-    validated,
-    pastWork,
-    targetIdeas,
-    ctx.selectedGoals.map(g => g.id)
-  )
-  const selected = picked.selected
+  // fresh idea; then the most varied set up to the target is kept, with
+  // every goal leading at least one idea where a candidate allows.
+  const goalIds = ctx.selectedGoals.map(g => g.id)
+  const picked = selectIdeas(validated, pastWork, targetIdeas, goalIds)
+  let selected = picked.selected
+  let uncovered = picked.uncovered
   discarded.push(...picked.discarded)
+
+  // A goal the user picked but no usable idea serves gets one more try, for
+  // that goal alone: a second model call only when coverage needs it.
+  let retried = false
+  if (uncovered.length > 0 && selected.length > 0 && !modelError) {
+    retried = true
+    const missing = uncovered.map(id => goalLabel(goalIds.indexOf(id)))
+    try {
+      const retry = await generateIdeas({
+        ctx,
+        corpus,
+        history: [
+          renderIdeationHistoryBlock(ctx, runId),
+          `ALREADY PROPOSED IN THIS RUN — do not repeat these:\n${selected.map(i => `- ${i.title}`).join('\n')}`
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        candidateCount: missing.length * 2,
+        assignedGoals: spreadGoals(missing, missing.length * 2)
+      })
+      ideationUsage = addUsage(ideationUsage, retry.usage)
+      candidates = [...candidates, ...retry.candidates]
+      validated = [...validated, ...retry.valid]
+      discarded.push(...retry.discarded)
+      const fresh = retry.valid.filter(
+        idea =>
+          checkNovelty(
+            idea.hookConcept,
+            `${idea.title} ${idea.thesis} ${idea.coreArgument}`,
+            pastWork
+          ).isNovel
+      )
+      const covered = coverEveryGoal(selected, fresh, goalIds, targetIdeas)
+      selected = covered.selected
+      uncovered = covered.uncovered
+    } catch (err) {
+      // The run keeps what it has; the goal is reported as uncovered.
+      if (err instanceof SkillError) {
+        ideationUsage = addUsage(ideationUsage, err.usage)
+      }
+      console.warn('Ideation retry for uncovered goals failed:', err)
+    }
+    if (ideationStep) {
+      await recordStepUsage(runId, ideationStep.id, ideationUsage)
+    }
+  }
+
+  // Why each goal left without an idea has none, for the run page.
+  const uncoveredGoals = uncovered.map(id => {
+    const lost = discarded.find(d => d.goalId === id)
+    return {
+      goalId: id,
+      goal: ctx.selectedGoals.find(g => g.id === id)?.title ?? id,
+      reason: lost
+        ? `Its ideas did not pass the checks. "${lost.title}": ${lost.reason}`
+        : 'No usable idea was written for it.'
+    }
+  })
 
   const averageGrounding =
     selected.length > 0
@@ -391,8 +460,13 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
       perspectiveAngles: selected.map(i => i.perspectiveAngle),
       ideasPerGoal: ctx.selectedGoals.map(g => ({
         goal: g.title,
-        ideas: selected.filter(i => i.goalId === g.id).length
+        ideas: selected.filter(i => i.goalId === g.id).length,
+        alsoServedBy: selected.filter(
+          i => i.goalId !== g.id && (i.goalIds ?? []).includes(g.id)
+        ).length
       })),
+      retriedForGoals: retried,
+      uncoveredGoals,
       averageGroundingScore: averageGrounding,
       model: handle.modelId,
       usage: ideationUsage
@@ -431,6 +505,7 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
         accountId: ctx.account.id,
         runId,
         goalId: goal.id,
+        goalIds: idea.goalIds?.length ? idea.goalIds : [goal.id],
         goalSnapshot: snapshotGoal(goal),
         title: idea.title,
         thesis: idea.thesis,

@@ -28,7 +28,9 @@ export type MediaBriefContext = Pick<
   | 'knowledge'
   | 'offerings'
   | 'brand'
->
+> & {
+  websiteUrl?: string | null
+}
 
 export type MediaIdeaRecord = Pick<
   Idea,
@@ -101,6 +103,7 @@ export function buildMediaBriefContext(
       : null,
     knowledge,
     offerings,
-    brand: renderBrandForArtDirector(brand)
+    brand: renderBrandForArtDirector(brand),
+    websiteUrl: (ctx.account as { websiteUrl?: string | null })?.websiteUrl || null
   }
 }

@@ -2,8 +2,9 @@ import 'server-only'
 
 import { db } from '@/db'
 import { goalsTable, ideasTable, runsTable } from '@/db/schema'
+import { ideaGoalTitles } from '@/lib/ai/context-blocks'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
-import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { accountNameAtRunSql, runGoalTitlesSql } from '../runs/runs-data'
 import { statusFilterCounts, type StatusFilter } from './status-filter'
 
@@ -28,7 +29,7 @@ export async function loadIdeasPage(
     .groupBy(ideasTable.status)
     .then(statusFilterCounts)
 
-  const [{ rows, pageInfo }, statusCounts, undecided] = await Promise.all([
+  const [{ rows, pageInfo }, statusCounts, undecided, goals] = await Promise.all([
     loadPage({
       page,
       pageSize: PAGE_SIZE,
@@ -42,10 +43,10 @@ export async function loadIdeasPage(
             thesis: ideasTable.thesis,
             perspectiveAngle: ideasTable.perspectiveAngle,
             angle: ideasTable.angle,
-            // The goal as titled now; once deleted, as it was when the idea was made.
-            goalTitle: sql<
-              string | null
-            >`coalesce(${goalsTable.title}, ${ideasTable.goalSnapshot}->>'title')`,
+            // Titled from the goals below (see ideaGoalTitles).
+            goalId: ideasTable.goalId,
+            goalIds: ideasTable.goalIds,
+            goalSnapshot: ideasTable.goalSnapshot,
             whyNow: ideasTable.whyNow,
             hookConcept: ideasTable.hookConcept,
             coreArgument: ideasTable.coreArgument,
@@ -70,7 +71,6 @@ export async function loadIdeasPage(
           })
           .from(ideasTable)
           .leftJoin(runsTable, eq(runsTable.id, ideasTable.runId))
-          .leftJoin(goalsTable, eq(goalsTable.id, ideasTable.goalId))
           .where(shown)
           .orderBy(desc(ideasTable.createdAt), desc(ideasTable.id))
           .offset(offset)
@@ -80,11 +80,19 @@ export async function loadIdeasPage(
     db
       .select({ id: ideasTable.id, status: ideasTable.status })
       .from(ideasTable)
-      .where(and(ofAccount, inArray(ideasTable.status, ['proposed', 'approved'])))
+      .where(and(ofAccount, inArray(ideasTable.status, ['proposed', 'approved']))),
+    db
+      .select({ id: goalsTable.id, title: goalsTable.title })
+      .from(goalsTable)
+      .where(eq(goalsTable.accountId, accountId))
   ])
 
   return {
-    ideas: rows,
+    ideas: rows.map(({ goalId, goalIds, goalSnapshot, ...idea }) => ({
+      ...idea,
+      // Every goal the idea serves, its main goal first.
+      goalTitles: ideaGoalTitles({ goalId, goalIds, goalSnapshot }, goals)
+    })),
     pageInfo,
     statusCounts,
     proposedIds: undecided.filter(i => i.status === 'proposed').map(i => i.id),

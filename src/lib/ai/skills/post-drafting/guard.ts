@@ -63,7 +63,10 @@ export function collectFigureSources(
     idea.whyNow || '',
     renderIdentityBlock(ctx),
     renderAudienceBlock(ctx),
-    renderGoalBlock(ctx.primaryGoal)
+    // Every goal the post serves: their messages are the author's own words.
+    ...(ctx.selectedGoals.length > 0 ? ctx.selectedGoals : [ctx.primaryGoal]).map(
+      renderGoalBlock
+    )
   ]
     .filter(Boolean)
     .join('\n')

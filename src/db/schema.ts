@@ -481,10 +481,14 @@ export const ideasTable = pgTable('ideas', {
   runId: uuid('run_id').references(() => runsTable.id, {
     onDelete: 'set null'
   }),
-  // The one goal this idea serves.
+  // The main goal this idea serves: it decides the post's call to action
+  // and link.
   goalId: uuid('goal_id').references(() => goalsTable.id, {
     onDelete: 'set null'
   }),
+  // Every goal picked for its run that the idea serves, the main one first.
+  // Ids stay here after a goal is deleted; only the main goal is snapshotted.
+  goalIds: jsonb('goal_ids').$type<string[]>().default([]).notNull(),
   // That goal as it was when the idea was made. Drafting uses the live goal,
   // and this only once the goal is deleted, so the post still lands the
   // message its idea was made for.
@@ -719,12 +723,28 @@ export const brandThemesTable = pgTable('brand_themes', {
     .notNull()
     .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  // A PNG data URL, re-encoded on upload. Composited onto every generated
-  // image by code, never described to the image model.
+  // A PNG data URL, re-encoded on upload. Placed on every generated image by
+  // the canvas renderer, never described to the image model.
   logoImage: text('logo_image'),
-  // Lower-case #rrggbb; see src/lib/brand/theme.ts.
+  // Whether the logo goes on images at all.
+  showLogo: boolean('show_logo').default(true).notNull(),
+  // Lower-case #rrggbb; see src/lib/brand/theme.ts. The background must be
+  // light: every image is laid out on it.
   primaryColor: text('primary_color'),
-  secondaryColor: text('secondary_color'),
+  accentColor: text('accent_color'),
+  backgroundColor: text('background_color'),
+  // Google Fonts families from FONT_CHOICES (src/lib/brand/fonts.ts).
+  headingFont: text('heading_font'),
+  bodyFont: text('body_font'),
+  // 'auto' | 'diagram' | 'illustration': what fills the image's right side.
+  visualStyle: varchar('visual_style', { length: 20 }).default('auto').notNull(),
+  // 'dots' | 'grid' | 'plain'
+  backgroundPattern: varchar('background_pattern', { length: 20 })
+    .default('dots')
+    .notNull(),
+  // The website or handle in the bottom-left corner; the identity's website
+  // when empty.
+  footerText: text('footer_text'),
   ...commonFieldDefs.dates
 })
 

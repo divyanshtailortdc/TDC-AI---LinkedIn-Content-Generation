@@ -1,6 +1,7 @@
 'use client'
 
 import { triggerNewRun } from '@/app/(app)/runs/actions'
+import { ideaTarget } from '@/lib/ai/idea-selection'
 import { cn } from '@/lib/cn'
 import {
   AlertCircle,
@@ -55,6 +56,17 @@ export function GenerateRunDialog({
       initialSelected={initialSelected}
     />
   )
+}
+
+/** What the run will make for this many goals, as the run works it out. */
+function describeRunSize(ideasPerRun: number, goalCount: number): string {
+  const ideas = ideaTarget(ideasPerRun, goalCount)
+  if (goalCount <= 1) return `${ideas} ideas for this goal.`
+  return [
+    `${ideas} ideas across ${goalCount} goals, each leading at least one`,
+    ideas > ideasPerRun ? ` (more than your usual ${ideasPerRun}, one per goal).` : '.',
+    ' An idea that also moves another goal is marked with it.'
+  ].join('')
 }
 
 function PickerDialog({
@@ -233,10 +245,7 @@ function PickerDialog({
         <div className="border-border space-y-3 border-t px-6 py-4">
           {active.length > 0 && (
             <p className="text-muted text-[11px] leading-relaxed">
-              {picker.ideasPerRun} ideas per run
-              {selected.length > 1 ? ', shared evenly across the goals' : ''}.
-              {selected.length > picker.ideasPerRun &&
-                ' With more goals than ideas, some goals will get none.'}
+              {describeRunSize(picker.ideasPerRun, selected.length)}
             </p>
           )}
           {error && (

@@ -1,5 +1,9 @@
 import { checkNovelty } from '../novelty'
-import { filterDiverseIdeas } from './idea-diversity'
+import {
+  calculateThesisSimilarity,
+  filterDiverseIdeas,
+  ideaQuality
+} from './idea-diversity'
 import type { GeneratedIdeaItem } from './skills/ideation/schema'
 
 /**
@@ -46,6 +50,73 @@ export function balanceByGoal(
   return ranked.filter(i => taken.has(i)).slice(0, targetCount)
 }
 
+/** The most ideas one run keeps (and so the most goals one run may serve). */
+export const MAX_IDEAS_PER_RUN = 12
+
+/**
+ * How many ideas a run keeps: the account's ideas per run, raised so each
+ * goal picked can lead one, between 3 and MAX_IDEAS_PER_RUN.
+ */
+export function ideaTarget(
+  ideasPerRun: number | undefined,
+  goalCount: number
+): number {
+  return Math.max(
+    3,
+    Math.min(Math.max(ideasPerRun || 5, goalCount), MAX_IDEAS_PER_RUN)
+  )
+}
+
+/** Above this thesis overlap two ideas are the same idea (as in filterDiverseIdeas). */
+const SAME_IDEA = 0.35
+
+/**
+ * Makes every goal picked for the run the main goal of at least one idea.
+ * Balancing alone could not: a goal whose candidates all failed the grounding
+ * checks, or lost to a stronger idea of another goal in the diversity filter,
+ * was left with none. A goal without an idea takes its best spare candidate
+ * that is not a near copy of one already picked; at the target count, the
+ * weakest extra idea of a goal that has several makes room for it.
+ */
+export function coverEveryGoal(
+  selected: GeneratedIdeaItem[],
+  spares: GeneratedIdeaItem[],
+  goalIds: string[],
+  targetCount: number
+): { selected: GeneratedIdeaItem[]; added: GeneratedIdeaItem[]; uncovered: string[] } {
+  const picked = [...selected]
+  const added: GeneratedIdeaItem[] = []
+  const ranked = [...spares]
+    .filter(s => !picked.includes(s))
+    .sort((a, b) => ideaQuality(b) - ideaQuality(a))
+  const countFor = (id: string) => picked.filter(i => i.goalId === id).length
+  const text = (i: GeneratedIdeaItem) => `${i.thesis} ${i.coreArgument}`
+
+  for (const goal of goalIds) {
+    if (countFor(goal) > 0) continue
+    const spare = ranked.find(
+      c =>
+        c.goalId === goal &&
+        !picked.some(p => calculateThesisSimilarity(text(c), text(p)) > SAME_IDEA)
+    )
+    if (!spare) continue
+    if (picked.length >= targetCount) {
+      const weakest = [...picked]
+        .reverse()
+        .find(i => !i.goalId || countFor(i.goalId) > 1)
+      if (weakest) picked.splice(picked.indexOf(weakest), 1)
+    }
+    picked.push(spare)
+    added.push(spare)
+  }
+
+  return {
+    selected: picked,
+    added,
+    uncovered: goalIds.filter(id => countFor(id) === 0)
+  }
+}
+
 /**
  * Picks the ideas a run keeps from its candidates.
  *
@@ -64,6 +135,8 @@ export function selectIdeas(
   selected: GeneratedIdeaItem[]
   /** Repeats dropped before selection, with why. */
   discarded: Array<{ title: string; reason: string }>
+  /** Goals that still lead no idea: no fresh candidate of theirs was usable. */
+  uncovered: string[]
 } {
   const discarded: Array<{ title: string; reason: string }> = []
   const fresh =
@@ -88,6 +161,12 @@ export function selectIdeas(
     fresh,
     goalIds.length > 1 ? fresh.length : targetCount
   ).selected
-  const selected = balanceByGoal(diverse, goalIds, targetCount)
-  return { selected, discarded }
+  const balanced = balanceByGoal(diverse, goalIds, targetCount)
+  const { selected, uncovered } = coverEveryGoal(
+    balanced,
+    fresh,
+    goalIds,
+    targetCount
+  )
+  return { selected, discarded, uncovered }
 }

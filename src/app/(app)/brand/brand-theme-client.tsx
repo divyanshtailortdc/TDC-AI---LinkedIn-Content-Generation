@@ -2,24 +2,33 @@
 
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
+import { FONT_CHOICES } from '@/lib/brand/fonts'
 import {
+  BACKGROUND_PATTERNS,
   describeColor,
+  displayWebsite,
+  isLightBackground,
   LOGO_MAX_DATA_URL_LENGTH,
   LOGO_MAX_EDGE,
   LOGO_MIN_EDGE,
-  LOGO_PLACEMENT,
   LOGO_UPLOAD_MAX_BYTES,
   LOGO_UPLOAD_TYPES,
-  logoBox,
-  normalizeHex
+  normalizeHex,
+  VISUAL_STYLES,
+  type BackgroundPattern,
+  type ResolvedBrandTheme,
+  type VisualStyle
 } from '@/lib/brand/theme'
 import { cn } from '@/lib/cn'
 import {
+  Check,
   ImageIcon,
   ImagePlus,
+  LayoutGrid,
   Loader2,
   Palette,
   Trash2,
+  Type,
   Upload,
   X
 } from 'lucide-react'
@@ -29,14 +38,6 @@ import { saveBrandTheme } from './actions'
 
 const inputClass =
   'border-border bg-surface-hover text-foreground placeholder:text-muted focus:border-accent w-full rounded-md border px-3 py-2 text-sm outline-none'
-
-/** Size of every generated image; the preview places the logo as it will be. */
-const CANVAS = { width: 2048, height: 1072 }
-
-interface BrandColors {
-  primary: string | null
-  secondary: string | null
-}
 
 function Section({
   icon: Icon,
@@ -70,7 +71,6 @@ function Section({
 /** Reads an image's pixel size in the browser. */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    // `window.Image`: the DOM constructor, not next/image.
     const img = new window.Image()
     img.onload = () => resolve(img)
     img.onerror = () =>
@@ -135,11 +135,15 @@ async function prepareLogo(file: File): Promise<string> {
 
 function LogoField({
   value,
+  showLogo,
   onChange,
+  onToggleShowLogo,
   onError
 }: {
   value: string | null
+  showLogo: boolean
   onChange: (next: string | null) => void
+  onToggleShowLogo: (next: boolean) => void
   onError: (message: string | null) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -162,11 +166,11 @@ function LogoField({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-3">
       {value ? (
         <div className="border-border flex items-center gap-3 rounded-xl border p-2.5">
-          <div className="border-border flex h-16 w-32 shrink-0 items-center justify-center rounded-lg border bg-white p-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- a data URL preview */}
+          <div className="border-border flex h-16 w-36 shrink-0 items-center justify-center rounded-lg border bg-white p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element -- data URL preview */}
             <img
               src={value}
               alt="Logo preview"
@@ -224,9 +228,25 @@ function LogoField({
           <span>PNG, SVG, WebP or JPEG</span>
         </button>
       )}
-      <p className="text-muted text-[11px]">
-        A transparent PNG or SVG works best.
-      </p>
+
+      <div className="flex items-center justify-between rounded-xl border border-border p-3">
+        <div>
+          <span className="text-foreground block text-xs font-semibold">
+            Show logo on images
+          </span>
+          <span className="text-muted text-[11px]">
+            Placed at the top-left of the text canvas on every generated image.
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          id="show-logo-toggle"
+          checked={showLogo}
+          onChange={e => onToggleShowLogo(e.target.checked)}
+          className="h-4 w-4 cursor-pointer accent-accent"
+        />
+      </div>
+
       <input
         ref={inputRef}
         type="file"
@@ -234,7 +254,6 @@ function LogoField({
         className="hidden"
         onChange={e => {
           void accept(e.target.files?.[0])
-          // So choosing the same file again still fires.
           e.target.value = ''
         }}
       />
@@ -247,13 +266,15 @@ function ColorField({
   label,
   hint,
   value,
-  onChange
+  onChange,
+  validateLight = false
 }: {
   id: string
   label: string
   hint: string
   value: string | null
   onChange: (next: string | null) => void
+  validateLight?: boolean
 }) {
   const [draft, setDraft] = useState(value ?? '')
   const [shownValue, setShownValue] = useState(value)
@@ -261,7 +282,10 @@ function ColorField({
     setShownValue(value)
     setDraft(value ?? '')
   }
-  const invalid = draft.trim() !== '' && normalizeHex(draft) === null
+  const hex = normalizeHex(draft)
+  const invalid =
+    draft.trim() !== '' &&
+    (hex === null || (validateLight && !isLightBackground(hex)))
 
   return (
     <div className="flex items-center gap-3">
@@ -269,7 +293,12 @@ function ColorField({
         type="color"
         aria-label={`${label} colour picker`}
         value={value ?? '#ffffff'}
-        onChange={e => onChange(normalizeHex(e.target.value))}
+        onChange={e => {
+          const picked = normalizeHex(e.target.value)
+          if (!validateLight || (picked && isLightBackground(picked))) {
+            onChange(picked)
+          }
+        }}
         className={cn(
           'border-border h-9 w-9 shrink-0 cursor-pointer rounded-lg border bg-transparent p-0.5',
           !value && 'opacity-40'
@@ -294,8 +323,8 @@ function ColorField({
           aria-invalid={invalid}
           onChange={e => {
             setDraft(e.target.value)
-            const hex = normalizeHex(e.target.value)
-            if (hex) onChange(hex)
+            const h = normalizeHex(e.target.value)
+            if (h && (!validateLight || isLightBackground(h))) onChange(h)
             else if (!e.target.value.trim()) onChange(null)
           }}
           className={cn(
@@ -318,95 +347,201 @@ function ColorField({
 }
 
 /**
- * A stand-in image: the two colours as shapes, a headline on the left, and the
- * logo exactly where and how large it will be laid over each generated image.
+ * A live B2B vector split preview rendering:
+ * - Left 45%: Logo (top-left), Category Tagline, Main Headline with highlighted words, Sub-headline, and Footer
+ * - Right 55%: Unified vector architecture / Hub-and-Spoke nodes with pills and badges
  */
 function BrandPreview({
-  colors,
+  theme,
   logo
 }: {
-  colors: BrandColors
+  theme: ResolvedBrandTheme
   logo: string | null
 }) {
-  const [logoSize, setLogoSize] = useState<{
-    src: string
-    width: number
-    height: number
-  } | null>(null)
-
-  useEffect(() => {
-    if (!logo) return
-    let cancelled = false
-    loadImage(logo)
-      .then(img => {
-        if (!cancelled)
-          setLogoSize({
-            src: logo,
-            width: img.naturalWidth,
-            height: img.naturalHeight
-          })
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [logo])
-
-  const box =
-    logo && logoSize?.src === logo
-      ? logoBox(CANVAS, logoSize, LOGO_PLACEMENT)
-      : null
-  const pct = (value: number, of: number) => `${(value / of) * 100}%`
+  const primary = theme.primaryColor || '#0297b2'
+  const accent = theme.accentColor || '#00a3c4'
+  const bg = theme.backgroundColor || '#f8fafc'
+  const pattern = theme.backgroundPattern || 'dots'
+  const headingFont = theme.headingFont || 'Inter'
+  const bodyFont = theme.bodyFont || 'Inter'
+  const footer = theme.footerText || 'tdccommerce.com'
 
   return (
     <div className="space-y-2">
-      <div className="border-border relative aspect-[2048/1072] w-full overflow-hidden rounded-xl border bg-[#f6f7f9]">
-        <div
-          className="absolute rounded-full"
-          style={{
-            background: colors.primary || '#cbd5e1',
-            width: '30%',
-            aspectRatio: '1',
-            right: '14%',
-            top: '10%'
-          }}
-        />
-        <div
-          className="absolute rounded-2xl"
-          style={{
-            background: colors.secondary || '#e2e8f0',
-            width: '17%',
-            height: '30%',
-            right: '38%',
-            top: '46%'
-          }}
-        />
-        <p
-          className="absolute top-[14%] left-[6%] max-w-[40%] text-[clamp(11px,2.4vw,20px)] leading-tight font-bold"
-          style={{ color: colors.secondary || '#111827' }}
+      <div
+        className="border-border relative aspect-[2048/1072] w-full overflow-hidden rounded-xl border select-none"
+        style={{ backgroundColor: bg, fontFamily: bodyFont }}
+      >
+        {/* Subtle pattern background */}
+        <svg
+          className="absolute inset-0 h-full w-full pointer-events-none"
+          xmlns="http://www.w3.org/2000/svg"
         >
-          Your post&apos;s point, in up to eight words
-        </p>
-        {box && logo && (
-          // eslint-disable-next-line @next/next/no-img-element -- a data URL preview
-          <img
-            src={logo}
-            alt="Logo placement"
-            className="absolute object-contain"
-            style={{
-              left: pct(box.left, CANVAS.width),
-              top: pct(box.top, CANVAS.height),
-              width: pct(box.width, CANVAS.width),
-              height: pct(box.height, CANVAS.height)
-            }}
-          />
-        )}
+          <defs>
+            <pattern
+              id="preview-dots"
+              width="24"
+              height="24"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="12" cy="12" r="1.5" fill={primary} fillOpacity="0.12" />
+            </pattern>
+            <pattern
+              id="preview-grid"
+              width="40"
+              height="40"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M 40 0 L 0 0 0 40"
+                fill="none"
+                stroke={primary}
+                strokeWidth="1"
+                strokeOpacity="0.08"
+              />
+            </pattern>
+            <radialGradient id="preview-glow" cx="0.5" cy="0.5" r="0.5">
+              <stop offset="0%" stopColor={accent} stopOpacity="0.16" />
+              <stop offset="100%" stopColor={accent} stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          {pattern !== 'plain' && (
+            <rect
+              width="100%"
+              height="100%"
+              fill={`url(#preview-${pattern})`}
+            />
+          )}
+          <circle cx="75%" cy="50%" r="35%" fill="url(#preview-glow)" />
+        </svg>
+
+        {/* LEFT COLUMN: Text Canvas (45%) */}
+        <div className="absolute inset-y-0 left-0 flex w-[48%] flex-col justify-between p-[5%]">
+          {/* Logo (Top-Left) */}
+          <div className="flex h-10 items-center">
+            {theme.showLogo && logo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- data url preview
+              <img
+                src={logo}
+                alt="Brand logo"
+                className="max-h-8 max-w-[160px] object-contain"
+              />
+            ) : theme.showLogo ? (
+              <span
+                className="text-sm font-bold tracking-tight text-slate-900 dark:text-white"
+                style={{ fontFamily: headingFont }}
+              >
+                TDC Commerce
+              </span>
+            ) : null}
+          </div>
+
+          {/* Tagline, Headline & Subheadline */}
+          <div className="my-auto space-y-2.5">
+            <div className="flex items-center gap-2">
+              <div
+                className="h-1 w-4 rounded-full"
+                style={{ backgroundColor: accent }}
+              />
+              <span
+                className="text-[9px] font-bold tracking-widest uppercase"
+                style={{ color: accent }}
+              >
+                AI-NATIVE UNIFIED ERP
+              </span>
+            </div>
+
+            <h3
+              className="text-[clamp(13px,1.9vw,22px)] font-extrabold leading-[1.15] text-slate-900 dark:text-white"
+              style={{ fontFamily: headingFont }}
+            >
+              Your AI Agent Is Only as Smart as the{' '}
+              <span style={{ color: accent }}>Systems It Can See</span>
+            </h3>
+
+            <p className="line-clamp-2 text-[clamp(9px,1.0vw,12px)] leading-relaxed text-slate-600 dark:text-slate-300">
+              Disconnected tools give AI stale, partial data. One data model gives it the truth.
+            </p>
+          </div>
+
+          {/* Footer (Bottom-Left) */}
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500">
+            <div
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: accent }}
+            />
+            <span>{footer}</span>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: Visual Canvas (52%) */}
+        <div className="absolute inset-y-0 right-0 flex w-[52%] items-center justify-center p-[4%]">
+          <div className="relative flex h-full w-full items-center justify-center">
+            {/* Center Hub */}
+            <div
+              className="relative z-10 flex h-[34%] w-[34%] flex-col items-center justify-center rounded-full p-2 text-center text-white shadow-xl transition-all"
+              style={{ backgroundColor: primary }}
+            >
+              <div className="text-[8px] font-semibold tracking-wider uppercase opacity-90">
+                ONE
+              </div>
+              <div className="text-[clamp(10px,1.2vw,14px)] font-bold leading-tight">
+                Data Model
+              </div>
+            </div>
+
+            {/* Concentric subtle circle */}
+            <div
+              className="absolute h-[46%] w-[46%] rounded-full border border-dashed"
+              style={{ borderColor: accent, opacity: 0.35 }}
+            />
+
+            {/* Spoke Pill Nodes around hub */}
+            <div className="absolute top-[8%] left-[16%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
+              <span>CRM</span>
+            </div>
+
+            <div className="absolute top-[8%] right-[16%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
+              <span>Storefront</span>
+            </div>
+
+            <div className="absolute top-[44%] right-[2%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
+              <span>Inventory</span>
+            </div>
+
+            <div className="absolute bottom-[10%] right-[14%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
+              <span>Orders</span>
+            </div>
+
+            <div className="absolute bottom-[10%] left-[14%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
+              <span>Accounting</span>
+            </div>
+
+            {/* Dark Accent Badges (Agent Pills) */}
+            <div className="absolute top-[1%] right-[4%] flex items-center gap-1 rounded-full border border-cyan-400/30 bg-slate-900 px-2 py-0.5 text-[8px] font-semibold text-cyan-400 shadow-md">
+              <span className="font-bold">+</span>
+              <span>Commerce AI Chat</span>
+            </div>
+
+            <div className="absolute bottom-[1%] right-[6%] flex items-center gap-1 rounded-full border border-cyan-400/30 bg-slate-900 px-2 py-0.5 text-[8px] font-semibold text-cyan-400 shadow-md">
+              <span className="font-bold">+</span>
+              <span>Order Verification</span>
+            </div>
+
+            <div className="absolute bottom-[1%] left-[4%] flex items-center gap-1 rounded-full border border-cyan-400/30 bg-slate-900 px-2 py-0.5 text-[8px] font-semibold text-cyan-400 shadow-md">
+              <span className="font-bold">+</span>
+              <span>Reconciliation Agent</span>
+            </div>
+          </div>
+        </div>
       </div>
       <p className="text-muted text-[11px] leading-relaxed">
-        A stand-in for placement and colour, not a real image: each image is
-        designed from its own post. The logo is your uploaded file, laid over
-        the bottom-right corner of the finished image, with a soft backing
-        where the background would hide it.
+        Live render canvas standard: Clean B2B vector diagram split layout with your actual logo, custom brand colours, typography, and crisp nodes.
       </p>
     </div>
   )
@@ -414,29 +549,37 @@ function BrandPreview({
 
 export function BrandThemeClient({
   identityName,
-  initialColors,
-  initialLogo
+  initialTheme,
+  initialLogo,
+  websiteUrl
 }: {
   identityName: string
-  initialColors: BrandColors
+  initialTheme: ResolvedBrandTheme
   initialLogo: string | null
+  websiteUrl?: string | null
 }) {
   const router = useRouter()
-  const [colors, setColors] = useState<BrandColors>(initialColors)
+  const [theme, setTheme] = useState<ResolvedBrandTheme>(initialTheme)
   const [logo, setLogo] = useState(initialLogo)
   const [saved, setSaved] = useState(() => ({
-    colors: initialColors,
+    theme: initialTheme,
     logo: initialLogo
   }))
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const dirty =
-    colors.primary !== saved.colors.primary ||
-    colors.secondary !== saved.colors.secondary ||
+    theme.primaryColor !== saved.theme.primaryColor ||
+    theme.accentColor !== saved.theme.accentColor ||
+    theme.backgroundColor !== saved.theme.backgroundColor ||
+    theme.headingFont !== saved.theme.headingFont ||
+    theme.bodyFont !== saved.theme.bodyFont ||
+    theme.visualStyle !== saved.theme.visualStyle ||
+    theme.backgroundPattern !== saved.theme.backgroundPattern ||
+    theme.showLogo !== saved.theme.showLogo ||
+    theme.footerText !== saved.theme.footerText ||
     logo !== saved.logo
 
-  // Leaving with unsaved changes would drop them without a word.
   useEffect(() => {
     if (!dirty) return
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -448,7 +591,7 @@ export function BrandThemeClient({
   }, [dirty])
 
   const discard = () => {
-    setColors(saved.colors)
+    setTheme(saved.theme)
     setLogo(saved.logo)
     setError(null)
   }
@@ -458,20 +601,27 @@ export function BrandThemeClient({
     setError(null)
     try {
       const res = await saveBrandTheme({
-        primaryColor: colors.primary,
-        secondaryColor: colors.secondary,
-        // An unchanged logo is not sent again: undefined keeps the saved file.
+        primaryColor: theme.primaryColor,
+        accentColor: theme.accentColor,
+        secondaryColor: theme.accentColor,
+        backgroundColor: theme.backgroundColor,
+        headingFont: theme.headingFont,
+        bodyFont: theme.bodyFont,
+        visualStyle: theme.visualStyle,
+        backgroundPattern: theme.backgroundPattern,
+        showLogo: theme.showLogo,
+        footerText: theme.footerText,
         logo: logo === saved.logo ? undefined : logo
       })
       if (!res.success) {
         setError(res.error)
         return
       }
-      setSaved({ colors, logo })
+      setSaved({ theme, logo })
       showToast({
         type: 'success',
         title: 'Brand theme saved',
-        message: 'Every new image will use it.'
+        message: 'Every generated image will use this identity & layout.'
       })
       router.refresh()
     } catch (err) {
@@ -487,7 +637,7 @@ export function BrandThemeClient({
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Brand Theme"
-        description={`The logo and colours on every image generated for ${identityName}.`}
+        description={`The logo, colours, typography and visual style on every image generated for ${identityName}.`}
         actions={
           <>
             {dirty && (
@@ -533,42 +683,212 @@ export function BrandThemeClient({
               </div>
             )}
 
+            {/* Logo & Visibility */}
             <Section
               icon={ImageIcon}
-              title="Logo"
-              description="Your actual logo file is laid over every generated image. Image models never draw it, so it is never misspelt or redrawn."
+              title="Logo & Visibility"
+              description="Your actual uploaded logo file is placed in the render canvas top-left. Image generation models are never asked to recreate logos."
             >
-              <LogoField value={logo} onChange={setLogo} onError={setError} />
+              <LogoField
+                value={logo}
+                showLogo={theme.showLogo}
+                onChange={setLogo}
+                onToggleShowLogo={show => setTheme(t => ({ ...t, showLogo: show }))}
+                onError={setError}
+              />
             </Section>
 
+            {/* Brand Colours */}
             <Section
               icon={Palette}
-              title="Brand colours"
-              description="Every generated image is built from these. A reference image you attach keeps its layout and style but takes these colours. Leave both empty to let each image choose."
+              title="Brand Colours"
+              description="Every image layout is styled from these. The background must remain light (soft white/gray) to ensure high contrast for typography and diagrams."
             >
               <div className="space-y-3">
                 <ColorField
                   id="brand-primary"
                   label="Primary colour"
-                  hint="The dominant colour."
-                  value={colors.primary}
-                  onChange={hex => setColors(c => ({ ...c, primary: hex }))}
+                  hint="The dominant colour for diagram hubs, icons and badges."
+                  value={theme.primaryColor}
+                  onChange={hex => setTheme(t => ({ ...t, primaryColor: hex }))}
                 />
                 <ColorField
-                  id="brand-secondary"
-                  label="Secondary colour"
-                  hint="Supports the primary."
-                  value={colors.secondary}
-                  onChange={hex => setColors(c => ({ ...c, secondary: hex }))}
+                  id="brand-accent"
+                  label="Accent colour"
+                  hint="Used for highlighted headline words, arrows, and tags."
+                  value={theme.accentColor}
+                  onChange={hex => setTheme(t => ({ ...t, accentColor: hex }))}
                 />
+                <ColorField
+                  id="brand-background"
+                  label="Background colour"
+                  hint="Soft white or cool light gray. Must be light."
+                  value={theme.backgroundColor}
+                  onChange={hex => setTheme(t => ({ ...t, backgroundColor: hex }))}
+                  validateLight
+                />
+              </div>
+            </Section>
+
+            {/* Typography */}
+            <Section
+              icon={Type}
+              title="Typography"
+              description="Google Fonts used for on-image headlines and labels. Rendered crisp and vector-sharp directly on the canvas."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="heading-font-select"
+                    className="text-foreground block text-xs font-semibold"
+                  >
+                    Headline typeface
+                  </label>
+                  <select
+                    id="heading-font-select"
+                    value={theme.headingFont}
+                    onChange={e =>
+                      setTheme(t => ({ ...t, headingFont: e.target.value }))
+                    }
+                    className={cn(inputClass, 'mt-1.5')}
+                  >
+                    {FONT_CHOICES.map(f => (
+                      <option key={f.family} value={f.family}>
+                        {f.family} ({f.category})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="body-font-select"
+                    className="text-foreground block text-xs font-semibold"
+                  >
+                    Body & label typeface
+                  </label>
+                  <select
+                    id="body-font-select"
+                    value={theme.bodyFont}
+                    onChange={e =>
+                      setTheme(t => ({ ...t, bodyFont: e.target.value }))
+                    }
+                    className={cn(inputClass, 'mt-1.5')}
+                  >
+                    {FONT_CHOICES.map(f => (
+                      <option key={f.family} value={f.family}>
+                        {f.family} ({f.category})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </Section>
+
+            {/* Visual Style & Pattern */}
+            <Section
+              icon={LayoutGrid}
+              title="Visual Style & Aesthetics"
+              description="Configure canvas background patterns, default diagram behavior, and footer handle."
+            >
+              <div className="space-y-4">
+                <div>
+                  <label className="text-foreground block text-xs font-semibold mb-1.5">
+                    Visual layout mode
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {VISUAL_STYLES.map(style => {
+                      const active = theme.visualStyle === style.value
+                      return (
+                        <button
+                          key={style.value}
+                          type="button"
+                          onClick={() =>
+                            setTheme(t => ({
+                              ...t,
+                              visualStyle: style.value as VisualStyle
+                            }))
+                          }
+                          className={cn(
+                            'flex flex-col items-center justify-center rounded-xl border p-2.5 text-center text-xs transition-all cursor-pointer',
+                            active
+                              ? 'border-accent bg-accent/10 font-semibold text-foreground'
+                              : 'border-border bg-surface-hover/50 text-muted hover:text-foreground'
+                          )}
+                        >
+                          <span className="flex items-center gap-1">
+                            {active && <Check className="h-3 w-3 text-accent" />}
+                            {style.label}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-foreground block text-xs font-semibold mb-1.5">
+                    Background pattern
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {BACKGROUND_PATTERNS.map(pat => {
+                      const active = theme.backgroundPattern === pat.value
+                      return (
+                        <button
+                          key={pat.value}
+                          type="button"
+                          onClick={() =>
+                            setTheme(t => ({
+                              ...t,
+                              backgroundPattern: pat.value as BackgroundPattern
+                            }))
+                          }
+                          className={cn(
+                            'flex items-center justify-center gap-1.5 rounded-xl border py-2 text-xs transition-all cursor-pointer',
+                            active
+                              ? 'border-accent bg-accent/10 font-semibold text-foreground'
+                              : 'border-border bg-surface-hover/50 text-muted hover:text-foreground'
+                          )}
+                        >
+                          {active && <Check className="h-3 w-3 text-accent" />}
+                          {pat.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="footer-text-input"
+                    className="text-foreground block text-xs font-semibold mb-1.5"
+                  >
+                    Footer website or handle
+                  </label>
+                  <input
+                    id="footer-text-input"
+                    placeholder={displayWebsite(websiteUrl) || 'e.g. tdccommerce.com'}
+                    value={theme.footerText ?? ''}
+                    onChange={e =>
+                      setTheme(t => ({
+                        ...t,
+                        footerText: e.target.value.trim() || null
+                      }))
+                    }
+                    className={inputClass}
+                  />
+                  <p className="text-muted mt-1 text-[11px]">
+                    Shown in the bottom-left corner with an accent indicator.
+                  </p>
+                </div>
               </div>
             </Section>
           </div>
 
           <aside className="lg:col-span-6">
             <div className="border-border bg-surface space-y-3 rounded-2xl border p-5 shadow-xs lg:sticky lg:top-0">
-              <h2 className="text-foreground text-sm font-semibold">Preview</h2>
-              <BrandPreview colors={colors} logo={logo} />
+              <h2 className="text-foreground text-sm font-semibold">Live Canvas Preview</h2>
+              <BrandPreview theme={theme} logo={logo} />
             </div>
           </aside>
         </div>
