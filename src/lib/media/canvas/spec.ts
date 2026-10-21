@@ -31,6 +31,17 @@ export const TEXT_COLUMN = {
   padY: 88
 } as const
 
+export const CANVAS_LAYOUTS = [
+  'split_left',
+  'split_right',
+  'top_bottom',
+  'centered_hero'
+] as const
+export type CanvasLayout = (typeof CANVAS_LAYOUTS)[number]
+
+export const isCanvasLayout = (value: unknown): value is CanvasLayout =>
+  (CANVAS_LAYOUTS as readonly unknown[]).includes(value)
+  
 export const DIAGRAM_FORMS = [
   'hub_spoke',
   'flow',
@@ -107,6 +118,8 @@ export interface CanvasSpec {
   logo: CanvasLogo | null
   /** Set in the logo's place when the logo is on but none was uploaded. */
   wordmark?: string | null
+  /** Layout composition: split_left, split_right, top_bottom, centered_hero */
+  layout?: CanvasLayout
 }
 
 /** Longest headline, in words and in characters. */

@@ -43,6 +43,7 @@ import {
   CANVAS_SIZE,
   fitDiagram,
   type CanvasCopy,
+  type CanvasLayout,
   type CanvasLogo,
   type CanvasSpec,
   type CanvasVisual
@@ -101,6 +102,7 @@ export interface MediaPlanResult {
   sourcePageUrl?: string
   /** Always false now: an AI request no longer falls back to stock. Kept for old rows. */
   fallbackApplied?: boolean
+  layout?: CanvasLayout
   mediaBrief?: MediaBrief
   visualType?: VisualType
   relevanceScore?: number
@@ -838,7 +840,13 @@ export async function createMediaPlan(
       }
     }
 
+    const layout: CanvasLayout =
+      derived.derived.layout ||
+      brief.layout ||
+      (visual?.type === 'flow' ? 'top_bottom' : 'split_left')
+
     const spec: CanvasSpec = {
+      layout,
       copy: copySpec,
       visual: canvasVisual,
       palette,
@@ -863,6 +871,7 @@ export async function createMediaPlan(
       mode: 'ai_generated',
       imageUrl: toDataUrl(finalBuffer, 'image/png'),
       baseImageUrl: toDataUrl(baseBuffer, 'image/png'),
+      layout,
       altText,
       promptOrQuery:
         visual?.type === 'illustration'

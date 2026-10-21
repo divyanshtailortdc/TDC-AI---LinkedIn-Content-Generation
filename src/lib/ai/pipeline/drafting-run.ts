@@ -10,7 +10,7 @@ import {
   type NewRunStep
 } from '@/db/schema'
 import { runStatusAfterDrafting, type DraftingRunStatus } from '@/lib/run-status'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import {
   runLinter,
@@ -23,7 +23,8 @@ import { loadBrandRendering } from '~/lib/media/brand-assets'
 import { buildMediaBriefContext } from '~/lib/media/brief-context'
 import {
   FAILED_MEDIA_STATUS,
-  mediaPlanMetadata
+  mediaPlanMetadata,
+  priorVisualsOf
 } from '~/lib/media/plan-record'
 import { postCharCount, postFullText } from '@/lib/post-text'
 import { buildPostLintOptions } from './post-lint'
@@ -287,6 +288,35 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   const mediaMode = suggested.mode || 'none'
   const fullPostText = postFullText(draft)
 
+  let previousVersions = undefined
+  if (mediaMode === 'ai_generated') {
+    try {
+      const recentMediaRows = await db
+        .select({
+          status: postMediaTable.status,
+          version: postMediaTable.version,
+          promptOrQuery: postMediaTable.promptOrQuery,
+          metadata: postMediaTable.metadata
+        })
+        .from(postMediaTable)
+        .innerJoin(
+          postDraftsTable,
+          eq(postMediaTable.draftId, postDraftsTable.id)
+        )
+        .where(
+          and(
+            eq(postDraftsTable.accountId, ctx.account.id),
+            eq(postMediaTable.status, 'active')
+          )
+        )
+        .orderBy(desc(postMediaTable.createdAt))
+        .limit(4)
+      previousVersions = priorVisualsOf(recentMediaRows)
+    } catch {
+      // Best-effort history lookup
+    }
+  }
+
   const mediaStart = Date.now()
   const mediaPlan: MediaPlanResult =
     mediaMode === 'none'
@@ -299,6 +329,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
             ctx.account.id,
             ctx.brand ?? DEFAULT_BRAND_THEME
           ),
+          previousVersions,
           // The idea's own visual direction, written at ideation.
           direction: suggested.brief || undefined
         })

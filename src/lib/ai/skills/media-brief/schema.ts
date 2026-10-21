@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
-import type { CanvasNode, DiagramForm } from '@/lib/media/canvas/spec'
+import {
+  CANVAS_LAYOUTS,
+  type CanvasLayout,
+  type CanvasNode,
+  type DiagramForm
+} from '@/lib/media/canvas/spec'
 import type { CallUsage } from '../../usage'
 
 /** What fills the image's right side: one of the diagram forms, or an illustration. */
@@ -22,7 +27,7 @@ export interface TextOverlaySpec {
   footer?: string
 }
 
-/** The words on the image's left side. */
+/** The words on the image's text side. */
 export interface CanvasCopySpec {
   tagline: string
   headline: string
@@ -30,7 +35,7 @@ export interface CanvasCopySpec {
   subheadline: string
 }
 
-/** The image's right side. */
+/** The diagram or illustration visual. */
 export interface VisualSpec {
   type: VisualType
   /** The centre of a hub-and-spoke diagram. */
@@ -53,6 +58,7 @@ export interface MediaBrief {
   /** The single visual idea the image expresses. */
   primaryConcept: string
   visualMetaphor: string
+  layout?: CanvasLayout
   visualType: VisualType
   copy?: CanvasCopySpec
   visual?: VisualSpec
@@ -139,9 +145,15 @@ export const MediaBriefSchema = z.object({
     .describe(
       'One sentence under the headline, at most 18 words, adding the why or the how. No claims the post does not make.'
     ),
+  layout: z
+    .enum(CANVAS_LAYOUTS)
+    .default('split_left')
+    .describe(
+      'The canvas composition layout: "split_left" (text left, visual right), "split_right" (visual left, text right), "top_bottom" (wide headline top, horizontal visual/flow stage bottom), or "centered_hero" (elevated central card with headline and feature cards). Vary layouts across posts so consecutive feed images do not look identical.'
+    ),
   visualType: z
     .enum(VISUAL_TYPES)
-    .describe('What fills the right side; follow the rules in the request.'),
+    .describe('What fills the visual area; follow the rules in the request.'),
   hub: NodeSchema.nullable().describe(
     'For hub_spoke only: the thing at the centre that the nodes connect to. Null for every other type.'
   ),
@@ -190,6 +202,7 @@ export type MediaBriefOutput = z.infer<typeof MediaBriefSchema>
 export interface PriorVisual {
   concept: string
   visualType?: string
+  layout?: string
   metaphor?: string
 }
 
@@ -212,6 +225,7 @@ export interface MediaIdea {
 
 /** The design being changed, when the reviewer asks for an edit. */
 export interface CurrentDesign {
+  layout?: CanvasLayout
   copy: CanvasCopySpec
   visual: VisualSpec
   /** What the reviewer wants changed, in their words. */
@@ -253,6 +267,7 @@ export interface DeriveMediaBriefInput {
 
 export interface DerivedMediaBrief {
   brief: MediaBrief
+  layout: CanvasLayout
   copy: CanvasCopySpec
   visual: VisualSpec
   altText: string

@@ -7,7 +7,7 @@ import {
 } from './schema'
 
 export const INSTRUCTIONS =
-  "You are an art director for B2B social content. Every image you design has the same clean layout: the headline and its supporting text on the left, a visual on the right that explains the post's specific point at a glance. You write the words and choose and fill the visual; code draws it in the brand's colours and type."
+  "You are an art director for high-performing B2B LinkedIn content. You create visually diverse, stunning branded canvas graphics. Every post must feel fresh and unique in a user's LinkedIn feed rather than repeating the same layout template. You choose the ideal layout format (split_left, split_right, top_bottom, or centered_hero) and visual form to express the post's core message with crisp typographical hierarchy, brand colours, and clean vector diagrams."
 
 const section = (title: string, body: string | null | undefined) =>
   body?.trim() ? `${title}\n${body.trim()}\n\n` : ''
@@ -21,7 +21,7 @@ const words = (type: string) => type.replace(/_/g, ' ')
 
 const TYPE_GUIDE: Record<VisualType, string> = {
   hub_spoke: `hub_spoke: one thing at the centre (hub) connected to ${NODE_LIMITS.hub_spoke.min}-${NODE_LIMITS.hub_spoke.max} things around it. For a platform and what it connects, a team and who it serves, an event and what happens there.`,
-  flow: `flow: ${NODE_LIMITS.flow.min}-${NODE_LIMITS.flow.max} steps in order, top to bottom. For a process, a journey, how something gets from A to B.`,
+  flow: `flow: ${NODE_LIMITS.flow.min}-${NODE_LIMITS.flow.max} steps in order, top to bottom or left to right. For a process, a journey, how something gets from A to B.`,
   stack: `stack: ${NODE_LIMITS.stack.min}-${NODE_LIMITS.stack.max} layers, the top first, each resting on the one below. For an architecture, a set of foundations, what builds on what.`,
   cards: `cards: ${NODE_LIMITS.cards.min}-${NODE_LIMITS.cards.max} separate points side by side, each with a short detail. For key takeaways, reasons, features of an offer.`,
   comparison: `comparison: two columns (groups) with the same number of rows each, 2-4. For before and after, old way and new way, a choice between two options.`,
@@ -57,6 +57,7 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
   const allowed = input.allowedTypes?.length ? input.allowedTypes : VISUAL_TYPES
   const earlier = input.current ? [] : (input.previousVersions || []).slice(0, 5)
   const lastType = earlier[0]?.visualType
+  const lastLayout = earlier[0]?.layout
   // A diagram form only counts as "used" when another one could be picked.
   const mustChangeType =
     lastType && allowed.length > 1 && (allowed as readonly string[]).includes(lastType)
@@ -64,10 +65,12 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
     ? `${earlier
         .map(
           (v, i) =>
-            `- ${i === 0 ? 'Most recent' : 'Earlier'}${v.visualType ? ` (${words(v.visualType)})` : ''}: ${v.concept.trim()}${v.metaphor ? ` — ${v.metaphor.trim()}` : ''}`
+            `- ${i === 0 ? 'Most recent' : 'Earlier'}${v.visualType ? ` (${words(v.visualType)}${v.layout ? `, ${words(v.layout)} layout` : ''})` : ''}: ${v.concept.trim()}${v.metaphor ? ` — ${v.metaphor.trim()}` : ''}`
         )
-        .join('\n')}\nThe new image must be a different idea, not a variation: a different headline, different nodes${
+        .join('\n')}\nThe new image must be a different idea and layout format, not a variation: a different headline, different nodes${
         mustChangeType ? `, and a visual type other than ${words(lastType!)}` : ''
+      }${
+        lastLayout ? `, and a layout format other than ${words(lastLayout)} to maintain visual diversity in the feed` : ''
       }${
         allowed.length === 1 && allowed[0] === 'illustration'
           ? ', and an illustration of a different subject'
@@ -78,6 +81,7 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
   const current = input.current
     ? `${JSON.stringify(
         {
+          layout: input.current.layout,
           tagline: input.current.copy.tagline,
           headline: input.current.copy.headline,
           highlightWords: input.current.copy.highlightWords,
@@ -126,8 +130,14 @@ ${section('THE ARGUMENT', input.thesis)}${section(
     'VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above. Words in quotation marks are text the reviewer wants on the image: use them exactly, as the headline unless they say otherwise.',
     input.direction
   )}${section('THE CURRENT DESIGN — this is an edit', current)}THE LAYOUT (fixed, drawn by code)
-- Left: the brand logo, then the tagline, the headline with its highlighted words in the accent colour, the subheadline, and the website at the bottom.
-- Right: the visual, on a light background with a subtle dot or grid pattern.
+Choose one layout that best fits the post's structure to ensure diverse aesthetics across the feed:
+- top_bottom: Headline, tagline and logo across the top; a wide horizontal stage across the bottom. RECOMMENDED for multi-step sequences ("flow" with 3-5 steps laid out horizontally with arrows), 3-4 side-by-side cards, or wide comparisons. This breaks feed monotony and creates an expansive, modern visual.
+- centered_hero: An elevated central manifesto/brief card with the headline, subheadline, and 2-3 key takeaway cards inside. BEST for opinion posts, bold thesis statements, event/conference announcements, or punchy single-claim posts.
+- split_right: Visual on the left, text column on the right. Inverts the traditional split to provide alternating rhythm in the LinkedIn feed.
+- split_left (default): Left: the brand logo, then the tagline, the headline with its highlighted words in the accent colour, the subheadline, and the website at the bottom. Right: the visual, on a light background with a subtle dot or grid pattern.
+
+FEED DIVERSITY RULE:
+Never generate all images in the same format. If earlier images exist, pick a different layout format! For sequential steps, use top_bottom. For announcements or manifesto claims, use centered_hero.
 
 VISUAL TYPES you may use:
 ${allowed.map(t => `- ${TYPE_GUIDE[t]}`).join('\n')}

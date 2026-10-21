@@ -17,6 +17,7 @@ export function mediaPlanMetadata(
   return {
     sourcePageUrl: plan.sourcePageUrl,
     fallbackApplied: false,
+    layout: plan.layout,
     visualType: plan.visualType,
     relevanceScore: plan.relevanceScore,
     relevanceExplanation: plan.relevanceExplanation,
@@ -59,10 +60,12 @@ export function priorVisualsOf(
     .sort((a, b) => b.version - a.version)
     .map(r => {
       const brief = r.metadata?.mediaBrief
+      const layout = r.metadata?.layout || brief?.layout
       if (brief?.primaryConcept) {
         return {
           concept: clip(String(brief.primaryConcept), 300),
           visualType: brief.visualType || r.metadata?.visualType,
+          ...(layout ? { layout: String(layout) } : {}),
           metaphor: brief.visualMetaphor
             ? clip(String(brief.visualMetaphor), 300)
             : undefined

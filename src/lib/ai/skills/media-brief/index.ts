@@ -65,6 +65,7 @@ export async function deriveMediaBrief(
     readerTakeaway: output.readerTakeaway,
     primaryConcept: output.primaryConcept,
     visualMetaphor: output.visualMetaphor,
+    layout: output.layout,
     visualType: output.visualType,
     copy: {
       tagline: output.tagline,
@@ -146,6 +147,7 @@ export async function deriveMediaBrief(
     return {
       derived: {
         brief,
+        layout: output.layout,
         copy: {
           tagline: output.tagline,
           headline: output.headline,

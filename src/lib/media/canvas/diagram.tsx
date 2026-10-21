@@ -25,6 +25,7 @@ export function Icon({
   color: string
   strokeWidth?: number
 }) {
+  const iconData = ICONS[name] || ICONS['sparkles']
   return (
     <svg
       width={size}
@@ -36,7 +37,7 @@ export function Icon({
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {ICONS[name].map(([tag, attributes], i) => {
+      {iconData.map(([tag, attributes], i) => {
         const { key: _key, ...rest } = attributes
         return createElement(tag, { key: i, ...rest })
       })}
@@ -47,7 +48,7 @@ export function Icon({
 const shadow = '0 18px 40px rgba(15, 23, 42, 0.10)'
 
 /** A rounded square with the icon in it. */
-function IconTile({
+export function IconTile({
   name,
   size,
   palette,
@@ -680,3 +681,227 @@ export function Diagram({ diagram, palette }: { diagram: DiagramSpec; palette: C
       return <Cards diagram={diagram} palette={palette} />
   }
 }
+
+function WideFlow({ diagram, palette }: { diagram: DiagramSpec; palette: CanvasPalette }) {
+  const nodes = diagram.nodes
+  const n = nodes.length
+  const totalW = 1840
+  const gap = 24
+  const cardW = Math.floor((totalW - (n - 1) * (gap + 32)) / n)
+  const cardH = 460
+  const arrowColor = palette.accent
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', width: totalW, height: 480 }}>
+      {nodes.map((node, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
+          <div
+            style={{
+              width: cardW,
+              height: cardH,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-start',
+              padding: '32px 28px',
+              borderRadius: 30,
+              backgroundColor: palette.surface,
+              border: `2px solid ${palette.line}`,
+              boxShadow: shadow
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  backgroundColor: palette.accent,
+                  color: palette.onAccent,
+                  fontSize: 24,
+                  fontWeight: 700
+                }}
+              >
+                {i + 1}
+              </div>
+              <IconTile name={node.icon} size={58} palette={palette} />
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: palette.ink, lineHeight: 1.25 }}>
+              {node.label}
+            </div>
+            {node.detail ? (
+              <div style={{ fontSize: 21, color: palette.muted, lineHeight: 1.35, marginTop: 12 }}>
+                {node.detail}
+              </div>
+            ) : null}
+          </div>
+          {i < n - 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32 + gap,
+                flexShrink: 0
+              }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={arrowColor} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function WideCards({ diagram, palette }: { diagram: DiagramSpec; palette: CanvasPalette }) {
+  const nodes = diagram.nodes
+  const n = Math.min(4, nodes.length)
+  const totalW = 1840
+  const gap = 32
+  const cardW = Math.floor((totalW - (n - 1) * gap) / n)
+  const cardH = 460
+
+  return (
+    <div style={{ display: 'flex', gap, width: totalW, height: 480 }}>
+      {nodes.slice(0, n).map((node, i) => (
+        <div
+          key={i}
+          style={{
+            width: cardW,
+            height: cardH,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-start',
+            padding: '36px 32px',
+            borderRadius: 32,
+            backgroundColor: palette.surface,
+            border: `2px solid ${palette.line}`,
+            boxShadow: shadow
+          }}
+        >
+          <IconTile name={node.icon} size={76} palette={palette} filled={i === 0} />
+          <div style={{ fontSize: 32, fontWeight: 700, color: palette.ink, marginTop: 24, lineHeight: 1.25 }}>
+            {node.label}
+          </div>
+          {node.detail ? (
+            <div style={{ fontSize: 22, color: palette.muted, marginTop: 14, lineHeight: 1.35 }}>
+              {node.detail}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function WideComparison({ diagram, palette }: { diagram: DiagramSpec; palette: CanvasPalette }) {
+  const [leftTitle, rightTitle] = diagram.groups || ['Before', 'After']
+  const half = Math.ceil(diagram.nodes.length / 2)
+  const columns = [diagram.nodes.slice(0, half), diagram.nodes.slice(half)]
+  const colW = 860
+  const gap = 120
+
+  return (
+    <div style={{ display: 'flex', position: 'relative', width: 1840, height: 480, alignItems: 'center' }}>
+      {columns.map((nodes, c) => {
+        const after = c === 1
+        return (
+          <div
+            key={c}
+            style={{
+              width: colW,
+              height: 460,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              padding: 28,
+              borderRadius: 32,
+              backgroundColor: after ? palette.surface : mix(palette.background, '#0f172a', 0.04),
+              border: `${after ? 3 : 2}px solid ${after ? palette.primary : palette.line}`,
+              boxShadow: after ? shadow : 'none',
+              marginRight: c === 0 ? gap : 0
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignSelf: 'flex-start',
+                padding: '10px 24px',
+                borderRadius: 999,
+                backgroundColor: after ? palette.primary : palette.line,
+                color: after ? palette.onPrimary : palette.body,
+                fontSize: 26,
+                fontWeight: 600,
+                marginBottom: 8
+              }}
+            >
+              {after ? rightTitle : leftTitle}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {nodes.map((node, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 16,
+                    height: 88,
+                    padding: '0 20px',
+                    borderRadius: 20,
+                    backgroundColor: palette.surface,
+                    border: `1.5px solid ${palette.line}`
+                  }}
+                >
+                  <IconTile name={node.icon} size={48} palette={palette} />
+                  <div style={{ fontSize: 25, fontWeight: 600, color: after ? palette.ink : palette.body }}>
+                    {node.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+      <div
+        style={{
+          position: 'absolute',
+          left: 920 - 36,
+          top: 240 - 36,
+          width: 72,
+          height: 72,
+          borderRadius: 36,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: palette.accent,
+          boxShadow: shadow
+        }}
+      >
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={palette.onAccent} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12h14" />
+          <path d="m12 5 7 7-7 7" />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+export function WideDiagram({ diagram, palette }: { diagram: DiagramSpec; palette: CanvasPalette }) {
+  switch (diagram.form) {
+    case 'flow':
+      return <WideFlow diagram={diagram} palette={palette} />
+    case 'comparison':
+      return <WideComparison diagram={diagram} palette={palette} />
+    case 'cards':
+    case 'stack':
+    default:
+      return <WideCards diagram={diagram} palette={palette} />
+  }
+}
+

@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og'
-import { Diagram, Pill } from './diagram'
+import { Diagram, IconTile, Pill, WideDiagram } from './diagram'
 import type { SatoriFont } from './fonts'
+import { mix } from './palette'
 import {
   CANVAS_SIZE,
   headlineFontSize,
@@ -15,14 +16,25 @@ import {
  * rasterises it). Every word on the image is set here in real type, and the
  * logo is the uploaded file, so neither can come out misspelt or redrawn.
  *
- * No `server-only` import, so tests can render real images.
+ * Supports 4 distinct layout formats to ensure aesthetic variety across posts:
+ * - split_left: Text left 45%, visual right 55% (Default B2B layout)
+ * - split_right: Visual left 55%, text right 45% (Inverted layout)
+ * - top_bottom: Headline across top, horizontal visual/cards across bottom
+ * - centered_hero: Centered elevated card with headline and highlight pills
  */
 
 const LOGO_BOX = { width: 340, height: 84 }
 
 function Background({ spec }: { spec: CanvasSpec }) {
-  const { palette, pattern } = spec
-  const glow = VISUAL_PANEL.left + VISUAL_PANEL.width / 2
+  const { palette, pattern, layout = 'split_left' } = spec
+  const glowX =
+    layout === 'split_right'
+      ? VISUAL_PANEL.width / 2
+      : layout === 'top_bottom' || layout === 'centered_hero'
+        ? CANVAS_SIZE.width / 2
+        : VISUAL_PANEL.left + VISUAL_PANEL.width / 2
+  const glowY = layout === 'top_bottom' ? 740 : CANVAS_SIZE.height / 2
+
   return (
     <svg
       width={CANVAS_SIZE.width}
@@ -40,18 +52,23 @@ function Background({ spec }: { spec: CanvasSpec }) {
           <stop offset="0" stopColor={palette.primary} stopOpacity="0.13" />
           <stop offset="1" stopColor={palette.primary} stopOpacity="0" />
         </radialGradient>
-        <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+        <linearGradient
+          id="fade"
+          x1={layout === 'top_bottom' ? '0' : layout === 'split_right' ? '1' : '0'}
+          y1="0"
+          x2={layout === 'top_bottom' ? '0' : layout === 'split_right' ? '0' : '1'}
+          y2={layout === 'top_bottom' ? '1' : '0'}
+        >
           <stop offset="0" stopColor={palette.background} stopOpacity="1" />
-          <stop offset="0.42" stopColor={palette.background} stopOpacity="0.92" />
-          <stop offset="0.6" stopColor={palette.background} stopOpacity="0" />
+          <stop offset="0.45" stopColor={palette.background} stopOpacity="0.92" />
+          <stop offset="0.75" stopColor={palette.background} stopOpacity="0" />
         </linearGradient>
       </defs>
       {pattern !== 'plain' && (
         <rect width="100%" height="100%" fill={`url(#${pattern})`} />
       )}
-      {/* The pattern fades out behind the text, so the headline sits on calm ground. */}
       <rect width="100%" height="100%" fill="url(#fade)" />
-      <circle cx={glow} cy={CANVAS_SIZE.height / 2} r={560} fill="url(#glow)" />
+      <circle cx={glowX} cy={glowY} r={640} fill="url(#glow)" />
     </svg>
   )
 }
@@ -99,15 +116,25 @@ function Logo({ spec }: { spec: CanvasSpec }) {
   )
 }
 
-function TextColumn({ spec }: { spec: CanvasSpec }) {
+function TextColumn({
+  spec,
+  alignRight = false
+}: {
+  spec: CanvasSpec
+  alignRight?: boolean
+}) {
   const { copy, palette, fonts } = spec
   const words = splitHeadline(copy.headline, copy.highlights)
   const size = headlineFontSize(copy.headline)
+  const left = alignRight
+    ? CANVAS_SIZE.width - TEXT_COLUMN.width
+    : TEXT_COLUMN.left
+
   return (
     <div
       style={{
         position: 'absolute',
-        left: TEXT_COLUMN.left,
+        left,
         top: 0,
         width: TEXT_COLUMN.width,
         height: CANVAS_SIZE.height,
@@ -182,7 +209,6 @@ function TextColumn({ spec }: { spec: CanvasSpec }) {
         ) : null}
       </div>
 
-      {/* No fragment here: satori drops the gap between a fragment's children. */}
       {copy.footer ? (
         <div style={{ display: 'flex', alignItems: 'center', height: 40 }}>
           <div
@@ -221,8 +247,6 @@ function Visual({ spec }: { spec: CanvasSpec }) {
   const imageUrl = `data:image/png;base64,${visual.image.toString('base64')}`
   const size = visual.framed ? 880 : 1000
   const offset = (VISUAL_PANEL.width - size) / 2
-  // Badges sit at the panel's edges, where an illustration with a margin of
-  // empty background has nothing to cover.
   const spots = [
     { left: 20, top: 110 },
     { right: 24, top: VISUAL_PANEL.height / 2 - 42 },
@@ -239,7 +263,7 @@ function Visual({ spec }: { spec: CanvasSpec }) {
         height: VISUAL_PANEL.height
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- satori, not the DOM */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- satori */}
       <img
         src={imageUrl}
         width={size}
@@ -270,10 +294,357 @@ function Visual({ spec }: { spec: CanvasSpec }) {
   )
 }
 
+function TopHeader({ spec }: { spec: CanvasSpec }) {
+  const { copy, palette, fonts } = spec
+  const words = splitHeadline(copy.headline, copy.highlights)
+  const size = Math.min(68, headlineFontSize(copy.headline))
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: CANVAS_SIZE.width,
+        height: 440,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-start',
+        padding: '54px 104px 0 104px'
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16
+        }}
+      >
+        <Logo spec={spec} />
+        {copy.footer ? (
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: palette.accent,
+                marginRight: 12
+              }}
+            />
+            <div style={{ fontSize: 24, fontWeight: 600, color: palette.muted }}>
+              {copy.footer}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {copy.tagline ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+          <div style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: palette.accent }} />
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              letterSpacing: 4,
+              textTransform: 'uppercase',
+              color: palette.primary
+            }}
+          >
+            {copy.tagline}
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          fontFamily: fonts.heading,
+          fontSize: size,
+          fontWeight: fonts.headingWeight,
+          lineHeight: 1.1,
+          letterSpacing: -1.2,
+          color: palette.ink,
+          maxWidth: 1760
+        }}
+      >
+        {words.map((word, i) => (
+          <span
+            key={i}
+            style={{
+              marginRight: Math.round(size * 0.24),
+              color: word.highlight ? palette.accent : palette.ink
+            }}
+          >
+            {word.text}
+          </span>
+        ))}
+      </div>
+
+      {copy.subheadline ? (
+        <div
+          style={{
+            marginTop: 12,
+            fontSize: 27,
+            color: palette.body,
+            lineHeight: 1.35,
+            maxWidth: 1700
+          }}
+        >
+          {copy.subheadline}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function WideVisual({ spec }: { spec: CanvasSpec }) {
+  const { visual, palette } = spec
+  if (visual.kind === 'diagram') {
+    return <WideDiagram diagram={visual.diagram} palette={palette} />
+  }
+  const imageUrl = `data:image/png;base64,${visual.image.toString('base64')}`
+  const size = 440
+  return (
+    <div
+      style={{
+        display: 'flex',
+        width: 1840,
+        height: 480,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative'
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- satori */}
+      <img
+        src={imageUrl}
+        width={size}
+        height={size}
+        alt=""
+        style={{
+          borderRadius: 36,
+          boxShadow: '0 20px 50px rgba(15, 23, 42, 0.12)'
+        }}
+      />
+      {visual.badges.map((badge, i) => (
+        <Pill
+          key={i}
+          node={badge}
+          palette={palette}
+          style={{
+            position: 'absolute',
+            ...(i === 0
+              ? { left: 80, top: 120 }
+              : i === 1
+                ? { right: 80, top: 120 }
+                : { left: 400, bottom: 40 })
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function CenteredHero({ spec }: { spec: CanvasSpec }) {
+  const { copy, visual, palette, fonts } = spec
+  const words = splitHeadline(copy.headline, copy.highlights)
+  const size = Math.min(68, headlineFontSize(copy.headline))
+  const nodes =
+    visual.kind === 'diagram' ? visual.diagram.nodes : visual.badges
+  const badges = visual.kind === 'diagram' ? visual.diagram.badges : []
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: CANVAS_SIZE.width,
+        height: CANVAS_SIZE.height,
+        display: 'flex'
+      }}
+    >
+      {/* Top row */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 104,
+          top: 54,
+          width: 1840,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}
+      >
+        <Logo spec={spec} />
+        {copy.footer ? (
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: palette.accent,
+                marginRight: 12
+              }}
+            />
+            <div style={{ fontSize: 24, fontWeight: 600, color: palette.muted }}>
+              {copy.footer}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Hero card */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 110,
+          top: 156,
+          width: 1828,
+          height: 820,
+          borderRadius: 40,
+          backgroundColor: palette.surface,
+          border: `2px solid ${palette.line}`,
+          boxShadow: '0 28px 70px rgba(15, 23, 42, 0.10)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          padding: '58px 72px'
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {copy.tagline ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+              <div style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: palette.accent }} />
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  letterSpacing: 4,
+                  textTransform: 'uppercase',
+                  color: palette.primary
+                }}
+              >
+                {copy.tagline}
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              fontFamily: fonts.heading,
+              fontSize: size,
+              fontWeight: fonts.headingWeight,
+              lineHeight: 1.1,
+              letterSpacing: -1.2,
+              color: palette.ink,
+              maxWidth: 1680
+            }}
+          >
+            {words.map((word, i) => (
+              <span
+                key={i}
+                style={{
+                  marginRight: Math.round(size * 0.24),
+                  color: word.highlight ? palette.accent : palette.ink
+                }}
+              >
+                {word.text}
+              </span>
+            ))}
+          </div>
+
+          {copy.subheadline ? (
+            <div
+              style={{
+                marginTop: 18,
+                fontSize: 29,
+                color: palette.body,
+                lineHeight: 1.35,
+                maxWidth: 1600
+              }}
+            >
+              {copy.subheadline}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Bottom feature cards or pills */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 40 }}>
+          {nodes.length > 0 ? (
+            <div style={{ display: 'flex', gap: 24, width: '100%' }}>
+              {nodes.slice(0, Math.min(3, nodes.length)).map((node, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1,
+                    padding: '26px 28px',
+                    borderRadius: 24,
+                    backgroundColor: mix(palette.background, '#0f172a', 0.03),
+                    border: `1.5px solid ${palette.line}`
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
+                    <IconTile name={node.icon} size={50} palette={palette} />
+                    <div style={{ fontSize: 27, fontWeight: 700, color: palette.ink }}>
+                      {node.label}
+                    </div>
+                  </div>
+                  {node.detail ? (
+                    <div style={{ fontSize: 20, color: palette.muted, lineHeight: 1.35, marginTop: 4 }}>
+                      {node.detail}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {badges && badges.length > 0 ? (
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              {badges.slice(0, 3).map((badge, i) => (
+                <div
+                  key={`badge-${i}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '12px 24px',
+                    borderRadius: 999,
+                    backgroundColor: '#0a1120',
+                    border: '1.5px solid rgba(56, 189, 248, 0.4)'
+                  }}
+                >
+                  <div style={{ fontSize: 20, fontWeight: 700, color: palette.accent }}>
+                    +
+                  </div>
+                  <div style={{ fontSize: 23, fontWeight: 600, color: '#f8fafc' }}>
+                    {badge.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export async function renderCanvas(
   spec: CanvasSpec,
   fonts: SatoriFont[]
 ): Promise<Buffer> {
+  const layout = spec.layout || 'split_left'
+
   const response = new ImageResponse(
     (
       <div
@@ -288,19 +659,58 @@ export async function renderCanvas(
         }}
       >
         <Background spec={spec} />
-        <div
-          style={{
-            display: 'flex',
-            position: 'absolute',
-            left: VISUAL_PANEL.left,
-            top: VISUAL_PANEL.top,
-            width: VISUAL_PANEL.width,
-            height: VISUAL_PANEL.height
-          }}
-        >
-          <Visual spec={spec} />
-        </div>
-        <TextColumn spec={spec} />
+
+        {layout === 'top_bottom' ? (
+          <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
+            <TopHeader spec={spec} />
+            <div
+              style={{
+                display: 'flex',
+                position: 'absolute',
+                left: 104,
+                top: 480,
+                width: 1840,
+                height: 500
+              }}
+            >
+              <WideVisual spec={spec} />
+            </div>
+          </div>
+        ) : layout === 'centered_hero' ? (
+          <CenteredHero spec={spec} />
+        ) : layout === 'split_right' ? (
+          <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
+            <div
+              style={{
+                display: 'flex',
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: VISUAL_PANEL.width,
+                height: VISUAL_PANEL.height
+              }}
+            >
+              <Visual spec={spec} />
+            </div>
+            <TextColumn spec={spec} alignRight />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
+            <div
+              style={{
+                display: 'flex',
+                position: 'absolute',
+                left: VISUAL_PANEL.left,
+                top: VISUAL_PANEL.top,
+                width: VISUAL_PANEL.width,
+                height: VISUAL_PANEL.height
+              }}
+            >
+              <Visual spec={spec} />
+            </div>
+            <TextColumn spec={spec} />
+          </div>
+        )}
       </div>
     ),
     {
