@@ -2675,7 +2675,7 @@ export function PostsClientInner({
                         </div>
                         <p className="text-muted text-[10px]">
                           {referenceImage
-                            ? 'Your reference image sets the structure and the background, so Image type and Background are not used.'
+                            ? null
                             : imagePrompt.trim()
                               ? 'Generate image follows your description below. The type is used by "Generate from post text".'
                               : IMAGE_TYPE_OPTIONS.find(o => o.value === imageType)
@@ -2848,11 +2848,6 @@ export function PostsClientInner({
                             <div className="min-w-0 flex-1">
                               <p className="text-foreground truncate text-[11px] font-medium">
                                 {referenceImageName}
-                              </p>
-                              <p className="text-muted text-[10px]">
-                                {referenceMediaId
-                                  ? 'Will be edited — unchanged parts are preserved'
-                                  : 'Its structure is copied: the same blocks in the same places, with this post’s words and your brand colours.'}
                               </p>
                             </div>
                             <button
