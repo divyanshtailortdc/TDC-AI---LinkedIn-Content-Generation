@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Clock,
   Globe,
+  Plus,
   Wand2,
   X
 } from 'lucide-react'
@@ -38,6 +39,32 @@ const DAYS = [
 
 /** Goals by weekday, for the days the schedule runs on. */
 type DayGoals = Record<number, string[]>
+
+/** A goal's category as a quiet coloured label; unknown ones stay neutral. */
+const OBJECTIVE_STYLES: Record<string, string> = {
+  awareness: 'bg-brand/10 text-brand-strong',
+  authority: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
+  engagement: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  lead_gen: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  recruiting: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
+  community: 'bg-violet-500/10 text-violet-700 dark:text-violet-300'
+}
+
+/** "GMT+05:30" for a zone right now; empty when the runtime cannot say. */
+function gmtOffset(zone: string): string {
+  try {
+    return (
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: zone,
+        timeZoneName: 'longOffset'
+      })
+        .formatToParts(new Date())
+        .find(part => part.type === 'timeZoneName')?.value ?? ''
+    )
+  } catch {
+    return ''
+  }
+}
 
 /**
  * When runs start on their own, and for which goals on each day. A scheduled
@@ -125,14 +152,6 @@ export function ScheduleForm({
       }
     })
 
-  /** One convenience, not a shared setting: each day stays its own after. */
-  const copyToAllDays = (fromDay: number) =>
-    setDayGoals(prev =>
-      Object.fromEntries(
-        selectedDays.map(day => [day, [...(prev[fromDay] ?? [])]])
-      )
-    )
-
   // Untouched settings are not saved, so visiting the page never creates a
   // schedule the user did not ask for.
   const stateKey = (v: {
@@ -213,6 +232,11 @@ export function ScheduleForm({
   const allSelected = goals.length > 0 && focusGoals.length === goals.length
   const someSelected = focusGoals.length > 0 && !allSelected
 
+  const shownZone =
+    zone ??
+    (initialSchedule ? 'Server time zone' : (browserZone ?? 'Your time zone'))
+  const offset = zone && mounted ? gmtOffset(zone) : ''
+
   return (
     <form
       onSubmit={e => {
@@ -225,372 +249,422 @@ export function ScheduleForm({
         id="automatic-runs"
         className="border-border bg-surface scroll-mt-4 overflow-hidden rounded-2xl border shadow-xs"
       >
-        {/* Header: what this is, and the on/off switch */}
-        <div className="flex items-start justify-between gap-4 p-5 pb-4">
-          <div className="min-w-0">
-            <h2 className="text-foreground flex flex-wrap items-center gap-2.5 text-base font-semibold">
-              <span className="bg-accent/10 rounded-lg p-1.5">
-                <Wand2 className="text-accent h-4 w-4" />
+        {/* Header: title, badge and description on the left; switch on the right */}
+        <header className="space-y-4 px-5 pt-5 pb-5 sm:px-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="bg-surface-hover border-border flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border">
+                <Wand2 className="text-foreground h-4 w-4" />
               </span>
-              Automatic idea generation
-              <span className="rounded bg-amber-100 px-1.5 text-[10px] leading-4 font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                Optional
+              <h2 className="text-foreground flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-base font-semibold">
+                Automatic idea generation
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] leading-4 font-semibold text-amber-700 dark:text-amber-300">
+                  Optional
+                </span>
+              </h2>
+            </div>
+
+            <label className="flex shrink-0 cursor-pointer items-center gap-2.5 pt-1.5">
+              <span
+                id="schedule-enabled-label"
+                className={cn(
+                  'text-[11px] font-semibold tracking-wide uppercase',
+                  enabled ? 'text-foreground' : 'text-muted'
+                )}
+              >
+                {enabled ? 'On' : 'Off'}
               </span>
-            </h2>
-            <p className="text-muted mt-2 max-w-2xl text-xs leading-relaxed">
-              Starts a run on the days you pick, for the goals you choose for
-              each day. It only writes ideas, which wait on Ideas for your
-              review; you decide which become posts. To plan the day a post goes
-              out, use the calendar above. Nothing is published to LinkedIn.
-            </p>
+              <span className="relative inline-flex items-center">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={e => setEnabled(e.target.checked)}
+                  aria-label="Generate ideas automatically"
+                  className="peer sr-only"
+                />
+                <span className="bg-border peer peer-checked:bg-accent peer-focus-visible:ring-brand/50 h-6 w-11 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-offset-2 after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition-all after:content-[''] peer-checked:after:translate-x-5" />
+              </span>
+            </label>
           </div>
 
-          <label className="flex shrink-0 cursor-pointer items-center gap-2.5">
-            <span
-              id="schedule-enabled-label"
-              className={cn(
-                'text-xs font-semibold',
-                enabled ? 'text-accent' : 'text-muted'
-              )}
-            >
-              {enabled ? 'On' : 'Off'}
-            </span>
-            <span className="relative inline-flex items-center">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={e => setEnabled(e.target.checked)}
-                aria-label="Generate ideas automatically"
-                className="peer sr-only"
-              />
-              <span className="bg-surface-hover border-border peer peer-checked:after:border-background after:bg-background after:border-border peer-checked:bg-accent peer-focus-visible:ring-accent/40 h-6 w-11 rounded-full border peer-focus-visible:ring-2 after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:border after:transition-all after:content-[''] peer-checked:after:translate-x-full" />
-            </span>
-          </label>
-        </div>
+          <p className="text-muted max-w-2xl text-[13px] leading-relaxed">
+            Starts a run on the days you pick, for the goals you choose for each
+            day. It only writes ideas, which wait on Ideas for your review; you
+            decide which become posts. To plan the day a post goes out, use the
+            calendar above. Nothing is published to LinkedIn.
+          </p>
 
-        <div className="space-y-5 px-5 pb-5">
-          {!enabled && (
-            <p className="bg-surface-hover/60 text-muted rounded-lg px-3 py-2 text-xs">
-              Automatic runs are off. You can set this up now; nothing runs
-              until you turn it on and save.
+          {/* Status */}
+          <div
+            role="status"
+            className={cn(
+              'flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed',
+              enabled
+                ? 'border-brand/25 bg-brand/5 text-foreground'
+                : 'border-border bg-surface-hover/60 text-muted'
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                enabled ? 'bg-brand' : 'bg-muted/60'
+              )}
+            />
+            <p>
+              {enabled ? (
+                <>
+                  <span className="font-semibold">
+                    Automatic runs are active.
+                  </span>{' '}
+                  <span className="text-muted">
+                    Ideas are drafted on schedule and wait in your queue for
+                    review.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-foreground font-semibold">
+                    Automatic runs are off.
+                  </span>{' '}
+                  You can set this up now; nothing runs until you turn it on and
+                  save.
+                </>
+              )}
             </p>
-          )}
+          </div>
 
           {initialSchedule?.lastError && (
             <div
               role="status"
-              className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300"
+              className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-800 dark:text-amber-300"
             >
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{initialSchedule.lastError}</span>
             </div>
           )}
+        </header>
 
-          {/* 1. Days */}
-          <section aria-labelledby="schedule-days-title">
-            <div className="mb-2.5 flex items-center justify-between gap-2">
-              <h3
-                id="schedule-days-title"
-                className="text-foreground flex items-center gap-2 text-xs font-semibold"
+        {/* 1. Days */}
+        <section
+          aria-labelledby="schedule-days-title"
+          className="border-border space-y-3 border-t px-5 py-5 sm:px-6"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h3
+              id="schedule-days-title"
+              className="text-foreground flex items-center gap-2.5 text-sm font-semibold"
+            >
+              <StepNumber n={1} />
+              Days
+            </h3>
+            {selectedDays.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDays([])
+                  setFocusDay(null)
+                }}
+                className="text-muted hover:text-foreground text-xs font-medium transition-colors"
               >
-                <StepNumber n={1} />
-                Days
-              </h3>
-              {selectedDays.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedDays([])
-                    setFocusDay(null)
-                  }}
-                  className="text-muted hover:text-foreground text-[11px] font-medium"
+                Clear all days
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {DAYS.map(day => {
+              const isSelected = selectedDays.includes(day.id)
+              const isFocused = isSelected && focusDay === day.id
+              const count = (dayGoals[day.id] ?? []).length
+              return (
+                <span
+                  key={day.id}
+                  className={cn(
+                    'inline-flex h-9 items-stretch overflow-hidden rounded-lg border text-xs font-semibold transition-all',
+                    !isSelected
+                      ? 'bg-surface border-border text-muted hover:border-foreground/30 hover:text-foreground'
+                      : count === 0
+                        ? 'border-amber-500/60 bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                        : 'bg-accent text-background border-accent shadow-xs',
+                    isFocused && 'ring-brand/50 ring-2 ring-offset-2'
+                  )}
                 >
-                  Clear all days
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {DAYS.map(day => {
-                const isSelected = selectedDays.includes(day.id)
-                const isFocused = isSelected && focusDay === day.id
-                const count = (dayGoals[day.id] ?? []).length
-                return (
-                  <span
-                    key={day.id}
-                    className={cn(
-                      'inline-flex h-9 items-stretch overflow-hidden rounded-lg border text-xs font-semibold transition-all',
-                      !isSelected
-                        ? 'bg-surface-hover border-border text-muted hover:text-foreground'
-                        : count === 0
-                          ? 'border-amber-500/60 bg-amber-500/15 text-amber-800 dark:text-amber-300'
-                          : 'bg-accent text-background border-accent shadow-xs',
-                      isFocused && 'ring-accent/40 ring-2 ring-offset-1'
-                    )}
+                  <button
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`${day.name}${isSelected ? `, ${count} goals` : ', not scheduled'}`}
+                    onClick={() => openDay(day.id)}
+                    className="flex min-w-12 cursor-pointer items-center justify-center gap-1.5 px-3"
                   >
+                    {day.label}
+                    {isSelected && (
+                      <span className="rounded bg-white/20 px-1.5 text-[10px] leading-4 tabular-nums">
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                  {isSelected && (
                     <button
                       type="button"
-                      aria-pressed={isSelected}
-                      aria-label={`${day.name}${isSelected ? `, ${count} goals` : ', not scheduled'}`}
-                      onClick={() => openDay(day.id)}
-                      className="flex min-w-12 cursor-pointer items-center justify-center gap-1.5 px-3"
+                      onClick={() => removeDay(day.id)}
+                      aria-label={`Remove ${day.name} from the schedule`}
+                      title={`Remove ${day.name}`}
+                      className="flex w-7 cursor-pointer items-center justify-center border-l border-current/25 opacity-70 transition-opacity hover:bg-white/15 hover:opacity-100"
                     >
-                      {day.label}
-                      {isSelected && (
-                        <span className="rounded bg-black/15 px-1 text-[10px] leading-4 dark:bg-white/20">
-                          {count}
-                        </span>
-                      )}
+                      <X className="h-3 w-3" />
                     </button>
-                    {isSelected && (
-                      <button
-                        type="button"
-                        onClick={() => removeDay(day.id)}
-                        aria-label={`Remove ${day.name} from the schedule`}
-                        title={`Remove ${day.name}`}
-                        className="flex w-7 cursor-pointer items-center justify-center border-l border-current/25 opacity-75 transition-opacity hover:bg-black/15 hover:opacity-100 dark:hover:bg-white/20"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </span>
-                )
-              })}
-            </div>
-            <p className="text-muted mt-2 text-[11px]">
-              Click a day to add it and switch to its goals. The number is how
-              many goals it writes for; ✕ removes the day.
-            </p>
-          </section>
+                  )}
+                </span>
+              )
+            })}
+          </div>
 
-          {/* 2. Goals of the day being viewed */}
-          <section aria-labelledby="schedule-goals-title">
+          <p className="text-muted text-xs">
+            Click a day to add it and switch to its goals. The number is how
+            many goals it writes for; ✕ removes the day.
+          </p>
+        </section>
+
+        {/* 2. Goals of the day being viewed */}
+        <section
+          aria-labelledby="schedule-goals-title"
+          className="border-border space-y-3 border-t px-5 py-5 sm:px-6"
+        >
+          <div className="flex items-center justify-between gap-2">
             <h3
               id="schedule-goals-title"
-              className="text-foreground mb-2.5 flex items-center gap-2 text-xs font-semibold"
+              className="text-foreground flex items-center gap-2.5 text-sm font-semibold"
             >
               <StepNumber n={2} />
               Goals for each day
             </h3>
+            <Link
+              href="/goals"
+              className="text-brand-strong inline-flex items-center gap-1 text-xs font-medium hover:underline"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add goal
+            </Link>
+          </div>
 
-            {focusDay === null ? (
-              <p
-                role={needsDay ? 'alert' : undefined}
-                className={cn(
-                  'rounded-xl border border-dashed p-4 text-center text-xs',
-                  needsDay
-                    ? 'border-amber-500/40 text-amber-700 dark:text-amber-400'
-                    : 'border-border text-muted'
-                )}
-              >
+          {focusDay === null ? (
+            <div
+              role={needsDay ? 'alert' : undefined}
+              className={cn(
+                'flex flex-col items-center gap-1 rounded-xl border border-dashed px-4 py-6 text-center text-xs',
+                needsDay
+                  ? 'border-amber-500/50 bg-amber-500/5 text-amber-800 dark:text-amber-300'
+                  : 'border-border text-muted'
+              )}
+            >
+              <p className="text-sm font-semibold">
+                {needsDay ? 'No day is chosen' : 'No day selected'}
+              </p>
+              <p>
                 {needsDay
-                  ? 'No day is chosen. Pick at least one day above to schedule runs.'
+                  ? 'Pick at least one day above to schedule runs.'
                   : 'Pick a day above to choose its goals.'}
               </p>
-            ) : (
-              <div
-                role="group"
-                aria-label={`Goals for ${focusLabel}`}
-                className="border-border overflow-hidden rounded-xl border"
-              >
-                <div className="bg-surface-hover/50 border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3.5 py-2.5">
-                  <label
-                    className={cn(
-                      'flex min-w-0 flex-1 items-center gap-2.5',
-                      goals.length === 0 ? 'cursor-default' : 'cursor-pointer'
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      ref={el => {
-                        if (el) el.indeterminate = someSelected
-                      }}
-                      checked={allSelected}
-                      disabled={goals.length === 0}
-                      onChange={e =>
-                        setGoalsOf(
-                          focusDay,
-                          e.target.checked ? availableIds : []
-                        )
-                      }
-                      aria-label={`All goals on ${focusLabel}`}
-                      title="All goals"
-                      className="accent-brand h-4 w-4 shrink-0"
-                    />
-                    <span className="text-foreground truncate text-sm font-semibold">
-                      Goals on {focusLabel}
-                    </span>
-                  </label>
-                  {goals.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums',
-                          focusGoals.length === 0
-                            ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
-                            : 'bg-accent/10 text-accent'
-                        )}
-                      >
-                        {focusGoals.length} of {goals.length} selected
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setGoalsOf(focusDay, [])}
-                        disabled={focusGoals.length === 0}
-                        aria-label={`Clear all goals on ${focusLabel}`}
-                        className="text-muted hover:text-foreground disabled:hover:text-muted rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {goals.length === 0 ? (
-                  <p className="text-muted p-4 text-xs">
-                    You have no goals to schedule yet.{' '}
-                    <Link
-                      href="/goals"
-                      className="text-accent font-medium underline"
-                    >
-                      Add a goal
-                    </Link>
-                    .
-                  </p>
-                ) : (
-                  <ul className="divide-border max-h-72 divide-y overflow-y-auto">
-                    {goals.map(goal => {
-                      const checked = focusGoals.includes(goal.id)
-                      return (
-                        <li key={goal.id}>
-                          <label
-                            className={cn(
-                              'flex cursor-pointer items-start gap-2.5 px-3.5 py-2.5 text-xs transition-colors',
-                              checked
-                                ? 'bg-accent/5'
-                                : 'hover:bg-surface-hover/60'
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleGoal(focusDay, goal.id)}
-                              className="accent-brand mt-0.5 h-4 w-4 shrink-0"
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="text-foreground block leading-snug font-medium">
-                                {goal.title}
-                              </span>
-                              <span className="text-muted mt-0.5 block text-[10px] font-semibold tracking-wide uppercase">
-                                {goal.objective.replace(/_/g, ' ')}
-                              </span>
-                            </span>
-                          </label>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-
-                {(needsGoal && goals.length > 0) ||
-                (selectedDays.length > 1 && goals.length > 0) ? (
-                  <div className="border-border bg-surface-hover/30 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t px-3.5 py-2.5 text-[11px]">
-                    {needsGoal ? (
-                      <p
-                        role="alert"
-                        className="text-amber-700 dark:text-amber-400"
-                      >
-                        Pick at least one goal for{' '}
-                        {daysWithoutGoal
-                          .map(d => DAYS.find(x => x.id === d)?.name)
-                          .join(', ')}
-                        , or turn the automatic runs off.
-                      </p>
-                    ) : (
-                      <span />
-                    )}
-                    {selectedDays.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => copyToAllDays(focusDay)}
-                        className="text-accent font-medium hover:underline"
-                      >
-                        Use these goals on every day
-                      </button>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </section>
-
-          {/* 3. Time and zone */}
-          <section aria-labelledby="schedule-time-title">
-            <h3
-              id="schedule-time-title"
-              className="text-foreground mb-2.5 flex items-center gap-2 text-xs font-semibold"
-            >
-              <StepNumber n={3} />
-              Time
-            </h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="schedule-time"
-                  className="text-muted mb-1.5 flex items-center gap-1.5 text-[11px] font-medium"
-                >
-                  <Clock className="h-3.5 w-3.5" />
-                  Start time
-                </label>
-                <input
-                  id="schedule-time"
-                  type="time"
-                  value={timeOfDay}
-                  onChange={e => setTimeOfDay(e.target.value)}
-                  className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-2.5 text-sm outline-none"
-                />
-              </div>
-              <div>
-                <p className="text-muted mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
-                  <Globe className="h-3.5 w-3.5" />
-                  Time zone
-                </p>
-                <p className="border-border bg-surface-hover/50 text-foreground rounded-xl border px-3 py-2.5 text-sm">
-                  {zone ??
-                    (initialSchedule
-                      ? 'Server time zone'
-                      : (browserZone ?? 'Your time zone'))}
-                </p>
-              </div>
             </div>
-            <p className="text-muted mt-2 text-[11px]">
-              {zone
-                ? 'Days and time are read in this zone.'
-                : initialSchedule
-                  ? `This schedule runs in the server's time zone until you save; saving switches it to yours${browserZone ? ` (${browserZone})` : ''}.`
-                  : 'Days and time are read in your time zone.'}
-              {zone && browserZone && zone !== browserZone && (
-                <>
-                  {' '}
-                  Your browser is in {browserZone}.{' '}
-                  <button
-                    type="button"
-                    onClick={() => setZone(browserZone)}
-                    className="text-accent font-medium hover:underline"
+          ) : (
+            <div
+              role="group"
+              aria-label={`Goals for ${focusLabel}`}
+              className="border-border overflow-hidden rounded-xl border"
+            >
+              <div className="bg-surface-hover/50 border-border flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
+                <label
+                  className={cn(
+                    'flex min-w-0 flex-1 items-center gap-3',
+                    goals.length === 0 ? 'cursor-default' : 'cursor-pointer'
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    ref={el => {
+                      if (el) el.indeterminate = someSelected
+                    }}
+                    checked={allSelected}
+                    disabled={goals.length === 0}
+                    onChange={e =>
+                      setGoalsOf(focusDay, e.target.checked ? availableIds : [])
+                    }
+                    aria-label={`All goals on ${focusLabel}`}
+                    title="All goals"
+                    className="accent-brand h-4 w-4 shrink-0"
+                  />
+                  <span className="text-foreground truncate text-sm font-semibold">
+                    Goals on {focusLabel}
+                  </span>
+                </label>
+                {goals.length > 0 && (
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className={cn(
+                        'rounded-full px-2.5 py-0.5 text-[11px] font-semibold tabular-nums',
+                        focusGoals.length === 0
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                          : 'bg-brand/10 text-brand-strong'
+                      )}
+                    >
+                      {focusGoals.length} of {goals.length} selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setGoalsOf(focusDay, [])}
+                      disabled={focusGoals.length === 0}
+                      aria-label={`Clear all goals on ${focusLabel}`}
+                      className="text-muted hover:text-foreground disabled:hover:text-muted text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {goals.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                  <p className="text-foreground text-sm font-semibold">
+                    You have no goals yet
+                  </p>
+                  <p className="text-muted text-xs">
+                    A run writes toward goals you set. Add one to schedule it.
+                  </p>
+                  <Link
+                    href="/goals"
+                    className="text-brand-strong text-xs font-medium hover:underline"
                   >
-                    Use {browserZone}
-                  </button>
-                </>
+                    Add a goal
+                  </Link>
+                </div>
+              ) : (
+                <ul className="divide-border max-h-80 divide-y overflow-y-auto">
+                  {goals.map(goal => {
+                    const checked = focusGoals.includes(goal.id)
+                    return (
+                      <li key={goal.id}>
+                        <label
+                          className={cn(
+                            'flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors',
+                            checked ? 'bg-brand/5' : 'hover:bg-surface-hover/60'
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleGoal(focusDay, goal.id)}
+                            className="accent-brand mt-0.5 h-4 w-4 shrink-0"
+                          />
+                          <span className="min-w-0 flex-1 space-y-1.5">
+                            <span className="text-foreground block text-[13px] leading-snug font-medium">
+                              {goal.title}
+                            </span>
+                            <span
+                              className={cn(
+                                'inline-block rounded px-1.5 py-0.5 text-[10px] leading-3.5 font-semibold tracking-wide uppercase',
+                                OBJECTIVE_STYLES[goal.objective] ??
+                                  'bg-surface-hover text-muted'
+                              )}
+                            >
+                              {goal.objective.replace(/_/g, ' ')}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
-            </p>
-          </section>
+
+              {goals.length > 0 && needsGoal && (
+                <div className="border-border bg-surface-hover/30 border-t px-4 py-2.5 text-xs">
+                  <p
+                    role="alert"
+                    className="text-amber-700 dark:text-amber-300"
+                  >
+                    Pick at least one goal for{' '}
+                    {daysWithoutGoal
+                      .map(d => DAYS.find(x => x.id === d)?.name)
+                      .join(', ')}
+                    , or turn the automatic runs off.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 3. Time and zone */}
+        <section
+          aria-labelledby="schedule-time-title"
+          className="border-border space-y-3 border-t px-5 py-5 sm:px-6"
+        >
+          <h3
+            id="schedule-time-title"
+            className="text-foreground flex items-center gap-2.5 text-sm font-semibold"
+          >
+            <StepNumber n={3} />
+            Time &amp; time zone
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="schedule-time"
+                className="text-muted mb-1.5 flex items-center gap-1.5 text-xs font-medium"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Start time
+              </label>
+              <input
+                id="schedule-time"
+                type="time"
+                value={timeOfDay}
+                onChange={e => setTimeOfDay(e.target.value)}
+                className="border-border bg-surface text-foreground focus:border-brand focus:ring-brand/20 h-10 w-full rounded-lg border px-3 text-sm outline-none focus:ring-2"
+              />
+            </div>
+            <div>
+              <p className="text-muted mb-1.5 flex items-center gap-1.5 text-xs font-medium">
+                <Globe className="h-3.5 w-3.5" />
+                Time zone
+              </p>
+              <p className="border-border bg-surface-hover/50 text-foreground flex h-10 items-center rounded-lg border px-3 text-sm">
+                <span className="truncate">{shownZone}</span>
+                {offset && (
+                  <span className="text-muted ml-1.5 shrink-0">({offset})</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <p className="text-muted text-xs leading-relaxed">
+            {zone
+              ? 'Days and time are read in this zone. Scheduled runs start automatically on this clock.'
+              : initialSchedule
+                ? `This schedule runs in the server's time zone until you save; saving switches it to yours${browserZone ? ` (${browserZone})` : ''}.`
+                : 'Days and time are read in your time zone.'}
+            {zone && browserZone && zone !== browserZone && (
+              <>
+                {' '}
+                Your browser is in {browserZone}.{' '}
+                <button
+                  type="button"
+                  onClick={() => setZone(browserZone)}
+                  className="text-brand-strong font-medium hover:underline"
+                >
+                  Use {browserZone}
+                </button>
+              </>
+            )}
+          </p>
 
           {/* What happens next, from the saved schedule */}
           {((nextRun && !isDirty) ||
             (initialSchedule?.lastRunAt && mounted)) && (
-            <div className="bg-accent/5 border-accent/20 space-y-2 rounded-xl border p-3.5 text-xs">
+            <div className="border-brand/25 bg-brand/5 space-y-2 rounded-xl border px-3.5 py-3 text-xs">
               {nextRun && !isDirty && (
                 <div className="flex items-start gap-2.5">
-                  <CalendarClock className="text-accent mt-0.5 h-4 w-4 shrink-0" />
+                  <CalendarClock className="text-brand-strong mt-0.5 h-4 w-4 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-foreground font-semibold">
                       Next run:{' '}
@@ -628,15 +702,15 @@ export function ScheduleForm({
           {error && (
             <div
               role="alert"
-              className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400"
+              className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-600 dark:text-rose-400"
             >
               {error}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Save */}
-        <div className="border-border bg-surface-hover/30 flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3.5">
+        {/* Footer: Cancel and the primary Save */}
+        <footer className="border-border bg-surface-hover/40 flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3.5 sm:px-6">
           {savedSuccess && !isDirty && (
             <span className="mr-auto flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -661,7 +735,7 @@ export function ScheduleForm({
           >
             Save schedule
           </Button>
-        </div>
+        </footer>
       </div>
     </form>
   )
@@ -672,7 +746,7 @@ function StepNumber({ n }: { n: number }) {
   return (
     <span
       aria-hidden
-      className="bg-accent/10 text-accent flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold"
+      className="bg-accent text-background flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
     >
       {n}
     </span>
