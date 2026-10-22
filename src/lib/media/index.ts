@@ -696,12 +696,10 @@ export async function createMediaPlan(
     {
       ...req.context,
       postText,
-      aspectRatio: req.aspectRatio,
       direction: req.direction,
       allowedTypes: req.allowedTypes,
       previousVersions: req.previousVersions,
       rejectionReason: req.rejectionReason,
-      logoCorner: logoPlan?.cornerWords,
       referenceImage: reference
         ? { data: reference, mediaType: 'image/jpeg' }
         : undefined
@@ -896,7 +894,7 @@ export async function createMediaPlan(
       logo: logoSpec,
       wordmark:
         !logoSpec && theme.showLogo
-          ? req.context.accountName || req.brand.name || null
+          ? req.context.accountName || null
           : null,
       size: blueprint ? canvasSize : undefined
     }

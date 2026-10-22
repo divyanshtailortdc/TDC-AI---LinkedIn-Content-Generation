@@ -60,8 +60,8 @@ async function main() {
     const png = await sharp(Buffer.from(svg)).png().toBuffer()
     const logo = await normalizeLogo(toDataUrl(png, 'image/png'))
     fs.writeFileSync(`${OUT}/test-logo.png`, decodeImageDataUrl(logo.dataUrl)!.buffer)
-    await db.insert(brandThemesTable).values({ accountId: ACCOUNT, logoImage: logo.dataUrl, primaryColor: '#0e9aa7', secondaryColor: '#102a43' })
-      .onConflictDoUpdate({ target: brandThemesTable.accountId, set: { logoImage: logo.dataUrl, primaryColor: '#0e9aa7', secondaryColor: '#102a43' } })
+    await db.insert(brandThemesTable).values({ accountId: ACCOUNT, logoImage: logo.dataUrl, primaryColor: '#0e9aa7', accentColor: '#102a43' })
+      .onConflictDoUpdate({ target: brandThemesTable.accountId, set: { logoImage: logo.dataUrl, primaryColor: '#0e9aa7', accentColor: '#102a43' } })
     console.log('brand theme saved', logo.width, logo.height)
   }
 
