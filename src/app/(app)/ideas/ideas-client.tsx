@@ -541,8 +541,8 @@ export function IdeasClient({
       />
 
       {/* Scrollable ideas list */}
-      <div className="relative flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-7xl space-y-4">
+      <div className="relative flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5">
+        <div className="w-full space-y-4">
           <AiDraftingStatus
             status={draftStatus}
             subject={
