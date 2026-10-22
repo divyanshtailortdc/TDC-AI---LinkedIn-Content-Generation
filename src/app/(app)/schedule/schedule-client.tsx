@@ -31,8 +31,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useId, useState, useTransition } from 'react'
 import { planPost, setPostPosted } from './actions'
-import type { PlannedPost } from './schedule-data'
-import { ScheduleForm } from './schedule-form'
+import type { NextRun, PlannedPost } from './schedule-data'
+import { ScheduleForm, type ScheduleGoal } from './schedule-form'
 
 type ShownStatus = 'awaiting_review' | 'approved' | 'posted'
 
@@ -75,7 +75,8 @@ export function ScheduleClient({
   unscheduled,
   unscheduledTotal,
   schedule,
-  activeGoalCount
+  nextRun,
+  goals
 }: {
   accountId: string
   month: Month
@@ -85,7 +86,9 @@ export function ScheduleClient({
   unscheduled: PlannedPost[]
   unscheduledTotal: number
   schedule: Schedule | null
-  activeGoalCount: number
+  nextRun: NextRun | null
+  /** The goals a scheduled run can serve. */
+  goals: ScheduleGoal[]
 }) {
   const router = useRouter()
   const mounted = useHasMounted()
@@ -426,7 +429,8 @@ export function ScheduleClient({
           <ScheduleForm
             accountId={accountId}
             initialSchedule={schedule}
-            activeGoalCount={activeGoalCount}
+            nextRun={nextRun}
+            goals={goals}
           />
         </div>
       </div>

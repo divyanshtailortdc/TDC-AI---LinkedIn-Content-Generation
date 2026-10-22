@@ -8,6 +8,7 @@ import {
   schedulesTable
 } from '@/db/schema'
 import { monthGridRange, type Month } from '@/lib/calendar'
+import { nextSlot } from '@/lib/schedule-time'
 import {
   and,
   between,
@@ -20,6 +21,9 @@ import {
   sql,
   type SQL
 } from 'drizzle-orm'
+
+/** The next automatic run: an instant, its weekday and the zone it is read in. */
+export type NextRun = { at: string; weekday: number; zone: string }
 
 /** A post as the Schedule page shows it. */
 export type PlannedPost = {
@@ -62,6 +66,17 @@ function selectPosts(where: SQL | undefined) {
     .where(where)
 }
 
+/** When the saved schedule next starts a run, as the form shows it. */
+function nextRunOf(
+  schedule: typeof schedulesTable.$inferSelect | undefined
+): NextRun | null {
+  if (!schedule?.enabled) return null
+  const next = nextSlot(schedule, new Date())
+  return next
+    ? { at: next.slot.toISOString(), weekday: next.weekday, zone: next.zone }
+    : null
+}
+
 /**
  * Everything the Schedule page shows for one month: the posts planned on the
  * days its grid covers, posts not planned yet, and the automatic schedule.
@@ -71,7 +86,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
   const { from, to } = monthGridRange(month)
   const ofAccount = eq(postDraftsTable.accountId, accountId)
 
-  const [planned, unscheduled, [unscheduledTotal], schedule, [activeGoals]] =
+  const [planned, unscheduled, [unscheduledTotal], schedule, goals] =
     await Promise.all([
       selectPosts(
         and(
@@ -104,8 +119,13 @@ export async function loadSchedulePage(accountId: string, month: Month) {
       db.query.schedulesTable.findFirst({
         where: eq(schedulesTable.accountId, accountId)
       }),
+      // The goals a scheduled run can serve, newest first.
       db
-        .select({ n: count() })
+        .select({
+          id: goalsTable.id,
+          title: goalsTable.title,
+          objective: goalsTable.objective
+        })
         .from(goalsTable)
         .where(
           and(
@@ -113,6 +133,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
             eq(goalsTable.isActive, true)
           )
         )
+        .orderBy(desc(goalsTable.createdAt))
     ])
 
   return {
@@ -120,6 +141,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
     unscheduled: unscheduled as PlannedPost[],
     unscheduledTotal: unscheduledTotal?.n ?? 0,
     schedule: schedule ?? null,
-    activeGoalCount: activeGoals?.n ?? 0
+    nextRun: nextRunOf(schedule),
+    goals
   }
 }

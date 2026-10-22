@@ -155,6 +155,27 @@
       "when": 1792579211610,
       "tag": "0021_brand_canvas_theme",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792646120348,
+      "tag": "0022_schedule_goals_timezone",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792646923595,
+      "tag": "0023_schedule_day_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792646929042,
+      "tag": "0024_drop_schedule_goal_ids",
+      "breakpoints": true
     }
   ]
 }

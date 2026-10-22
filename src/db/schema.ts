@@ -687,8 +687,16 @@ export const schedulesTable = pgTable('schedules', {
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   daysOfWeek: jsonb('days_of_week').$type<number[]>().default([1, 3, 5]),
   timeOfDay: varchar('time_of_day', { length: 10 }).default('09:00').notNull(),
+  // IANA zone the days and time are read in; null is the server's zone, for
+  // schedules saved before zones were stored.
+  timezone: varchar('timezone', { length: 64 }),
+  // The goals each chosen day's run serves, by weekday (0 is Sunday). A day
+  // with no entry, or null here, serves every active goal.
+  dayGoals: jsonb('day_goals').$type<Record<string, string[]> | null>(),
   enabled: boolean('enabled').default(false).notNull(),
   lastRunAt: commonFieldDefs.date('last_run_at'),
+  // Why the last scheduled run did not start; null after one that did.
+  lastError: text('last_error'),
   ...commonFieldDefs.dates
 })
 

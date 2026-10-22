@@ -13,6 +13,13 @@ export function findRunnableSchedules(database: SchedulesDb) {
     .where(eq(schedulesTable.enabled, true))
 }
 
+/** `lastRunAt` equal to a value read earlier, or still unset. */
+function lastRunIs(lastRunAt: Date | null) {
+  return lastRunAt
+    ? eq(schedulesTable.lastRunAt, lastRunAt)
+    : isNull(schedulesTable.lastRunAt)
+}
+
 /**
  * Claims a schedule's slot: true only for the caller whose write lands.
  *
@@ -20,6 +27,9 @@ export function findRunnableSchedules(database: SchedulesDb) {
  * when the schedule was found due. Two ticks (or two processes) that found the
  * same schedule both try; the first changes `lastRunAt`, so the second matches
  * no row and gets false instead of enqueueing a second run.
+ *
+ * `updatedAt` is left alone: it records when the user last saved the schedule,
+ * which decides whether a slot that has already passed is theirs to run.
  */
 export async function claimScheduleSlot(
   database: SchedulesDb,
@@ -28,15 +38,43 @@ export async function claimScheduleSlot(
 ): Promise<boolean> {
   const [claimed] = await database
     .update(schedulesTable)
-    .set({ lastRunAt: now, updatedAt: now })
+    .set({ lastRunAt: now })
     .where(
-      and(
-        eq(schedulesTable.id, schedule.id),
-        schedule.lastRunAt
-          ? eq(schedulesTable.lastRunAt, schedule.lastRunAt)
-          : isNull(schedulesTable.lastRunAt)
-      )
+      and(eq(schedulesTable.id, schedule.id), lastRunIs(schedule.lastRunAt))
     )
     .returning({ id: schedulesTable.id })
   return Boolean(claimed)
+}
+
+/**
+ * Gives a claimed slot back after the run could not be queued, so the next
+ * tick tries again within the grace period. Only the claim made at `claimedAt`
+ * is undone: a newer one is left alone.
+ */
+export async function releaseScheduleSlot(
+  database: SchedulesDb,
+  schedule: { id: string; lastRunAt: Date | null },
+  claimedAt: Date
+): Promise<void> {
+  await database
+    .update(schedulesTable)
+    .set({ lastRunAt: schedule.lastRunAt })
+    .where(
+      and(
+        eq(schedulesTable.id, schedule.id),
+        eq(schedulesTable.lastRunAt, claimedAt)
+      )
+    )
+}
+
+/** What the Schedule page shows about the last attempt; null clears it. */
+export async function recordScheduleOutcome(
+  database: SchedulesDb,
+  scheduleId: string,
+  error: string | null
+): Promise<void> {
+  await database
+    .update(schedulesTable)
+    .set({ lastError: error })
+    .where(eq(schedulesTable.id, scheduleId))
 }

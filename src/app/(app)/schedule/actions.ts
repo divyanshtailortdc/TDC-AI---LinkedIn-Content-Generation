@@ -1,31 +1,52 @@
 'use server'
 
 import { db } from '@/db'
-import { postDraftsTable, schedulesTable } from '@/db/schema'
+import { goalsTable, postDraftsTable, schedulesTable } from '@/db/schema'
 import { requireOwnedAccount } from '@/lib/account-guard'
 import { isIsoDay } from '@/lib/calendar'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
+import {
+  checkSchedulePayload,
+  type SchedulePayload
+} from '@/lib/schedule-payload'
 import { requireUser } from '@/lib/session'
 import { AccountIdSchema, parseSetupPayload } from '@/lib/setup-payloads'
-import { and, eq, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
-/** How many ideas a run produces lives in Preferences; this is only when. */
+/**
+ * How many ideas a run produces lives in Preferences; this is only when, and
+ * for which goals. Saved runs only generate ideas: nothing is written into a
+ * post or published by the schedule.
+ */
 export async function saveSchedule(
   rawAccountId: string,
-  payload: {
-    daysOfWeek: number[]
-    timeOfDay: string
-    enabled: boolean
-  }
+  payload: SchedulePayload
 ) {
   const user = await requireUser()
   try {
     const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
     await requireOwnedAccount(user.id, accountId)
-    if (payload.daysOfWeek.length === 0) {
-      throw new Error('Pick at least one day.')
+
+    const { daysOfWeek, dayGoals } = checkSchedulePayload(payload)
+
+    // Only this identity's active goals can be scheduled.
+    const allIds = Array.from(new Set(Object.values(dayGoals ?? {}).flat()))
+    if (allIds.length > 0) {
+      const owned = await db
+        .select({ id: goalsTable.id })
+        .from(goalsTable)
+        .where(
+          and(
+            eq(goalsTable.accountId, accountId),
+            eq(goalsTable.isActive, true),
+            inArray(goalsTable.id, allIds)
+          )
+        )
+      if (owned.length !== allIds.length) {
+        throw new Error('One of the goals is no longer available.')
+      }
     }
 
     const existing = await db.query.schedulesTable.findFirst({
@@ -33,9 +54,14 @@ export async function saveSchedule(
     })
 
     const columns = {
-      daysOfWeek: payload.daysOfWeek,
+      daysOfWeek,
       timeOfDay: payload.timeOfDay,
-      enabled: payload.enabled
+      enabled: payload.enabled,
+      dayGoals,
+      // A schedule keeps the zone it was saved with unless the viewer sends one.
+      timezone: payload.timezone ?? existing?.timezone ?? null,
+      // A new plan starts clean; the next attempt reports for itself.
+      lastError: null
     }
 
     if (existing) {
