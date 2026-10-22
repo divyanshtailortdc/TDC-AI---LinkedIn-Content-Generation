@@ -955,17 +955,11 @@ describe(
           ).success,
           true
         )
-        assert.strictEqual(
-          value(await act('toggleGoalActive', [saved!.id, accountId, false]))
-            .success,
-          true
-        )
         const [toggled] = await db
           .select()
           .from(schema.goalsTable)
           .where(eq(schema.goalsTable.id, saved!.id))
         assert.strictEqual(toggled!.title, 'Renamed goal')
-        assert.strictEqual(toggled!.isActive, false)
         assert.strictEqual(
           value(await act('deleteGoal', [saved!.id, accountId])).success,
           true

@@ -203,24 +203,6 @@ export async function suggestGoalsAction(
   }
 }
 
-export async function toggleGoalActive(
-  rawGoalId: string,
-  rawAccountId: string,
-  isActive: boolean
-) {
-  const user = await requireUser()
-  const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
-  const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
-  await requireOwnedAccount(user.id, accountId)
-  await db
-    .update(goalsTable)
-    .set({ isActive, updatedAt: new Date() })
-    .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
-
-  revalidateGoals()
-  return { success: true }
-}
-
 export async function deleteGoal(rawGoalId: string, rawAccountId: string) {
   const user = await requireUser()
   const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)

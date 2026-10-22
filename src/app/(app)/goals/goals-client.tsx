@@ -40,7 +40,6 @@ import {
   createGoal,
   deleteGoal,
   suggestGoalsAction,
-  toggleGoalActive,
   updateGoal,
   type GoalPayload
 } from './actions'
@@ -278,32 +277,6 @@ export function GoalsClient({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     void submitGoal()
-  }
-
-  const handleToggle = async (goalId: string, current: boolean) => {
-    setActionId(goalId)
-    try {
-      await toggleGoalActive(goalId, accountId, !current)
-      showToast({
-        type: 'info',
-        title: !current ? 'Goal Activated' : 'Goal Paused',
-        message: `Goal has been ${!current ? 'activated' : 'paused'}.`
-      })
-      if (current) {
-        // Paused now, remove from selected goals
-        setSelectedGoalIds(prev => prev.filter(id => id !== goalId))
-      }
-      router.refresh()
-    } catch (err: any) {
-      setError(err.message || 'Failed to update goal')
-      showToast({
-        type: 'error',
-        title: 'Update Failed',
-        message: err.message || 'Failed to update goal'
-      })
-    } finally {
-      setActionId(null)
-    }
   }
 
   // Confirmed by the ConfirmPopover around the delete button.
@@ -900,25 +873,6 @@ export function GoalsClient({
                           </div>
 
                           <div className="flex shrink-0 items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => handleToggle(g.id, g.isActive)}
-                              disabled={actionId === g.id}
-                              aria-pressed={g.isActive}
-                              title={
-                                g.isActive
-                                  ? 'Active: offered when you start a run, and used by scheduled runs. Click to pause.'
-                                  : 'Paused: not offered for runs or used by the schedule. Click to resume.'
-                              }
-                              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                                g.isActive
-                                  ? 'border border-emerald-500/20 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
-                                  : 'bg-surface-hover text-muted'
-                              }`}
-                            >
-                              {g.isActive ? 'Active' : 'Paused'}
-                            </button>
-
                             <button
                               type="button"
                               onClick={() => handleEdit(g)}
