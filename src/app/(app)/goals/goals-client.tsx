@@ -962,27 +962,6 @@ export function GoalsClient({
                             {g.isActive && (
                               <button
                                 type="button"
-                                onClick={() => toggleGoalSelection(g.id)}
-                                className={cn(
-                                  'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer',
-                                  isSelected
-                                    ? 'border-accent/40 bg-accent/10 text-accent font-semibold'
-                                    : 'border-border text-foreground hover:bg-surface-hover'
-                                )}
-                              >
-                                {isSelected ? (
-                                  <>
-                                    <Check className="h-3 w-3 stroke-[2.5]" />
-                                    Selected
-                                  </>
-                                ) : (
-                                  'Select'
-                                )}
-                              </button>
-                            )}
-                            {g.isActive && (
-                              <button
-                                type="button"
                                 disabled={generatingGoalId !== null || isSuggesting}
                                 onClick={() => handleGenerateForSingleGoal(g.id)}
                                 className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
