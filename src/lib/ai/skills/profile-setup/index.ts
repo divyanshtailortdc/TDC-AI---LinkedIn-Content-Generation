@@ -92,6 +92,9 @@ export async function suggestSetup(input: {
     webSourceUrls: input.sources
       .filter(s => s.status.kind === 'web' && s.status.status === 'fetched')
       .map(s => s.status.url),
+    siteSourceUrls: input.sources
+      .filter(s => s.status.kind === 'site' && s.status.status === 'fetched')
+      .map(s => s.status.url),
     researchNotes: input.research?.notes,
     // What the user chose in Advanced analysis is theirs, figures included.
     trustedText: Object.values(input.guidance ?? {})

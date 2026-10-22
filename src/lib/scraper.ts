@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio'
 import { resolvePublicHttpUrl, safeFetch } from './safe-url'
+import { extractSiteLinks, type SiteLink } from './site-links'
 
 export type ScrapedContent = {
   title: string
@@ -93,6 +94,106 @@ export async function scrapeUrl(url: string): Promise<ScrapedContent> {
   return page
 }
 
+/** What a browser sends, so sites serve the page they show people. */
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1'
+}
+
+/** A homepage with its scripts inlined can run to a few megabytes; menus come early. */
+const MAX_HTML_CHARS = 3_000_000
+
+/**
+ * Elements that end a line of text. Without a break after them, the text of
+ * a page whose HTML has no whitespace between tags ran together, as in
+ * "SolutionsIntegrations".
+ */
+const BLOCK_ELEMENTS =
+  'address, article, aside, blockquote, br, dd, div, dl, dt, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul'
+
+/** A page's readable text from its HTML, or null when it has too little to read. */
+function readHtml(html: string, pageUrl: string): ScrapedContent | null {
+  const $ = cheerio.load(html)
+
+  // Remove noise tags
+  $('script, style, noscript, svg, iframe, [role="banner"]').remove()
+  $(BLOCK_ELEMENTS).after('\n')
+  // Links and buttons side by side are separate words ("Solutions Pricing");
+  // spans are not, as a heading may set each letter in its own.
+  $('a, button').after(' ')
+
+  const title =
+    $('meta[property="og:title"]').attr('content') ||
+    $('title').text().trim() ||
+    pageUrl
+
+  const metaDesc =
+    $('meta[name="description"]').attr('content') ||
+    $('meta[property="og:description"]').attr('content') ||
+    ''
+
+  // Extract text comprehensively from body, headings, lists, and sections
+  let bodyText = $('body')
+    .text()
+    .replace(/\r\n|\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (metaDesc && !bodyText.includes(metaDesc)) {
+    bodyText = `**Overview:** ${metaDesc}\n\n${bodyText}`
+  }
+
+  const words = bodyText.split(/\s+/).filter(Boolean)
+  if (
+    words.length < 25 ||
+    bodyText.toLowerCase().includes('enable javascript and cookies to continue')
+  ) {
+    return null
+  }
+  return {
+    title,
+    content: bodyText.slice(0, 50000),
+    wordCount: words.length
+  }
+}
+
+/**
+ * A page read straight from its HTML: its text, when it has enough to read,
+ * and its links, menus that only open on a click included (see
+ * site-links.ts). scrapeUrl prefers a reader that renders the page, which
+ * suits sites built in the browser but gives text only, and can be slow; this
+ * gives a business's own site both its links and a fallback for its text.
+ * Null when the page is not HTML or turns the request away.
+ */
+export async function scrapeHtml(
+  url: string
+): Promise<{ page: ScrapedContent | null; links: SiteLink[] } | null> {
+  const response = await safeFetch(url, {
+    headers: BROWSER_HEADERS,
+    signal: AbortSignal.timeout(10000)
+  })
+  if (
+    !response.ok ||
+    !/html/i.test(response.headers.get('content-type') ?? '')
+  ) {
+    return null
+  }
+  const html = (await response.text()).slice(0, MAX_HTML_CHARS)
+  // Relative links resolve against where the page ended up after redirects.
+  const pageUrl = response.url || url
+  return { page: readHtml(html, pageUrl), links: extractSiteLinks(html, pageUrl) }
+}
+
 async function scrapeUncached(validUrl: string): Promise<ScrapedContent> {
 
   // Strategy 1: Jina Reader (handles Client-Side SPAs, React hydration, and Cloudflare)
@@ -138,62 +239,13 @@ async function scrapeUncached(validUrl: string): Promise<ScrapedContent> {
   // Strategy 2: Direct Fetch with Cheerio
   try {
     const response = await safeFetch(validUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
-      },
+      headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(10000),
     })
 
     if (response.ok) {
-      const html = await response.text()
-      const $ = cheerio.load(html)
-
-      // Remove noise tags
-      $('script, style, noscript, svg, iframe, [role="banner"]').remove()
-
-      const title =
-        $('meta[property="og:title"]').attr('content') ||
-        $('title').text().trim() ||
-        validUrl
-
-      const metaDesc =
-        $('meta[name="description"]').attr('content') ||
-        $('meta[property="og:description"]').attr('content') ||
-        ''
-
-      // Extract text comprehensively from body, headings, lists, and sections
-      let bodyText = $('body').text()
-        .replace(/\r\n|\r/g, '\n')
-        .replace(/\t/g, ' ')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n\s*\n/g, '\n\n')
-        .trim()
-
-      if (metaDesc && !bodyText.includes(metaDesc)) {
-        bodyText = `**Overview:** ${metaDesc}\n\n${bodyText}`
-      }
-
-      const words = bodyText.split(/\s+/).filter(Boolean)
-
-      if (
-        words.length >= 25 &&
-        !bodyText.toLowerCase().includes('enable javascript and cookies to continue')
-      ) {
-        return {
-          title,
-          content: bodyText.slice(0, 50000),
-          wordCount: words.length,
-        }
-      }
+      const page = readHtml(await response.text(), validUrl)
+      if (page) return page
     }
   } catch (directErr) {
     console.warn(`Direct fetch failed for ${validUrl}:`, directErr)

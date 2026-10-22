@@ -3,11 +3,19 @@ import 'server-only'
 import { isAICapable } from '@/lib/ai'
 import { isWebSearchConfigured, searchWeb } from '@/lib/research/web-search'
 import { UnsafeUrlError } from '@/lib/safe-url'
-import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
+import {
+  looksLikePlaceholderPage,
+  scrapeHtml,
+  scrapeUrl,
+  type ScrapedContent
+} from '@/lib/scraper'
+import { markdownLinks, withUnseenLinks } from '@/lib/site-links'
+import { normalizeUrlForCompare } from '@/lib/urls'
 import { SkillError } from '../run-skill'
 import { suggestSetup, type SetupSource } from '../skills/profile-setup'
 import { findEntity } from '../skills/profile-setup/entity'
 import { pickLinks } from '../skills/profile-setup/link-pick'
+import { pickSitePages } from '../skills/profile-setup/page-pick'
 import {
   AnalyzeIdentityInputSchema,
   hasAnySuggestion,
@@ -16,6 +24,7 @@ import {
   type SourceFetchStatus
 } from '../skills/profile-setup/schema'
 import { researchIdentity, type ResearchResult } from './identity-research'
+import { readSitePages } from './site-pages'
 
 /**
  * AI setup ("Describe yourself once"): fetch the pages the user named, run the
@@ -25,6 +34,11 @@ import { researchIdentity, type ResearchResult } from './identity-research'
 
 /** Per-page cap on what the model sees; the scraper already caps at 50k. */
 const SOURCE_PROMPT_CHARS = 8000
+/**
+ * A website's homepage gets more: its product sections, menus and footer list
+ * what the business sells, and 8000 characters cut off half of a big one.
+ */
+const SITE_HOME_PROMPT_CHARS = 16_000
 /** A slow website should not hold up the analysis; the description is enough. */
 const SOURCE_FETCH_TIMEOUT_MS = 8000
 /** A single search that hangs must not hold up the analysis. */
@@ -34,6 +48,11 @@ const SEARCH_TIMEOUT_MS = 8000
  * links, reading pages); past this the analysis goes ahead without it.
  */
 const RESEARCH_BUDGET_MS = 40_000
+/**
+ * Reading the website's product pages (the AI's pick, then the fetches); past
+ * this the analysis goes ahead with the homepage alone.
+ */
+const SITE_PAGES_BUDGET_MS = 25_000
 
 export class IdentitySetupError extends Error {
   constructor(
@@ -58,10 +77,45 @@ function looksLikeLoginWall(url: string, title: string, content: string) {
   )
 }
 
+/** `work`'s result, or `fallback` once `ms` pass or if it fails. */
+async function settleWithin<T>(
+  work: Promise<T>,
+  ms: number,
+  fallback: T
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>(resolve => {
+        timer = setTimeout(() => resolve(fallback), ms)
+      })
+    ])
+  } catch {
+    return fallback
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Reads a page.
+ *
+ * `direct` (a page of their own site) also reads its HTML alongside the
+ * reader scrapeUrl prefers, which is slow under load: when the reader runs
+ * out of time, the HTML's text is used instead of losing the page.
+ *
+ * `links` (their website's homepage) implies `direct` and also keeps the
+ * page's links. Its text is what is on screen, so a product menu that opens
+ * on a click is missing from it; the links the text does not show are put
+ * before it, so the AI and the guard's checks both read them as the site's
+ * own words.
+ */
 async function fetchSource(
   url: string,
-  kind: SourceFetchStatus['kind']
-): Promise<{ status: SourceFetchStatus; content?: string }> {
+  kind: SourceFetchStatus['kind'],
+  options: { direct?: boolean; links?: boolean } = {}
+): Promise<SetupSource> {
   // Logged-out requests to LinkedIn get a sign-in wall, and trying costs
   // several seconds, so the description is used instead.
   if (kind === 'linkedin') {
@@ -76,17 +130,29 @@ async function fetchSource(
     }
   }
 
+  // Fetched alongside the page, within the same time.
+  const html =
+    options.direct || options.links
+      ? settleWithin(scrapeHtml(url), SOURCE_FETCH_TIMEOUT_MS, null)
+      : Promise.resolve(null)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const page = await Promise.race([
-      scrapeUrl(url),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('timeout')),
-          SOURCE_FETCH_TIMEOUT_MS
-        )
-      })
-    ])
+    let page: ScrapedContent
+    try {
+      page = await Promise.race([
+        scrapeUrl(url),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('timeout')),
+            SOURCE_FETCH_TIMEOUT_MS
+          )
+        })
+      ])
+    } catch (error) {
+      const fallback = (await html)?.page
+      if (!fallback) throw error
+      page = fallback
+    }
     if (
       looksLikePlaceholderPage(page.title, page.content) ||
       looksLikeLoginWall(url, page.title, page.content)
@@ -100,10 +166,22 @@ async function fetchSource(
         }
       }
     }
-    return {
-      status: { url, kind, status: 'fetched', title: page.title },
-      content: page.content.slice(0, SOURCE_PROMPT_CHARS)
+    const status: SourceFetchStatus = {
+      url,
+      kind,
+      status: 'fetched',
+      title: page.title
     }
+    if (!options.links) {
+      return { status, content: page.content.slice(0, SOURCE_PROMPT_CHARS) }
+    }
+
+    const text = page.content.slice(0, SITE_HOME_PROMPT_CHARS)
+    const fromHtml = (await html)?.links ?? []
+    // When the HTML could not be read, the links in the reader's text remain.
+    const links =
+      fromHtml.length > 0 ? fromHtml : markdownLinks(page.content, url)
+    return { status, content: withUnseenLinks(text, links, url), links }
   } catch (error) {
     return {
       status: {
@@ -173,7 +251,7 @@ async function researchOnline(
           {
             searchConfigured: isWebSearchConfigured,
             search: query => searchWithTimeout(query),
-            fetchPage: url => fetchSource(url, 'web'),
+            fetchPage: (url, options) => fetchSource(url, 'web', options),
             pickLinks
           }
         ))(),
@@ -196,6 +274,35 @@ async function researchOnline(
     )
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * The pages of their own website that describe what they sell, beyond its
+ * homepage (see site-pages.ts). Never fails the analysis: on any problem the
+ * homepage alone is used.
+ */
+async function readOwnSite(
+  description: string,
+  home: SetupSource,
+  signal?: AbortSignal
+): Promise<SetupSource[]> {
+  if (signal?.aborted) return []
+  try {
+    return await settleWithin(
+      readSitePages(
+        { description, home },
+        {
+          pickPages: pickSitePages,
+          fetchPage: url => fetchSource(url, 'site', { direct: true })
+        }
+      ),
+      SITE_PAGES_BUDGET_MS,
+      []
+    )
+  } catch (error) {
+    console.warn('Reading the website beyond its homepage failed:', error)
+    return []
   }
 }
 
@@ -232,15 +339,42 @@ export async function analyzeIdentitySetup(
     ? findEntity(description, guidance?.accountType ?? 'personal')
     : Promise.resolve(null)
   const providedSources: SetupSource[] = await Promise.all(
-    requested.map(([url, kind]) => fetchSource(url, kind))
+    requested.map(([url, kind]) =>
+      fetchSource(url, kind, { links: kind === 'website' })
+    )
   )
-  const research = await researchOnline(entityLookup, {
-    description,
-    linkedinUrl,
-    websiteUrl
-  })
-  // Pages found by search come after the user's own, and are labelled as such.
-  const sources: SetupSource[] = [...providedSources, ...research.sources]
+  // The website they gave is explored while research runs.
+  const providedSite = providedSources.find(s => s.status.kind === 'website')
+  const [research, providedSitePages] = await Promise.all([
+    researchOnline(entityLookup, {
+      description,
+      linkedinUrl,
+      websiteUrl
+    }),
+    providedSite
+      ? readOwnSite(description, providedSite, signal)
+      : Promise.resolve([])
+  ])
+  // A website research found is explored once research has read it.
+  const verifiedSite = research.verified.websiteUrl
+  const foundSite =
+    !providedSite && verifiedSite
+      ? research.sources.find(
+          s =>
+            normalizeUrlForCompare(s.status.url) ===
+            normalizeUrlForCompare(verifiedSite.url)
+        )
+      : undefined
+  const sitePages = foundSite
+    ? await readOwnSite(description, foundSite, signal)
+    : providedSitePages
+  // Pages found by search come after the user's own, then the pages of their
+  // site read for its offerings; each is labelled as such.
+  const sources: SetupSource[] = [
+    ...providedSources,
+    ...research.sources,
+    ...sitePages
+  ]
   // Cancelled while reading pages: skip the model call and its cost.
   if (signal?.aborted) {
     throw new IdentitySetupError('The analysis was cancelled.', true)

@@ -292,6 +292,34 @@ describe('researchIdentity: the AI picks, code checks the picks are copied from 
     )
   })
 
+  it("reads the website's links too, so its product pages can be read next", async () => {
+    const calls: Array<[string, { links?: boolean } | undefined]> = []
+    const links = [{ url: 'https://www.samsung.com/galaxy/', label: 'Galaxy' }]
+    const result = await researchIdentity(
+      { description: SAMSUNG, entity: samsung, provided: {} },
+      {
+        searchConfigured: true,
+        search,
+        fetchPage: async (url, options) => {
+          calls.push([url, options])
+          return {
+            status: { url, kind: 'web', status: 'fetched', title: 'page' },
+            content: 'Samsung page text',
+            ...(options?.links ? { links } : {})
+          }
+        },
+        pickLinks: async () => picked()
+      }
+    )
+    // Only the website: a background page's links are someone else's.
+    assert.deepStrictEqual(calls, [
+      ['https://www.samsung.com', { links: true }],
+      ['https://www.forbes.com/companies/samsung-electronics/', undefined]
+    ])
+    assert.deepStrictEqual(result.sources[0]?.links, links)
+    assert.strictEqual(result.sources[1]?.links, undefined)
+  })
+
   it('says so when the AI is not sure which site is theirs', async () => {
     const result = await run(
       picked({ website: pick('https://www.samsung.com', 'Likeliest of two.', 'medium') })

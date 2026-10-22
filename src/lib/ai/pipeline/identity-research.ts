@@ -46,7 +46,11 @@ export type LinkPicks = {
 export type ResearchDeps = {
   /** Web search; returns no hits, rather than throwing, when it fails. */
   search: (query: string) => Promise<SearchHit[]>
-  fetchPage: (url: string) => Promise<SetupSource>
+  /** With `links`, also the page's links (for their website's homepage). */
+  fetchPage: (
+    url: string,
+    options?: { links?: boolean }
+  ) => Promise<SetupSource>
   /** The AI's pick of their links from the results; null when it failed. */
   pickLinks: (input: LinkPickInput) => Promise<LinkPicks | null>
   /** False when no search key is set. */
@@ -220,7 +224,7 @@ export async function researchIdentity(
   ].slice(0, MAX_BACKGROUND_PAGES)
 
   const [websitePage, pages] = await Promise.all([
-    website ? deps.fetchPage(website) : Promise.resolve(null),
+    website ? deps.fetchPage(website, { links: true }) : Promise.resolve(null),
     Promise.all(background.map(hit => deps.fetchPage(hit.url)))
   ])
 

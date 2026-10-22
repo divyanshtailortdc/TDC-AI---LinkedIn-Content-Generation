@@ -47,6 +47,12 @@ export type SanitizeContext = {
   verifiedLinks?: { websiteUrl?: VerifiedLink; linkedinUrl?: VerifiedLink }
   /** Pages found by web research and read; knowledge sources may list them. */
   webSourceUrls?: string[]
+  /**
+   * Pages their own website links to, read for their offerings: product
+   * pages, and product sites it lists as its own. Like the website itself,
+   * they can state what the business sells.
+   */
+  siteSourceUrls?: string[]
   /** What web research could not verify, reported under "missing". */
   researchNotes?: string[]
   /** Text the user wrote in Advanced analysis; figures in it are theirs. */
@@ -249,7 +255,8 @@ const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
 /** Most lines each profile list keeps; past these it stops being a focus. */
 const PROFILE_LIST_LIMITS: Record<string, number> = {
   targetAudience: 6,
-  offerings: 8
+  // A business with several named products needs a line for each of them.
+  offerings: 12
 }
 
 /** Two lines are the same item when they differ only in case and punctuation. */
@@ -512,7 +519,10 @@ export function sanitizeIdentitySetup(
     profileUrls.set(normalizeUrlForCompare(link.url), link.url)
   }
   const knowledgeUrls = new Map(profileUrls)
-  for (const url of context.webSourceUrls ?? []) {
+  for (const url of [
+    ...(context.webSourceUrls ?? []),
+    ...(context.siteSourceUrls ?? [])
+  ]) {
     knowledgeUrls.set(normalizeUrlForCompare(url), url)
   }
   const fetchedByKey = new Map(
@@ -526,9 +536,13 @@ export function sanitizeIdentitySetup(
   }
 
   // The business's own site: the one the user gave, or the one research
-  // verified. Only it (or the user's own words) can state their offerings.
+  // verified, and the pages it links to that were read for its offerings.
+  // Only these (or the user's own words) can state their offerings.
   const hostOf = (url: string) =>
     hostnameOf(/^https?:\/\//i.test(url) ? url : `https://${url}`)
+  const sitePages = new Set(
+    (context.siteSourceUrls ?? []).map(normalizeUrlForCompare)
+  )
   const officialHosts = new Set(
     [...context.providedUrls, context.verifiedLinks?.websiteUrl?.url]
       .map(url => (url ? hostOf(url) : null))
@@ -539,7 +553,10 @@ export function sanitizeIdentitySetup(
   )
   const isOfficial = (url: string) => {
     const host = hostOf(url)
-    return host !== null && officialHosts.has(host)
+    return (
+      (host !== null && officialHosts.has(host)) ||
+      sitePages.has(normalizeUrlForCompare(url))
+    )
   }
 
   // Who states each audience or offering line, checked line by line whatever
@@ -948,9 +965,11 @@ export function sanitizeIdentitySetup(
 
   // A page the user gave us and we could read is a knowledge source whether or
   // not the model thought to list it. It is only offered: nothing is added
-  // until the user ticks it in the review.
+  // until the user ticks it in the review. Pages of their site read for its
+  // offerings come last, so they never crowd out a link the user wrote.
   for (const page of context.fetchedSources) {
     const key = normalizeUrlForCompare(page.url)
+    if (sitePages.has(key)) continue
     if (sources.some(s => s.url && normalizeUrlForCompare(s.url) === key)) {
       continue
     }
@@ -987,6 +1006,22 @@ export function sanitizeIdentitySetup(
       reason: 'Your details link to this page.',
       accessible: fetchedByKey.has(key),
       official: isOfficial(link.url)
+    })
+  }
+
+  for (const page of context.fetchedSources) {
+    const key = normalizeUrlForCompare(page.url)
+    if (!sitePages.has(key)) continue
+    if (sources.some(s => s.url && normalizeUrlForCompare(s.url) === key)) {
+      continue
+    }
+    sources.push({
+      url: page.url,
+      title: oneLine(page.title || page.url).slice(0, 200),
+      reason:
+        'Your website links to this page about one of your offerings. It was read for this analysis.',
+      accessible: true,
+      official: true
     })
   }
 

@@ -499,8 +499,11 @@ export type AnalyzeIdentityInput = z.input<typeof AnalyzeIdentityInputSchema>
 
 export type SourceFetchStatus = {
   url: string
-  /** "web" is a page found by search rather than one the user gave. */
-  kind: 'linkedin' | 'website' | 'web'
+  /**
+   * "web" is a page found by search rather than one the user gave; "site" is
+   * a page their own website links to, read for their offerings.
+   */
+  kind: 'linkedin' | 'website' | 'web' | 'site'
   status: 'fetched' | 'unavailable'
   title?: string
   reason?: string
