@@ -1,8 +1,9 @@
 'use client'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
-import { FONT_CHOICES } from '@/lib/brand/fonts'
+import { findFont, FONT_CHOICES } from '@/lib/brand/fonts'
 import {
   describeColor,
   isLightBackground,
@@ -15,12 +16,21 @@ import {
   type ResolvedBrandTheme
 } from '@/lib/brand/theme'
 import { cn } from '@/lib/cn'
+import { Diagram } from '@/lib/media/canvas/diagram'
+import { canvasPalette } from '@/lib/media/canvas/palette'
+import {
+  CANVAS_SIZE,
+  headlineFontSize,
+  splitHeadline,
+  TEXT_COLUMN,
+  VISUAL_PANEL,
+  type DiagramSpec
+} from '@/lib/media/canvas/spec'
 import {
   ImageIcon,
   ImagePlus,
   Loader2,
   Palette,
-  Trash2,
   Type,
   Upload,
   X
@@ -142,6 +152,8 @@ function LogoField({
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
+  // The logo comes off only once the remove is confirmed.
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
 
   const accept = async (file: File | undefined) => {
     if (!file) return
@@ -162,32 +174,31 @@ function LogoField({
     <div className="space-y-3">
       {value ? (
         <div className="border-border flex items-center gap-3 rounded-xl border p-2.5">
-          <div className="border-border flex h-16 w-36 shrink-0 items-center justify-center rounded-lg border bg-white p-2">
+          <div className="border-border relative flex h-16 w-36 shrink-0 items-center justify-center rounded-lg border bg-white p-2">
             {/* eslint-disable-next-line @next/next/no-img-element -- data URL preview */}
             <img
               src={value}
               alt="Logo preview"
               className="max-h-full max-w-full object-contain"
             />
-          </div>
-          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => inputRef.current?.click()}
-              className="border-border bg-surface hover:bg-surface-hover text-foreground inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium"
+              onClick={() => setConfirmingRemove(true)}
+              aria-label="Remove logo"
+              title="Remove logo"
+              className="border-border bg-surface text-muted absolute -top-2 -right-2 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border shadow-sm transition-colors hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-400"
             >
-              <Upload className="h-3.5 w-3.5" />
-              Replace
-            </button>
-            <button
-              type="button"
-              onClick={() => onChange(null)}
-              className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Remove
+              <X className="h-3 w-3" />
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="border-border bg-surface hover:bg-surface-hover text-foreground inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Replace
+          </button>
         </div>
       ) : (
         <button
@@ -250,6 +261,21 @@ function LogoField({
           e.target.value = ''
         }}
       />
+
+      {confirmingRemove && (
+        <ConfirmDialog
+          title="Remove the logo?"
+          description="It comes off every new image once you save. You can upload it again at any time."
+          confirmLabel="Yes, remove"
+          pendingLabel="Removing…"
+          pending={false}
+          onCancel={() => setConfirmingRemove(false)}
+          onConfirm={() => {
+            onChange(null)
+            setConfirmingRemove(false)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -339,212 +365,267 @@ function ColorField({
   )
 }
 
+/** What the preview says: placeholder words, so it reads as any account's image. */
+const SAMPLE_COPY = {
+  tagline: 'Your category',
+  headline: 'Your headline, with its key point highlighted',
+  highlights: ['key point'],
+  subheadline: 'A supporting line that explains the idea in a sentence.'
+}
+
+const SAMPLE_DIAGRAM: DiagramSpec = {
+  form: 'hub_spoke',
+  hub: { label: 'Your idea', icon: 'sparkles' },
+  nodes: [
+    { label: 'Point one', icon: 'target' },
+    { label: 'Point two', icon: 'users' },
+    { label: 'Point three', icon: 'chart-column' },
+    { label: 'Point four', icon: 'zap' }
+  ]
+}
+
+/** The width of the element, kept up to date as the page resizes. */
+function useWidth(ref: React.RefObject<HTMLElement | null>) {
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) =>
+      setWidth(entry?.contentRect.width ?? 0)
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+  return width
+}
+
 /**
- * A live B2B vector split preview rendering:
- * - Left 45%: Logo (top-left), Category Tagline, Main Headline with highlighted words, Sub-headline, and Footer
- * - Right 55%: Unified vector architecture / Hub-and-Spoke nodes with pills and badges
+ * A sample image in the brand theme: the split layout most images use, drawn
+ * at an image's full size with the image renderer's own colours, measures
+ * and diagram, then scaled down to fit the box. Scaling the whole image
+ * keeps every part in proportion at any width, so nothing overlaps.
  */
 function BrandPreview({
   theme,
-  logo
+  logo,
+  identityName
 }: {
   theme: ResolvedBrandTheme
   logo: string | null
+  identityName: string
 }) {
-  const primary = theme.primaryColor || '#0297b2'
-  const accent = theme.accentColor || '#00a3c4'
-  const bg = theme.backgroundColor || '#f8fafc'
+  const frameRef = useRef<HTMLDivElement>(null)
+  const scale = useWidth(frameRef) / CANVAS_SIZE.width
+  const palette = canvasPalette(theme)
+  const headingWeight = findFont(theme.headingFont)?.bold ?? 800
   // Auto is settled per image; the sample shows the usual dots.
   const pattern =
-    theme.backgroundPattern === 'auto' ? 'dots' : theme.backgroundPattern || 'dots'
-  const headingFont = theme.headingFont || 'Inter'
-  const bodyFont = theme.bodyFont || 'Inter'
-  // Images carry a website only when one was typed in on the Posts page.
-  const footer = theme.footerText
+    theme.backgroundPattern === 'auto' ? 'dots' : theme.backgroundPattern
+
+  // The logo's own proportions, read once it loads.
+  const [logoSize, setLogoSize] = useState<{
+    src: string
+    width: number
+    height: number
+  } | null>(null)
+  useEffect(() => {
+    if (!logo) return
+    const img = new window.Image()
+    img.onload = () =>
+      setLogoSize({ src: logo, width: img.naturalWidth, height: img.naturalHeight })
+    img.src = logo
+  }, [logo])
+  const logoShown = theme.showLogo && logo && logoSize?.src === logo ? logoSize : null
+
+  const words = splitHeadline(SAMPLE_COPY.headline, SAMPLE_COPY.highlights)
+  const headlineSize = headlineFontSize(SAMPLE_COPY.headline)
+  const logoScale = logoShown
+    ? Math.min(340 / logoShown.width, 84 / logoShown.height)
+    : 0
 
   return (
     <div className="space-y-2">
       <div
+        ref={frameRef}
         className="border-border relative aspect-[2048/1072] w-full overflow-hidden rounded-xl border select-none"
-        style={{ backgroundColor: bg, fontFamily: bodyFont }}
+        aria-label="Sample image in your brand theme"
+        role="img"
       >
-        {/* Subtle pattern background */}
-        <svg
-          className="absolute inset-0 h-full w-full pointer-events-none"
-          xmlns="http://www.w3.org/2000/svg"
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: CANVAS_SIZE.width,
+            height: CANVAS_SIZE.height,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+            visibility: scale ? 'visible' : 'hidden',
+            backgroundColor: palette.background,
+            fontFamily: theme.bodyFont,
+            color: palette.ink
+          }}
         >
-          <defs>
-            <pattern
-              id="preview-dots"
-              width="24"
-              height="24"
-              patternUnits="userSpaceOnUse"
-            >
-              <circle cx="12" cy="12" r="1.5" fill={primary} fillOpacity="0.12" />
-            </pattern>
-            <pattern
-              id="preview-grid"
-              width="40"
-              height="40"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M 40 0 L 0 0 0 40"
-                fill="none"
-                stroke={primary}
-                strokeWidth="1"
-                strokeOpacity="0.08"
-              />
-            </pattern>
-            <radialGradient id="preview-glow" cx="0.5" cy="0.5" r="0.5">
-              <stop offset="0%" stopColor={accent} stopOpacity="0.16" />
-              <stop offset="100%" stopColor={accent} stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          {pattern !== 'plain' && (
-            <rect
-              width="100%"
-              height="100%"
-              fill={`url(#preview-${pattern})`}
-            />
-          )}
-          <circle cx="75%" cy="50%" r="35%" fill="url(#preview-glow)" />
-        </svg>
-
-        {/* LEFT COLUMN: Text Canvas (45%) */}
-        <div className="absolute inset-y-0 left-0 flex w-[48%] flex-col justify-between p-[5%]">
-          {/* Logo (Top-Left) */}
-          <div className="flex h-10 items-center">
-            {theme.showLogo && logo ? (
-              // eslint-disable-next-line @next/next/no-img-element -- data url preview
-              <img
-                src={logo}
-                alt="Brand logo"
-                className="max-h-8 max-w-[160px] object-contain"
-              />
-            ) : theme.showLogo ? (
-              <span
-                className="text-sm font-bold tracking-tight text-slate-900 dark:text-white"
-                style={{ fontFamily: headingFont }}
-              >
-                TDC Commerce
-              </span>
-            ) : null}
-          </div>
-
-          {/* Tagline, Headline & Subheadline */}
-          <div className="my-auto space-y-2.5">
-            <div className="flex items-center gap-2">
-              <div
-                className="h-1 w-4 rounded-full"
-                style={{ backgroundColor: accent }}
-              />
-              <span
-                className="text-[9px] font-bold tracking-widest uppercase"
-                style={{ color: accent }}
-              >
-                AI-NATIVE UNIFIED ERP
-              </span>
-            </div>
-
-            <h3
-              className="text-[clamp(13px,1.9vw,22px)] font-extrabold leading-[1.15] text-slate-900 dark:text-white"
-              style={{ fontFamily: headingFont }}
-            >
-              Your AI Agent Is Only as Smart as the{' '}
-              <span style={{ color: accent }}>Systems It Can See</span>
-            </h3>
-
-            <p className="line-clamp-2 text-[clamp(9px,1.0vw,12px)] leading-relaxed text-slate-600 dark:text-slate-300">
-              Disconnected tools give AI stale, partial data. One data model gives it the truth.
-            </p>
-          </div>
-
-          {/* Footer (Bottom-Left) */}
-          <div className="flex h-4 items-center gap-1.5 text-[10px] font-semibold text-slate-500">
-            {footer && (
-              <>
-                <div
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: accent }}
-                />
-                <span>{footer}</span>
-              </>
+          <svg
+            width={CANVAS_SIZE.width}
+            height={CANVAS_SIZE.height}
+            style={{ position: 'absolute', left: 0, top: 0 }}
+          >
+            <defs>
+              <pattern id="preview-dots" width="34" height="34" patternUnits="userSpaceOnUse">
+                <circle cx="17" cy="17" r="2.2" fill={palette.pattern} />
+              </pattern>
+              <pattern id="preview-grid" width="56" height="56" patternUnits="userSpaceOnUse">
+                <path d="M 56 0 L 0 0 0 56" fill="none" stroke={palette.pattern} strokeWidth="1.6" />
+              </pattern>
+              <radialGradient id="preview-glow" cx="0.5" cy="0.5" r="0.5">
+                <stop offset="0" stopColor={palette.primary} stopOpacity="0.13" />
+                <stop offset="1" stopColor={palette.primary} stopOpacity="0" />
+              </radialGradient>
+              <linearGradient id="preview-fade" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stopColor={palette.background} stopOpacity="1" />
+                <stop offset="0.45" stopColor={palette.background} stopOpacity="0.92" />
+                <stop offset="0.75" stopColor={palette.background} stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {pattern !== 'plain' && (
+              <rect width="100%" height="100%" fill={`url(#preview-${pattern})`} />
             )}
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Visual Canvas (52%) */}
-        <div className="absolute inset-y-0 right-0 flex w-[52%] items-center justify-center p-[4%]">
-          <div className="relative flex h-full w-full items-center justify-center">
-            {/* Center Hub */}
-            <div
-              className="relative z-10 flex h-[34%] w-[34%] flex-col items-center justify-center rounded-full p-2 text-center text-white shadow-xl transition-all"
-              style={{ backgroundColor: primary }}
-            >
-              <div className="text-[8px] font-semibold tracking-wider uppercase opacity-90">
-                ONE
-              </div>
-              <div className="text-[clamp(10px,1.2vw,14px)] font-bold leading-tight">
-                Data Model
-              </div>
-            </div>
-
-            {/* Concentric subtle circle */}
-            <div
-              className="absolute h-[46%] w-[46%] rounded-full border border-dashed"
-              style={{ borderColor: accent, opacity: 0.35 }}
+            <rect width="100%" height="100%" fill="url(#preview-fade)" />
+            <circle
+              cx={VISUAL_PANEL.left + VISUAL_PANEL.width / 2}
+              cy={CANVAS_SIZE.height / 2}
+              r={640}
+              fill="url(#preview-glow)"
             />
+          </svg>
 
-            {/* Spoke Pill Nodes around hub */}
-            <div className="absolute top-[8%] left-[16%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
-              <span>CRM</span>
+          {/* The visual, where the image renderer puts it. */}
+          <div
+            style={{
+              position: 'absolute',
+              left: VISUAL_PANEL.left,
+              top: VISUAL_PANEL.top,
+              width: VISUAL_PANEL.width,
+              height: VISUAL_PANEL.height
+            }}
+          >
+            <Diagram diagram={SAMPLE_DIAGRAM} palette={palette} />
+          </div>
+
+          {/* The text column, at the image renderer's measures. */}
+          <div
+            style={{
+              position: 'absolute',
+              left: TEXT_COLUMN.left,
+              top: 0,
+              width: TEXT_COLUMN.width,
+              height: CANVAS_SIZE.height,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              padding: `${TEXT_COLUMN.padY}px ${TEXT_COLUMN.padX - 24}px ${TEXT_COLUMN.padY}px ${TEXT_COLUMN.padX}px`
+            }}
+          >
+            <div style={{ display: 'flex', height: 84, alignItems: 'center' }}>
+              {logoShown ? (
+                // eslint-disable-next-line @next/next/no-img-element -- data URL preview
+                <img
+                  src={logoShown.src}
+                  alt=""
+                  width={Math.round(logoShown.width * logoScale)}
+                  height={Math.round(logoShown.height * logoScale)}
+                />
+              ) : theme.showLogo && !logo ? (
+                <span
+                  style={{
+                    fontFamily: theme.headingFont,
+                    fontSize: 38,
+                    fontWeight: headingWeight,
+                    color: palette.ink
+                  }}
+                >
+                  {identityName}
+                </span>
+              ) : null}
             </div>
 
-            <div className="absolute top-[8%] right-[16%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
-              <span>Storefront</span>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 30 }}>
+                <div
+                  style={{ width: 44, height: 6, borderRadius: 3, backgroundColor: palette.accent }}
+                />
+                <div
+                  style={{
+                    fontSize: 27,
+                    fontWeight: 600,
+                    letterSpacing: 4,
+                    textTransform: 'uppercase',
+                    color: palette.primary
+                  }}
+                >
+                  {SAMPLE_COPY.tagline}
+                </div>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  fontFamily: theme.headingFont,
+                  fontSize: headlineSize,
+                  fontWeight: headingWeight,
+                  lineHeight: 1.07,
+                  letterSpacing: -1.5,
+                  color: palette.ink
+                }}
+              >
+                {words.map((word, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      marginRight: Math.round(headlineSize * 0.24),
+                      color: word.highlight ? palette.accent : palette.ink
+                    }}
+                  >
+                    {word.text}
+                  </span>
+                ))}
+              </div>
+              <div
+                style={{
+                  marginTop: 34,
+                  maxWidth: 780,
+                  fontSize: 36,
+                  lineHeight: 1.38,
+                  color: palette.body
+                }}
+              >
+                {SAMPLE_COPY.subheadline}
+              </div>
             </div>
 
-            <div className="absolute top-[44%] right-[2%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
-              <span>Inventory</span>
-            </div>
-
-            <div className="absolute bottom-[10%] right-[14%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
-              <span>Orders</span>
-            </div>
-
-            <div className="absolute bottom-[10%] left-[14%] flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[9px] font-medium text-slate-800 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: primary }} />
-              <span>Accounting</span>
-            </div>
-
-            {/* Dark Accent Badges (Agent Pills) */}
-            <div className="absolute top-[1%] right-[4%] flex items-center gap-1 rounded-full border border-cyan-400/30 bg-slate-900 px-2 py-0.5 text-[8px] font-semibold text-cyan-400 shadow-md">
-              <span className="font-bold">+</span>
-              <span>Commerce AI Chat</span>
-            </div>
-
-            <div className="absolute bottom-[1%] right-[6%] flex items-center gap-1 rounded-full border border-cyan-400/30 bg-slate-900 px-2 py-0.5 text-[8px] font-semibold text-cyan-400 shadow-md">
-              <span className="font-bold">+</span>
-              <span>Order Verification</span>
-            </div>
-
-            <div className="absolute bottom-[1%] left-[4%] flex items-center gap-1 rounded-full border border-cyan-400/30 bg-slate-900 px-2 py-0.5 text-[8px] font-semibold text-cyan-400 shadow-md">
-              <span className="font-bold">+</span>
-              <span>Reconciliation Agent</span>
+            {/* Only a website typed in on the Posts page goes on images. */}
+            <div style={{ display: 'flex', alignItems: 'center', height: 40 }}>
+              {theme.footerText ? (
+                <>
+                  <div
+                    style={{
+                      width: 12,
+                      height: 12,
+                      marginRight: 16,
+                      borderRadius: 6,
+                      backgroundColor: palette.accent
+                    }}
+                  />
+                  <div style={{ fontSize: 28, fontWeight: 600, color: palette.muted }}>
+                    {theme.footerText}
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
-      <p className="text-muted text-[11px] leading-relaxed">
-        A sample image with your logo, colours and typefaces. The image type,
-        background pattern and website are set on the Posts page, where images
-        are generated.
-      </p>
     </div>
   )
 }
@@ -659,9 +740,9 @@ export function BrandThemeClient({
         }
       />
 
-      <div className="relative flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-12">
-          <div className="space-y-5 lg:col-span-6">
+      <div className="relative flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5">
+        <div className="grid w-full gap-6 lg:grid-cols-12">
+          <div className="space-y-5 lg:col-span-5">
             {error && (
               <div
                 role="alert"
@@ -683,7 +764,6 @@ export function BrandThemeClient({
             <Section
               icon={ImageIcon}
               title="Logo & Visibility"
-              description="Your actual uploaded logo file is placed in the render canvas top-left. Image generation models are never asked to recreate logos."
             >
               <LogoField
                 value={logo}
@@ -698,7 +778,6 @@ export function BrandThemeClient({
             <Section
               icon={Palette}
               title="Brand Colours"
-              description="Every image layout is styled from these. The background must remain light (soft white/gray) to ensure high contrast for typography and diagrams."
             >
               <div className="space-y-3">
                 <ColorField
@@ -730,7 +809,6 @@ export function BrandThemeClient({
             <Section
               icon={Type}
               title="Typography"
-              description="Google Fonts used for on-image headlines and labels. Rendered crisp and vector-sharp directly on the canvas."
             >
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
@@ -782,10 +860,10 @@ export function BrandThemeClient({
             </Section>
           </div>
 
-          <aside className="lg:col-span-6">
+          <aside className="lg:col-span-7">
             <div className="border-border bg-surface space-y-3 rounded-2xl border p-5 shadow-xs lg:sticky lg:top-0">
               <h2 className="text-foreground text-sm font-semibold">Live Canvas Preview</h2>
-              <BrandPreview theme={theme} logo={logo} />
+              <BrandPreview theme={theme} logo={logo} identityName={identityName} />
             </div>
           </aside>
         </div>

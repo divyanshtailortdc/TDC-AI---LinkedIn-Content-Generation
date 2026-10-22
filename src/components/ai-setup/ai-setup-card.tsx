@@ -175,16 +175,10 @@ export function AiSetupCard({
           <AnalyzeForm
             variant={variant}
             accountId={account?.id}
-            // Re-analyze starts from what was analyzed last time.
-            defaultDescription={draft?.input?.description}
-            defaultLinkedinUrl={
-              draft?.input?.linkedinUrl ??
-              (account?.linkedinUrl || urls?.linkedinUrl || '')
-            }
-            defaultWebsiteUrl={
-              draft?.input?.websiteUrl ??
-              (account?.websiteUrl || urls?.websiteUrl || '')
-            }
+            // Re-analyze starts empty, not from what was analyzed last time;
+            // the links start from the ones saved on the profile.
+            defaultLinkedinUrl={account?.linkedinUrl || urls?.linkedinUrl || ''}
+            defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
             urls={formUrls}
             accountType={
               account

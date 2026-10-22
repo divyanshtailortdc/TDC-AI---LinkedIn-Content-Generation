@@ -176,6 +176,12 @@ export function AnalyzeForm({
           linkedinUrl: linkedin.trim(),
           websiteUrl: website.trim()
         })
+        // Analyzed: the inputs are cleared for the next one. (On the create
+        // page the links are the Profile form's own fields, left as they are.)
+        setDescription('')
+        setLinkedinUrl('')
+        setWebsiteUrl('')
+        setUrlErrors({})
       } else {
         setFailure({ message: res.error, retryable: res.retryable ?? true })
       }
@@ -356,7 +362,8 @@ export function AnalyzeForm({
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5" />
-                  Analyze with AI
+                  {/* An account that exists has been set up once already. */}
+                  {accountId ? 'Re-analyze' : 'Analyze with AI'}
                 </>
               )}
             </button>
