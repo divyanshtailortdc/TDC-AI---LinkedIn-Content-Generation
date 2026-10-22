@@ -16,6 +16,7 @@ import {
   fieldLabel,
   GoalSuggestionsSchema,
   IdentitySetupSuggestionsSchema,
+  MAX_KNOWLEDGE_SOURCES,
   PreferencesSuggestionsSchema,
   ProfileSuggestionsSchema,
   PROVIDED_SOURCE,
@@ -1054,7 +1055,7 @@ export function sanitizeIdentitySetup(
   }
 
   const knowledge = {
-    sources: sources.slice(0, 10),
+    sources: sources.slice(0, MAX_KNOWLEDGE_SOURCES),
     facts: facts.slice(0, 15),
     suggestedAdditions: Array.from(new Set(suggestedAdditions))
       .map(s => s.slice(0, 300))

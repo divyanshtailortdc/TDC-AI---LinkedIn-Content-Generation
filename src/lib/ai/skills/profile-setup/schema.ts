@@ -145,6 +145,19 @@ export const PreferencesSuggestionsSchema = z.object({
   missing
 })
 
+/**
+ * Most knowledge sources one analysis offers, and so the most one apply may
+ * add: the review ticks every page that was read, and a lower limit on
+ * applying made "Apply" fail outright once analysis read a site's product
+ * pages.
+ */
+export const MAX_KNOWLEDGE_SOURCES = 10
+
+/** The knowledge sources ticked in the review, to add on apply. */
+export const KnowledgeUrlsSchema = z
+  .array(z.string().max(500))
+  .max(MAX_KNOWLEDGE_SOURCES)
+
 export const KnowledgeSuggestionsSchema = z.object({
   /** Only URLs the user supplied or mentioned; `accessible` means we fetched it. */
   sources: z
@@ -158,7 +171,7 @@ export const KnowledgeSuggestionsSchema = z.object({
         official: z.boolean().optional()
       })
     )
-    .max(10)
+    .max(MAX_KNOWLEDGE_SOURCES)
     .default([]),
   /** Each quote has been checked against the text it cites. */
   facts: z

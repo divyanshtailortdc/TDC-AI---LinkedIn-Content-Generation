@@ -13,6 +13,7 @@ import { resolvePreferences } from '@/lib/ai/context'
 import {
   fieldLabel,
   IdentitySetupSuggestionsSchema,
+  KnowledgeUrlsSchema,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { profileFromRecords } from '@/lib/identity-profile'
@@ -138,6 +139,13 @@ export async function getIdentitySetupBaselineAction(
 
 const modeSchema = z.enum(['fill-empty', 'replace'])
 
+/**
+ * Knowledge pages added at once. Each is summarised by the AI, and many AI
+ * calls at once have made the gateway time out; five is what this step has
+ * always run together.
+ */
+const KNOWLEDGE_BATCH = 5
+
 const ApplyInputSchema = z.object({
   accountId: AccountIdSchema,
   suggestions: IdentitySetupSuggestionsSchema,
@@ -146,7 +154,7 @@ const ApplyInputSchema = z.object({
     voice: z.object({ mode: modeSchema }).optional(),
     preferences: z.object({ mode: modeSchema }).optional(),
     goals: z.boolean().optional(),
-    knowledgeUrls: z.array(z.string().max(500)).max(5).optional()
+    knowledgeUrls: KnowledgeUrlsSchema.optional()
   })
 })
 
@@ -445,45 +453,46 @@ export async function applyIdentitySetupAction(
         const problems: string[] = []
         const savedUrls: string[] = []
         const requested = [...new Set(sections.knowledgeUrls)]
-        await Promise.all(
-          requested.map(async requestedUrl => {
-            const key = normalizeUrlForCompare(requestedUrl)
-            const url = offered.get(key)
-            if (!url) {
-              problems.push(
-                `${requestedUrl} was not one of the suggested sources`
-              )
-              return
-            }
-            if (saved.has(key)) {
-              problems.push(`${url} is already in your knowledge base`)
-              savedUrls.push(requestedUrl)
-              return
-            }
-            saved.add(key)
-            // Usually served from the scraper's cache: analysis just read it.
-            const preview = await fetchUrlPreview(url)
-            if (!preview.success || !preview.title || !preview.content) {
-              problems.push(
-                `${url}: ${preview.error || 'could not be fetched'}`
-              )
-              return
-            }
-            try {
-              await saveKnowledgeDocument({
-                accountId,
-                title: preview.title,
-                sourceType: 'url',
-                sourceUrl: url,
-                content: preview.content
-              })
-              added.push(preview.title)
-              savedUrls.push(requestedUrl)
-            } catch (error: any) {
-              problems.push(`${url}: ${error?.message || 'could not be saved'}`)
-            }
-          })
-        )
+        const addOne = async (requestedUrl: string) => {
+          const key = normalizeUrlForCompare(requestedUrl)
+          const url = offered.get(key)
+          if (!url) {
+            problems.push(
+              `${requestedUrl} was not one of the suggested sources`
+            )
+            return
+          }
+          if (saved.has(key)) {
+            problems.push(`${url} is already in your knowledge base`)
+            savedUrls.push(requestedUrl)
+            return
+          }
+          saved.add(key)
+          // Usually served from the scraper's cache: analysis just read it.
+          const preview = await fetchUrlPreview(url)
+          if (!preview.success || !preview.title || !preview.content) {
+            problems.push(
+              `${url}: ${preview.error || 'could not be fetched'}`
+            )
+            return
+          }
+          try {
+            await saveKnowledgeDocument({
+              accountId,
+              title: preview.title,
+              sourceType: 'url',
+              sourceUrl: url,
+              content: preview.content
+            })
+            added.push(preview.title)
+            savedUrls.push(requestedUrl)
+          } catch (error: any) {
+            problems.push(`${url}: ${error?.message || 'could not be saved'}`)
+          }
+        }
+        for (let i = 0; i < requested.length; i += KNOWLEDGE_BATCH) {
+          await Promise.all(requested.slice(i, i + KNOWLEDGE_BATCH).map(addOne))
+        }
 
         results.knowledge = {
           status:

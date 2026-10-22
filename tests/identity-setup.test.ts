@@ -14,7 +14,9 @@ import {
   fieldLabel,
   getSectionStatus,
   hasAnySuggestion,
-  IdentitySetupSuggestionsSchema
+  IdentitySetupSuggestionsSchema,
+  KnowledgeUrlsSchema,
+  MAX_KNOWLEDGE_SOURCES
 } from '../src/lib/ai/skills/profile-setup/schema'
 import { IdentityProfileSchema } from '../src/lib/identity-profile'
 import {
@@ -921,7 +923,7 @@ describe('audience and offerings are clean lists', () => {
     )
   })
 
-  it('keeps at most 6 audiences and 8 offerings, and says so', () => {
+  it('keeps at most 6 audiences and 12 offerings, and says so', () => {
     const lines = [
       'Founders',
       'Finance leads',
@@ -931,7 +933,11 @@ describe('audience and offerings are clean lists', () => {
       'Auditors',
       'Lenders',
       'Bankers',
-      'Advisors'
+      'Advisors',
+      'Treasurers',
+      'Analysts',
+      'Brokers',
+      'Underwriters'
     ]
     const { suggestions, warnings } = sanitizeIdentitySetup(
       {
@@ -950,10 +956,10 @@ describe('audience and offerings are clean lists', () => {
     )
     assert.deepStrictEqual(
       suggestions.profile.offerings?.value.split('\n'),
-      lines.slice(0, 8)
+      lines.slice(0, 12)
     )
     assert.ok(warnings.some(w => w.includes('kept the first 6 of 7')))
-    assert.ok(warnings.some(w => w.includes('kept the first 8 of 9')))
+    assert.ok(warnings.some(w => w.includes('kept the first 12 of 13')))
   })
 })
 
@@ -1128,6 +1134,45 @@ describe('each audience and offering line keeps where it came from', () => {
     assert.strictEqual(audience?.lines?.length, 1)
     assert.strictEqual(audience?.kind, 'fact')
     assert.ok(warnings.some(w => w.includes('300')))
+  })
+})
+
+describe('knowledge sources fit one apply', () => {
+  it("offers no more pages than one apply can add, the user's own link included", () => {
+    // Regression: an analysis that read a site's product pages offered 10
+    // sources, the review ticked them all, and applying failed with
+    // "knowledgeUrls: Too big: expected array to have <=5 items".
+    const searchPages = [
+      'https://yourstory.com/ledgerly',
+      'https://inc42.com/ledgerly'
+    ]
+    const productPages = Array.from(
+      { length: 6 },
+      (_, i) => `https://ledgerly.in/product-${i + 1}`
+    )
+    const page = (url: string) => ({ url, title: url, content: 'Page text.' })
+    const { suggestions } = sanitizeIdentitySetup(
+      {},
+      {
+        ...context,
+        fetchedSources: [
+          ...context.fetchedSources,
+          ...searchPages.map(page),
+          ...productPages.map(page)
+        ],
+        webSourceUrls: searchPages,
+        siteSourceUrls: productPages
+      }
+    )
+    const offered = suggestions.knowledge.sources.map(source => source.url!)
+    assert.strictEqual(offered.length, MAX_KNOWLEDGE_SOURCES)
+    // The review ticks every page that was read; all of them must apply.
+    assert.ok(KnowledgeUrlsSchema.safeParse(offered).success)
+    assert.ok(
+      !KnowledgeUrlsSchema.safeParse([...offered, 'https://example.com']).success
+    )
+    // Product pages come last, so the link in the description is kept.
+    assert.ok(offered.includes('https://ledgerly.in/case-studies'))
   })
 })
 
