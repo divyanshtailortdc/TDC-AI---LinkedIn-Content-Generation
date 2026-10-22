@@ -1,4 +1,16 @@
 import { z } from 'zod'
+import { CANVAS_PATTERNS, type CanvasPattern } from '@/lib/brand/theme'
+import {
+  BLUEPRINT_ALIGNS,
+  BLUEPRINT_ARROW_STYLES,
+  BLUEPRINT_ICON_PLACEMENTS,
+  BLUEPRINT_ROLES,
+  BLUEPRINT_SHAPES,
+  BLUEPRINT_TEXT_COLORS,
+  BLUEPRINT_TONES,
+  BLUEPRINT_WEIGHTS,
+  type Blueprint
+} from '@/lib/media/canvas/blueprint'
 import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
 import {
   CANVAS_LAYOUTS,
@@ -68,6 +80,8 @@ export interface MediaBrief {
   whyItFits: string
   /** How a regenerated concept differs from the earlier ones. */
   howItDiffers?: string
+  /** The reference image's structure, when one was attached. */
+  blueprint?: Blueprint
 }
 
 export interface EvidenceSource {
@@ -180,6 +194,11 @@ export const MediaBriefSchema = z.object({
     .describe(
       'For illustration only: what the image model draws, as a flat vector illustration on a plain white background. Name objects by their look, never by words printed on them. Never ask for text, labels, logos or people\'s hands. Empty for a diagram.'
     ),
+  backgroundPattern: z
+    .enum(CANVAS_PATTERNS)
+    .describe(
+      'The background texture, used when the brand leaves it on Auto: "plain", "dots" or "grid". With a reference image, the one its background has ("plain" when it is flat). Otherwise "plain" for a busy design, "dots" or "grid" for a sparse one.'
+    ),
   altText: z
     .string()
     .describe(
@@ -197,6 +216,94 @@ export const MediaBriefSchema = z.object({
 })
 
 export type MediaBriefOutput = z.infer<typeof MediaBriefSchema>
+
+const BlueprintBlockSchema = z.object({
+  role: z
+    .enum(BLUEPRINT_ROLES)
+    .describe(
+      'What the element is: "logo" a logo or brand mark; "tagline" the small label above the title; "headline" the main title; "text" the sentence or paragraph under it; "footer" a website, handle or URL; "label" any other short text (a step number, a caption, a name); "card" a box with a title, maybe an icon and a line of detail; "stat" a big number with a caption; "pill" a small tag; "bullet" one line of a list; "button" a call-to-action button; "icon" an icon on its own; "image" a photo, illustration, screenshot or device area; "shape" a decorative shape, ring or blob; "divider" a line or rule; "panel" a band, background or container other elements sit on.'
+    ),
+  x: z
+    .number()
+    .describe('Left edge, as a percentage (0-100) of the reference image width, to the nearest 0.5.'),
+  y: z
+    .number()
+    .describe('Top edge, as a percentage (0-100) of the reference image height, to the nearest 0.5.'),
+  w: z.number().describe('Width, as a percentage of the image width.'),
+  h: z.number().describe('Height, as a percentage of the image height.'),
+  text: z
+    .string()
+    .describe(
+      "For label, card, stat, pill, bullet and button: this post's words for the element (a stat: a figure the post states, like \"3x\" or \"40%\"). Empty for every other role: those are filled from tagline, headline and subheadline."
+    ),
+  detail: z
+    .string()
+    .describe(
+      'For a card, a second line of up to 8 words; for a stat, what the figure measures in up to 6 words; for a label, a line under it. Empty otherwise.'
+    ),
+  icon: z
+    .enum(ICON_NAMES)
+    .nullable()
+    .describe('The listed icon closest to the one the reference shows here; null where it shows none.'),
+  shape: z
+    .enum(BLUEPRINT_SHAPES)
+    .describe(
+      'The outline of its box: "rect" square corners, "rounded" rounded corners, "pill" fully rounded ends, "circle" a circle.'
+    ),
+  tone: z
+    .enum(BLUEPRINT_TONES)
+    .describe(
+      'How the reference fills it: "primary" its strongest colour, solid; "accent" a second strong colour, solid; "dark" near-black or navy; "soft" a pale tint; "surface" white or near-white with a thin border; "outline" only an outline in a strong colour; "none" no box at all.'
+    ),
+  elevated: z
+    .boolean()
+    .describe('True when it casts a shadow in the reference.'),
+  align: z
+    .enum(BLUEPRINT_ALIGNS)
+    .describe("How the element's content is aligned in the reference."),
+  textSize: z
+    .number()
+    .describe(
+      'The height of one line of its main text, as a percentage of the image height (a big title is often 6 to 10, body text 2 to 4). 0 when it has no text.'
+    ),
+  weight: z
+    .enum(BLUEPRINT_WEIGHTS)
+    .describe('How heavy its main text is in the reference.'),
+  textColor: z
+    .enum(BLUEPRINT_TEXT_COLORS)
+    .describe(
+      'The colour of its main text: "primary" or "accent" when the reference sets it in a strong colour, "muted" when grey, "default" for plain dark text (or white on a dark box).'
+    ),
+  iconPlacement: z
+    .enum(BLUEPRINT_ICON_PLACEMENTS)
+    .describe("For a card: its icon above its words (\"top\") or beside them (\"left\").")
+})
+
+export const BlueprintSchema = z.object({
+  blocks: z
+    .array(BlueprintBlockSchema)
+    .describe(
+      'Every element of the reference, back to front: backgrounds and panels first, then what sits on them.'
+    ),
+  arrows: z
+    .array(
+      z.object({
+        from: z.number().int().describe('Index (from 0) of the block the arrow starts at.'),
+        to: z.number().int().describe('Index of the block it points to.'),
+        style: z
+          .enum(BLUEPRINT_ARROW_STYLES)
+          .describe('"arrow" with a head, "line" a plain connector, "dashed" a dashed one.')
+      })
+    )
+    .describe('The arrows and connector lines between elements; empty when it has none.')
+})
+
+/** The brief with the reference image's structure, when one is attached. */
+export const ReferenceMediaBriefSchema = MediaBriefSchema.extend({
+  blueprint: BlueprintSchema.describe(
+    "The reference image's structure: its elements where it has them, filled with this post's content."
+  )
+})
 
 /** An image this post already had, so a new one can be told apart from it. */
 export interface PriorVisual {
@@ -270,6 +377,10 @@ export interface DerivedMediaBrief {
   layout: CanvasLayout
   copy: CanvasCopySpec
   visual: VisualSpec
+  /** With a reference image: its structure, drawn instead of `layout`. */
+  blueprint?: Blueprint
+  /** The pattern the art director chose, for a brand on Auto. */
+  backgroundPattern: CanvasPattern
   altText: string
 }
 

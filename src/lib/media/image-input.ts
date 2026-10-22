@@ -6,6 +6,8 @@
  * bypassed. Kept free of Node APIs so client components can import it.
  */
 
+import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
+
 export const IMAGE_PROMPT_MIN_LENGTH = 3
 export const IMAGE_PROMPT_MAX_WORDS = 1000
 export const IMAGE_PROMPT_MAX_CHARACTERS = 10000
@@ -18,6 +20,48 @@ export const MAX_REFERENCE_IMAGES = 1
 
 export const STOCK_QUERY_MAX_LENGTH = 200
 export const IMAGE_URL_MAX_LENGTH = 2048
+
+/**
+ * The kinds of image a reviewer can ask for when one is designed from the
+ * post, in plain words. Optional: without a choice the art director picks.
+ */
+export const IMAGE_TYPE_CHOICES = [
+  {
+    value: 'hub_spoke',
+    label: 'Hub & spoke',
+    description: 'One idea in the middle, linked to the parts around it.'
+  },
+  {
+    value: 'flow',
+    label: 'Steps',
+    description: 'A process from start to finish, step by step.'
+  },
+  {
+    value: 'stack',
+    label: 'Layers',
+    description: 'Building blocks stacked, each resting on the one below.'
+  },
+  {
+    value: 'cards',
+    label: 'Key points',
+    description: '2 to 4 takeaways side by side, each with a short detail.'
+  },
+  {
+    value: 'comparison',
+    label: 'Comparison',
+    description: 'Two sides next to each other, like before and after.'
+  },
+  {
+    value: 'illustration',
+    label: 'Illustration',
+    description: 'A drawn scene instead of a diagram, for a story or a moment.'
+  }
+] as const satisfies readonly {
+  value: VisualType
+  label: string
+  description: string
+}[]
+export type ImageTypeChoice = (typeof IMAGE_TYPE_CHOICES)[number]['value']
 
 const formatMegabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 

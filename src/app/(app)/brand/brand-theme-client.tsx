@@ -4,9 +4,7 @@ import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
 import { FONT_CHOICES } from '@/lib/brand/fonts'
 import {
-  BACKGROUND_PATTERNS,
   describeColor,
-  displayWebsite,
   isLightBackground,
   LOGO_MAX_DATA_URL_LENGTH,
   LOGO_MAX_EDGE,
@@ -14,17 +12,12 @@ import {
   LOGO_UPLOAD_MAX_BYTES,
   LOGO_UPLOAD_TYPES,
   normalizeHex,
-  VISUAL_STYLES,
-  type BackgroundPattern,
-  type ResolvedBrandTheme,
-  type VisualStyle
+  type ResolvedBrandTheme
 } from '@/lib/brand/theme'
 import { cn } from '@/lib/cn'
 import {
-  Check,
   ImageIcon,
   ImagePlus,
-  LayoutGrid,
   Loader2,
   Palette,
   Trash2,
@@ -361,10 +354,13 @@ function BrandPreview({
   const primary = theme.primaryColor || '#0297b2'
   const accent = theme.accentColor || '#00a3c4'
   const bg = theme.backgroundColor || '#f8fafc'
-  const pattern = theme.backgroundPattern || 'dots'
+  // Auto is settled per image; the sample shows the usual dots.
+  const pattern =
+    theme.backgroundPattern === 'auto' ? 'dots' : theme.backgroundPattern || 'dots'
   const headingFont = theme.headingFont || 'Inter'
   const bodyFont = theme.bodyFont || 'Inter'
-  const footer = theme.footerText || 'tdccommerce.com'
+  // Images carry a website only when one was typed in on the Posts page.
+  const footer = theme.footerText
 
   return (
     <div className="space-y-2">
@@ -465,12 +461,16 @@ function BrandPreview({
           </div>
 
           {/* Footer (Bottom-Left) */}
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500">
-            <div
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: accent }}
-            />
-            <span>{footer}</span>
+          <div className="flex h-4 items-center gap-1.5 text-[10px] font-semibold text-slate-500">
+            {footer && (
+              <>
+                <div
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: accent }}
+                />
+                <span>{footer}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -541,7 +541,9 @@ function BrandPreview({
         </div>
       </div>
       <p className="text-muted text-[11px] leading-relaxed">
-        Live render canvas standard: Clean B2B vector diagram split layout with your actual logo, custom brand colours, typography, and crisp nodes.
+        A sample image with your logo, colours and typefaces. The image type,
+        background pattern and website are set on the Posts page, where images
+        are generated.
       </p>
     </div>
   )
@@ -550,13 +552,11 @@ function BrandPreview({
 export function BrandThemeClient({
   identityName,
   initialTheme,
-  initialLogo,
-  websiteUrl
+  initialLogo
 }: {
   identityName: string
   initialTheme: ResolvedBrandTheme
   initialLogo: string | null
-  websiteUrl?: string | null
 }) {
   const router = useRouter()
   const [theme, setTheme] = useState<ResolvedBrandTheme>(initialTheme)
@@ -575,9 +575,7 @@ export function BrandThemeClient({
     theme.headingFont !== saved.theme.headingFont ||
     theme.bodyFont !== saved.theme.bodyFont ||
     theme.visualStyle !== saved.theme.visualStyle ||
-    theme.backgroundPattern !== saved.theme.backgroundPattern ||
     theme.showLogo !== saved.theme.showLogo ||
-    theme.footerText !== saved.theme.footerText ||
     logo !== saved.logo
 
   useEffect(() => {
@@ -608,9 +606,7 @@ export function BrandThemeClient({
         headingFont: theme.headingFont,
         bodyFont: theme.bodyFont,
         visualStyle: theme.visualStyle,
-        backgroundPattern: theme.backgroundPattern,
         showLogo: theme.showLogo,
-        footerText: theme.footerText,
         logo: logo === saved.logo ? undefined : logo
       })
       if (!res.success) {
@@ -637,7 +633,7 @@ export function BrandThemeClient({
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Brand Theme"
-        description={`The logo, colours, typography and visual style on every image generated for ${identityName}.`}
+        description={`The logo, colours, typography and background on every image generated for ${identityName}.`}
         actions={
           <>
             {dirty && (
@@ -781,105 +777,6 @@ export function BrandThemeClient({
                       </option>
                     ))}
                   </select>
-                </div>
-              </div>
-            </Section>
-
-            {/* Visual Style & Pattern */}
-            <Section
-              icon={LayoutGrid}
-              title="Visual Style & Aesthetics"
-              description="Configure canvas background patterns, default diagram behavior, and footer handle."
-            >
-              <div className="space-y-4">
-                <div>
-                  <label className="text-foreground block text-xs font-semibold mb-1.5">
-                    Visual layout mode
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {VISUAL_STYLES.map(style => {
-                      const active = theme.visualStyle === style.value
-                      return (
-                        <button
-                          key={style.value}
-                          type="button"
-                          onClick={() =>
-                            setTheme(t => ({
-                              ...t,
-                              visualStyle: style.value as VisualStyle
-                            }))
-                          }
-                          className={cn(
-                            'flex flex-col items-center justify-center rounded-xl border p-2.5 text-center text-xs transition-all cursor-pointer',
-                            active
-                              ? 'border-accent bg-accent/10 font-semibold text-foreground'
-                              : 'border-border bg-surface-hover/50 text-muted hover:text-foreground'
-                          )}
-                        >
-                          <span className="flex items-center gap-1">
-                            {active && <Check className="h-3 w-3 text-accent" />}
-                            {style.label}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-foreground block text-xs font-semibold mb-1.5">
-                    Background pattern
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {BACKGROUND_PATTERNS.map(pat => {
-                      const active = theme.backgroundPattern === pat.value
-                      return (
-                        <button
-                          key={pat.value}
-                          type="button"
-                          onClick={() =>
-                            setTheme(t => ({
-                              ...t,
-                              backgroundPattern: pat.value as BackgroundPattern
-                            }))
-                          }
-                          className={cn(
-                            'flex items-center justify-center gap-1.5 rounded-xl border py-2 text-xs transition-all cursor-pointer',
-                            active
-                              ? 'border-accent bg-accent/10 font-semibold text-foreground'
-                              : 'border-border bg-surface-hover/50 text-muted hover:text-foreground'
-                          )}
-                        >
-                          {active && <Check className="h-3 w-3 text-accent" />}
-                          {pat.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="footer-text-input"
-                    className="text-foreground block text-xs font-semibold mb-1.5"
-                  >
-                    Footer website or handle
-                  </label>
-                  <input
-                    id="footer-text-input"
-                    placeholder={displayWebsite(websiteUrl) || 'e.g. tdccommerce.com'}
-                    value={theme.footerText ?? ''}
-                    onChange={e =>
-                      setTheme(t => ({
-                        ...t,
-                        footerText: e.target.value.trim() || null
-                      }))
-                    }
-                    className={inputClass}
-                  />
-                  <p className="text-muted mt-1 text-[11px]">
-                    Shown in the bottom-left corner with an accent indicator.
-                  </p>
                 </div>
               </div>
             </Section>

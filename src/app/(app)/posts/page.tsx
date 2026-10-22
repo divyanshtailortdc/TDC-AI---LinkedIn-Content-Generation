@@ -3,7 +3,7 @@ import { countPosts, loadPostsPage } from './posts-data'
 import { getIdentity, toIdentitySummary } from '@/lib/identity'
 import { NoIdentity } from '@/components/no-identity'
 import { loadBrandTheme } from '~/lib/ai/context'
-import { brandColors } from '~/lib/brand/theme'
+import { brandColors, displayWebsite } from '~/lib/brand/theme'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -44,7 +44,10 @@ export default async function PostsPage({
       identity={toIdentitySummary(identity)}
       brand={{
         hasLogo: brand.hasLogo,
-        colors: brandColors(brand).map(c => c.hex)
+        colors: brandColors(brand).map(c => c.hex),
+        pattern: brand.backgroundPattern,
+        footerText: brand.footerText,
+        website: displayWebsite(identity.websiteUrl)
       }}
     />
   )

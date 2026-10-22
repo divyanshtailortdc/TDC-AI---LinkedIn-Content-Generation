@@ -8,14 +8,18 @@ import { runSkill, SkillError } from '../../run-skill'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '../../usage'
 import { clamp, guardMediaBrief, normalizeOverlay } from './guard'
 import { buildPrompt, buildRetryPrompt, INSTRUCTIONS } from './prompt'
+import { z } from 'zod'
 import {
   MediaBriefSchema,
+  ReferenceMediaBriefSchema,
   type DeriveMediaBriefInput,
   type DeriveMediaBriefResult,
-  type MediaBrief
+  type MediaBrief,
+  type VisualType
 } from './schema'
 
 export type * from './schema'
+export { refineBlueprint } from './refine'
 
 /**
  * Skill: a finished post in, an image brief (concept, overlay text, prompt
@@ -35,16 +39,29 @@ export async function deriveMediaBrief(
 ): Promise<DeriveMediaBriefResult> {
   let usage: CallUsage = EMPTY_USAGE
 
+  // A type the reviewer chose is held to by the schema itself, not just
+  // checked afterwards; a reference sets its own structure instead.
+  const allowed = input.allowedTypes
+  const schema = input.referenceImage
+    ? ReferenceMediaBriefSchema
+    : allowed?.length
+      ? MediaBriefSchema.extend({
+          visualType: z
+            .enum(allowed as unknown as [VisualType, ...VisualType[]])
+            .describe('What fills the visual area; follow the rules in the request.')
+        })
+      : MediaBriefSchema
+
   const attempt = async (prompt: string) => {
     try {
       const result = await runSkill({
         stage: 'media_brief',
         instructions: INSTRUCTIONS,
         prompt,
-        // A reference image is looked at, not described: its layout and look
-        // are what the brief carries over.
+        // A reference image is looked at, not described: its structure comes
+        // back as a blueprint the canvas draws.
         images: input.referenceImage ? [input.referenceImage] : undefined,
-        schema: MediaBriefSchema,
+        schema,
         abortSignal: options.abortSignal
       })
       usage = addUsage(usage, result.usage)
@@ -86,17 +103,23 @@ export async function deriveMediaBrief(
     },
     avoidConcepts,
     whyItFits: output.whyItFits,
-    howItDiffers: output.howItDiffers || undefined
+    howItDiffers: output.howItDiffers || undefined,
+    // Only the reference schema has it.
+    ...('blueprint' in output && {
+      blueprint: output.blueprint as MediaBrief['blueprint']
+    })
   })
 
   const guardOptions = {
-    // A reference image sets the visual form, so a new image from the same
-    // reference may keep it; its subject must still change.
-    previousVisualTypes: input.referenceImage
-      ? []
-      : (input.previousVersions || [])
-          .map(v => v.visualType)
-          .filter((t): t is string => Boolean(t)),
+    // A reference image or a type the reviewer chose sets the visual form, so
+    // a new image may keep it; its subject must still change.
+    previousVisualTypes:
+      input.referenceImage || input.allowedTypes?.length === 1
+        ? []
+        : (input.previousVersions || [])
+            .map(v => v.visualType)
+            .filter((t): t is string => Boolean(t)),
+    allowedTypes: input.allowedTypes,
     extraSourceText: [input.goal?.keyMessage, input.goal?.desiredAction]
       .filter(Boolean)
       .join('\n')
@@ -162,6 +185,8 @@ export async function deriveMediaBrief(
           groups: output.groups,
           illustrationPrompt: output.illustrationPrompt
         },
+        blueprint: brief.blueprint,
+        backgroundPattern: output.backgroundPattern,
         altText: clamp(output.altText, 300)
       },
       guard,

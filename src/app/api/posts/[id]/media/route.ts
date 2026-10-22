@@ -1,3 +1,4 @@
+import { VISUAL_TYPES } from '~/lib/ai/skills/media-brief/schema'
 import { ImageGenerationAbortedError, readImageDimensions } from '~/lib/media'
 import {
   MAX_REFERENCE_IMAGES,
@@ -16,8 +17,10 @@ import { z } from 'zod'
 /**
  * Image generation for a post draft from the reviewer's own input:
  *
+ * - fromPost (prompt optional, as direction): a new image designed from the
+ *   post's own text, in the image type the reviewer picked, if any;
  * - a reference image (prompt optional): a new image designed from the post,
- *   in the reference's composition and style and the brand's colours;
+ *   built on the reference's structure, in the brand's colours;
  * - referenceMediaId ("Use current image") and a prompt: that image edited;
  * - a prompt alone: an image of exactly that, in the brand's colours.
  *
@@ -43,7 +46,10 @@ const bodySchema = z.object(
     referenceMediaId: z
       .string()
       .refine(isUuid, 'Invalid image reference.')
-      .optional()
+      .optional(),
+    // "Generate from post text": designed from the post, the prompt as direction.
+    fromPost: z.boolean().optional(),
+    visualType: z.enum(VISUAL_TYPES, { error: 'Unknown image type.' }).optional()
   },
   { error: 'Request body must be a JSON object.' }
 )
@@ -126,13 +132,39 @@ export async function POST(
 
   const prompt = parsed.data.prompt.trim()
   const referenceMediaId = parsed.data.referenceMediaId
-  const upload = !referenceMediaId ? parsed.data.referenceImages?.[0] : undefined
+  const fromPost = Boolean(parsed.data.fromPost) && !referenceMediaId
+  const upload =
+    !referenceMediaId && !fromPost ? parsed.data.referenceImages?.[0] : undefined
 
-  // A reference image guides a design from the post, so words are optional
-  // there; an edit or a plain prompt needs them.
-  if (prompt || !upload) {
+  // A design from the post, with or without a reference, needs no words; an
+  // edit or a plain prompt does.
+  if (prompt || (!upload && !fromPost)) {
     const promptError = validateImagePrompt(prompt)
     if (promptError) return fail(400, promptError)
+  }
+
+  // A route handler rather than the server action it once was: an action
+  // holds up every other action on the page for the minute this takes, and
+  // cannot be stopped.
+  if (fromPost) {
+    try {
+      const outcome = await createPostMedia({
+        draftId: id,
+        accountId,
+        mode: 'ai_generated',
+        customPrompt: prompt || undefined,
+        visualType: parsed.data.visualType,
+        abortSignal: request.signal
+      })
+      if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
+      if (outcome.status === 'aborted') return fail(499, 'Image generation was stopped.')
+      if (outcome.status === 'failed') return fail(502, outcome.error)
+      return Response.json({ success: true, media: outcome.media })
+    } catch (err: any) {
+      if (request.signal.aborted) return fail(499, 'Image generation was stopped.')
+      console.error('Error generating post media from the post text:', err)
+      return fail(502, err?.message || 'Failed to generate image.')
+    }
   }
 
   if (upload) {

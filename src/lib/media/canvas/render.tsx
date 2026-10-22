@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { BlueprintLayout } from './blueprint-render'
 import { Diagram, IconTile, Pill, WideDiagram } from './diagram'
 import type { SatoriFont } from './fonts'
 import { mix } from './palette'
@@ -21,9 +22,42 @@ import {
  * - split_right: Visual left 55%, text right 45% (Inverted layout)
  * - top_bottom: Headline across top, horizontal visual/cards across bottom
  * - centered_hero: Centered elevated card with headline and highlight pills
+ *
+ * With a reference image, its own structure (spec.blueprint) is drawn
+ * instead; see ./blueprint-render.
  */
 
 const LOGO_BOX = { width: 340, height: 84 }
+
+/** The dots and grid the background patterns fill with, for an svg's <defs>. */
+const patternDefs = (palette: CanvasSpec['palette']) => [
+  <pattern key="dots" id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+    <circle cx="17" cy="17" r="2.2" fill={palette.pattern} />
+  </pattern>,
+  <pattern key="grid" id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+    <path d="M 56 0 L 0 0 0 56" fill="none" stroke={palette.pattern} strokeWidth="1.6" />
+  </pattern>
+]
+
+/**
+ * A reference's own design gets only the brand background and its pattern:
+ * the glow and fade belong to the built-in layouts, not to the reference.
+ */
+function PlainBackground({ spec }: { spec: CanvasSpec }) {
+  const { palette, pattern } = spec
+  const size = spec.size ?? CANVAS_SIZE
+  if (pattern === 'plain') return null
+  return (
+    <svg
+      width={size.width}
+      height={size.height}
+      style={{ position: 'absolute', left: 0, top: 0 }}
+    >
+      <defs>{patternDefs(palette)}</defs>
+      <rect width="100%" height="100%" fill={`url(#${pattern})`} />
+    </svg>
+  )
+}
 
 function Background({ spec }: { spec: CanvasSpec }) {
   const { palette, pattern, layout = 'split_left' } = spec
@@ -42,12 +76,7 @@ function Background({ spec }: { spec: CanvasSpec }) {
       style={{ position: 'absolute', left: 0, top: 0 }}
     >
       <defs>
-        <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
-          <circle cx="17" cy="17" r="2.2" fill={palette.pattern} />
-        </pattern>
-        <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
-          <path d="M 56 0 L 0 0 0 56" fill="none" stroke={palette.pattern} strokeWidth="1.6" />
-        </pattern>
+        {patternDefs(palette)}
         <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
           <stop offset="0" stopColor={palette.primary} stopOpacity="0.13" />
           <stop offset="1" stopColor={palette.primary} stopOpacity="0" />
@@ -658,9 +687,15 @@ export async function renderCanvas(
           color: spec.palette.ink
         }}
       >
-        <Background spec={spec} />
+        {spec.blueprint ? <PlainBackground spec={spec} /> : <Background spec={spec} />}
 
-        {layout === 'top_bottom' ? (
+        {spec.blueprint ? (
+          <BlueprintLayout
+            spec={spec}
+            blueprint={spec.blueprint}
+            canvas={spec.size ?? CANVAS_SIZE}
+          />
+        ) : layout === 'top_bottom' ? (
           <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
             <TopHeader spec={spec} />
             <div
@@ -714,7 +749,7 @@ export async function renderCanvas(
       </div>
     ),
     {
-      ...CANVAS_SIZE,
+      ...(spec.size ?? CANVAS_SIZE),
       fonts: fonts.map(f => ({
         name: f.name,
         // satori wants an ArrayBuffer; a Buffer may be a view on a larger pool.

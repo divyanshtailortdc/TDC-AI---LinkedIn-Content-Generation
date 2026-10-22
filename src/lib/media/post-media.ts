@@ -12,6 +12,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
+import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
 import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
@@ -71,6 +72,8 @@ export async function createPostMedia(input: {
   rejectionReason?: string
   /** An image the reviewer attached to guide composition and style. */
   referenceImage?: Buffer
+  /** AI: the image type the reviewer picked; the art director chooses when unset. */
+  visualType?: VisualType
   abortSignal?: AbortSignal
 }): Promise<PostMediaOutcome> {
   const draft = await db.query.postDraftsTable.findFirst({
@@ -143,6 +146,10 @@ export async function createPostMedia(input: {
       mode === 'ai_generated'
         ? customPrompt ||
           (previousVersions.length === 0 ? ideaDirection : undefined)
+        : undefined,
+    allowedTypes:
+      mode === 'ai_generated' && input.visualType
+        ? [input.visualType]
         : undefined,
     postText: postFullText(draft),
     context,

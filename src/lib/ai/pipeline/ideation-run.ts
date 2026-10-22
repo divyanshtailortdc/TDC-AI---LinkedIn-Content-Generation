@@ -521,8 +521,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
           idea.targetAudience
         ),
         supportingEvidence: idea.supportingEvidence,
-        // No image by default; one can be added per post on the review screen.
-        // The brief is kept so that image starts from the idea's direction.
+        // Drafting gives every post an image designed from its text; the
+        // brief is kept so that image starts from the idea's direction.
         suggestedMedia: {
           mode: 'none' as const,
           brief: idea.suggestedMedia?.brief

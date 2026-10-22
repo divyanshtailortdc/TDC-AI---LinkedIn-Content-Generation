@@ -242,7 +242,7 @@ export function LinkedInPreview({
                 alt={mediaAltText || 'Post illustration'}
                 width={1200}
                 height={630}
-                className="w-full max-h-95 object-cover"
+                className="h-auto w-full"
                 unoptimized
               />
               <span className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
@@ -256,7 +256,7 @@ export function LinkedInPreview({
               alt={mediaAltText || 'Post illustration'}
               width={1200}
               height={630}
-              className="w-full max-h-95 object-cover"
+              className="h-auto w-full"
               unoptimized
             />
           )}

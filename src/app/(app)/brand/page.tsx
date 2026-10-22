@@ -37,7 +37,6 @@ export default async function BrandThemePage() {
       identityName={identity.name}
       initialTheme={theme}
       initialLogo={row?.logoImage ?? null}
-      websiteUrl={identity.websiteUrl}
     />
   )
 }

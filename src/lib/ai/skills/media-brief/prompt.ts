@@ -29,6 +29,31 @@ const TYPE_GUIDE: Record<VisualType, string> = {
     'illustration: a flat vector illustration from the image model, with 2-3 labelled badges laid over it. For a story, a scene, a moment or a feeling that a diagram would flatten.'
 }
 
+/**
+ * With a reference, the art director copies its structure into a blueprint
+ * the canvas draws block by block; the layout and visual fields stay as the
+ * fallback when the blueprint cannot be drawn.
+ */
+const REFERENCE_GUIDE = `The reference is the design to rebuild, not inspiration. Scan it and copy its structure into "blueprint": one block for every element it has, decorative shapes, rings, lines and standalone icons included, at the same position and size, measured from each element's outer edges as percentages of its width and height, to the nearest 0.5. Keep exactly:
+- its count of cards, stats, pills, list lines, icons and shapes, and the spacing between them;
+- each element's shape: a circle stays a circle, a pill a pill, square corners stay square;
+- which elements are solid, dark, tinted, white, outlined or bare, and which cast a shadow;
+- its alignment, how big each text is (textSize) and how heavy (weight);
+- its arrows and connector lines.
+Then fill every block with this post's content. Take none of its objects, wording, numbers or logos. Its colours map onto the brand's: "primary" its strongest colour, "accent" a second strong one, "dark" near-black or navy, "soft" pale tints, "surface" white boxes, "outline" boxes drawn only as an outline.
+- Its main title is the headline block, the small label above it the tagline block, and its sentence under the title the text block; their words come from tagline, headline and subheadline. Leave highlightWords empty unless the reference sets some of its title's words in another colour.
+- Any other short text (a step number, a caption, a name) is a label block with its own words.
+- When its whole background is a colour other than white or light grey, the first block is a panel covering the whole image in that tone.
+- backgroundPattern is the texture its background has: "plain" when it is flat.
+- Where it has a logo or a website, put a logo or footer block there.
+- Keep each block's words about as long as the reference's, so they fit the same box.
+- A block's box holds only its own element: a box of words ends where the next element begins, never running under it, unless the words sit inside that element; and no box of words reaches the image's edge.
+- A stat block shows a figure this post states, with its caption in detail when the caption sits under it; a caption set beside the figure is a label block of its own.
+- A stat's figure must appear in this post. When the post has fewer figures than the reference has stats, make the rest cards.
+- A photo, illustration, screenshot or device area is an image block ("circle" for a round avatar): write illustrationPrompt for what goes in the first one.
+- Follow the reference even when an earlier image had a similar structure; only the words and subject must differ.
+- Still fill layout, visualType and nodes: they are drawn if the blueprint cannot be.`
+
 export function buildPrompt(input: DeriveMediaBriefInput): string {
   const evidence = (input.evidence || [])
     .slice(0, 6)
@@ -122,10 +147,8 @@ ${section('THE ARGUMENT', input.thesis)}${section(
     'BRAND THEME',
     input.brand
   )}${section(
-    'REFERENCE IMAGE (attached) — the reviewer chose it to guide the look',
-    input.referenceImage
-      ? 'Let it guide the choice of visual type and, for an illustration, its drawing style. Take none of its objects, wording or logos: what the image says comes from the post.'
-      : ''
+    'REFERENCE IMAGE (attached) — the reviewer wants the new image built like it',
+    input.referenceImage ? REFERENCE_GUIDE : ''
   )}${section('EARLIER IMAGES FOR THIS POST', earlierBlock)}${section(
     'VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above. Words in quotation marks are text the reviewer wants on the image: use them exactly, as the headline unless they say otherwise.',
     input.direction
@@ -141,7 +164,11 @@ Never generate all images in the same format. If earlier images exist, pick a di
 
 VISUAL TYPES you may use:
 ${allowed.map(t => `- ${TYPE_GUIDE[t]}`).join('\n')}
-Pick the one whose shape matches how the post's point is built.
+${
+  allowed.length === 1
+    ? "The reviewer chose this visual type: use it, and shape the post's point to fit it."
+    : "Pick the one whose shape matches how the post's point is built."
+}
 
 ICONS for nodes and the hub: ${ICON_NAMES.join(', ')}.
 

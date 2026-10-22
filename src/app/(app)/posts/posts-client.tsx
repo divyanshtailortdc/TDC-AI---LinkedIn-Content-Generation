@@ -11,7 +11,9 @@ import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { linkedInPostText, toLinkedInText } from '@/lib/post-text'
 import {
   IMAGE_PROMPT_MAX_WORDS,
+  IMAGE_TYPE_CHOICES,
   countWords,
+  type ImageTypeChoice,
   validateImagePrompt,
   validateImageUrl,
   validateReferenceDimensions,
@@ -23,7 +25,12 @@ import {
   reviewerSourceLabel
 } from '@/lib/media/media-source'
 import { getUserFacingRelevance } from '@/lib/media/relevance-label'
-import { BRAND_THEME_PATH } from '@/lib/brand/theme'
+import {
+  BACKGROUND_PATTERNS,
+  BRAND_THEME_PATH,
+  FOOTER_MAX_LENGTH,
+  type BackgroundPattern
+} from '@/lib/brand/theme'
 import Link from 'next/link'
 import {
   AlertTriangle,
@@ -34,6 +41,7 @@ import {
   ChevronRight,
   ChevronUp,
   CircleStop,
+  Columns2,
   Copy,
   Download,
   Edit2,
@@ -42,15 +50,20 @@ import {
   FileText,
   Image as ImageIcon,
   Info,
+  Layers,
+  LayoutGrid,
   ListFilter,
   Loader2,
   MessageSquare,
+  Network,
   Palette,
   Paperclip,
+  PenTool,
   Quote,
   Search,
   Sparkles,
   Trash2,
+  Workflow,
   X,
   ZoomIn
 } from 'lucide-react'
@@ -70,10 +83,17 @@ import {
   regeneratePostMediaAction,
   rejectDraft,
   removePostMediaAction,
+  saveImageSettings,
   updateDraft,
   updatePostMediaAction
 } from './actions'
 import { initialsOf } from '@/lib/initials'
+import {
+  currentMediaJob,
+  startMediaJob,
+  trackPostsPage,
+  type MediaJobOutcome
+} from './media-jobs'
 import { formatAbsoluteDate, formatAbsoluteDateTime } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 
@@ -134,6 +154,12 @@ export interface BrandSummary {
   hasLogo: boolean
   /** Hex colours, the primary first. */
   colors: string[]
+  /** Set from the image panel; saved for the identity. */
+  pattern: BackgroundPattern
+  /** The website or handle on images; null for none. */
+  footerText: string | null
+  /** The identity's website as an image would show it, as a placeholder hint. */
+  website: string | null
 }
 
 const LINT_RULE_LABELS: Record<string, string> = {
@@ -164,6 +190,27 @@ function getHumanRuleLabel(rule: string): string {
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())
 }
+
+// The image type picker: Auto (null) lets the art director choose per post.
+const IMAGE_TYPE_OPTIONS = [
+  {
+    value: null,
+    label: 'Auto',
+    description: 'Picks the type that fits the post best.',
+    icon: Sparkles
+  },
+  ...IMAGE_TYPE_CHOICES.map(choice => ({
+    ...choice,
+    icon: {
+      hub_spoke: Network,
+      flow: Workflow,
+      stack: Layers,
+      cards: LayoutGrid,
+      comparison: Columns2,
+      illustration: PenTool
+    }[choice.value]
+  }))
+]
 
 type StatusFilter = 'all' | 'awaiting_review' | 'approved' | 'rejected'
 type SortOrder = 'newest' | 'oldest'
@@ -483,16 +530,23 @@ export function PostsClientInner({
   const [copiedImage, setCopiedImage] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
-  // Media management state
-  const [isMediaLoading, setIsMediaLoading] = useState(false)
+  // Media management state. A generation started before this page opened
+  // (the reviewer left the page and came back) is still running: the page
+  // starts from it, read once so its state and its outcome agree.
+  const [resumedJob] = useState(currentMediaJob)
+  const [isMediaLoading, setIsMediaLoading] = useState(() => resumedJob !== null)
   // The post the running media job is for. Only one job runs at a time (they
   // share the Stop button's abort controller), but its progress belongs to
   // that post alone, not to whichever post is open now.
-  const [mediaPostId, setMediaPostId] = useState<string | null>(null)
+  const [mediaPostId, setMediaPostId] = useState<string | null>(
+    () => resumedJob?.postId ?? null
+  )
   // Progress and Stop show on the post the media job is for; on any other post
   // the media actions just stay disabled until it finishes.
   const mediaBusyHere = isMediaLoading && mediaPostId === activePost?.id
-  const [mediaLoadingText, setMediaLoadingText] = useState('')
+  const [mediaLoadingText, setMediaLoadingText] = useState(
+    () => resumedJob?.loadingText ?? ''
+  )
   const [mediaError, setMediaError] = useState<string | null>(null)
   const [showStockInput, setShowStockInput] = useState(false)
   const [stockSearchQuery, setStockSearchQuery] = useState('')
@@ -517,16 +571,35 @@ export function PostsClientInner({
   )
   // "Use current image" sends this id, and the server edits that image as it
   // was before its logo went on, so the edit never redraws the logo. Without
-  // it, an attached image is a reference: it guides the layout and style of a
-  // new image designed from the post.
+  // it, an attached image is a reference: a new image designed from the post
+  // copies its structure.
   const [referenceMediaId, setReferenceMediaId] = useState<string | null>(null)
   const referenceInputRef = useRef<HTMLInputElement>(null)
-  const [isGenerating, setIsGenerating] = useState(false)
+  // Optional, and kept across posts like a preference; null is Auto.
+  const [imageType, setImageType] = useState<ImageTypeChoice | null>(null)
+  // The background and website on every new image: saved for the identity,
+  // so the images made while drafting use them too.
+  const [imagePattern, setImagePattern] = useState(brand.pattern)
+  const [savedFooter, setSavedFooter] = useState(brand.footerText ?? '')
+  const [footerDraft, setFooterDraft] = useState(brand.footerText ?? '')
+  // The saves in order (see handleSaveImageSettings), and what the server
+  // last confirmed, for a failed one to fall back to.
+  const settingsSaveRef = useRef<Promise<void>>(Promise.resolve())
+  const settingsSeqRef = useRef(0)
+  const confirmedSettingsRef = useRef({
+    pattern: brand.pattern,
+    footer: brand.footerText ?? ''
+  })
+  const [isGenerating, setIsGenerating] = useState(() =>
+    Boolean(resumedJob?.controller)
+  )
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
-  const generationAbortRef = useRef<AbortController | null>(null)
-
-  // Leaving the page must not leave a generation running that would still save.
-  useEffect(() => () => generationAbortRef.current?.abort(), [])
+  const generationAbortRef = useRef<AbortController | null>(
+    resumedJob?.controller ?? null
+  )
+  // Leaving the page does not stop a generation (see ./media-jobs); a page
+  // that has closed just no longer shows its outcome.
+  const mountedRef = useRef(false)
 
   // The editor reads the edit buffer, so it is reset (with the per-post
   // panels) whenever a different post opens, however that happens: a click,
@@ -565,6 +638,45 @@ export function PostsClientInner({
     if (isPostOpen(postId)) setMediaError(message)
     else showToast({ type: 'error', title: 'Media update failed', message })
   }
+
+  // A generation's outcome, applied on whichever page is open when it lands,
+  // and once: the page that started it and a remounted one both wait on it.
+  const appliedOutcomeRef = useRef<MediaJobOutcome | null>(null)
+  const finishMediaJob = (outcome: MediaJobOutcome) => {
+    if (appliedOutcomeRef.current === outcome) return
+    appliedOutcomeRef.current = outcome
+    const { postId } = outcome
+    if (outcome.status === 'created') {
+      setPosts(prev =>
+        prev.map(p => (p.id === postId ? { ...p, media: outcome.media } : p))
+      )
+    } else if (outcome.status === 'failed') {
+      reportMediaError(postId, outcome.error)
+    } else if (isPostOpen(postId)) {
+      setMediaNotice('Generation stopped. Edit your prompt and try again.')
+    }
+    generationAbortRef.current = null
+    setIsGenerating(false)
+    setIsMediaLoading(false)
+    setMediaPostId(null)
+    setMediaLoadingText('')
+  }
+
+  useEffect(() => {
+    mountedRef.current = true
+    const untrack = trackPostsPage()
+    // A generation started before this page opened lands here when it ends,
+    // even if it ended between the first render and now.
+    void resumedJob?.done.then(outcome => {
+      if (mountedRef.current) finishMediaJob(outcome)
+    })
+    return () => {
+      mountedRef.current = false
+      untrack()
+    }
+    // Once per page: the job and its outcome outlive any one render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // The preview and Copy show the saved post, which is what Approve saves; the
   // edit buffer only while the editor is open. Showing unsaved edits there
@@ -837,6 +949,64 @@ export function PostsClientInner({
     }
   }
 
+  // Every generation goes through the media route, so the Stop button can
+  // end it, and runs as a job, so leaving the page does not.
+  const startMediaRequest = async (
+    postId: string,
+    loadingText: string,
+    payload: Record<string, unknown>
+  ) => {
+    const controller = new AbortController()
+    generationAbortRef.current = controller
+    setIsMediaLoading(true)
+    setMediaPostId(postId)
+    setIsGenerating(true)
+    setMediaLoadingText(loadingText)
+    setMediaError(null)
+    setMediaNotice(null)
+    setMediaMenuOpen(false)
+
+    // A website or background changed just before is saved first, so the
+    // new image already has it.
+    const settingsSaved = settingsSaveRef.current
+    const body = JSON.stringify(payload)
+    const job = startMediaJob(
+      { postId, loadingText, controller },
+      async (): Promise<MediaJobOutcome> => {
+        try {
+          await settingsSaved
+          const response = await fetch(`/api/posts/${postId}/media`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+            signal: controller.signal
+          })
+          const res = await response.json().catch(() => null)
+          return response.ok && res?.success && res.media
+            ? { postId, status: 'created', media: res.media }
+            : {
+                postId,
+                status: 'failed',
+                error:
+                  res?.error ||
+                  `Image generation failed (HTTP ${response.status}).`
+              }
+        } catch (err: any) {
+          if (controller.signal.aborted) return { postId, status: 'stopped' }
+          return {
+            postId,
+            status: 'failed',
+            error: err?.message
+              ? `Could not reach the server: ${err.message}`
+              : 'Could not reach the server. Check your connection and try again.'
+          }
+        }
+      }
+    )
+    const outcome = await job.done
+    if (mountedRef.current) finishMediaJob(outcome)
+  }
+
   const handleGenerateFromPrompt = async () => {
     if (!activePost || isMediaLoading) return
 
@@ -851,68 +1021,20 @@ export function PostsClientInner({
       return
     }
 
-    const postId = activePost.id
-    const controller = new AbortController()
-    generationAbortRef.current = controller
-
-    setIsMediaLoading(true)
-    setMediaPostId(postId)
-    setIsGenerating(true)
-    setMediaLoadingText(
+    await startMediaRequest(
+      activePost.id,
       guidedByReference
-        ? 'Designing a visual from the post in the layout and style of your reference, in your brand colours. This takes about a minute.'
+        ? 'Rebuilding your reference with this post’s words and your brand colours, then checking it against the reference. This takes a minute or two.'
         : referenceMediaId
           ? 'Editing your image in HD...'
-          : 'Generating your image in HD...'
+          : 'Generating your image in HD...',
+      {
+        prompt: imagePrompt.trim(),
+        ...(referenceMediaId
+          ? { referenceMediaId }
+          : { referenceImages: referenceImage ? [referenceImage] : undefined })
+      }
     )
-    setMediaError(null)
-    setMediaNotice(null)
-    setMediaMenuOpen(false)
-
-    try {
-      const response = await fetch(`/api/posts/${postId}/media`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: imagePrompt.trim(),
-          ...(referenceMediaId
-            ? { referenceMediaId }
-            : { referenceImages: referenceImage ? [referenceImage] : undefined })
-        }),
-        signal: controller.signal
-      })
-      const res = await response.json().catch(() => null)
-
-      if (response.ok && res?.success && res.media) {
-        setPosts(prev =>
-          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
-        )
-      } else {
-        reportMediaError(
-          postId,
-          res?.error || `Image generation failed (HTTP ${response.status}).`
-        )
-      }
-    } catch (err: any) {
-      if (controller.signal.aborted) {
-        if (isPostOpen(postId))
-          setMediaNotice('Generation stopped. Edit your prompt and try again.')
-      } else {
-        reportMediaError(
-          postId,
-          err?.message
-            ? `Could not reach the server: ${err.message}`
-            : 'Could not reach the server. Check your connection and try again.'
-        )
-      }
-    } finally {
-      if (generationAbortRef.current === controller)
-        generationAbortRef.current = null
-      setIsGenerating(false)
-      setIsMediaLoading(false)
-      setMediaPostId(null)
-      setMediaLoadingText('')
-    }
   }
 
   // Aborting the fetch closes the request, which cancels generation server-side.
@@ -924,42 +1046,51 @@ export function PostsClientInner({
   // generates from that. A typed prompt is passed along as direction only.
   const handleGenerateFromPost = async () => {
     if (!activePost || isMediaLoading) return
-
-    const postId = activePost.id
-    setIsMediaLoading(true)
-    setMediaPostId(postId)
-    setMediaLoadingText(
-      'Designing a visual from the post, then checking its text and branding. This takes about a minute.'
-    )
-    setMediaError(null)
-    setMediaNotice(null)
-    setMediaMenuOpen(false)
-
-    try {
-      const res = await regeneratePostMediaAction(postId, {
-        mode: 'ai_generated',
-        customPrompt: imagePrompt.trim() || undefined
-      })
-      if (res.success && res.media) {
-        setPosts(prev =>
-          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
-        )
-      } else {
-        reportMediaError(
-          postId,
-          res.error || 'Could not generate a visual from this post.'
-        )
+    await startMediaRequest(
+      activePost.id,
+      'Designing a visual from the post, then checking its text and branding. This takes about a minute.',
+      {
+        fromPost: true,
+        prompt: imagePrompt.trim(),
+        visualType: imageType ?? undefined
       }
-    } catch (err: any) {
-      reportMediaError(
-        postId,
-        err?.message || 'Could not generate a visual from this post.'
-      )
-    } finally {
-      setIsMediaLoading(false)
-      setMediaPostId(null)
-      setMediaLoadingText('')
-    }
+    )
+  }
+
+  // Shown as chosen at once. Saves run one after another, so the last one
+  // wins; a failed one puts back what the server last confirmed, unless a
+  // later save has already replaced it.
+  const handleSaveImageSettings = (next: {
+    pattern: BackgroundPattern
+    footer: string
+  }) => {
+    setImagePattern(next.pattern)
+    setSavedFooter(next.footer)
+    const seq = ++settingsSeqRef.current
+    const save = settingsSaveRef.current.then(async () => {
+      const res = await saveImageSettings({
+        backgroundPattern: next.pattern,
+        footerText: next.footer || null
+      }).catch((err: any) => ({
+        success: false as const,
+        error: err?.message || 'Could not save the image settings.'
+      }))
+      if (res.success) {
+        confirmedSettingsRef.current = next
+      } else {
+        if (seq === settingsSeqRef.current) {
+          setImagePattern(confirmedSettingsRef.current.pattern)
+          setSavedFooter(confirmedSettingsRef.current.footer)
+        }
+        showToast({
+          type: 'error',
+          title: 'Image settings not saved',
+          message: res.error
+        })
+      }
+    })
+    settingsSaveRef.current = save
+    return save
   }
 
   const handleDownloadMedia = async () => {
@@ -2495,6 +2626,137 @@ export function PostsClientInner({
                       </div>
                     )}
 
+                    {/* Optional image type for a design from the post; an
+                        edit of the current image keeps its own. */}
+                    {!mediaBusyHere && !referenceMediaId && (
+                      <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
+                        <div className="flex items-baseline justify-between">
+                          <span
+                            id="image-type-label"
+                            className="text-foreground text-[11px] font-semibold"
+                          >
+                            Image type
+                          </span>
+                          <span className="text-muted text-[10px]">
+                            Optional
+                          </span>
+                        </div>
+                        <div
+                          role="radiogroup"
+                          aria-labelledby="image-type-label"
+                          className="flex flex-wrap gap-1.5"
+                        >
+                          {IMAGE_TYPE_OPTIONS.map(option => {
+                            const active = imageType === option.value
+                            const Icon = option.icon
+                            return (
+                              <button
+                                key={option.label}
+                                type="button"
+                                role="radio"
+                                aria-checked={active}
+                                title={option.description}
+                                // A reference image sets the structure itself.
+                                disabled={Boolean(referenceImage)}
+                                onClick={() => setImageType(option.value)}
+                                className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                  active
+                                    ? 'border-accent bg-accent/10 text-foreground font-semibold'
+                                    : 'border-border bg-surface text-muted hover:text-foreground'
+                                }`}
+                              >
+                                <Icon
+                                  className={`h-3 w-3 ${active ? 'text-accent' : ''}`}
+                                />
+                                {option.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <p className="text-muted text-[10px]">
+                          {referenceImage
+                            ? 'Your reference image sets the structure and the background, so Image type and Background are not used.'
+                            : imagePrompt.trim()
+                              ? 'Generate image follows your description below. The type is used by "Generate from post text".'
+                              : IMAGE_TYPE_OPTIONS.find(o => o.value === imageType)
+                                  ?.description}
+                        </p>
+
+                        <div className="border-border space-y-2 border-t pt-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              id="image-background-label"
+                              className="text-foreground text-[11px] font-semibold"
+                            >
+                              Background
+                            </span>
+                            <div
+                              role="radiogroup"
+                              aria-labelledby="image-background-label"
+                              className="flex gap-1.5"
+                            >
+                              {BACKGROUND_PATTERNS.map(pattern => {
+                                const active = imagePattern === pattern.value
+                                return (
+                                  <button
+                                    key={pattern.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={active}
+                                    // A reference image brings its own background.
+                                    disabled={Boolean(referenceImage)}
+                                    onClick={() =>
+                                      !active &&
+                                      handleSaveImageSettings({
+                                        pattern: pattern.value,
+                                        footer: savedFooter
+                                      })
+                                    }
+                                    className={`inline-flex h-6 cursor-pointer items-center rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                      active
+                                        ? 'border-accent bg-accent/10 text-foreground font-semibold'
+                                        : 'border-border bg-surface text-muted hover:text-foreground'
+                                    }`}
+                                  >
+                                    {pattern.label}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <label
+                              htmlFor="image-footer"
+                              className="text-foreground shrink-0 text-[11px] font-semibold"
+                            >
+                              Website
+                            </label>
+                            <input
+                              id="image-footer"
+                              value={footerDraft}
+                              maxLength={FOOTER_MAX_LENGTH}
+                              placeholder={`e.g. ${brand.website || 'yourcompany.com'}`}
+                              onChange={e => setFooterDraft(e.target.value)}
+                              onBlur={() => {
+                                const footer = footerDraft.trim()
+                                setFooterDraft(footer)
+                                if (footer !== savedFooter)
+                                  handleSaveImageSettings({
+                                    pattern: imagePattern,
+                                    footer
+                                  })
+                              }}
+                              onKeyDown={e =>
+                                e.key === 'Enter' && e.currentTarget.blur()
+                              }
+                              className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-[11px] outline-none"
+                            />
+                          </div>
+                         
+                        </div>
+                      </div>
+                    )}
+
                     {/* Prompt-driven generation */}
                     {!mediaBusyHere && (
                       <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
@@ -2524,6 +2786,22 @@ export function PostsClientInner({
                           value={imagePrompt}
                           onChange={e => setImagePrompt(e.target.value)}
                           onPaste={handleReferencePaste}
+                          // Enter does what the main button does; Shift+Enter
+                          // starts a new line.
+                          onKeyDown={e => {
+                            if (
+                              e.key !== 'Enter' ||
+                              e.shiftKey ||
+                              e.nativeEvent.isComposing
+                            ) {
+                              return
+                            }
+                            e.preventDefault()
+                            if (isMediaLoading || mainButtonBlocked) return
+                            void (regenerateFromPost
+                              ? handleGenerateFromPost()
+                              : handleGenerateFromPrompt())
+                          }}
                           rows={5}
                           placeholder={
                             referenceMediaId
@@ -2540,9 +2818,11 @@ export function PostsClientInner({
                           id="image-prompt-hint"
                           className="flex items-start justify-between gap-2 text-[11px]"
                         >
-                          <span className="text-rose-600 dark:text-rose-400">
-                            {showPromptError ? promptError : ''}
-                          </span>
+                          {showPromptError ? (
+                            <span className="text-rose-600 dark:text-rose-400">
+                              {promptError}
+                            </span>
+                          ) : null}
                           <span
                             className={`shrink-0 tabular-nums ${
                               countWords(imagePrompt) > IMAGE_PROMPT_MAX_WORDS
@@ -2572,7 +2852,7 @@ export function PostsClientInner({
                               <p className="text-muted text-[10px]">
                                 {referenceMediaId
                                   ? 'Will be edited — unchanged parts are preserved'
-                                  : 'Guides layout and style. The subject comes from the post, the colours from your brand.'}
+                                  : 'Its structure is copied: the same blocks in the same places, with this post’s words and your brand colours.'}
                               </p>
                             </div>
                             <button
@@ -2592,7 +2872,7 @@ export function PostsClientInner({
                               className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium"
                             >
                               <Paperclip className="h-3 w-3" />
-                              Attach a reference image for layout and style
+                              Attach a reference image to copy its layout
                             </button>
                             {activePost.media?.imageUrl && (
                               <button
@@ -2643,9 +2923,7 @@ export function PostsClientInner({
                         <p className="text-muted text-[10px]">
                           {isEditing
                             ? 'Save your edits first so the image matches the post.'
-                            : imagePrompt.trim()
-                              ? 'Designs a visual from the post, using what you typed above as direction.'
-                              : 'Designs a visual from what the post says. No prompt needed.'}
+                            : null}
                         </p>
                       </div>
                     )}

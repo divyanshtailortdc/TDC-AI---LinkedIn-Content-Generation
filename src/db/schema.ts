@@ -742,8 +742,7 @@ export const brandThemesTable = pgTable('brand_themes', {
   backgroundPattern: varchar('background_pattern', { length: 20 })
     .default('dots')
     .notNull(),
-  // The website or handle in the bottom-left corner; the identity's website
-  // when empty.
+  // The website or handle on images; none when empty.
   footerText: text('footer_text'),
   ...commonFieldDefs.dates
 })

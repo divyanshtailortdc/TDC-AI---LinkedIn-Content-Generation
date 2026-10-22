@@ -248,7 +248,7 @@ describe('the image brief prompt', () => {
     assert.ok(!bare.includes('REFERENCE IMAGE'))
   })
 
-  it('with a reference image, takes its layout and style but the post\'s subject and the brand\'s colours', () => {
+  it('with a reference image, copies its structure but the post\'s subject and the brand\'s colours', () => {
     const withReference = buildPrompt({
       ...context,
       postText: 'A post.',
@@ -256,8 +256,9 @@ describe('the image brief prompt', () => {
       previousVersions: [{ concept: 'Booth', visualType: 'scene' }]
     })
     assert.match(withReference, /REFERENCE IMAGE \(attached\)/)
-    assert.match(withReference, /Let it guide the choice of visual type/)
-    assert.match(withReference, /Take none of its objects, wording or logos/)
+    assert.match(withReference, /copy its structure into "blueprint"/)
+    assert.match(withReference, /Take none of its objects, wording, numbers or logos/)
+    // The built-in layout stays as the fallback.
     assert.match(withReference, /THE LAYOUT \(fixed, drawn by code\)/)
   })
 })
@@ -300,6 +301,50 @@ describe('the image brief guard', () => {
     )
     assert.match(result.issues.join(' '), /same visual form \(comparison\)/)
     assert.equal(result.isAcceptable, false)
+  })
+
+  it('holds the brief to the image type the reviewer chose', () => {
+    const offType = guardMediaBrief(brief({ visualType: 'cards' }), 'scene', postText, undefined, {
+      allowedTypes: ['flow']
+    })
+    assert.match(offType.issues.join(' '), /reviewer asked for flow/)
+    const onType = guardMediaBrief(brief({ visualType: 'flow' }), 'scene', postText, undefined, {
+      allowedTypes: ['flow']
+    })
+    assert.deepEqual(onType.issues, [])
+  })
+
+  it("rejects a reference blueprint that carries a figure the post never states", () => {
+    const block = (text: string, detail = '') => ({
+      role: 'stat' as const,
+      x: 0,
+      y: 0,
+      w: 20,
+      h: 20,
+      text,
+      detail,
+      icon: null,
+      shape: 'rounded' as const,
+      tone: 'surface' as const,
+      elevated: false,
+      align: 'left' as const,
+      textSize: 0,
+      weight: 'bold' as const,
+      textColor: 'default' as const,
+      iconPlacement: 'auto' as const
+    })
+    const copied = guardMediaBrief(
+      brief({ blueprint: { blocks: [block('73%', 'faster checkout')], arrows: [] } }),
+      'scene',
+      postText
+    )
+    assert.match(copied.issues.join(' '), /figure \("73%"\)/)
+    const grounded = guardMediaBrief(
+      brief({ blueprint: { blocks: [block('three', 'places to pull records from')], arrows: [] } }),
+      'scene',
+      postText
+    )
+    assert.deepEqual(grounded.issues, [])
   })
 
   it('rejects a headline that is too long', () => {

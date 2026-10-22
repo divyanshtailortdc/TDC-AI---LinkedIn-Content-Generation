@@ -1,4 +1,5 @@
-import type { BackgroundPattern } from '~/lib/brand/theme'
+import type { CanvasPattern } from '~/lib/brand/theme'
+import type { PlacedBlueprint } from './blueprint'
 import type { IconName } from './icon-names'
 import type { CanvasPalette } from './palette'
 
@@ -114,12 +115,19 @@ export interface CanvasSpec {
   visual: CanvasVisual
   palette: CanvasPalette
   fonts: CanvasFonts
-  pattern: BackgroundPattern
+  pattern: CanvasPattern
   logo: CanvasLogo | null
   /** Set in the logo's place when the logo is on but none was uploaded. */
   wordmark?: string | null
   /** Layout composition: split_left, split_right, top_bottom, centered_hero */
   layout?: CanvasLayout
+  /**
+   * A reference image's structure; drawn instead of `layout` when set, with
+   * `visual` used only for an illustration in its image block.
+   */
+  blueprint?: PlacedBlueprint | null
+  /** The image's pixel size; CANVAS_SIZE unless a blueprint takes its reference's shape. */
+  size?: { width: number; height: number }
 }
 
 /** Longest headline, in words and in characters. */

@@ -40,11 +40,16 @@ export const VISUAL_STYLES = [
 export type VisualStyle = (typeof VISUAL_STYLES)[number]['value']
 
 export const BACKGROUND_PATTERNS = [
+  { value: 'auto', label: 'Auto' },
   { value: 'dots', label: 'Dots' },
   { value: 'grid', label: 'Grid' },
   { value: 'plain', label: 'Plain' }
 ] as const
 export type BackgroundPattern = (typeof BACKGROUND_PATTERNS)[number]['value']
+
+/** What an image is drawn with: Auto is settled per image by the art director. */
+export const CANVAS_PATTERNS = ['dots', 'grid', 'plain'] as const
+export type CanvasPattern = (typeof CANVAS_PATTERNS)[number]
 
 /** Soft white: the background when the theme sets none. */
 export const DEFAULT_BACKGROUND = '#f8fafc'
@@ -90,7 +95,7 @@ export interface ResolvedBrandTheme {
   backgroundPattern: BackgroundPattern
   /** Whether the logo goes on images; ignored until one is uploaded. */
   showLogo: boolean
-  /** The website or handle in the corner; null to use the identity's website. */
+  /** The website or handle on images; null for none. */
   footerText: string | null
   hasLogo: boolean
   /** False until the theme is first saved. */

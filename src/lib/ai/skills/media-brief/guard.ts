@@ -164,6 +164,8 @@ function mentionsAffirmatively(text: string, term: string): boolean {
 export interface BriefGuardOptions {
   /** Visual types of the earlier images, newest first. */
   previousVisualTypes?: string[]
+  /** The visual types the reviewer allowed; any when unset. */
+  allowedTypes?: readonly string[]
   /** Text whose figures the image may also quote, such as the goal's message. */
   extraSourceText?: string
 }
@@ -203,6 +205,13 @@ export function guardMediaBrief(
     )
   }
 
+  const allowed = options.allowedTypes
+  if (allowed?.length && !allowed.includes(brief.visualType)) {
+    issues.push(
+      `Uses ${brief.visualType.replace(/_/g, ' ')} as its visual, but the reviewer asked for ${allowed.map(t => t.replace(/_/g, ' ')).join(' or ')}.`
+    )
+  }
+
   // The account may name itself; anyone else's mark may not appear.
   const ownName = (accountName || '').toLowerCase()
   for (const banned of BANNED_VISUAL_ELEMENTS) {
@@ -221,10 +230,12 @@ export function guardMediaBrief(
   }
 
   // Numbers rendered into an image are the hardest kind to retract.
+  // A reference image's blocks too: its own stats are the likeliest to slip in.
   const overlayText = [
     brief.textOverlay?.headline,
     ...(brief.textOverlay?.supportingPoints || []),
-    brief.textOverlay?.footer
+    brief.textOverlay?.footer,
+    ...(brief.blueprint?.blocks || []).flatMap(b => [b.text, b.detail])
   ]
     .filter(Boolean)
     .join(' ')

@@ -32,9 +32,9 @@ export async function saveBrandTheme(rawPayload: BrandThemePayload) {
       headingFont: payload.headingFont ?? null,
       bodyFont: payload.bodyFont ?? null,
       visualStyle: payload.visualStyle ?? 'auto',
-      backgroundPattern: payload.backgroundPattern ?? 'dots',
+      // The background pattern and website are set from the image panel on
+      // the Posts page (saveImageSettings), so a save here leaves them alone.
       showLogo: payload.showLogo ?? true,
-      footerText: payload.footerText ?? null,
       ...(payload.logo !== undefined && {
         logoImage: payload.logo && (await normalizeLogo(payload.logo)).dataUrl
       }),

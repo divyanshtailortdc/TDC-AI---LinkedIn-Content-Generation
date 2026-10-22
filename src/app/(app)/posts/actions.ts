@@ -2,12 +2,18 @@
 
 import { db } from '@/db'
 import {
+  brandThemesTable,
   feedbackTable,
   ideasTable,
   postCitationsTable,
   postDraftsTable,
   postMediaTable
 } from '@/db/schema'
+import {
+  BRAND_THEME_PATH,
+  BrandThemePayloadSchema,
+  type BackgroundPattern
+} from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
@@ -341,6 +347,49 @@ export async function regeneratePostMediaAction(
     return {
       success: false as const,
       error: err?.message || 'Failed to regenerate media'
+    }
+  }
+}
+
+// The Brand Theme's own rules for these two fields, so they cannot drift apart.
+const ImageSettingsSchema = BrandThemePayloadSchema.pick({
+  backgroundPattern: true,
+  footerText: true
+})
+
+/**
+ * Saves the background pattern and the website shown on every new image,
+ * from the image panel. Only these two columns are written, so the rest of
+ * the brand theme stays as the Brand Theme page saved it.
+ */
+export async function saveImageSettings(settings: {
+  backgroundPattern: BackgroundPattern
+  footerText: string | null
+}) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const parsed = ImageSettingsSchema.safeParse(settings)
+    if (!parsed.success) {
+      return {
+        success: false as const,
+        error: parsed.error.issues[0]?.message || 'Invalid image settings.'
+      }
+    }
+
+    const columns = { ...parsed.data, updatedAt: new Date() }
+    // One row per identity (UNIQUE account_id): a second save updates it.
+    await db
+      .insert(brandThemesTable)
+      .values({ accountId, ...columns })
+      .onConflictDoUpdate({ target: brandThemesTable.accountId, set: columns })
+
+    revalidatePath(BRAND_THEME_PATH)
+    return { success: true as const }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err?.message || 'Could not save the image settings.'
     }
   }
 }

@@ -10,6 +10,7 @@ import {
 } from '~/lib/ai/skills/image-review/guard'
 import {
   deriveMediaBrief,
+  refineBlueprint,
   type MediaBrief,
   type PriorVisual,
   type VisualType
@@ -18,7 +19,6 @@ import { addUsage, readImageCost, type CallUsage } from '~/lib/ai/usage'
 import { imagePromptSuffix } from '~/lib/brand/prompt'
 import {
   cornerWords,
-  displayWebsite,
   LOGO_PLACEMENT,
   logoBox,
   logoClearSpaceInstruction,
@@ -27,6 +27,7 @@ import {
 import type { BrandRendering } from './brand-assets'
 import {
   compositeLogo,
+  decodeImageDataUrl,
   downscaleForReview,
   fitToSize,
   imageSize,
@@ -35,6 +36,11 @@ import {
   toDataUrl
 } from './brand-logo'
 import type { MediaBriefContext } from './brief-context'
+import {
+  BLUEPRINT_SIZES,
+  canvasSizeFor,
+  placeBlueprint
+} from './canvas/blueprint'
 import { loadCanvasFonts } from './canvas/fonts'
 import { prepareIllustration } from './canvas/illustration'
 import { canvasPalette } from './canvas/palette'
@@ -62,6 +68,8 @@ export interface MediaPlanRequest {
   aspectRatio?: '1:1' | '16:9' | '4:5'
   /** Visual direction: the reviewer's words, or the approved idea's. */
   direction?: string
+  /** The image type the reviewer chose; the art director picks when unset. */
+  allowedTypes?: readonly VisualType[]
   /** Earlier images for this post, newest first. */
   previousVersions?: PriorVisual[]
   rejectionReason?: string
@@ -646,9 +654,10 @@ async function produceCheckedImage(opts: {
  * logo is laid over it; a vision check of the result catches bad lettering,
  * drawn logos and a logo covering the headline.
  *
- * With a reference image, the art director looks at it and writes its
- * arrangement and look into the brief, in words; the image model never sees
- * its pixels. Given the pixels, flux copied the reference's own objects and
+ * With a reference image, the art director looks at it and copies its
+ * structure into a blueprint (its blocks, where they sit, its arrows), which
+ * the canvas draws with the post's words and the brand's colours; the image
+ * model never sees its pixels. Given the pixels, flux copied the reference's own objects and
  * kept its background tint whenever the new subject resembled the old one.
  * The review compares the result with the reference all the same.
  */
@@ -689,6 +698,7 @@ export async function createMediaPlan(
       postText,
       aspectRatio: req.aspectRatio,
       direction: req.direction,
+      allowedTypes: req.allowedTypes,
       previousVersions: req.previousVersions,
       rejectionReason: req.rejectionReason,
       logoCorner: logoPlan?.cornerWords,
@@ -768,15 +778,34 @@ export async function createMediaPlan(
       headline: copy?.headline || brief.textOverlay?.headline || '',
       highlights: copy?.highlightWords || [],
       subheadline: copy?.subheadline || '',
-      footer:
-        theme.footerText?.trim() ||
-        (req.context.websiteUrl ? displayWebsite(req.context.websiteUrl) : null) ||
-        null
+      // Only a website the reviewer typed in: none is added on their behalf.
+      footer: theme.footerText?.trim() || null
     }
+
+    // With a reference image, its own structure, drawn block by block at
+    // the feed shape nearest its own. Null when it gave nothing to build on;
+    // the built-in layout is drawn then.
+    const canvasSize = reference
+      ? canvasSizeFor((await imageSize(reference)) ?? CANVAS_SIZE)
+      : CANVAS_SIZE
+    const placeOptions = {
+      logo: theme.showLogo,
+      footer: Boolean(copySpec.footer),
+      size: canvasSize
+    }
+    let blueprint =
+      reference && derived.derived.blueprint
+        ? placeBlueprint(derived.derived.blueprint, placeOptions)
+        : null
 
     let canvasVisual: CanvasVisual
 
-    if (visual?.type === 'illustration') {
+    // A blueprint needs an illustration only for an image block of its own.
+    if (
+      blueprint
+        ? blueprint.blocks.some(b => b.role === 'image')
+        : visual?.type === 'illustration'
+    ) {
       let illustrationBuffer: Buffer | null = null
       let framed = false
       try {
@@ -821,7 +850,9 @@ export async function createMediaPlan(
       }
     } else {
       const diagramSpec = fitDiagram({
-        form: visual?.type || 'cards',
+        // An illustration brief lands here when its blueprint has no image block.
+        form:
+          visual?.type && visual.type !== 'illustration' ? visual.type : 'cards',
         hub: visual?.hub,
         nodes: visual?.nodes || [],
         badges: visual?.badges,
@@ -847,6 +878,7 @@ export async function createMediaPlan(
 
     const spec: CanvasSpec = {
       layout,
+      blueprint,
       copy: copySpec,
       visual: canvasVisual,
       palette,
@@ -855,15 +887,47 @@ export async function createMediaPlan(
         body: fontSet.body,
         headingWeight: fontSet.headingWeight
       },
-      pattern: theme.backgroundPattern,
+      // A reference image's own background, whatever the brand's setting; and
+      // the art director's pick for a brand on Auto.
+      pattern:
+        reference || theme.backgroundPattern === 'auto'
+          ? derived.derived.backgroundPattern
+          : theme.backgroundPattern,
       logo: logoSpec,
       wordmark:
         !logoSpec && theme.showLogo
           ? req.context.accountName || req.brand.name || null
-          : null
+          : null,
+      size: blueprint ? canvasSize : undefined
     }
 
-    const finalBuffer = await renderCanvas(spec, fontSet.fonts)
+    let finalBuffer = await renderCanvas(spec, fontSet.fonts)
+
+    // A second look: the reference and the first render side by side, and
+    // the blueprint's geometry and styling corrected where they differ.
+    if (blueprint && reference && derived.derived.blueprint) {
+      const refined = await refineBlueprint(
+        {
+          blueprint: derived.derived.blueprint,
+          reference: { data: reference, mediaType: 'image/jpeg' },
+          rendered: {
+            data: await downscaleForReview(finalBuffer),
+            mediaType: 'image/jpeg'
+          }
+        },
+        { abortSignal: req.abortSignal }
+      )
+      usage = addUsage(usage, refined.usage)
+      const placed =
+        refined.blueprint && placeBlueprint(refined.blueprint, placeOptions)
+      if (placed) {
+        blueprint = placed
+        spec.blueprint = placed
+        brief.blueprint = refined.blueprint!
+        finalBuffer = await renderCanvas(spec, fontSet.fonts)
+      }
+    }
+
     const baseSpec: CanvasSpec = { ...spec, logo: null, wordmark: null }
     const baseBuffer = await renderCanvas(baseSpec, fontSet.fonts)
 
@@ -873,8 +937,9 @@ export async function createMediaPlan(
       baseImageUrl: toDataUrl(baseBuffer, 'image/png'),
       layout,
       altText,
-      promptOrQuery:
-        visual?.type === 'illustration'
+      promptOrQuery: blueprint
+        ? `reference layout: ${brief.primaryConcept}`
+        : visual?.type === 'illustration'
           ? visual.illustrationPrompt || brief.primaryConcept
           : `${visual?.type || 'diagram'}: ${brief.primaryConcept}`,
       fallbackApplied: false,
@@ -884,8 +949,8 @@ export async function createMediaPlan(
       issues: [...guard.issues, ...fontSet.issues],
       usage,
       imageAttempts: 1,
-      width: CANVAS_SIZE.width,
-      height: CANVAS_SIZE.height,
+      width: (spec.size ?? CANVAS_SIZE).width,
+      height: (spec.size ?? CANVAS_SIZE).height,
       seed,
       logo: logoSpec
         ? { placement: LOGO_PLACEMENT, plate: logoSpec.plate ? 'dark' : 'none' }
@@ -1034,7 +1099,20 @@ export interface CustomImageResult {
  * took a quoted instruction for text to render: "create the image based on the
  * post" became the image's headline, misspelt.
  */
-function buildEditPrompt(instruction: string): string {
+/** "a wide 1.91:1 landscape" for 2048x1072; the shapes the canvas draws at. */
+function shapeWords(size: { width: number; height: number }): string {
+  const ratio = size.width / size.height
+  return ratio > 1.3
+    ? 'a wide 1.91:1 landscape'
+    : ratio > 0.9
+      ? 'a square 1:1'
+      : 'a tall 4:5 portrait'
+}
+
+function buildEditPrompt(
+  instruction: string,
+  target: { width: number; height: number }
+): string {
   return [
     `Edit the provided reference image. Apply only this change: "${instruction}".`,
     'That quoted instruction describes the change; it is not text to place in the image.',
@@ -1043,9 +1121,9 @@ function buildEditPrompt(instruction: string): string {
     'composition, layout, proportions, colours, typography, lighting and background.',
     'Do not redraw, restyle or reinterpret unchanged areas, and reproduce any text you were',
     'not asked to change with its original wording and spelling.',
-    // The output is a fixed 1.91:1 landscape, so a reference of another shape has
-    // to be reframed. Without this the model invents a new background to fill it.
-    'The output is a wide 1.91:1 landscape image. If the reference has a different shape,',
+    // A reference of another shape than the output has to be reframed. Without
+    // this the model invents a new background to fill it.
+    `The output is ${shapeWords(target)} image. If the reference has a different shape,`,
     'keep the main subject whole and undistorted, and extend the existing background in the',
     'same colour, texture and style to fill the frame rather than stretching or cropping it.'
   ].join(' ')
@@ -1076,9 +1154,20 @@ export async function generateCustomImage(
   const workflow: 'generate' | 'edit' =
     references.length > 0 ? 'edit' : 'generate'
   const seed = req.seed ?? randomSeed()
-  const target = LINKEDIN_IMAGE
+  // An edit keeps its image's shape: one built on a reference may be square or tall.
+  const editImage =
+    workflow === 'edit' ? decodeImageDataUrl(references[0]!) : null
+  const editSize = editImage ? readImageDimensions(editImage.buffer) : null
+  const target =
+    editSize &&
+    BLUEPRINT_SIZES.some(
+      s => s.width === editSize.width && s.height === editSize.height
+    )
+      ? editSize
+      : LINKEDIN_IMAGE
 
-  let finalPrompt = workflow === 'edit' ? buildEditPrompt(prompt) : prompt
+  let finalPrompt =
+    workflow === 'edit' ? buildEditPrompt(prompt, target) : prompt
   if (workflow === 'generate' && req.brand) {
     const logoPlan = await planLogo(req.brand, target)
     finalPrompt = `${prompt}\n\n${imagePromptSuffix({

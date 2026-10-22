@@ -283,9 +283,10 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
     mode?: 'ai_generated' | 'stock' | 'none'
     brief?: string
   }
-  // Posts start text only unless the idea asks for an image; one can be added
-  // on the review screen. Every generated image gets the brand colours and logo.
-  const mediaMode = suggested.mode || 'none'
+  // Every post starts with an image designed from its own text, in the brand
+  // colours with the logo; the reviewer can replace or remove it on the
+  // review screen. An idea that asks for a stock photo gets one instead.
+  const mediaMode = suggested.mode === 'stock' ? 'stock' : 'ai_generated'
   const fullPostText = postFullText(draft)
 
   let previousVersions = undefined
@@ -318,45 +319,50 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   }
 
   const mediaStart = Date.now()
-  const mediaPlan: MediaPlanResult =
-    mediaMode === 'none'
-      ? { mode: 'none' }
-      : await createMediaPlan({
-          mode: mediaMode,
-          postText: fullPostText,
-          context: buildMediaBriefContext(ctx, idea),
-          brand: await loadBrandRendering(
-            ctx.account.id,
-            ctx.brand ?? DEFAULT_BRAND_THEME
-          ),
-          previousVersions,
-          // The idea's own visual direction, written at ideation.
-          direction: suggested.brief || undefined
-        })
-
-  if (mediaMode !== 'none') {
-    await recordStep({
-      stage: 'media',
-      status: mediaPlan.imageUrl ? 'completed' : 'failed',
-      startedAt: new Date(mediaStart),
-      completedAt: new Date(),
-      durationMs: Date.now() - mediaStart,
-      requestSummary: `Media plan (${mediaPlan.mode})`,
-      error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced',
-      tokens: mediaPlan.usage?.totalTokens ?? 0,
-      costUsd: (mediaPlan.usage?.costUsd ?? 0).toFixed(4),
-      responseJson: {
-        mode: mediaPlan.mode,
-        relevanceScore: mediaPlan.relevanceScore,
-        concept: mediaPlan.mediaBrief?.primaryConcept,
-        imageAttempts: mediaPlan.imageAttempts ?? 0,
-        model: mediaPlan.modelId,
-        review: mediaPlan.review,
-        logo: mediaPlan.logo,
-        usage: mediaPlan.usage ?? EMPTY_USAGE
-      }
+  // A post is never lost to its image: a failure leaves it text only, with
+  // the reason shown on the review screen.
+  let mediaPlan: MediaPlanResult
+  try {
+    mediaPlan = await createMediaPlan({
+      mode: mediaMode,
+      postText: fullPostText,
+      context: buildMediaBriefContext(ctx, idea),
+      brand: await loadBrandRendering(
+        ctx.account.id,
+        ctx.brand ?? DEFAULT_BRAND_THEME
+      ),
+      previousVersions,
+      // The idea's own visual direction, written at ideation.
+      direction: suggested.brief || undefined
     })
+  } catch (err) {
+    mediaPlan = {
+      mode: 'none',
+      error: err instanceof Error ? err.message : 'The image could not be made.'
+    }
   }
+
+  await recordStep({
+    stage: 'media',
+    status: mediaPlan.imageUrl ? 'completed' : 'failed',
+    startedAt: new Date(mediaStart),
+    completedAt: new Date(),
+    durationMs: Date.now() - mediaStart,
+    requestSummary: `Media plan (${mediaPlan.mode})`,
+    error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced',
+    tokens: mediaPlan.usage?.totalTokens ?? 0,
+    costUsd: (mediaPlan.usage?.costUsd ?? 0).toFixed(4),
+    responseJson: {
+      mode: mediaPlan.mode,
+      relevanceScore: mediaPlan.relevanceScore,
+      concept: mediaPlan.mediaBrief?.primaryConcept,
+      imageAttempts: mediaPlan.imageAttempts ?? 0,
+      model: mediaPlan.modelId,
+      review: mediaPlan.review,
+      logo: mediaPlan.logo,
+      usage: mediaPlan.usage ?? EMPTY_USAGE
+    }
+  })
 
   // ----------------------------------------------------------------- persist
   const charCount = postCharCount(draft)
@@ -426,7 +432,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
         promptOrQuery: mediaPlan.promptOrQuery || null,
         metadata: mediaPlanMetadata(mediaPlan)
       })
-    } else if (mediaMode !== 'none') {
+    } else {
       // No image, but the review screen should say why rather than show the
       // post as if it never wanted one.
       await tx.insert(postMediaTable).values({
