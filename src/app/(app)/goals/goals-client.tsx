@@ -13,11 +13,15 @@ import {
 } from '@/components/generate-run-dialog'
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
+import { triggerNewRun } from '@/app/(app)/runs/actions'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
 import { EMPTY_SUGGESTIONS } from '@/lib/ai/skills/profile-setup/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
+import { cn } from '@/lib/cn'
 import {
+  Check,
+  CheckSquare,
   Compass,
   Edit2,
   Link as LinkIcon,
@@ -81,6 +85,10 @@ export function GoalsClient({
   const [showNewGoal, setShowNewGoal] = useState(initialGoals.length === 0)
   // The goals the run picker opens with ticked; null while it is closed.
   const [generateFor, setGenerateFor] = useState<string[] | null>(null)
+  // Multi-selected goal IDs directly on the list page
+  const [selectedGoalIds, setSelectedGoalIds] = useState<string[]>([])
+  // Goal currently generating ideas directly without modal
+  const [generatingGoalId, setGeneratingGoalId] = useState<string | null>(null)
   // The page scrolls inside this box, not the window. The form sits at its top.
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollToForm = () =>
@@ -281,6 +289,10 @@ export function GoalsClient({
         title: !current ? 'Goal Activated' : 'Goal Paused',
         message: `Goal has been ${!current ? 'activated' : 'paused'}.`
       })
+      if (current) {
+        // Paused now, remove from selected goals
+        setSelectedGoalIds(prev => prev.filter(id => id !== goalId))
+      }
       router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to update goal')
@@ -304,6 +316,7 @@ export function GoalsClient({
         title: 'Goal Deleted',
         message: 'Goal has been removed.'
       })
+      setSelectedGoalIds(prev => prev.filter(id => id !== goalId))
       if (editingGoalId === goalId) {
         resetForm()
         setShowNewGoal(false)
@@ -350,7 +363,73 @@ export function GoalsClient({
     scrollToForm()
   }
 
-  const activeCount = parsedGoals.filter(g => g.isActive).length
+  const activeGoals = parsedGoals.filter(g => g.isActive)
+  const activeCount = activeGoals.length
+  const selectedActiveCount = selectedGoalIds.filter(id =>
+    activeGoals.some(g => g.id === id)
+  ).length
+
+  const toggleGoalSelection = (goalId: string) => {
+    setSelectedGoalIds(prev =>
+      prev.includes(goalId)
+        ? prev.filter(id => id !== goalId)
+        : [...prev, goalId]
+    )
+  }
+
+  const selectAllActive = () => {
+    setSelectedGoalIds(activeGoals.map(g => g.id))
+  }
+
+  const deselectAll = () => {
+    setSelectedGoalIds([])
+  }
+
+  const handleGenerateForSelected = () => {
+    const validSelected = selectedGoalIds.filter(id =>
+      activeGoals.some(g => g.id === id)
+    )
+    if (validSelected.length > 0) {
+      setGenerateFor(validSelected)
+    } else if (activeCount > 0) {
+      setGenerateFor(activeGoals.map(g => g.id))
+    }
+  }
+
+  const handleGenerateForSingleGoal = async (goalId: string) => {
+    if (generatingGoalId) return
+    setGeneratingGoalId(goalId)
+    setError(null)
+    try {
+      const res = await triggerNewRun([goalId])
+      if (res.success && res.runId) {
+        showToast({
+          type: 'success',
+          title: 'Run Started',
+          message: 'Idea generation has started for this goal.'
+        })
+        router.push(`/runs/${res.runId}`)
+        return
+      }
+      const errMsg = res.error || 'The run could not be started.'
+      setError(errMsg)
+      showToast({
+        type: 'error',
+        title: 'Run Failed',
+        message: errMsg
+      })
+    } catch (err: any) {
+      const errMsg = err?.message || 'The run could not be started.'
+      setError(errMsg)
+      showToast({
+        type: 'error',
+        title: 'Run Failed',
+        message: errMsg
+      })
+    } finally {
+      setGeneratingGoalId(null)
+    }
+  }
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -394,15 +473,13 @@ export function GoalsClient({
             {activeCount > 0 && (
               <button
                 type="button"
-                onClick={() =>
-                  setGenerateFor(
-                    parsedGoals.filter(g => g.isActive).map(g => g.id)
-                  )
-                }
-                className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors"
+                onClick={handleGenerateForSelected}
+                className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors cursor-pointer"
               >
                 <Wand2 className="h-3.5 w-3.5" />
-                Generate ideas
+                {selectedActiveCount > 0
+                  ? `Generate ideas (${selectedActiveCount})`
+                  : 'Generate ideas'}
               </button>
             )}
           </>
@@ -414,6 +491,7 @@ export function GoalsClient({
         onClose={() => setGenerateFor(null)}
         picker={picker}
         initialSelected={generateFor ?? undefined}
+        lockSelection={selectedActiveCount > 0}
       />
 
       <div
@@ -655,10 +733,57 @@ export function GoalsClient({
           {/* Goals List — hidden while editing */}
           {!isEditing && (
             <div className="space-y-4">
-              <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
-                <Target className="text-accent h-4 w-4" />
-                Your Goals ({parsedGoals.length})
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
+                    <Target className="text-accent h-4 w-4" />
+                    Your Goals ({parsedGoals.length})
+                  </h2>
+                  {selectedActiveCount > 0 && (
+                    <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">
+                      {selectedActiveCount} selected
+                    </span>
+                  )}
+                </div>
+
+                {activeCount > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={
+                        selectedActiveCount === activeCount
+                          ? deselectAll
+                          : selectAllActive
+                      }
+                      className="border-border text-foreground hover:bg-surface-hover flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      <CheckSquare className="text-accent h-3.5 w-3.5" />
+                      {selectedActiveCount === activeCount
+                        ? 'Deselect all'
+                        : `Select all active (${activeCount})`}
+                    </button>
+                    {selectedActiveCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={deselectAll}
+                        className="text-muted hover:text-foreground text-xs font-medium px-2 py-1 transition-colors cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    {selectedActiveCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleGenerateForSelected}
+                        className="bg-accent hover:bg-accent-hover text-background flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Wand2 className="h-3 w-3" />
+                        Generate ideas ({selectedActiveCount})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {parsedGoals.length === 0 ? (
                 <div className="border-border bg-surface rounded-xl border border-dashed py-12 text-center">
@@ -671,64 +796,107 @@ export function GoalsClient({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-4 pb-16">
                   {parsedGoals.map(g => {
+                    const isSelected = selectedGoalIds.includes(g.id)
                     return (
                       <div
                         key={g.id}
-                        className={`space-y-4 rounded-xl border p-5 transition-colors ${
-                          g.isActive
-                            ? 'border-border bg-surface'
-                            : 'border-border bg-surface/50'
-                        }`}
+                        className={cn(
+                          'relative space-y-4 rounded-xl border p-5 transition-all',
+                          isSelected
+                            ? 'border-accent/60 bg-accent/[0.04] ring-2 ring-accent/20 shadow-xs'
+                            : g.isActive
+                              ? 'border-border bg-surface hover:border-border/80'
+                              : 'border-border bg-surface/50 opacity-80'
+                        )}
                       >
                         <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            <div className="mb-1 flex flex-wrap items-center gap-2">
-                              <span className="bg-accent/10 text-accent rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase">
-                                {g.objectiveType.replace(/_/g, ' ')}
-                              </span>
-                              <h3 className="text-foreground text-base font-semibold">
-                                {g.displayTitle}
-                              </h3>
+                          <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                            {/* Multi-select Checkbox */}
+                            <div className="pt-0.5">
+                              <label
+                                className={cn(
+                                  'relative flex items-center justify-center cursor-pointer',
+                                  !g.isActive && 'cursor-not-allowed opacity-40'
+                                )}
+                                title={
+                                  g.isActive
+                                    ? isSelected
+                                      ? 'Deselect goal'
+                                      : 'Select goal to generate ideas'
+                                    : 'Resume goal to select'
+                                }
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={!g.isActive}
+                                  onChange={() => toggleGoalSelection(g.id)}
+                                  className="peer sr-only"
+                                />
+                                <div
+                                  className={cn(
+                                    'flex h-4.5 w-4.5 items-center justify-center rounded-md border transition-all',
+                                    isSelected
+                                      ? 'border-accent bg-accent text-background shadow-xs'
+                                      : 'border-border bg-surface hover:border-accent/60'
+                                  )}
+                                >
+                                  {isSelected && (
+                                    <Check className="h-3 w-3 stroke-[3]" />
+                                  )}
+                                </div>
+                              </label>
                             </div>
 
-                            {/* Key Message Box */}
-                            {g.keyMessage && (
-                              <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
-                                <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
-                                  Key Message:
+                            <div className="min-w-0 flex-1">
+                              <div className="mb-1 flex flex-wrap items-center gap-2">
+                                <span className="bg-accent/10 text-accent rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase">
+                                  {g.objectiveType.replace(/_/g, ' ')}
                                 </span>
-                                <p className="text-foreground leading-relaxed font-medium">
-                                  &quot;{g.keyMessage}&quot;
-                                </p>
+                                <h3 className="text-foreground text-base font-semibold">
+                                  {g.displayTitle}
+                                </h3>
                               </div>
-                            )}
 
-                            {(g.desiredAction || g.targetUrl) && (
-                              <div className="text-muted mt-3 flex flex-wrap items-center gap-4 text-xs">
-                                {g.desiredAction && (
-                                  <span className="flex items-center gap-1">
-                                    <MessageSquare className="text-accent h-3.5 w-3.5" />
-                                    CTA: {g.desiredAction}
+                              {/* Key Message Box */}
+                              {g.keyMessage && (
+                                <div className="border-accent/20 bg-accent/5 mt-3 space-y-1 rounded-lg border p-3 text-xs">
+                                  <span className="text-accent text-[10px] font-semibold tracking-wide uppercase">
+                                    Key Message:
                                   </span>
-                                )}
-                                {g.targetUrl && (
-                                  <span className="flex min-w-0 items-center gap-1">
-                                    <LinkIcon className="h-3.5 w-3.5 shrink-0" />
-                                    <span className="truncate">
-                                      {g.targetUrl}
+                                  <p className="text-foreground leading-relaxed font-medium">
+                                    &quot;{g.keyMessage}&quot;
+                                  </p>
+                                </div>
+                              )}
+
+                              {(g.desiredAction || g.targetUrl) && (
+                                <div className="text-muted mt-3 flex flex-wrap items-center gap-4 text-xs">
+                                  {g.desiredAction && (
+                                    <span className="flex items-center gap-1">
+                                      <MessageSquare className="text-accent h-3.5 w-3.5" />
+                                      CTA: {g.desiredAction}
                                     </span>
-                                    <span className="shrink-0">
-                                      ·{' '}
-                                      {g.linkStrategy === 'body'
-                                        ? 'in post body'
-                                        : 'in first comment'}
+                                  )}
+                                  {g.targetUrl && (
+                                    <span className="flex min-w-0 items-center gap-1">
+                                      <LinkIcon className="h-3.5 w-3.5 shrink-0" />
+                                      <span className="truncate">
+                                        {g.targetUrl}
+                                      </span>
+                                      <span className="shrink-0">
+                                        ·{' '}
+                                        {g.linkStrategy === 'body'
+                                          ? 'in post body'
+                                          : 'in first comment'}
+                                      </span>
                                     </span>
-                                  </span>
-                                )}
-                              </div>
-                            )}
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex shrink-0 items-center gap-3">
@@ -790,16 +958,50 @@ export function GoalsClient({
                           <p className="text-muted text-xs tabular-nums">
                             {usageLabel(usage[g.id])}
                           </p>
-                          {g.isActive && (
-                            <button
-                              type="button"
-                              onClick={() => setGenerateFor([g.id])}
-                              className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors"
-                            >
-                              <Wand2 className="h-3.5 w-3.5" />
-                              Generate ideas
-                            </button>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {g.isActive && (
+                              <button
+                                type="button"
+                                onClick={() => toggleGoalSelection(g.id)}
+                                className={cn(
+                                  'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer',
+                                  isSelected
+                                    ? 'border-accent/40 bg-accent/10 text-accent font-semibold'
+                                    : 'border-border text-foreground hover:bg-surface-hover'
+                                )}
+                              >
+                                {isSelected ? (
+                                  <>
+                                    <Check className="h-3 w-3 stroke-[2.5]" />
+                                    Selected
+                                  </>
+                                ) : (
+                                  'Select'
+                                )}
+                              </button>
+                            )}
+                            {g.isActive && (
+                              <button
+                                type="button"
+                                disabled={generatingGoalId !== null || isSuggesting}
+                                onClick={() => handleGenerateForSingleGoal(g.id)}
+                                className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                                title="Generate ideas for this goal only"
+                              >
+                                {generatingGoalId === g.id ? (
+                                  <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Generating…
+                                  </>
+                                ) : (
+                                  <>
+                                    <Wand2 className="h-3.5 w-3.5" />
+                                    Generate ideas
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )
@@ -810,6 +1012,39 @@ export function GoalsClient({
           )}
         </div>
       </div>
+
+      {/* Floating Bottom Multi-Select Action Bar */}
+      {selectedActiveCount > 0 && !isEditing && (
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-border bg-surface/95 px-5 py-3 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
+              {selectedActiveCount}
+            </span>
+            <span className="text-sm font-semibold text-foreground whitespace-nowrap">
+              {selectedActiveCount === 1
+                ? '1 goal selected'
+                : `${selectedActiveCount} goals selected`}
+            </span>
+          </div>
+          <div className="h-4 w-px bg-border" />
+          <button
+            type="button"
+            onClick={deselectAll}
+            className="text-muted hover:text-foreground text-xs font-medium transition-colors cursor-pointer"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateForSelected}
+            className="bg-accent hover:bg-accent-hover text-background flex h-9 items-center gap-2 rounded-xl px-4 text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer whitespace-nowrap"
+          >
+            <Wand2 className="h-4 w-4" />
+            Generate ideas for {selectedActiveCount}{' '}
+            {selectedActiveCount === 1 ? 'goal' : 'goals'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

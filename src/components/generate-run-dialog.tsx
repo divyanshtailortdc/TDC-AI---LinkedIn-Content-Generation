@@ -39,13 +39,16 @@ export function GenerateRunDialog({
   open,
   onClose,
   picker,
-  initialSelected
+  initialSelected,
+  lockSelection = false
 }: {
   open: boolean
   onClose: () => void
   picker: RunPickerData
   /** Ticked when the dialog opens; every active goal when left out. */
   initialSelected?: string[]
+  /** When true, only shows the selected goals without checkboxes to pick/unpick other goals. */
+  lockSelection?: boolean
 }) {
   if (!open) return null
   // Mounted fresh each time it opens, so the ticks start from initialSelected.
@@ -54,6 +57,7 @@ export function GenerateRunDialog({
       onClose={onClose}
       picker={picker}
       initialSelected={initialSelected}
+      lockSelection={lockSelection}
     />
   )
 }
@@ -72,11 +76,13 @@ function describeRunSize(ideasPerRun: number, goalCount: number): string {
 function PickerDialog({
   onClose,
   picker,
-  initialSelected
+  initialSelected,
+  lockSelection = false
 }: {
   onClose: () => void
   picker: RunPickerData
   initialSelected?: string[]
+  lockSelection?: boolean
 }) {
   const router = useRouter()
   const titleId = useId()
@@ -89,6 +95,8 @@ function PickerDialog({
   )
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const selectedGoals = active.filter(g => selected.includes(g.id))
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -142,9 +150,9 @@ function PickerDialog({
             Generate ideas
           </h3>
           <p className="text-muted mt-1 text-xs leading-relaxed">
-            Pick the goals this run works toward. Research, your knowledge base
-            and every idea are about these goals only. Ideas wait for your
-            approval before any post is written.
+            {lockSelection
+              ? `This run will generate ideas for the ${selected.length} selected goal${selected.length === 1 ? '' : 's'}. Ideas wait for your approval before any post is written.`
+              : 'Pick the goals this run works toward. Research, your knowledge base and every idea are about these goals only. Ideas wait for your approval before any post is written.'}
           </p>
         </div>
 
@@ -169,6 +177,39 @@ function PickerDialog({
                 Go to Goals
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
+            </div>
+          ) : lockSelection ? (
+            <div className="space-y-3">
+              <div className="text-foreground mb-2 flex items-center justify-between text-xs font-semibold">
+                <span>Selected Goals ({selectedGoals.length})</span>
+              </div>
+              <ul className="space-y-2">
+                {selectedGoals.map(goal => (
+                  <li
+                    key={goal.id}
+                    className="border-brand/40 bg-brand/5 flex items-start gap-3 rounded-xl border p-3"
+                  >
+                    <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
+                      <Target className="h-2.5 w-2.5" />
+                    </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-foreground text-sm font-medium">
+                          {goal.title}
+                        </span>
+                        <span className="bg-accent/10 text-accent rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
+                          {goal.objective.replace(/_/g, ' ')}
+                        </span>
+                      </span>
+                      {goal.keyMessage && (
+                        <span className="text-muted mt-1 line-clamp-2 block text-xs leading-relaxed">
+                          {goal.keyMessage}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : (
             <fieldset>
