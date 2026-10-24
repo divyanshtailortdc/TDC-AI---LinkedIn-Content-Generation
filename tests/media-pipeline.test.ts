@@ -154,7 +154,6 @@ describe('the image brief prompt', () => {
     ...context,
     postText:
       'A quote that takes a day is rarely slow because the rep is slow.',
-    logoCorner: 'top left',
     previousVersions: [
       {
         concept: 'Desk split in two halves',
@@ -269,7 +268,7 @@ const brief = (overrides: Partial<MediaBrief> = {}): MediaBrief => ({
   readerTakeaway: 'count the systems',
   primaryConcept: 'A rep assembling a quote from scattered records',
   visualMetaphor: 'Scattered quote records pulled into one tidy stack',
-  visualType: 'process',
+  visualType: 'flow',
   textOverlay: { headline: 'Slow quotes are a records problem' },
   avoidConcepts: [],
   whyItFits: 'It shows the scattered records',
