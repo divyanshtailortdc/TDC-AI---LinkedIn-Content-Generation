@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (git-ignored) and fill in. Leave unused secrets
+# empty.
+
+project_id = "your-gcp-project-id"
+region     = "asia-south1"
+
+# Leave commented out for the first apply; set after pushing an image.
+# image_tag = "v1"
+
+admin_user_ids = ""
+
+ai_gateway_api_key = ""
+anthropic_api_key  = ""
+serper_api_key     = ""
+
+google_client_id       = ""
+google_client_secret   = ""
+linkedin_client_id     = ""
+linkedin_client_secret = ""
