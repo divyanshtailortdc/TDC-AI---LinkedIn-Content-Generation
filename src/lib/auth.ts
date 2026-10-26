@@ -63,9 +63,14 @@ export const auth = betterAuth({
     database: { generateId: 'uuid' }
   },
 
-  // Sessions are checked against the database on every request (no cookie
-  // cache), so signing out or an admin revoking a session takes effect
-  // immediately.
+  // A signed session cookie answers most session checks without the
+  // database; every page load and router.refresh() made one. The trade-off:
+  // a session revoked or banned elsewhere, or a role change, takes up to
+  // maxAge to take effect. Signing out on this browser clears the cookie
+  // at once.
+  session: {
+    cookieCache: { enabled: true, maxAge: 60 }
+  },
 
   socialProviders: {
     ...(isGoogleSignInEnabled && {

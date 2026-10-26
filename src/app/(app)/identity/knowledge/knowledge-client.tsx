@@ -42,7 +42,6 @@ type KnowledgeDoc = {
   title: string
   sourceType: string
   sourceUrl: string | null
-  content: string
   summary: string | null
   keyClaims: Array<{ claim: string; quote: string; confidence?: number }> | null
   wordCount?: number
