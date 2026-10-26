@@ -28,6 +28,8 @@ import { PageHeader } from '@/components/page-header'
 import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
+import { markDataChanged } from '@/components/refresh-on-back'
+import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { cn } from '@/lib/cn'
 import { fetchRunStatus, pollRunProgress } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
@@ -229,33 +231,34 @@ export function RunDetailClient({
 
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
 
-  const handleApproveIdea = async (ideaId: string) => {
+  // The decision shows at once and is put back if the server refuses it.
+  const decideIdea = async (ideaId: string, status: 'approved' | 'rejected') => {
+    const previous = ideas.find((i) => i.id === ideaId)?.status
+    if (!previous) return
+    const setStatus = (next: string) =>
+      setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: next } : i)))
     setIdeaActionBusyId(ideaId)
+    setStatus(status)
     try {
-      const res = await approveIdea(ideaId)
-      if (res.success) {
-        setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: 'approved' } : i)))
-      } else {
-        showToast({ title: 'Approve failed', message: res.error, type: 'error' })
-      }
+      const res = status === 'approved' ? await approveIdea(ideaId) : await rejectIdea(ideaId)
+      if (!res.success) throw new Error(res.error)
+      markDataChanged()
+      // The sidebar badge counts ideas still to review.
+      if (previous === 'proposed') adjustIdeasToReview(-1)
+    } catch (err: any) {
+      setStatus(previous)
+      showToast({
+        title: status === 'approved' ? 'Approve failed' : 'Reject failed',
+        message: err?.message || 'Please try again.',
+        type: 'error'
+      })
     } finally {
       setIdeaActionBusyId(null)
     }
   }
 
-  const handleRejectIdea = async (ideaId: string) => {
-    setIdeaActionBusyId(ideaId)
-    try {
-      const res = await rejectIdea(ideaId)
-      if (res.success) {
-        setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, status: 'rejected' } : i)))
-      } else {
-        showToast({ title: 'Reject failed', message: res.error, type: 'error' })
-      }
-    } finally {
-      setIdeaActionBusyId(null)
-    }
-  }
+  const handleApproveIdea = (ideaId: string) => decideIdea(ideaId, 'approved')
+  const handleRejectIdea = (ideaId: string) => decideIdea(ideaId, 'rejected')
 
   const handleEditIdeaSave = async (
     ideaId: string,

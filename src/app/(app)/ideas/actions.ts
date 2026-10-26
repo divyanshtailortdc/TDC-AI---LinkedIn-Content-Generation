@@ -50,10 +50,9 @@ export async function approveIdea(ideaId: string) {
       )
     }
 
-    // The sidebar's Ideas badge counts these.
-    revalidatePath('/', 'layout')
-    revalidatePath('/ideas')
-    revalidatePath('/runs')
+    // No revalidatePath: it re-rendered the whole page and layout with every
+    // click. The pages update the idea and the sidebar badge themselves
+    // (~/lib/ideas-badge).
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve idea' }
@@ -93,10 +92,7 @@ export async function rejectIdea(ideaId: string, reason?: string) {
       })
     }
 
-    // The sidebar's Ideas badge counts these.
-    revalidatePath('/', 'layout')
-    revalidatePath('/ideas')
-    revalidatePath('/runs')
+    // No revalidatePath; see approveIdea.
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to reject idea' }

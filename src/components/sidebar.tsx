@@ -7,6 +7,7 @@ import logoLight from '@/img/tdccommercelogo.webp'
 import { BRAND_THEME_PATH } from '@/lib/brand/theme-path'
 import { cn } from '@/lib/cn'
 import { IDENTITY_PATH } from '@/lib/identity-path'
+import { useIdeasToReview } from '@/lib/ideas-badge'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
   CalendarDays,
@@ -190,6 +191,7 @@ export function Sidebar({
   user: { name: string; email: string }
 }) {
   const pathname = usePathname()
+  const ideasBadge = useIdeasToReview(ideasToReview)
   const [collapsedPref, setCollapsed] = useSidebarCollapsed(initialCollapsed)
   const isDesktop = useIsDesktop()
   const { open, setOpen } = useMobileNav()
@@ -309,7 +311,7 @@ export function Sidebar({
                 icon={icon}
                 active={active}
                 collapsed={collapsed}
-                badge={'badge' in rest ? ideasToReview : 0}
+                badge={'badge' in rest ? ideasBadge : 0}
               />
             )
           })}
