@@ -49,29 +49,25 @@ export async function saveSchedule(
       }
     }
 
-    const existing = await db.query.schedulesTable.findFirst({
-      where: eq(schedulesTable.accountId, accountId)
-    })
-
     const columns = {
       daysOfWeek,
       timeOfDay: payload.timeOfDay,
       enabled: payload.enabled,
       dayGoals,
       // A schedule keeps the zone it was saved with unless the viewer sends one.
-      timezone: payload.timezone ?? existing?.timezone ?? null,
+      ...(payload.timezone ? { timezone: payload.timezone } : {}),
       // A new plan starts clean; the next attempt reports for itself.
       lastError: null
     }
 
-    if (existing) {
-      await db
-        .update(schedulesTable)
-        .set({ ...columns, updatedAt: new Date() })
-        .where(eq(schedulesTable.id, existing.id))
-    } else {
-      await db.insert(schedulesTable).values({ accountId, ...columns })
-    }
+    // One schedule per identity: a save racing this one updates the same row.
+    await db
+      .insert(schedulesTable)
+      .values({ accountId, ...columns })
+      .onConflictDoUpdate({
+        target: schedulesTable.accountId,
+        set: { ...columns, updatedAt: new Date() }
+      })
 
     revalidatePath('/schedule')
     return { success: true }

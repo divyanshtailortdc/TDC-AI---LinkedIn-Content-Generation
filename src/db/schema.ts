@@ -141,7 +141,11 @@ export const offeringsTable = pgTable('offerings', {
   url: text('url'),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('offerings_account_idx').on(table.accountId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 4. Sample Posts (1:N with Account) — few-shot exemplars for the prompt
@@ -159,7 +163,11 @@ export const samplePostsTable = pgTable('sample_posts', {
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()
     .defaultNow()
-})
+},
+  table => [
+    index('sample_posts_account_idx').on(table.accountId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 5. Audiences (1:N with Account) — target reader profiles
@@ -187,7 +195,11 @@ export const audiencesTable = pgTable('audiences', {
   // The belief the content has to move. Posts aimed at a belief beat posts aimed at a topic.
   whatTheyDontBelieveYet: text('what_they_dont_believe_yet'),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    index('audiences_account_idx').on(table.accountId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 6. Knowledge Documents (1:N with Account) — grounded fact base
@@ -684,6 +696,7 @@ export const schedulesTable = pgTable('schedules', {
   id: commonFieldDefs.id(),
   accountId: uuid('account_id')
     .notNull()
+    .unique()
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   daysOfWeek: jsonb('days_of_week').$type<number[]>().default([1, 3, 5]),
   timeOfDay: varchar('time_of_day', { length: 10 }).default('09:00').notNull(),
@@ -719,7 +732,16 @@ export const feedbackTable = pgTable('feedback', {
   finalBody: text('final_body'),
   editDistance: integer('edit_distance').default(0),
   ...commonFieldDefs.dates
-})
+},
+  table => [
+    // Generation reads an account's latest rejection reasons.
+    index('feedback_account_verdict_created_idx').on(
+      table.accountId,
+      table.verdict,
+      table.createdAt
+    )
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 17. Brand Themes (1:1 with Account) — how generated images look
