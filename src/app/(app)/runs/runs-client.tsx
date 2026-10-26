@@ -15,6 +15,7 @@ import type { PageInfo } from '@/lib/pagination'
 import { Pagination } from '@/components/pagination'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { formatAbsoluteDateTime } from '@/lib/format-date'
+import { pollRuns } from './actions'
 
 interface RunSummary {
   id: string
@@ -57,23 +58,53 @@ export function RunsClient({
 }) {
   const router = useRouter()
   const hasMounted = useHasMounted()
-  // Rendered straight from props so router.refresh() below shows fresh rows.
-  const runs = initialRuns
+  // Rendered from props, so router.refresh() below shows fresh rows, with the
+  // polled progress of moving runs laid over them. The overlay belongs to the
+  // props it was polled for and is dropped when fresh ones arrive.
+  const [progress, setProgress] = useState<{
+    for: RunSummary[]
+    byId: Record<string, Partial<RunSummary>>
+  }>({ for: initialRuns, byId: {} })
+  const runs =
+    progress.for === initialRuns
+      ? initialRuns.map(run => ({ ...run, ...progress.byId[run.id] }))
+      : initialRuns
   const [showModal, setShowModal] = useState(false)
   const openModal = () => setShowModal(true)
 
-  // Re-fetch the server data (runs + spend) so progress and newly scheduled
-  // runs show up without a reload: fast while a run is moving, slow otherwise.
-  const hasActiveRun = runs.some(run => ACTIVE_RUN_STATUSES.includes(run.status))
+  // Poll a small action rather than re-rendering the page: progress of the
+  // moving runs every 3s, otherwise only whether a new run has appeared.
+  // The page itself is refreshed once, when a run finishes (spend changes
+  // too) or a new one starts.
+  const activeRunIds = runs
+    .filter(run => ACTIVE_RUN_STATUSES.includes(run.status))
+    .map(run => run.id)
+    .join(',')
+  const newestRunId = initialRuns[0]?.id ?? null
+  const onFirstPage = pageInfo.page === 1
   useEffect(() => {
+    const ids = activeRunIds ? activeRunIds.split(',') : []
     const interval = setInterval(
-      () => {
-        if (document.visibilityState === 'visible') router.refresh()
+      async () => {
+        if (document.visibilityState !== 'visible') return
+        const res = await pollRuns(ids)
+        if (!res.success) return
+        const finished = res.runs.some(
+          run => !ACTIVE_RUN_STATUSES.includes(run.status)
+        )
+        if (finished || (onFirstPage && res.latestRunId !== newestRunId)) {
+          router.refresh()
+          return
+        }
+        setProgress({
+          for: initialRuns,
+          byId: Object.fromEntries(res.runs.map(run => [run.id, run]))
+        })
       },
-      hasActiveRun ? 3000 : 30000
+      ids.length > 0 ? 3000 : 30000
     )
     return () => clearInterval(interval)
-  }, [hasActiveRun, router])
+  }, [activeRunIds, newestRunId, onFirstPage, initialRuns, router])
 
   // Spend over time is what shows whether a cost change actually worked.
   const formatUsd = (value: number) =>

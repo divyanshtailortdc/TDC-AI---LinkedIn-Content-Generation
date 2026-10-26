@@ -1,6 +1,5 @@
 'use client'
 
-import { ImageLightbox } from '@/components/image-lightbox'
 import { LinkedInPreview } from '@/components/linkedin-preview'
 import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
@@ -67,6 +66,7 @@ import {
   X,
   ZoomIn
 } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -96,6 +96,12 @@ import {
 } from './media-jobs'
 import { formatAbsoluteDate, formatAbsoluteDateTime } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+
+// Only shown when an image is zoomed, so it loads then.
+const ImageLightbox = dynamic(
+  () => import('@/components/image-lightbox').then(m => m.ImageLightbox),
+  { ssr: false }
+)
 
 export interface PostDetail {
   id: string

@@ -26,18 +26,24 @@ export default async function IdentityPage() {
   const account = await getIdentity()
   if (!account) return <CreateIdentity />
   const id = account.id
+  // These four are only checked for existence, so only their ids are read
+  // (a knowledge document's row carries its full text).
   const [voiceConfig, knowledgeDoc, goal, preference, offerings, audiences] =
     await Promise.all([
       db.query.voiceConfigsTable.findFirst({
+        columns: { id: true },
         where: eq(voiceConfigsTable.accountId, id)
       }),
       db.query.knowledgeDocumentsTable.findFirst({
+        columns: { id: true },
         where: eq(knowledgeDocumentsTable.accountId, id)
       }),
       db.query.goalsTable.findFirst({
+        columns: { id: true },
         where: eq(goalsTable.accountId, id)
       }),
       db.query.preferencesTable.findFirst({
+        columns: { id: true },
         where: eq(preferencesTable.accountId, id)
       }),
       db.query.offeringsTable.findMany({

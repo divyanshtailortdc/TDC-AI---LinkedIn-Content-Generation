@@ -35,7 +35,7 @@ Authentication is [Better Auth](https://www.better-auth.com) 1.6.11 with three w
 
 **Ownership.** Each signed-in user owns **one** identity (`accounts` row), linked by `accounts.user_id` (`UNIQUE`). There is no identity switcher and no active-identity cookie: every page and action works on the user's identity, from `getIdentity()`. A user without one is sent to `/identity`, which creates it (with the AI setup assistant); the same page edits it later, and the other setup steps live under `/identity/…`. Creating a second identity is impossible: `createAccount` returns the existing one, and the unique constraint settles a race. Everything else (voice, goals, knowledge, preferences, schedules, runs, ideas, posts, media) belongs to the identity, so it belongs to its owner. An identity with `user_id = NULL` belongs to nobody and is never shown. Handles are not unique.
 
-**Sessions** are checked against the database on every request; there is no cookie cache. Signing out or an admin revoking a session takes effect immediately.
+**Sessions** are cached in a signed cookie for one minute (`session.cookieCache` in `src/lib/auth.ts`), so most requests skip the database lookup. Signing out clears the cookie at once, but an admin revoking or banning a session, or changing a role, can take up to a minute to apply.
 
 **`proxy.ts` is not security.** It only checks that a session cookie is present, so visitors without one land on `/login?next=…`. It runs on pages only: API routes answer 401 themselves, and are kept out of the proxy so it never sits in front of their request bodies or cancel signals. A present cookie proves nothing. The real checks are in each page, Server Action and API route.
 

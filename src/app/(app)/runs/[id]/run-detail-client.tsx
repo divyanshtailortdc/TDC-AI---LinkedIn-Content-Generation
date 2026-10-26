@@ -29,7 +29,7 @@ import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
-import { fetchRunStatus } from '../actions'
+import { fetchRunStatus, pollRunProgress } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import {
   approveIdea,
@@ -51,7 +51,7 @@ interface RunDetailProps {
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
 
-const POLL_INTERVAL_MS = 2500
+const POLL_INTERVAL_MS = 5000
 
 /**
  * A backstop: a run interrupted by a restart is failed server-side once its
@@ -178,26 +178,43 @@ export function RunDetailClient({
     if (!isRunning) return
 
     const startedAt = Date.now()
+    let needFindings = findings.length === 0
     const interval = setInterval(async () => {
       if (Date.now() - startedAt > MAX_POLL_MS) {
         clearInterval(interval)
         return
       }
-      const res = await fetchRunStatus(run.id)
-      if (res.success && res.run) {
-        setRun(res.run)
-        if (res.steps) setSteps(res.steps)
-        if (res.findings) setFindings(res.findings)
-        if (res.ideas) setIdeas(res.ideas)
-
-        if (!ACTIVE_STATUSES.includes(res.run.status)) {
-          clearInterval(interval)
-          router.refresh()
-        }
+      // Only the row and its steps while the run moves; everything else
+      // once, below, when it stops.
+      const res = await pollRunProgress(run.id, needFindings)
+      if (!res.success) return
+      setSteps(res.steps)
+      if (res.findings && res.findings.length > 0) {
+        setFindings(res.findings)
+        needFindings = false
       }
+
+      if (ACTIVE_STATUSES.includes(res.run.status)) {
+        // goalTitles is worked out by fetchRunStatus, not the poll.
+        setRun((prev: any) => ({ ...prev, ...res.run }))
+        return
+      }
+      clearInterval(interval)
+      const done = await fetchRunStatus(run.id)
+      if (done.success && done.run) {
+        setRun(done.run)
+        setSteps(done.steps)
+        setFindings(done.findings)
+        setIdeas(done.ideas)
+      } else {
+        setRun((prev: any) => ({ ...prev, ...res.run }))
+      }
+      router.refresh()
     }, POLL_INTERVAL_MS)
 
     return () => clearInterval(interval)
+    // findings is read once, when polling starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, run.id, router])
 
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)

@@ -14,7 +14,9 @@ const globalForDb = globalThis as unknown as {
 const client =
   globalForDb.conn ??
   postgres(env.DATABASE_URL, {
-    max: env.APP_ENV === 'production' ? 20 : 5,
+    // Dev shares the pool with the in-process worker, the scheduler and
+    // page polling; 5 left pages queueing for a connection.
+    max: env.APP_ENV === 'production' ? 20 : 15,
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: false

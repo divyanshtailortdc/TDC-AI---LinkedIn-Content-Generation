@@ -176,6 +176,13 @@
       "when": 1792646929042,
       "tag": "0024_drop_schedule_goal_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793013210135,
+      "tag": "0025_account_lookup_indexes",
+      "breakpoints": true
     }
   ]
 }
