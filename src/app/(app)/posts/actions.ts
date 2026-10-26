@@ -26,6 +26,7 @@ import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
 import { runLinter } from '~/lib/lint/run-linter'
 import { validateImageUrl } from '~/lib/media/image-input'
+import { deleteDraftImages, viewableImageUrl } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
 import { loadPostsPage } from './posts-data'
 
@@ -247,6 +248,7 @@ export async function updatePostMediaAction(
 
     if (payload.mode === 'none' || !payload.imageUrl) {
       await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
+      await deleteDraftImages(draftId)
       revalidatePath('/posts')
       return { success: true, media: null }
     }
@@ -298,6 +300,7 @@ export async function removePostMediaAction(draftId: string) {
     if (!draft) throw new Error('Post draft not found')
 
     await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
+    await deleteDraftImages(draftId)
 
     revalidatePath('/posts')
     return { success: true }
@@ -426,7 +429,10 @@ export async function fetchPostMediaImage(mediaId: string) {
       return { success: false as const, error: 'Image not found' }
     }
 
-    return { success: true as const, imageUrl: media.imageUrl }
+    return {
+      success: true as const,
+      imageUrl: await viewableImageUrl(media.imageUrl)
+    }
   } catch (err: any) {
     console.error('Error loading post media image:', err)
     return {

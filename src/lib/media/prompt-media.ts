@@ -9,6 +9,7 @@ import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { postFullText } from '@/lib/post-text'
 import { loadBrandRendering } from './brand-assets'
+import { loadImageDataUrl, storeMediaImages } from './image-store'
 import { generateCustomImage } from './index'
 
 export type PromptMediaOutcome =
@@ -86,7 +87,7 @@ export async function createPromptMediaForDraft(input: {
     })
     const image = reference?.baseImageUrl || reference?.imageUrl
     if (!image) return { status: 'reference_not_found' }
-    editImage = image
+    editImage = await loadImageDataUrl(image)
     // An edit keeps the image's own headline unless it says otherwise.
     allowedText ||= (reference?.metadata as { textOverlay?: { headline?: string } } | null)
       ?.textOverlay?.headline
@@ -126,11 +127,16 @@ export async function createPromptMediaForDraft(input: {
 
   if (input.abortSignal?.aborted) return { status: 'aborted' }
 
+  const storedImages = await storeMediaImages(input.draftId, generated)
+
   // Superseding and inserting together: if the insert failed on its own, the post
   // would be left with no active image at all.
   const newMedia = await db.transaction(async (tx) => {
+    // Only what the new version needs; the image columns are left unread.
+    const columns = { id: true, version: true, regenerationAttempt: true } as const
     const existingMedia =
       (await tx.query.postMediaTable.findFirst({
+        columns,
         where: and(
           eq(postMediaTable.draftId, input.draftId),
           eq(postMediaTable.status, 'active')
@@ -138,6 +144,7 @@ export async function createPromptMediaForDraft(input: {
         orderBy: desc(postMediaTable.createdAt)
       })) ||
       (await tx.query.postMediaTable.findFirst({
+        columns,
         where: eq(postMediaTable.draftId, input.draftId),
         orderBy: desc(postMediaTable.createdAt)
       }))
@@ -162,8 +169,8 @@ export async function createPromptMediaForDraft(input: {
         previousMediaId: existingMedia?.id || null,
         regenerationAttempt: (existingMedia?.regenerationAttempt || 0) + 1,
         mode: 'ai_generated',
-        imageUrl: generated.imageUrl,
-        baseImageUrl: generated.baseImageUrl ?? null,
+        imageUrl: storedImages.imageUrl,
+        baseImageUrl: storedImages.baseImageUrl,
         altText: generated.altText,
         promptOrQuery: generated.promptOrQuery,
         metadata: {

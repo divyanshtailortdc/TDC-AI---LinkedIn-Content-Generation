@@ -16,6 +16,7 @@ import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
 import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
+import { storeMediaImages } from './image-store'
 import { regenerateMediaPlan, type RegenerateMediaPlanResult } from './index'
 import { REVIEWER_SEARCH_SOURCE } from './media-source'
 import { mediaPlanMetadata, priorVisualsOf } from './plan-record'
@@ -178,6 +179,8 @@ export async function createPostMedia(input: {
     }
   }
 
+  const storedImages = await storeMediaImages(input.draftId, mediaPlan)
+
   // Supersede and insert together: never return or overwrite existing media.
   const newMedia = await db.transaction(async tx => {
     if (existingMedia) {
@@ -203,8 +206,8 @@ export async function createPostMedia(input: {
         regenerationAttempt: mediaPlan.regenerationAttempt,
         rejectionReason: reviewerReason || null,
         mode: mediaPlan.mode,
-        imageUrl: mediaPlan.imageUrl,
-        baseImageUrl: mediaPlan.baseImageUrl ?? null,
+        imageUrl: storedImages.imageUrl,
+        baseImageUrl: storedImages.baseImageUrl,
         altText: mediaPlan.altText || null,
         promptOrQuery: mediaPlan.promptOrQuery || null,
         metadata: mediaPlanMetadata(mediaPlan, {

@@ -32,6 +32,12 @@ locals {
     NEXT_PUBLIC_APP_URL = local.app_url
     RESEARCH_MODE       = var.research_mode
     ADMIN_USER_IDS      = var.admin_user_ids
+    # Post images through the S3-compatible API, the same code path as any
+    # other host (src/lib/media/image-store.ts).
+    STORAGE_BUCKET        = google_storage_bucket.media.name
+    STORAGE_ENDPOINT      = "https://storage.googleapis.com"
+    STORAGE_REGION        = "auto"
+    STORAGE_ACCESS_KEY_ID = google_storage_hmac_key.app.access_id
   })
 
   # Your keys from terraform.tfvars; only the ones you set become secrets.
@@ -45,14 +51,15 @@ locals {
     LINKEDIN_CLIENT_SECRET = var.linkedin_client_secret
   }
   secret_values = merge(local.optional_secrets, {
-    PGPASSWORD         = random_password.db.result
-    BETTER_AUTH_SECRET = random_password.auth.result
+    PGPASSWORD                = random_password.db.result
+    BETTER_AUTH_SECRET        = random_password.auth.result
+    STORAGE_SECRET_ACCESS_KEY = google_storage_hmac_key.app.secret
   })
   # Decided from your variables alone: the generated passwords aren't known
   # until apply, and for_each needs the set of names at plan time. Only
   # whether a key is set is revealed here, never its value.
   secret_names = toset(concat(
-    ["PGPASSWORD", "BETTER_AUTH_SECRET"],
+    ["PGPASSWORD", "BETTER_AUTH_SECRET", "STORAGE_SECRET_ACCESS_KEY"],
     [for name, value in local.optional_secrets : name if nonsensitive(value != "")]
   ))
 }
@@ -65,6 +72,7 @@ resource "google_project_service" "apis" {
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
+    "storage.googleapis.com",
   ])
 
   service            = each.value
@@ -136,6 +144,28 @@ resource "google_sql_user" "app" {
   password = random_password.db.result
 }
 
+# --- Post images --------------------------------------------------------
+
+# Generated post images (src/lib/media/image-store.ts); the database keeps only
+# their storage:// keys. Private: the app hands the browser signed links.
+resource "google_storage_bucket" "media" {
+  name                        = "${var.project_id}-${var.service_name}-media"
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+
+  # Download and copy on the review screen read the image with fetch().
+  cors {
+    origin          = [local.app_url]
+    method          = ["GET"]
+    response_header = ["Content-Type"]
+    max_age_seconds = 3600
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
 # --- Secrets ------------------------------------------------------------
 
 resource "google_secret_manager_secret" "app" {
@@ -173,6 +203,19 @@ resource "google_secret_manager_secret_iam_member" "app" {
   secret_id = google_secret_manager_secret.app[each.key].id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.app.email}"
+}
+
+# Read, write and delete post images; no say over the bucket itself.
+resource "google_storage_bucket_iam_member" "app_media" {
+  bucket = google_storage_bucket.media.name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.app.email}"
+}
+
+# The app's key for the bucket's S3-compatible API, which signs image links
+# too. The secret lands in Terraform state, like the database password.
+resource "google_storage_hmac_key" "app" {
+  service_account_email = google_service_account.app.email
 }
 
 # --- App ----------------------------------------------------------------
@@ -250,6 +293,7 @@ resource "google_cloud_run_v2_service" "app" {
     google_project_iam_member.app_sql_client,
     google_secret_manager_secret_iam_member.app,
     google_secret_manager_secret_version.app,
+    google_storage_bucket_iam_member.app_media,
   ]
 }
 

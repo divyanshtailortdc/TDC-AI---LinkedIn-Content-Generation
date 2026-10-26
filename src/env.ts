@@ -32,7 +32,16 @@ export const env = createEnv({
     LINKEDIN_CLIENT_ID: z.string().optional(),
     LINKEDIN_CLIENT_SECRET: z.string().optional(),
     /** Comma-separated auth user ids that are always admins (Admin plugin `adminUserIds`). */
-    ADMIN_USER_IDS: z.string().optional()
+    ADMIN_USER_IDS: z.string().optional(),
+    // Post images, in any S3-compatible store (src/lib/media/image-store.ts).
+    /** The bucket; unset keeps images in the database. */
+    STORAGE_BUCKET: z.string().optional(),
+    /** The store's S3 API, e.g. https://storage.googleapis.com; unset is AWS. */
+    STORAGE_ENDPOINT: z.url().optional(),
+    /** `auto` for Google Cloud Storage and R2; the bucket's region on AWS. */
+    STORAGE_REGION: z.string().default('auto'),
+    STORAGE_ACCESS_KEY_ID: z.string().optional(),
+    STORAGE_SECRET_ACCESS_KEY: z.string().optional()
   },
 
   client: {
@@ -54,6 +63,11 @@ export const env = createEnv({
     LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
     ADMIN_USER_IDS: process.env.ADMIN_USER_IDS,
+    STORAGE_BUCKET: process.env.STORAGE_BUCKET,
+    STORAGE_ENDPOINT: process.env.STORAGE_ENDPOINT,
+    STORAGE_REGION: process.env.STORAGE_REGION,
+    STORAGE_ACCESS_KEY_ID: process.env.STORAGE_ACCESS_KEY_ID,
+    STORAGE_SECRET_ACCESS_KEY: process.env.STORAGE_SECRET_ACCESS_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL
   },
 

@@ -26,7 +26,12 @@ export async function replaceActiveMedia(
   return database.transaction(async tx => {
     const latest = (status?: string) =>
       tx
-        .select()
+        // Only what the new version needs; the image columns are left unread.
+        .select({
+          id: postMediaTable.id,
+          version: postMediaTable.version,
+          regenerationAttempt: postMediaTable.regenerationAttempt
+        })
         .from(postMediaTable)
         .where(
           and(

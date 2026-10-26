@@ -98,7 +98,8 @@ export async function loadPostsPage(
           .where(inArray(postCitationsTable.draftId, draftIds))
           .groupBy(postCitationsTable.draftId)
       : Promise.resolve([]),
-    // `image_url` holds a base64 data URL of roughly half a megabyte per image.
+    // `image_url` can hold a base64 data URL of roughly half a megabyte per
+    // image (when STORAGE_BUCKET is unset, and for rows not yet moved to it).
     // Selecting it for every draft pushed ~12 MB into this page's payload even
     // though only the selected post ever renders one, so it is fetched on demand.
     draftIds.length > 0

@@ -21,6 +21,7 @@ import { DEFAULT_BRAND_THEME } from '@/lib/brand/theme'
 import { createMediaPlan, type MediaPlanResult } from '~/lib/media'
 import { loadBrandRendering } from '~/lib/media/brand-assets'
 import { buildMediaBriefContext } from '~/lib/media/brief-context'
+import { storeMediaImages } from '~/lib/media/image-store'
 import {
   FAILED_MEDIA_STATUS,
   mediaPlanMetadata,
@@ -370,6 +371,11 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
   const variantLimit = Math.max(1, Math.min(constraints.variants_per_post, 5))
   const alternateHooks = (draft.alternateHooks || []).slice(0, variantLimit)
 
+  // The draft's id is chosen here so its image can be uploaded under it
+  // before the transaction, which should not wait on the network.
+  const draftId = crypto.randomUUID()
+  const storedImages = await storeMediaImages(draftId, mediaPlan)
+
   // One transaction: saved piece by piece, a failure part-way left a draft
   // missing its citations while the idea stayed approved, so drafting it
   // again produced a second copy. The idea is marked drafted first: that
@@ -380,6 +386,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
     const [saved] = await tx
       .insert(postDraftsTable)
       .values({
+        id: draftId,
         accountId: ctx.account.id,
         ideaId,
         hook: draft.hook,
@@ -426,8 +433,8 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
       await tx.insert(postMediaTable).values({
         draftId: saved.id,
         mode: mediaPlan.mode,
-        imageUrl: mediaPlan.imageUrl,
-        baseImageUrl: mediaPlan.baseImageUrl ?? null,
+        imageUrl: storedImages.imageUrl,
+        baseImageUrl: storedImages.baseImageUrl,
         altText: mediaPlan.altText || null,
         promptOrQuery: mediaPlan.promptOrQuery || null,
         metadata: mediaPlanMetadata(mediaPlan)
