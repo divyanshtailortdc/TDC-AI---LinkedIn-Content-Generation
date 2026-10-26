@@ -3,7 +3,7 @@ import { db } from '@/db'
 import { brandThemesTable } from '@/db/schema'
 import { resolveBrandTheme } from '@/lib/brand/theme'
 import { getIdentity } from '@/lib/identity'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { BrandThemeClient } from './brand-theme-client'
 
 export const dynamic = 'force-dynamic'
@@ -14,7 +14,6 @@ export default async function BrandThemePage() {
 
   const [row] = await db
     .select({
-      logoImage: brandThemesTable.logoImage,
       primaryColor: brandThemesTable.primaryColor,
       accentColor: brandThemesTable.accentColor,
       backgroundColor: brandThemesTable.backgroundColor,
@@ -23,20 +22,23 @@ export default async function BrandThemePage() {
       visualStyle: brandThemesTable.visualStyle,
       backgroundPattern: brandThemesTable.backgroundPattern,
       showLogo: brandThemesTable.showLogo,
-      footerText: brandThemesTable.footerText
+      footerText: brandThemesTable.footerText,
+      // Never the logo itself: the page links to it (api/brand/logo).
+      hasLogo: sql<boolean>`${brandThemesTable.logoImage} is not null`,
+      updatedAt: brandThemesTable.updatedAt
     })
     .from(brandThemesTable)
     .where(eq(brandThemesTable.accountId, identity.id))
     .limit(1)
-  const theme = resolveBrandTheme(
-    row ? { ...row, hasLogo: Boolean(row.logoImage) } : null
-  )
+  const theme = resolveBrandTheme(row)
 
   return (
     <BrandThemeClient
       identityName={identity.name}
       initialTheme={theme}
-      initialLogo={row?.logoImage ?? null}
+      initialLogo={
+        row?.hasLogo ? `/api/brand/logo?v=${row.updatedAt.getTime()}` : null
+      }
     />
   )
 }

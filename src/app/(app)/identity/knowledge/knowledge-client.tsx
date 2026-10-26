@@ -29,7 +29,6 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import {
   deleteKnowledgeDocument,
@@ -57,7 +56,6 @@ export function KnowledgeClient({
   accountName: string
   initialDocs: KnowledgeDoc[]
 }) {
-  const router = useRouter()
   const [tab, setTab] = useState<'url' | 'artifact'>('url')
 
   // The document list, newest first, a page at a time. A document added by
@@ -187,7 +185,6 @@ export function KnowledgeClient({
         title: 'Facts Saved',
         message: 'The facts were saved to your knowledge base.'
       })
-      router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to save facts')
       showToast({
@@ -270,7 +267,6 @@ export function KnowledgeClient({
       clearSavedSuggestion({ url: urlPreview.url })
       setInputUrl('')
       setUrlPreview(null)
-      router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to save document')
       showToast({
@@ -310,7 +306,6 @@ export function KnowledgeClient({
       clearSavedSuggestion({ title: artifactTitle })
       setArtifactTitle('')
       setArtifactContent('')
-      router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to save artifact')
       showToast({
@@ -333,7 +328,6 @@ export function KnowledgeClient({
         title: 'Document Removed',
         message: 'Document removed from knowledge base.'
       })
-      router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to delete document')
       showToast({

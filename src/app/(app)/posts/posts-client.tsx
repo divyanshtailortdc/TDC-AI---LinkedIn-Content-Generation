@@ -71,9 +71,16 @@ import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Suspense,
+  useDeferredValue,
   useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useMemo,
   useRef,
-  useState
+  useState,
+  type Dispatch,
+  type Ref,
+  type SetStateAction
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -256,6 +263,23 @@ function inDateRange(value: Date | string, from: string, to: string): boolean {
   return true
 }
 
+/**
+ * The queue as shown: posts already narrowed by everything but status, with
+ * the status filter applied, in the chosen order.
+ */
+function queueOf(
+  scoped: PostDetail[],
+  status: StatusFilter,
+  sort: SortOrder
+): PostDetail[] {
+  return scoped
+    .filter(p => status === 'all' || p.status === status)
+    .sort((a, b) => {
+      const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+      return sort === 'newest' ? diff : -diff
+    })
+}
+
 const STATUS_FILTERS: StatusFilter[] = [
   'all',
   'awaiting_review',
@@ -430,6 +454,10 @@ export function PostsClientInner({
   // Typed into on every keystroke, so it is local state that is copied into
   // the URL (replace, not push: each letter is not a Back step).
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') ?? '')
+  // The box shows each letter at once; the queue is filtered against this
+  // copy, which React catches up in the background, so typing never waits on
+  // the list.
+  const deferredQuery = useDeferredValue(searchQuery)
   const changeSearch = (value: string) => {
     setSearchQuery(value)
     writeParams({ q: value.trim() ? value : null }, 'replace')
@@ -446,48 +474,43 @@ export function PostsClientInner({
   // Posts matching everything except the status facet, so the status counts can
   // show what switching to another status would actually reveal. All posts
   // here already belong to the active account (scoped server-side), so there
-  // is no identity facet to filter on.
-  const matchesScope = (p: PostDetail) => {
-    if (filterRunId && p.runId !== filterRunId) return false
+  // is no identity facet to filter on. Worked out again only when the posts
+  // or a filter change, not on every render.
+  const scopedPosts = useMemo(() => {
+    const query = deferredQuery.trim().toLowerCase()
+    return posts.filter(p => {
+      if (filterRunId && p.runId !== filterRunId) return false
 
-    if (!inDateRange(p.createdAt, dateFrom, dateTo)) return false
+      if (!inDateRange(p.createdAt, dateFrom, dateTo)) return false
 
-    const query = searchQuery.trim().toLowerCase()
-    if (query) {
-      // Tags are searched as shown in the preview (#tag), whether or not they
-      // were stored with the #, so "#tag" and "tag" both find them.
-      const tags = (p.hashtags || []).map(t => `#${t.replace(/^#+/, '')}`)
-      const haystack =
-        `${p.hook} ${p.body} ${p.accountName} ${tags.join(' ')}`.toLowerCase()
-      if (!haystack.includes(query)) return false
-    }
+      if (query) {
+        // Tags are searched as shown in the preview (#tag), whether or not they
+        // were stored with the #, so "#tag" and "tag" both find them.
+        const tags = (p.hashtags || []).map(t => `#${t.replace(/^#+/, '')}`)
+        const haystack =
+          `${p.hook} ${p.body} ${p.accountName} ${tags.join(' ')}`.toLowerCase()
+        if (!haystack.includes(query)) return false
+      }
 
-    return true
-  }
-  const scopedPosts = posts.filter(matchesScope)
+      return true
+    })
+  }, [posts, filterRunId, dateFrom, dateTo, deferredQuery])
 
-  const statusCounts = {
-    all: scopedPosts.length,
-    awaiting_review: scopedPosts.filter(p => p.status === 'awaiting_review')
-      .length,
-    approved: scopedPosts.filter(p => p.status === 'approved').length,
-    rejected: scopedPosts.filter(p => p.status === 'rejected').length
-  }
+  const statusCounts = useMemo(
+    () => ({
+      all: scopedPosts.length,
+      awaiting_review: scopedPosts.filter(p => p.status === 'awaiting_review')
+        .length,
+      approved: scopedPosts.filter(p => p.status === 'approved').length,
+      rejected: scopedPosts.filter(p => p.status === 'rejected').length
+    }),
+    [scopedPosts]
+  )
 
-  // The queue as shown: every filter applied, in the chosen order.
-  const queueOf = (list: PostDetail[]) =>
-    list
-      .filter(
-        p =>
-          matchesScope(p) &&
-          (statusFilter === 'all' || p.status === statusFilter)
-      )
-      .sort((a, b) => {
-        const diff =
-          toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
-        return sortOrder === 'newest' ? diff : -diff
-      })
-  const filteredPosts = queueOf(posts)
+  const filteredPosts = useMemo(
+    () => queueOf(scopedPosts, statusFilter, sortOrder),
+    [scopedPosts, statusFilter, sortOrder]
+  )
 
   const hasActiveFilters =
     Boolean(dateFrom || dateTo) ||
@@ -507,12 +530,13 @@ export function PostsClientInner({
   // Any change to the filters, search or order opens the first post of the
   // new queue, so the post on screen always matches the list beside it.
   // Adjusted during render (not in an effect) so the old post never paints.
+  // Keyed on the deferred search, the one the queue was filtered with.
   const filterKey = [
     filterRunId,
     dateFrom,
     dateTo,
     statusFilter,
-    searchQuery,
+    deferredQuery,
     sortOrder
   ].join('|')
   const [shownFilterKey, setShownFilterKey] = useState(filterKey)
@@ -526,11 +550,11 @@ export function PostsClientInner({
   const activePost =
     filteredPosts.find(p => p.id === selectedPostId) || filteredPosts[0]
   const [isEditing, setIsEditing] = useState(false)
-  const [editedHook, setEditedHook] = useState(activePost?.hook || '')
-  const [editedBody, setEditedBody] = useState(activePost?.body || '')
-  const [editedComment, setEditedComment] = useState(
-    activePost?.firstComment || ''
-  )
+  // The edit buffer lives in PostTextEditor, so a keystroke there re-renders
+  // the editor alone. The page only hears whether it holds unsaved edits, and
+  // reaches in through the ref for the hook swap and the copy notice.
+  const editorRef = useRef<PostTextEditorHandle>(null)
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
 
   // Copy feedback
   const [copiedPost, setCopiedPost] = useState(false)
@@ -609,16 +633,14 @@ export function PostsClientInner({
   // that has closed just no longer shows its outcome.
   const mountedRef = useRef(false)
 
-  // The editor reads the edit buffer, so it is reset (with the per-post
-  // panels) whenever a different post opens, however that happens: a click,
+  // The edit buffer (PostTextEditor is keyed by post) and the per-post panels
+  // are reset whenever a different post opens, however that happens: a click,
   // J/K, a filter change or a status change.
   const activePostId = activePost?.id
   const [bufferPostId, setBufferPostId] = useState(activePostId)
   if (activePostId !== bufferPostId) {
     setBufferPostId(activePostId)
-    setEditedHook(activePost?.hook || '')
-    setEditedBody(activePost?.body || '')
-    setEditedComment(activePost?.firstComment || '')
+    setHasUnsavedEdits(false)
     setIsEditing(false)
     setShowStockInput(false)
     setShowCustomUrlInput(false)
@@ -686,22 +708,11 @@ export function PostsClientInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // The preview and Copy show the saved post, which is what Approve saves; the
-  // edit buffer only while the editor is open. Showing unsaved edits there
+  // The preview and Copy show the saved post, which is what Approve saves (the
+  // preview is hidden while the editor is open). Showing unsaved edits there
   // meant copying or approving one text while another was stored.
-  const shownHook = isEditing ? editedHook : activePost?.hook || ''
-  const shownBody = isEditing ? editedBody : activePost?.body || ''
-  const shownComment = isEditing
-    ? editedComment
-    : activePost?.firstComment || ''
   // Copy, like Approve, takes the saved comment, in the form the preview shows.
   const copyableComment = toLinkedInText(activePost?.firstComment)
-  // Compared whether or not the editor is open: closing it to look at the
-  // preview keeps the edits in the buffer, and they are still unsaved.
-  const hasUnsavedEdits =
-    editedHook !== (activePost?.hook || '') ||
-    editedBody !== (activePost?.body || '') ||
-    editedComment !== (activePost?.firstComment || '')
 
   // Asks before unsaved edits are thrown away. True when it is fine to go on.
   const confirmDiscardEdits = (what: string) =>
@@ -737,13 +748,6 @@ export function PostsClientInner({
       document.removeEventListener('click', onLinkClick, true)
     }
   }, [hasUnsavedEdits])
-
-  const discardEdits = () => {
-    setEditedHook(activePost?.hook || '')
-    setEditedBody(activePost?.body || '')
-    setEditedComment(activePost?.firstComment || '')
-    setIsEditing(false)
-  }
 
   // The file input's own value is DOM state, so it is cleared after render.
   useEffect(() => {
@@ -871,36 +875,36 @@ export function PostsClientInner({
   }, [queuePage])
 
   // Reviewing a long queue is mostly next/next/next, so keep hands on the keyboard.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
+  // An Effect Event always sees the latest queue and edits, so the listener is
+  // added once rather than again on every render.
+  const onQueueKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return
 
-      const target = event.target as HTMLElement | null
-      const tag = target?.tagName
-      if (
-        tag === 'INPUT' ||
-        tag === 'TEXTAREA' ||
-        tag === 'SELECT' ||
-        target?.isContentEditable
-      ) {
-        return
-      }
-
-      // Letters match with Shift or Caps Lock on too.
-      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
-      if (key === 'j' || key === 'ArrowDown') {
-        event.preventDefault()
-        handleNextPost()
-      } else if (key === 'k' || key === 'ArrowUp') {
-        event.preventDefault()
-        handlePrevPost()
-      }
+    const target = event.target as HTMLElement | null
+    const tag = target?.tagName
+    if (
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      target?.isContentEditable
+    ) {
+      return
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex, totalPosts, filteredPosts])
+    // Letters match with Shift or Caps Lock on too.
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
+    if (key === 'j' || key === 'ArrowDown') {
+      event.preventDefault()
+      handleNextPost()
+    } else if (key === 'k' || key === 'ArrowUp') {
+      event.preventDefault()
+      handlePrevPost()
+    }
+  })
+  useEffect(() => {
+    window.addEventListener('keydown', onQueueKeyDown)
+    return () => window.removeEventListener('keydown', onQueueKeyDown)
+  }, [])
 
   const loadReferenceImage = (file: File) => {
     const fileError = validateReferenceFile(file)
@@ -1257,8 +1261,11 @@ export function PostsClientInner({
   }
 
   const handleSwapHook = async (newHook: string) => {
-    const previousHook = editedHook
-    setEditedHook(newHook)
+    // The buffer takes the swap too, so it does not read as an unsaved edit.
+    // This post's editor: if another post opens meanwhile, it has its own.
+    const editor = editorRef.current
+    const previousHook = editor?.draft.hook ?? ''
+    editor?.setHook(newHook)
     if (!activePost) return
     setIsSaving(true)
     try {
@@ -1278,8 +1285,8 @@ export function PostsClientInner({
         )
       )
     } catch (err: any) {
-      // Undo the swap unless another post's buffer has replaced it meanwhile.
-      setEditedHook(current => (current === newHook ? previousHook : current))
+      // Undo the swap unless the hook has been edited meanwhile.
+      editor?.setHook(current => (current === newHook ? previousHook : current))
       showToast({
         type: 'error',
         title: 'Hook not saved',
@@ -1290,15 +1297,15 @@ export function PostsClientInner({
     }
   }
 
-  const handleSaveEdits = async () => {
+  const handleSaveEdits = async (draft: PostDraft) => {
     if (!activePost) return
     setIsSaving(true)
     try {
       markDataChanged()
       const res = await updateDraft(activePost.id, {
-        hook: editedHook,
-        body: editedBody,
-        firstComment: editedComment
+        hook: draft.hook,
+        body: draft.body,
+        firstComment: draft.firstComment
       })
       if (!res.success) throw new Error(res.error)
       setPosts(prev =>
@@ -1306,9 +1313,9 @@ export function PostsClientInner({
           p.id === activePost.id
             ? {
                 ...p,
-                hook: editedHook,
-                body: editedBody,
-                firstComment: editedComment,
+                hook: draft.hook,
+                body: draft.body,
+                firstComment: draft.firstComment,
                 // From the save: counted and checked on the text as stored.
                 charCount: res.charCount ?? p.charCount,
                 lintFindings: res.lintFindings ?? p.lintFindings
@@ -1398,12 +1405,14 @@ export function PostsClientInner({
     if (!copyableComment) return
     const success = await copyTextToClipboard(copyableComment)
     if (success) {
+      const savedComment = activePost?.firstComment || ''
+      const draftComment = editorRef.current?.draft.firstComment ?? savedComment
       setCopiedComment(true)
       showToast({
         type: 'success',
         title: 'Comment Copied!',
         message:
-          editedComment !== (activePost?.firstComment || '')
+          draftComment !== savedComment
             ? 'Copied the saved comment. Your unsaved edits are not included; save them to copy them.'
             : 'First comment copied, ready to paste under the published post.'
       })
@@ -1520,7 +1529,8 @@ export function PostsClientInner({
     const withStatus = (list: PostDetail[]) =>
       list.map(p => (p.id === id ? { ...p, status } : p))
     setPosts(withStatus)
-    const first = queueOf(withStatus(posts))[0]
+    // The scope ignores status, so the post stays in it under its new status.
+    const first = queueOf(withStatus(scopedPosts), statusFilter, sortOrder)[0]
     if (first) handleSelectPost(first)
     else setSelectedPostId('')
   }
@@ -1594,44 +1604,42 @@ export function PostsClientInner({
   }
 
   // Decision shortcuts, alongside J/K navigation. Declared after the handlers
-  // they call.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      const target = event.target as HTMLElement | null
-      const tag = target?.tagName
-      if (
-        tag === 'INPUT' ||
-        tag === 'TEXTAREA' ||
-        tag === 'SELECT' ||
-        target?.isContentEditable
-      ) {
-        return
-      }
-      if (!activePost || isSaving) return
-
-      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
-      if (key === 'a') {
-        event.preventDefault()
-        void handleApprove()
-      } else if (key === 'r') {
-        // A rejected post has no Reject button; R would reject it again and
-        // store a second feedback row.
-        if (activePost.status === 'rejected') return
-        event.preventDefault()
-        setShowPostRejection(true)
-      } else if (key === 'c') {
-        event.preventDefault()
-        void handleCopyPost()
-      } else if (event.key === 'Escape' && showPostRejection) {
-        cancelPostRejection()
-      }
+  // they call; like J/K, an Effect Event, so the listener is added once.
+  const onDecisionKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    const target = event.target as HTMLElement | null
+    const tag = target?.tagName
+    if (
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      target?.isContentEditable
+    ) {
+      return
     }
+    if (!activePost || isSaving) return
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePost?.id, activePost?.status, isSaving, showPostRejection, shownHook, shownBody, hasUnsavedEdits])
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
+    if (key === 'a') {
+      event.preventDefault()
+      void handleApprove()
+    } else if (key === 'r') {
+      // A rejected post has no Reject button; R would reject it again and
+      // store a second feedback row.
+      if (activePost.status === 'rejected') return
+      event.preventDefault()
+      setShowPostRejection(true)
+    } else if (key === 'c') {
+      event.preventDefault()
+      void handleCopyPost()
+    } else if (event.key === 'Escape' && showPostRejection) {
+      cancelPostRejection()
+    }
+  })
+  useEffect(() => {
+    window.addEventListener('keydown', onDecisionKeyDown)
+    return () => window.removeEventListener('keydown', onDecisionKeyDown)
+  }, [])
 
   const authorInitials = activePost?.accountName
     ? initialsOf(activePost.accountName)
@@ -2214,76 +2222,25 @@ export function PostsClientInner({
                   </div>
 
                   {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
-                  {isEditing ? (
-                    <div className="border-border bg-surface space-y-4 rounded-2xl border p-6 shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-foreground text-xs font-semibold">
-                          Edit Draft Copy
-                        </span>
-                        <span className="text-muted font-mono text-xs">
-                          Hook: {editedHook.length} chars (fold ~200)
-                        </span>
-                      </div>
-                      <div>
-                        <label className="text-muted mb-1 block text-xs font-medium">
-                          Opening Hook
-                        </label>
-                        <textarea
-                          value={editedHook}
-                          onChange={e => setEditedHook(e.target.value)}
-                          rows={3}
-                          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-muted mb-1 block text-xs font-medium">
-                          Body
-                        </label>
-                        <textarea
-                          value={editedBody}
-                          onChange={e => setEditedBody(e.target.value)}
-                          rows={8}
-                          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 font-mono text-xs outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-muted mb-1 block text-xs font-medium">
-                          First Comment
-                        </label>
-                        <textarea
-                          value={editedComment}
-                          onChange={e => setEditedComment(e.target.value)}
-                          rows={2}
-                          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
-                        />
-                      </div>
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={discardEdits}
-                          className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSaveEdits}
-                          disabled={isSaving}
-                          className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
-                        >
-                          Save Changes
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
+                  <PostTextEditor
+                    key={activePost.id}
+                    ref={editorRef}
+                    post={activePost}
+                    open={isEditing}
+                    saving={isSaving}
+                    onDirtyChange={setHasUnsavedEdits}
+                    onSave={handleSaveEdits}
+                    onClose={() => setIsEditing(false)}
+                  />
+                  {!isEditing && (
                     <div className="flex w-full justify-center">
                       <LinkedInPreview
                         key={activePost.id}
                         authorName={activePost.accountName}
                         authorHeadline={activePost.accountHeadline}
                         authorInitials={authorInitials}
-                        hook={shownHook}
-                        body={shownBody}
+                        hook={activePost.hook || ''}
+                        body={activePost.body || ''}
                         cta={activePost.cta}
                         hashtags={activePost.hashtags}
                         mediaUrl={activePost.media?.imageUrl}
@@ -2298,7 +2255,7 @@ export function PostsClientInner({
                         hookOptions={hookOptions.length > 1 ? hookOptions : []}
                         onSelectHook={handleSwapHook}
                         hookSwapDisabled={isSaving}
-                        firstComment={shownComment}
+                        firstComment={activePost.firstComment || ''}
                         onCopyFirstComment={handleCopyComment}
                         firstCommentCopied={copiedComment}
                       />
@@ -3163,6 +3120,139 @@ export function PostsClientInner({
           )}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** The text a reviewer edits on a post. */
+interface PostDraft {
+  hook: string
+  body: string
+  firstComment: string
+}
+
+/** What the page reads and sets in the editor's buffer from outside it. */
+interface PostTextEditorHandle {
+  draft: PostDraft
+  setHook: Dispatch<SetStateAction<string>>
+}
+
+/**
+ * The hook, body and first comment textareas, with the edit buffer they type
+ * into. The buffer is kept here so a keystroke re-renders this, not the page.
+ *
+ * Keyed by post, so opening another post starts a fresh buffer. It stays
+ * mounted while closed: closing it to look at the preview keeps the edits,
+ * and they still count as unsaved.
+ */
+function PostTextEditor({
+  ref,
+  post,
+  open,
+  saving,
+  onDirtyChange,
+  onSave,
+  onClose
+}: {
+  ref: Ref<PostTextEditorHandle>
+  post: PostDetail
+  open: boolean
+  saving: boolean
+  /** Called when the buffer starts or stops differing from the saved post. */
+  onDirtyChange: (dirty: boolean) => void
+  onSave: (draft: PostDraft) => void
+  onClose: () => void
+}) {
+  const savedHook = post.hook || ''
+  const savedBody = post.body || ''
+  const savedComment = post.firstComment || ''
+  const [hook, setHook] = useState(savedHook)
+  const [body, setBody] = useState(savedBody)
+  const [firstComment, setFirstComment] = useState(savedComment)
+
+  useImperativeHandle(
+    ref,
+    () => ({ draft: { hook, body, firstComment }, setHook }),
+    [hook, body, firstComment]
+  )
+
+  // The page only re-renders when this flips, not on every keystroke. Also
+  // flips without typing: a save or hook swap changes the saved post.
+  const dirty =
+    hook !== savedHook || body !== savedBody || firstComment !== savedComment
+  useEffect(() => {
+    onDirtyChange(dirty)
+  }, [dirty, onDirtyChange])
+
+  const discard = () => {
+    setHook(savedHook)
+    setBody(savedBody)
+    setFirstComment(savedComment)
+    onClose()
+  }
+
+  if (!open) return null
+
+  return (
+    <div className="border-border bg-surface space-y-4 rounded-2xl border p-6 shadow-xs">
+      <div className="flex items-center justify-between">
+        <span className="text-foreground text-xs font-semibold">
+          Edit Draft Copy
+        </span>
+        <span className="text-muted font-mono text-xs">
+          Hook: {hook.length} chars (fold ~200)
+        </span>
+      </div>
+      <div>
+        <label className="text-muted mb-1 block text-xs font-medium">
+          Opening Hook
+        </label>
+        <textarea
+          value={hook}
+          onChange={e => setHook(e.target.value)}
+          rows={3}
+          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+        />
+      </div>
+      <div>
+        <label className="text-muted mb-1 block text-xs font-medium">
+          Body
+        </label>
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          rows={8}
+          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 font-mono text-xs outline-none"
+        />
+      </div>
+      <div>
+        <label className="text-muted mb-1 block text-xs font-medium">
+          First Comment
+        </label>
+        <textarea
+          value={firstComment}
+          onChange={e => setFirstComment(e.target.value)}
+          rows={2}
+          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+        />
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={discard}
+          className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave({ hook, body, firstComment })}
+          disabled={saving}
+          className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
+        >
+          Save Changes
+        </button>
       </div>
     </div>
   )

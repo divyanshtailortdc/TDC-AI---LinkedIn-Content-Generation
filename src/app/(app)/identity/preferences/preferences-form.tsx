@@ -12,7 +12,6 @@ import {
   type PreferencesValues
 } from '@/lib/settings-merge'
 import { FileText, ShieldAlert } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { savePreferences, type PreferencesPayload } from './actions'
 
@@ -71,8 +70,6 @@ export function PreferencesForm({
   /** False until preferences are first saved, when every value is a default. */
   hasSaved: boolean
 }) {
-  const router = useRouter()
-
   const [ideasPerRun, setIdeasPerRun] = useState(initial.ideasPerRun)
   const [constraints, setConstraints] = useState(initial.post_constraints)
   const [bannedTopicsInput, setBannedTopicsInput] = useState(
@@ -120,7 +117,6 @@ export function PreferencesForm({
         message: 'Content preferences saved successfully.'
       })
       prefill.markSaved()
-      router.refresh()
       return true
     } catch (err: any) {
       setError(err.message || 'Failed to save preferences')

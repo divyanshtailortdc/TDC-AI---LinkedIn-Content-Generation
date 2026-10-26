@@ -9,49 +9,80 @@ declare global {
    
   var __workerInterval: NodeJS.Timeout | undefined
    
-  var __workerBusy: boolean | undefined
+  var __activeRuns: number | undefined
 
   var __recoveryInterval: NodeJS.Timeout | undefined
 }
 
 const POLL_INTERVAL_MS = 3000
 
-/** Its own timer: the poll tick is skipped for the minutes a run takes. */
+/**
+ * Runs executed at once, whether "Generate now" or the poll started them: each
+ * holds model calls and research for minutes on one vCPU. A run over the limit
+ * stays queued, and the poll starts it once a slot frees.
+ */
+const MAX_CONCURRENT_RUNS = 2
+
+/** Its own timer: the poll tick does nothing while every run slot is taken. */
 const RECOVERY_INTERVAL_MS = 60_000
 
 /**
- * Runs a specific run now, for "Generate now".
+ * Takes a run slot, or returns false when all are taken. Callers take it
+ * before awaiting their claim, so two of them cannot both get the last one.
+ */
+function takeRunSlot() {
+  const active = globalThis.__activeRuns ?? 0
+  if (active >= MAX_CONCURRENT_RUNS) return false
+  globalThis.__activeRuns = active + 1
+  return true
+}
+
+function releaseRunSlot() {
+  globalThis.__activeRuns = Math.max(0, (globalThis.__activeRuns ?? 0) - 1)
+}
+
+/**
+ * Runs a specific run now, for "Generate now", if a run slot is free;
+ * otherwise it stays queued for the poll.
  *
  * The status guard means this only proceeds if the row is still queued, so it
  * cannot race the polling worker into executing the same run twice. A failure
  * is already recorded on the run by the time it is thrown here.
  */
 export async function processRunImmediately(runId: string) {
-  const claimed = await claimRunById(runId)
-
-  if (!claimed) return null
-
-  return executeResearchAndIdeate(runId)
+  if (!takeRunSlot()) return null
+  try {
+    const claimed = await claimRunById(runId)
+    if (!claimed) return null
+    return await executeResearchAndIdeate(runId)
+  } finally {
+    releaseRunSlot()
+  }
 }
 
+/**
+ * Starts queued runs, oldest first, until the slots are full or the queue is
+ * empty. It does not wait for them, so a free slot is filled on the next tick
+ * however long the other runs take.
+ */
 async function workerTick() {
-  // A run takes minutes; without this the 3s timer stacks overlapping ticks and
-  // each one claims another run.
-  if (globalThis.__workerBusy) return
-  globalThis.__workerBusy = true
-
-  try {
-    const claimed = await claimNextQueuedRun()
-    if (!claimed) return
+  while (takeRunSlot()) {
+    let claimed
     try {
-      await executeResearchAndIdeate(claimed.id)
+      claimed = await claimNextQueuedRun()
     } catch (err) {
-      console.error(`Worker failed run ${claimed.id}:`, err)
+      releaseRunSlot()
+      console.error('Worker tick error:', err)
+      return
     }
-  } catch (err) {
-    console.error('Worker tick error:', err)
-  } finally {
-    globalThis.__workerBusy = false
+    if (!claimed) {
+      releaseRunSlot()
+      return
+    }
+    const runId = claimed.id
+    void executeResearchAndIdeate(runId)
+      .catch(err => console.error(`Worker failed run ${runId}:`, err))
+      .finally(releaseRunSlot)
   }
 }
 
@@ -75,7 +106,6 @@ async function recoveryTick() {
 export function startWorker() {
   if (globalThis.__workerRunning) return
   globalThis.__workerRunning = true
-  globalThis.__workerBusy = false
 
   void workerTick()
   globalThis.__workerInterval = setInterval(() => void workerTick(), POLL_INTERVAL_MS)

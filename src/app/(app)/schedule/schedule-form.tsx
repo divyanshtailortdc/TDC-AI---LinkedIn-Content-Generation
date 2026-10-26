@@ -15,7 +15,6 @@ import {
   X
 } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveSchedule } from './actions'
 import type { NextRun } from './schedule-data'
@@ -84,7 +83,6 @@ export function ScheduleForm({
   /** The goals a scheduled run can serve. */
   goals: ScheduleGoal[]
 }) {
-  const router = useRouter()
   const mounted = useHasMounted()
   const browserZone = mounted
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -209,7 +207,6 @@ export function ScheduleForm({
         return
       }
       setSavedSuccess(true)
-      router.refresh()
     } finally {
       setIsSaving(false)
     }

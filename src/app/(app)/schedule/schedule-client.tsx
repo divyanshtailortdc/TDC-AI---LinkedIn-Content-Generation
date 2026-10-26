@@ -145,7 +145,6 @@ export function ScheduleClient({
         showToast({ type: 'error', title: 'Not planned', message: res.error })
         return
       }
-      router.refresh()
     } finally {
       setBusyId(null)
     }
@@ -167,7 +166,6 @@ export function ScheduleClient({
         showToast({ type: 'error', title: 'Not updated', message: res.error })
         return
       }
-      router.refresh()
     } finally {
       setBusyId(null)
     }

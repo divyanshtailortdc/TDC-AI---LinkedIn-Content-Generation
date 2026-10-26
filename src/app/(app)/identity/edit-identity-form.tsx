@@ -14,7 +14,6 @@ import {
 import { showToast } from '@/components/toast-notification'
 import { profileFromRecords } from '@/lib/identity-profile'
 import { AlertCircle, X } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { updateAccountAction } from './actions'
 
@@ -40,7 +39,6 @@ export function EditIdentityForm({
   initialOfferings,
   initialAudiences
 }: EditIdentityFormProps) {
-  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<IdentityFieldErrors>({})
   const [accountType, setAccountType] = useState<AccountType>(
@@ -133,7 +131,6 @@ export function EditIdentityForm({
     })
     // What was just saved is the new baseline, shown as plain text again.
     setSaved({ values, accountType })
-    router.refresh()
     return true
   }
   useStepSave(save)

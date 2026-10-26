@@ -259,7 +259,6 @@ export function GoalsClient({
       prefill.markSaved()
       resetForm()
       setShowNewGoal(false)
-      router.refresh()
       return true
     } catch (err: any) {
       setError(err.message || 'Failed to save goal')
@@ -294,7 +293,6 @@ export function GoalsClient({
         resetForm()
         setShowNewGoal(false)
       }
-      router.refresh()
     } catch (err: any) {
       setError(err.message || 'Failed to delete goal')
       showToast({

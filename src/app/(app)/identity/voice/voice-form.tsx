@@ -15,7 +15,6 @@ import {
   X
 } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useState, type ReactNode } from 'react'
 import type { VoiceConfig } from '~/db/schema'
 import { parseHashtagPolicy } from '~/lib/ai/hashtags'
@@ -186,7 +185,6 @@ function SegmentedControl({
 }
 
 export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
-  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
 
   const [derivedRubric, setDerivedRubric] = useState(
@@ -290,7 +288,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
         message: 'New posts will be written in this voice.'
       })
       prefill.markSaved()
-      router.refresh()
       return true
     }
     const errMsg = cleanErrorMessage(res.error) || 'Failed to save voice'

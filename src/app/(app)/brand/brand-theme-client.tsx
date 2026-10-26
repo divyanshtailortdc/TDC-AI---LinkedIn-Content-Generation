@@ -35,7 +35,6 @@ import {
   Upload,
   X
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { saveBrandTheme } from './actions'
 
@@ -175,7 +174,7 @@ function LogoField({
       {value ? (
         <div className="border-border flex items-center gap-3 rounded-xl border p-2.5">
           <div className="border-border relative flex h-16 w-36 shrink-0 items-center justify-center rounded-lg border bg-white p-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- data URL preview */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- data URL or api/brand/logo preview */}
             <img
               src={value}
               alt="Logo preview"
@@ -529,7 +528,7 @@ function BrandPreview({
           >
             <div style={{ display: 'flex', height: 84, alignItems: 'center' }}>
               {logoShown ? (
-                // eslint-disable-next-line @next/next/no-img-element -- data URL preview
+                // eslint-disable-next-line @next/next/no-img-element -- data URL or api/brand/logo preview
                 <img
                   src={logoShown.src}
                   alt=""
@@ -639,7 +638,6 @@ export function BrandThemeClient({
   initialTheme: ResolvedBrandTheme
   initialLogo: string | null
 }) {
-  const router = useRouter()
   const [theme, setTheme] = useState<ResolvedBrandTheme>(initialTheme)
   const [logo, setLogo] = useState(initialLogo)
   const [saved, setSaved] = useState(() => ({
@@ -700,7 +698,6 @@ export function BrandThemeClient({
         title: 'Brand theme saved',
         message: 'Every generated image will use this identity & layout.'
       })
-      router.refresh()
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Could not save the brand theme.'
