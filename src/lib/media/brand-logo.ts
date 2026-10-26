@@ -23,9 +23,13 @@ import {
 
 const DATA_URL = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i
 
-export function decodeImageDataUrl(
-  value: string
-): { mediaType: string; buffer: Buffer } | null {
+/** An image's bytes, passed as they are until they are stored or shown. */
+export interface ImageBytes {
+  buffer: Buffer
+  mediaType: string
+}
+
+export function decodeImageDataUrl(value: string): ImageBytes | null {
   const match = DATA_URL.exec(value.trim())
   if (!match) return null
   return {

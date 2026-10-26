@@ -277,7 +277,11 @@ async function researchAndIdeate(
     .set({ status: 'researching' })
     .where(eq(runsTable.id, runId))
 
-  const research = await researchTheWeb(ctx)
+  // The web and the knowledge base are read at once: neither needs the other.
+  const [research, passages] = await Promise.all([
+    researchTheWeb(ctx),
+    retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx))
+  ])
   const findings = research.findings
   if (researchStep) await recordStepUsage(runId, researchStep.id, research.usage)
 
@@ -296,10 +300,6 @@ async function researchAndIdeate(
     )
   }
 
-  const passages = await retrieveKnowledgePassages(
-    ctx,
-    selectKnowledgeDocs(ctx)
-  )
   const corpus = buildGroundingCorpus(ctx, findings, passages)
 
   if (researchStep) {

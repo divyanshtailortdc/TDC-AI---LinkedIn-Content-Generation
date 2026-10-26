@@ -8,14 +8,14 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'crypto'
 import { env } from '~/env'
-import { decodeImageDataUrl, toDataUrl } from './brand-logo'
+import { decodeImageDataUrl, toDataUrl, type ImageBytes } from './brand-logo'
 
 /**
- * Where post images live. Generation hands over a base64 data URL; with
- * STORAGE_BUCKET set it is uploaded and the `post_media` row keeps only
+ * Where post images live. Generation hands over the image's bytes; with
+ * STORAGE_BUCKET set they are uploaded and the `post_media` row keeps only
  * `storage://<key>`, so the database never holds the bytes. Without a bucket
- * the data URL is stored as before. Stock and reviewer-pasted images are
- * already https links and are left alone.
+ * they are stored as a data URL. Stock and reviewer-pasted images are already
+ * https links and are left alone.
  *
  * Any S3-compatible store works: Google Cloud Storage (with HMAC keys),
  * Cloudflare R2, AWS S3, or LocalStack/MinIO locally. Which one is set by the
@@ -83,48 +83,54 @@ const draftPrefix = (draftId: string) => `drafts/${draftId}/`
 
 /**
  * What a `post_media` image column should hold for this value: the stored
- * object for a data URL, the value itself otherwise. Each upload gets a new
- * key, so an object never changes once written and can be cached for good.
+ * object for image bytes or a data URL, a link as it is. Each upload gets a
+ * new key, so an object never changes once written and can be cached for good.
  *
- * An upload that fails keeps the data URL, so the image is not lost; the move
- * script (scripts/move-media-images-to-storage.ts) uploads it later.
+ * Without a bucket, or when the upload fails, the image is kept as a data URL,
+ * so it is not lost; the move script (scripts/move-media-images-to-storage.ts)
+ * uploads it later.
  */
 export async function storeImage(
-  value: string | null | undefined,
+  value: ImageBytes | string | null | undefined,
   draftId: string
 ): Promise<string | null> {
   if (!value) return null
-  if (!env.STORAGE_BUCKET) return value
-  const decoded = decodeImageDataUrl(value)
-  if (!decoded) return value
+  const inline = () =>
+    typeof value === 'string' ? value : toDataUrl(value.buffer, value.mediaType)
+  if (!env.STORAGE_BUCKET) return inline()
+  const image = typeof value === 'string' ? decodeImageDataUrl(value) : value
+  if (!image) return inline()
 
-  const extension = EXTENSION_BY_TYPE[decoded.mediaType] ?? 'png'
+  const extension = EXTENSION_BY_TYPE[image.mediaType] ?? 'png'
   const key = `${draftPrefix(draftId)}${randomUUID()}.${extension}`
   try {
     await client().send(
       new PutObjectCommand({
         Bucket: env.STORAGE_BUCKET,
         Key: key,
-        Body: decoded.buffer,
-        ContentType: decoded.mediaType,
+        Body: image.buffer,
+        ContentType: image.mediaType,
         CacheControl: 'private, max-age=31536000, immutable'
       })
     )
   } catch (err) {
     console.error(`Could not upload an image for draft ${draftId}:`, err)
-    return value
+    return inline()
   }
   return `${PREFIX}${key}`
 }
 
-/** Both images of a media row, uploaded together. */
+/**
+ * Both images of a media row, uploaded together: a generated image's bytes or
+ * a stock link, and the image before the logo went on, when there is one.
+ */
 export async function storeMediaImages(
   draftId: string,
-  images: { imageUrl?: string | null; baseImageUrl?: string | null }
+  images: { image?: ImageBytes; imageUrl?: string | null; baseImage?: ImageBytes }
 ) {
   const [imageUrl, baseImageUrl] = await Promise.all([
-    storeImage(images.imageUrl, draftId),
-    storeImage(images.baseImageUrl, draftId)
+    storeImage(images.image ?? images.imageUrl, draftId),
+    storeImage(images.baseImage, draftId)
   ])
   return { imageUrl, baseImageUrl }
 }

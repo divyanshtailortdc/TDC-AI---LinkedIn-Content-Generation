@@ -15,8 +15,12 @@ import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
 import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
-import { storeMediaImages } from './image-store'
-import { regenerateMediaPlan, type RegenerateMediaPlanResult } from './index'
+import { storeMediaImages, viewableImageUrl } from './image-store'
+import {
+  planHasImage,
+  regenerateMediaPlan,
+  type RegenerateMediaPlanResult
+} from './index'
 import { REVIEWER_SEARCH_SOURCE } from './media-source'
 import { mediaPlanMetadata, priorVisualsOf } from './plan-record'
 
@@ -47,7 +51,7 @@ export async function loadMediaInputs(draft: {
 }
 
 export type PostMediaOutcome =
-  | { status: 'created'; media: ReturnType<typeof mediaRecord> }
+  | { status: 'created'; media: Awaited<ReturnType<typeof mediaRecord>> }
   | { status: 'draft_not_found' }
   | { status: 'failed'; error: string }
   | { status: 'aborted' }
@@ -167,11 +171,13 @@ export async function createPostMedia(input: {
   // Charged to the post's run whether or not an image came back.
   await recordReviewMediaSpend(input.draftId, mediaPlan.usage, {
     summary: `${existingMedia ? 'New' : 'First'} image (${mode}${mediaPlan.usedReference ? ', from a reference image' : ''}) (post review)`,
-    error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced'
+    error: planHasImage(mediaPlan)
+      ? null
+      : mediaPlan.error || 'No image produced'
   })
 
   if (input.abortSignal?.aborted) return { status: 'aborted' }
-  if (mediaPlan.mode === 'none' || !mediaPlan.imageUrl) {
+  if (mediaPlan.mode === 'none' || !planHasImage(mediaPlan)) {
     return {
       status: 'failed',
       error: mediaPlan.error || 'Could not generate a visual for this post.'
@@ -222,11 +228,17 @@ export async function createPostMedia(input: {
 
   // No revalidatePath: the Posts page shows the returned media itself, and a
   // revalidation would re-render the whole page with the answer.
-  return { status: 'created', media: mediaRecord(newMedia, mediaPlan, mediaSource) }
+  return {
+    status: 'created',
+    media: await mediaRecord(newMedia, mediaPlan, mediaSource)
+  }
 }
 
-/** The saved image as the review screen shows it. */
-function mediaRecord(
+/**
+ * The saved image as the review screen shows it. The image is the saved one,
+ * by a signed link when it is in the bucket, rather than its bytes inline.
+ */
+async function mediaRecord(
   saved: PostMedia,
   plan: RegenerateMediaPlanResult,
   source: string | undefined
@@ -236,7 +248,9 @@ function mediaRecord(
     version: saved.version,
     status: saved.status,
     mode: plan.mode,
-    imageUrl: plan.imageUrl,
+    imageUrl: saved.imageUrl
+      ? await viewableImageUrl(saved.imageUrl)
+      : undefined,
     altText: plan.altText,
     promptOrQuery: plan.promptOrQuery,
     source,

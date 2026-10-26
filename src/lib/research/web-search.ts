@@ -28,6 +28,9 @@ export type Finding = {
 
 export const isWebSearchConfigured = Boolean(env.SERPER_API_KEY)
 
+/** Searches a fixed-research run has in flight at once. */
+const SEARCH_CONCURRENCY = 4
+
 /** Serper's freshness operator, derived from the configured window. */
 function freshnessToTbs(days: number): string | undefined {
   if (!days || days <= 0) return undefined
@@ -103,9 +106,29 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
   })
 }
 
+/** `fn` over `items`, at most `limit` at a time; results in the items' order. */
+async function mapConcurrently<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i]!)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  )
+  return results
+}
+
 /**
- * Fixed research: the queries above, run one after another, at least one per
- * goal picked for the run. Results are taken from each query in turn, so the
+ * Fixed research: the queries above, a few at a time, at least one per goal
+ * picked for the run. Results are taken from each query in turn, so the
  * evidence the prompt shows covers every goal rather than the first query's.
  */
 export async function runWebSearch(
@@ -117,15 +140,13 @@ export async function runWebSearch(
   if (!env.SERPER_API_KEY) return []
 
   const region = inferRegion(ctx)
-  const perQuery: Finding[][] = []
-  for (const query of buildSearchQueries(ctx, searchCountFor(ctx), region)) {
+  const queries = buildSearchQueries(ctx, searchCountFor(ctx), region)
+  const perQuery = await mapConcurrently(queries, SEARCH_CONCURRENCY, query => {
     onQuery(query)
-    perQuery.push(
-      await searchWeb(query, {
-        freshnessDays: policy.freshness_days,
-        country: region?.code
-      })
-    )
-  }
+    return searchWeb(query, {
+      freshnessDays: policy.freshness_days,
+      country: region?.code
+    })
+  })
   return dedupeFindings(interleave(perQuery))
 }

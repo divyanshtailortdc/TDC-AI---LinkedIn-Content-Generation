@@ -18,7 +18,11 @@ import {
   type LintOptions
 } from '~/lib/lint/run-linter'
 import { DEFAULT_BRAND_THEME } from '@/lib/brand/theme'
-import { createMediaPlan, type MediaPlanResult } from '~/lib/media'
+import {
+  createMediaPlan,
+  planHasImage,
+  type MediaPlanResult
+} from '~/lib/media'
 import { loadBrandRendering } from '~/lib/media/brand-assets'
 import { buildMediaBriefContext } from '~/lib/media/brief-context'
 import { storeMediaImages } from '~/lib/media/image-store'
@@ -339,12 +343,14 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
 
   await recordStep({
     stage: 'media',
-    status: mediaPlan.imageUrl ? 'completed' : 'failed',
+    status: planHasImage(mediaPlan) ? 'completed' : 'failed',
     startedAt: new Date(mediaStart),
     completedAt: new Date(),
     durationMs: Date.now() - mediaStart,
     requestSummary: `Media plan (${mediaPlan.mode})`,
-    error: mediaPlan.imageUrl ? null : mediaPlan.error || 'No image produced',
+    error: planHasImage(mediaPlan)
+      ? null
+      : mediaPlan.error || 'No image produced',
     tokens: mediaPlan.usage?.totalTokens ?? 0,
     costUsd: (mediaPlan.usage?.costUsd ?? 0).toFixed(4),
     responseJson: {
@@ -423,7 +429,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
       )
     }
 
-    if (mediaPlan.mode !== 'none' && mediaPlan.imageUrl) {
+    if (mediaPlan.mode !== 'none' && planHasImage(mediaPlan)) {
       await tx.insert(postMediaTable).values({
         draftId: saved.id,
         mode: mediaPlan.mode,

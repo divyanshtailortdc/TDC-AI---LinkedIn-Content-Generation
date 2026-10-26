@@ -4,7 +4,7 @@ import {
   runStepsTable,
   runsTable
 } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
 import { addUsage, type CallUsage } from './usage'
@@ -24,18 +24,19 @@ export function stepUsage(responseJson: unknown): CallUsage | null {
 /**
  * Recomputes a run's totals from its steps. Summing the step rows makes the
  * steps the single source of truth, and sums unrounded per-call costs rather
- * than the 4-decimal column values.
+ * than the 4-decimal column values. Only each step's usage block is read: the
+ * rest of its JSON (ideas, drafts, findings) stays in the database.
  */
 export async function refreshRunTotalsIn(
   database: SpendDb,
   runId: string
 ): Promise<CallUsage> {
   const steps = await database
-    .select({ responseJson: runStepsTable.responseJson })
+    .select({ usage: sql<unknown>`${runStepsTable.responseJson} -> 'usage'` })
     .from(runStepsTable)
     .where(eq(runStepsTable.runId, runId))
 
-  const total = addUsage(...steps.map(s => stepUsage(s.responseJson)))
+  const total = addUsage(...steps.map(s => stepUsage({ usage: s.usage })))
 
   await database
     .update(runsTable)

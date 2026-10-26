@@ -8,7 +8,11 @@ import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { postFullText } from '@/lib/post-text'
 import { loadBrandRendering } from './brand-assets'
-import { loadImageDataUrl, storeMediaImages } from './image-store'
+import {
+  loadImageDataUrl,
+  storeMediaImages,
+  viewableImageUrl
+} from './image-store'
 import { generateCustomImage } from './index'
 
 export type PromptMediaOutcome =
@@ -206,7 +210,9 @@ export async function createPromptMediaForDraft(input: {
       version: newMedia.version,
       status: newMedia.status,
       mode: 'ai_generated',
-      imageUrl: generated.imageUrl,
+      // The saved image, by a signed link when it is in the bucket. Always
+      // set: a generated image is stored in the bucket or inline.
+      imageUrl: await viewableImageUrl(newMedia.imageUrl!),
       altText: generated.altText,
       promptOrQuery: generated.promptOrQuery,
       source: 'user_prompt',
