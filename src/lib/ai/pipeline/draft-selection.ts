@@ -1,6 +1,6 @@
 import { ideasTable } from '@/db/schema'
 import { and, eq, inArray } from 'drizzle-orm'
-import type { DraftingDb } from './drafting-claim'
+import { claimIdeaForDrafting, type DraftingDb } from './drafting-claim'
 
 /**
  * Posts are written only from the ideas the reviewer selected, and of those
@@ -15,7 +15,8 @@ import type { DraftingDb } from './drafting-claim'
  */
 
 export type DraftSelectionOutcome = {
-  drafted: number
+  /** Claimed for drafting and handed to the drafting queue. */
+  queued: number
   /** Selected but not approved (still to review, or rejected). */
   notApproved: number
   /** Selected but already drafted, or being drafted by another request. */
@@ -54,7 +55,13 @@ export function planDraftSelection(
   return { draftable, notApproved, alreadyDrafted, notFound }
 }
 
-export async function draftSelection(
+/**
+ * Claims the selected ideas that may be drafted (approved -> drafting) and
+ * returns them for the drafting queue, which drafts them after the request
+ * has answered: a batch takes minutes per idea, far past a request's limit.
+ * The claims mark the ideas "Drafting…" at once, and their runs follow.
+ */
+export async function claimDraftSelection(
   database: DraftingDb,
   selection: {
     accountId: string
@@ -63,12 +70,14 @@ export async function draftSelection(
     runId?: string | null
   },
   steps: {
-    /** Drafts one idea; null when its claim was lost (drafted elsewhere). */
-    draft: (ideaId: string) => Promise<unknown | null>
     /** Puts a run's status back in line with its ideas. */
     settleRun: (runId: string) => Promise<void>
   }
-): Promise<DraftSelectionOutcome> {
+): Promise<
+  DraftSelectionOutcome & {
+    claimed: Array<{ ideaId: string; runId: string | null }>
+  }
+> {
   const found =
     selection.ideaIds.length === 0
       ? []
@@ -90,24 +99,22 @@ export async function draftSelection(
           )
 
   const plan = planDraftSelection(selection.ideaIds, found)
-  let drafted = 0
+  const runOf = new Map(found.map(i => [i.id, i.runId]))
+  const claimed: Array<{ ideaId: string; runId: string | null }> = []
   let alreadyDrafted = plan.alreadyDrafted
   try {
-    // Each idea is claimed before it is drafted, so one already drafted or
+    // Each idea is claimed before it is queued, so one already drafted or
     // being drafted by another request (a retry, a double click) is skipped
     // rather than drafted again.
     for (const id of plan.draftable) {
-      if (await steps.draft(id)) drafted++
-      else alreadyDrafted++
+      if (await claimIdeaForDrafting(database, id)) {
+        claimed.push({ ideaId: id, runId: runOf.get(id) ?? null })
+      } else alreadyDrafted++
     }
   } finally {
-    // Whether it finished or failed part-way, each run it touched is put
-    // back to a status that matches its ideas.
+    // Each run it touched reads "drafting" while its ideas are claimed.
     const runIds = new Set(
-      found
-        .filter(i => plan.draftable.includes(i.id))
-        .map(i => i.runId)
-        .filter((r): r is string => Boolean(r))
+      claimed.map(c => c.runId).filter((r): r is string => Boolean(r))
     )
     await Promise.all(
       [...runIds].map(runId =>
@@ -119,10 +126,11 @@ export async function draftSelection(
   }
 
   return {
-    drafted,
+    queued: claimed.length,
     notApproved: plan.notApproved,
     alreadyDrafted,
-    notFound: plan.notFound
+    notFound: plan.notFound,
+    claimed
   }
 }
 

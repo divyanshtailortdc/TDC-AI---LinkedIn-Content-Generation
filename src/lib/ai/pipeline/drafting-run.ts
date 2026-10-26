@@ -36,11 +36,7 @@ import {
   resolveLinkPlacement
 } from '../context'
 import { refreshRunTotals } from '../run-accounting'
-import {
-  claimIdeaForDrafting,
-  markIdeaDrafted,
-  releaseDraftingClaim
-} from './drafting-claim'
+import { markIdeaDrafted, releaseDraftingClaim } from './drafting-claim'
 import { SkillError } from '../run-skill'
 import { writeDraft, type DraftGenerationResult } from '../skills/post-drafting'
 import { collectFigureSources } from '../skills/post-drafting/guard'
@@ -66,14 +62,12 @@ export interface DraftPostResult {
 }
 
 /**
- * Drafts an approved idea. Returns null, without drafting, when the idea is
- * not approved: already drafted, being drafted by another request (a retry or
- * a second click), rejected, or gone.
+ * Drafts an idea this caller has already claimed (see drafting-claim): the
+ * drafting queue claims a whole selection up front and drafts it later.
  */
-export async function executeDraftingForIdea(
+export async function draftClaimedIdeaOrRelease(
   ideaId: string
-): Promise<DraftPostResult | null> {
-  if (!(await claimIdeaForDrafting(db, ideaId))) return null
+): Promise<DraftPostResult> {
   try {
     return await draftClaimedIdea(ideaId)
   } catch (err) {

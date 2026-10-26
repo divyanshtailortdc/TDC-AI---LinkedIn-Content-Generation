@@ -2,6 +2,7 @@ import { db } from '@/db'
 import {
   documentChunksTable,
   EMBEDDING_DIMENSIONS,
+  knowledgeDocumentsTable,
   type KnowledgeDocument
 } from '@/db/schema'
 import { embedMany } from 'ai'
@@ -25,6 +26,8 @@ type IndexableDocument = Pick<
   'id' | 'accountId' | 'title' | 'content'
 >
 
+/** A document to retrieve from: its text is loaded only if it must be embedded. */
+type RetrievableDocument = Pick<KnowledgeDocument, 'id'>
 export async function indexKnowledgeDocument(
   doc: IndexableDocument
 ): Promise<number> {
@@ -70,7 +73,7 @@ export async function indexKnowledgeDocument(
 }
 
 async function backfillMissingChunks(
-  docs: IndexableDocument[],
+  docs: RetrievableDocument[],
   modelId: string
 ): Promise<void> {
   const indexed = await db
@@ -86,9 +89,22 @@ async function backfillMissingChunks(
       )
     )
   const indexedIds = new Set(indexed.map(row => row.documentId))
-  const missing = docs
+  const missingIds = docs
     .filter(d => !indexedIds.has(d.id))
     .slice(0, MAX_BACKFILL_PER_RUN)
+    .map(d => d.id)
+  if (missingIds.length === 0) return
+
+  // The text only for the documents being embedded.
+  const missing = await db
+    .select({
+      id: knowledgeDocumentsTable.id,
+      accountId: knowledgeDocumentsTable.accountId,
+      title: knowledgeDocumentsTable.title,
+      content: knowledgeDocumentsTable.content
+    })
+    .from(knowledgeDocumentsTable)
+    .where(inArray(knowledgeDocumentsTable.id, missingIds))
 
   for (const doc of missing) {
     try {
@@ -101,7 +117,7 @@ async function backfillMissingChunks(
 
 export async function retrieveKnowledgePassages(
   ctx: GenerationContext,
-  docs: IndexableDocument[],
+  docs: RetrievableDocument[],
   options: { limit?: number; minSimilarity?: number } = {}
 ): Promise<KnowledgePassage[]> {
   const handle = getEmbeddingModel()

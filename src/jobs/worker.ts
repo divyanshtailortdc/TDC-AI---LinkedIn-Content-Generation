@@ -1,5 +1,6 @@
 import { executeResearchAndIdeate } from '~/lib/ai/pipeline/ideation-run'
 import { recoverInterruptedRuns } from '~/lib/ai/run-lifecycle'
+import { recoverAbandonedDrafting } from './drafting-queue'
 import { claimNextQueuedRun, claimRunById } from './queue'
 
 declare global {
@@ -63,6 +64,11 @@ async function recoveryTick() {
     }
   } catch (err) {
     console.error('Run recovery error:', err)
+  }
+  try {
+    await recoverAbandonedDrafting()
+  } catch (err) {
+    console.error('Drafting recovery error:', err)
   }
 }
 

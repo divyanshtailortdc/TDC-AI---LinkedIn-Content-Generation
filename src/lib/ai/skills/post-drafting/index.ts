@@ -11,6 +11,13 @@ import { DraftGenerationSchema, type DraftGenerationResult } from './schema'
 export type { DraftGenerationResult } from './schema'
 
 /**
+ * A bound on one drafting call, retries included, so a call that never
+ * answers fails that idea instead of holding a drafting slot. Many times
+ * what a draft takes (about 10s).
+ */
+const DRAFTING_TIMEOUT_MS = 120_000
+
+/**
  * Skill: an approved idea plus the account's settings in; a finished post
  * (hook, body, CTA, first comment, hashtags, alternate hooks, self-scores) out.
  *
@@ -39,7 +46,9 @@ export async function writeDraft(
           revise.failedChecks
         )
       : buildPrompt(input.ctx, input.idea),
-    schema: DraftGenerationSchema
+    schema: DraftGenerationSchema,
+    timeoutMs: DRAFTING_TIMEOUT_MS,
+    maxRetries: 1
   })
 
   if (!isCompleteDraft(output)) {

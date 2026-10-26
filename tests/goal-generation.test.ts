@@ -460,11 +460,11 @@ describe('posts are drafted only from selected, approved ideas', () => {
 
   it('tells the reviewer why a selected idea did not become a post', () => {
     assert.match(
-      describeDraftSelection({ drafted: 0, notApproved: 2, alreadyDrafted: 0, notFound: 0 }),
+      describeDraftSelection({ queued: 0, notApproved: 2, alreadyDrafted: 0, notFound: 0 }),
       /2 selected ideas are not approved.*Approve them first/
     )
     assert.strictEqual(
-      describeDraftSelection({ drafted: 3, notApproved: 0, alreadyDrafted: 0, notFound: 0 }),
+      describeDraftSelection({ queued: 3, notApproved: 0, alreadyDrafted: 0, notFound: 0 }),
       ''
     )
   })

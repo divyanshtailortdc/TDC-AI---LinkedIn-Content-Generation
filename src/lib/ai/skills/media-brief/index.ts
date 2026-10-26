@@ -22,6 +22,12 @@ export type * from './schema'
 export { refineBlueprint } from './refine'
 
 /**
+ * A bound on one brief call, retries included, so a call that never answers
+ * fails the image instead of holding the draft (refine.ts has the same).
+ */
+const MEDIA_BRIEF_TIMEOUT_MS = 60_000
+
+/**
  * Skill: a finished post in, an image brief (concept, overlay text, prompt
  * for the image model, alt text) out.
  *
@@ -62,6 +68,8 @@ export async function deriveMediaBrief(
         // back as a blueprint the canvas draws.
         images: input.referenceImage ? [input.referenceImage] : undefined,
         schema,
+        timeoutMs: MEDIA_BRIEF_TIMEOUT_MS,
+        maxRetries: 1,
         abortSignal: options.abortSignal
       })
       usage = addUsage(usage, result.usage)

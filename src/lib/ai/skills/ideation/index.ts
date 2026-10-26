@@ -16,6 +16,14 @@ export type { GroundingCorpus } from './guard'
 export type { GeneratedIdeaItem } from './schema'
 
 /**
+ * A bound on one ideation call, retries included, so a call that never
+ * answers fails the run instead of holding the worker (one run at a time).
+ * Several times what a call takes (about 45s); the run's own deadline is in
+ * ideation-run.
+ */
+const IDEATION_TIMEOUT_MS = 180_000
+
+/**
  * Skill: the account's settings plus this run's evidence in; post ideas out,
  * each with its evidence resolved from the corpus and checked for grounding.
  *
@@ -29,6 +37,8 @@ export async function generateIdeas(input: {
   candidateCount: number
   /** One goal label per candidate, in order (see spreadGoals). */
   assignedGoals: string[]
+  /** The run's deadline. */
+  abortSignal?: AbortSignal
 }): Promise<{
   /** Everything the model proposed, before the grounding check. */
   candidates: GeneratedIdeaItem[]
@@ -49,7 +59,10 @@ export async function generateIdeas(input: {
       assignedGoals: input.assignedGoals,
       hookMaxChars: input.ctx.prefs.constraints.hook_max_chars
     }),
-    schema: IdeaGenerationBatchSchema
+    schema: IdeaGenerationBatchSchema,
+    timeoutMs: IDEATION_TIMEOUT_MS,
+    maxRetries: 1,
+    abortSignal: input.abortSignal
   })
 
   // Citations, reader groups and goals are resolved against exactly what the

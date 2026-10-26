@@ -535,6 +535,9 @@ describe(
           prompt: 'A clean photo of a modern office with plants'
         })
         assert.strictEqual(media.status, 404)
+        const image = await a.browser.fetch(`/api/media/${ids.mediaB}`)
+        assert.strictEqual(image.status, 404)
+        assert.doesNotMatch(await image.text(), /Bob/)
       })
 
       it('refuses Server Actions on another user’s identity', async () => {
@@ -675,8 +678,7 @@ describe(
           ['approveDraft', [ids.draftB]],
           ['rejectDraft', [ids.draftB, 'nope']],
           ['removePostMediaAction', [ids.draftB]],
-          ['updatePostMediaAction', [ids.draftB, { mode: 'none' }]],
-          ['fetchPostMediaImage', [ids.mediaB]]
+          ['updatePostMediaAction', [ids.draftB, { mode: 'none' }]]
         ]
         for (const [name, args] of calls) {
           const res = await callActionAsAlice(name, args)
@@ -1170,7 +1172,9 @@ describe(
           ])
         )
         assert.strictEqual(media.success, true)
-        const image = value(await act('fetchPostMediaImage', [media.media.id]))
+        const imageRes = await owner.browser.fetch(`/api/media/${media.media.id}`)
+        assert.strictEqual(imageRes.status, 200)
+        const image = (await imageRes.json()) as { imageUrl: string }
         assert.strictEqual(
           image.imageUrl,
           'https://images.example.com/photo.png'

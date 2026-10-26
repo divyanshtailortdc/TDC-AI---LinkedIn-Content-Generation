@@ -55,6 +55,30 @@ import { buildGroundingCorpus } from './grounding-corpus'
  * billed, so neither ending loses it.
  */
 
+/**
+ * A run still going after this is failed, so a stage that never finishes
+ * cannot hold the worker, which runs one run at a time. The heartbeat keeps a
+ * stuck run looking alive, so the stale-run sweep would never catch it. The
+ * slowest legitimate run is about 12 minutes: the research agent (3 min) and
+ * its fixed-search fallback, retrieval, and two ideation calls (3 min each).
+ */
+const RUN_DEADLINE_MS = 15 * 60_000
+
+const DEADLINE_MESSAGE =
+  'The run took longer than 15 minutes and was stopped. Start a new run.'
+
+/** Rejects once `signal` aborts, whether or not `work` has finished. */
+function untilDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      const stop = () => reject(new Error(DEADLINE_MESSAGE))
+      if (signal.aborted) stop()
+      else signal.addEventListener('abort', stop, { once: true })
+    })
+  ])
+}
+
 export interface ResearchIdeateResult {
   ideasCount: number
   findingsCount: number
@@ -148,10 +172,13 @@ export async function executeResearchAndIdeate(
   if (!run) throw new Error(`Run ${runId} not found`)
 
   // A throw fails the run here; if the process dies instead, the stopped
-  // heartbeat lets the worker fail it (see run-lifecycle).
+  // heartbeat lets the worker fail it (see run-lifecycle). Past the deadline
+  // the run is failed and the worker freed; the deadline also cancels the
+  // model calls under way, and keeps late work from saving ideas.
+  const deadline = AbortSignal.timeout(RUN_DEADLINE_MS)
   const stopHeartbeat = keepRunAlive(runId)
   try {
-    return await researchAndIdeate(run)
+    return await untilDeadline(researchAndIdeate(run, deadline), deadline)
   } catch (err) {
     await failRun(runId, err).catch(cleanupErr =>
       console.error(`Could not mark run ${runId} failed:`, cleanupErr)
@@ -168,7 +195,10 @@ export function goalIdsOfRun(run: Pick<Run, 'goalIds' | 'goalId'>): string[] {
   return run.goalId ? [run.goalId] : []
 }
 
-async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
+async function researchAndIdeate(
+  run: Run,
+  deadline: AbortSignal
+): Promise<ResearchIdeateResult> {
   const runId = run.id
   const ctx = await loadGenerationContext(run.accountId, {
     goalIds: goalIdsOfRun(run)
@@ -251,6 +281,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   const findings = research.findings
   if (researchStep) await recordStepUsage(runId, researchStep.id, research.usage)
 
+  // Past the deadline the run is already failed; stop before saving to it.
+  deadline.throwIfAborted()
   if (findings.length > 0) {
     await db.insert(researchFindingsTable).values(
       findings.map(f => ({
@@ -357,7 +389,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
       corpus,
       history: renderIdeationHistoryBlock(ctx, runId),
       candidateCount,
-      assignedGoals
+      assignedGoals,
+      abortSignal: deadline
     })
     ideationUsage = ideation.usage
     candidates = ideation.candidates
@@ -398,7 +431,8 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
           .filter(Boolean)
           .join('\n\n'),
         candidateCount: missing.length * 2,
-        assignedGoals: spreadGoals(missing, missing.length * 2)
+        assignedGoals: spreadGoals(missing, missing.length * 2),
+        abortSignal: deadline
       })
       ideationUsage = addUsage(ideationUsage, retry.usage)
       candidates = [...candidates, ...retry.candidates]
@@ -497,6 +531,9 @@ async function researchAndIdeate(run: Run): Promise<ResearchIdeateResult> {
   // saved on a run that then read as failed.
   const goalsById = new Map(ctx.selectedGoals.map(g => [g.id, g]))
   await db.transaction(async tx => {
+    // Inside the transaction, so a run failed at its deadline meanwhile
+    // gets neither the ideas nor the status that goes with them.
+    deadline.throwIfAborted()
     await tx.insert(ideasTable).values(
       selected.map(idea => {
         // Validation guarantees one of the run's goals.

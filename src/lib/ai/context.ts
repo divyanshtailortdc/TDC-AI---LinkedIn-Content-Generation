@@ -17,6 +17,7 @@ import {
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import {
+  EMPTY_HISTORY,
   resolvePreferences,
   withIdeaGoal,
   type GenerationContext,
@@ -120,11 +121,17 @@ async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
  * `goalIds` are the goals this generation serves, in the order given; ids
  * that are not this account's are ignored. Without it, the account's active
  * goals, newest first: what settings screens and goal suggestions read.
+ *
+ * `lintOnly` loads just what the quality checks read (buildPostLintOptions):
+ * the voice, sample posts, preferences and goals. Offerings, audiences,
+ * knowledge, review history and brand are left empty, so a context loaded
+ * this way must not be used to write a prompt.
  */
 export async function loadGenerationContext(
   accountId: string,
-  options?: { goalIds?: string[] }
+  options?: { goalIds?: string[]; lintOnly?: boolean }
 ): Promise<GenerationContext> {
+  const full = !options?.lintOnly
   const [
     account,
     voice,
@@ -141,15 +148,23 @@ export async function loadGenerationContext(
     db.query.voiceConfigsTable.findFirst({
       where: eq(voiceConfigsTable.accountId, accountId)
     }),
-    db.query.offeringsTable.findMany({
-      where: eq(offeringsTable.accountId, accountId)
-    }),
-    db.query.audiencesTable.findMany({
-      where: eq(audiencesTable.accountId, accountId)
-    }),
-    db.query.knowledgeDocumentsTable.findMany({
-      where: eq(knowledgeDocumentsTable.accountId, accountId)
-    }),
+    full
+      ? db.query.offeringsTable.findMany({
+          where: eq(offeringsTable.accountId, accountId)
+        })
+      : [],
+    full
+      ? db.query.audiencesTable.findMany({
+          where: eq(audiencesTable.accountId, accountId)
+        })
+      : [],
+    full
+      ? db.query.knowledgeDocumentsTable.findMany({
+          // See ContextKnowledgeDocument.
+          columns: { content: false },
+          where: eq(knowledgeDocumentsTable.accountId, accountId)
+        })
+      : [],
     db.query.samplePostsTable.findMany({
       where: eq(samplePostsTable.accountId, accountId)
     }),
@@ -157,8 +172,8 @@ export async function loadGenerationContext(
     db.query.preferencesTable.findFirst({
       where: eq(preferencesTable.accountId, accountId)
     }),
-    loadReviewHistory(accountId),
-    loadBrandTheme(accountId)
+    full ? loadReviewHistory(accountId) : EMPTY_HISTORY,
+    full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined)
   ])
 
   if (!account) {
@@ -190,12 +205,17 @@ export async function loadGenerationContext(
   }
 }
 
-/** The context for writing up one idea, with that idea's own goals only. */
+/**
+ * The context for writing up one idea, with that idea's own goals only.
+ * `lintOnly` as for loadGenerationContext.
+ */
 export async function loadIdeaContext(
-  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalIds' | 'goalSnapshot'>
+  idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalIds' | 'goalSnapshot'>,
+  options?: { lintOnly?: boolean }
 ): Promise<GenerationContext> {
   const ctx = await loadGenerationContext(idea.accountId, {
-    goalIds: idea.goalIds?.length ? idea.goalIds : idea.goalId ? [idea.goalId] : []
+    goalIds: idea.goalIds?.length ? idea.goalIds : idea.goalId ? [idea.goalId] : [],
+    lintOnly: options?.lintOnly
   })
   return withIdeaGoal(ctx, idea)
 }

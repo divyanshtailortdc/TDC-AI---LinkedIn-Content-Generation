@@ -1,3 +1,4 @@
+import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import type { PostDetail } from './posts-client'
 
@@ -51,6 +52,7 @@ export function startMediaJob(
   const entry: MediaJob = { ...job, done }
   active = entry
   void done.then(outcome => {
+    if (outcome.status === 'created') markDataChanged()
     if (active === entry) active = null
     if (pagesOpen === 0) announce(outcome)
   })

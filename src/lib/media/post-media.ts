@@ -9,7 +9,6 @@ import {
 } from '@/db/schema'
 import { postFullText } from '@/lib/post-text'
 import { and, desc, eq } from 'drizzle-orm'
-import { revalidatePath } from 'next/cache'
 import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
@@ -221,7 +220,8 @@ export async function createPostMedia(input: {
     return inserted
   })
 
-  revalidatePath('/posts')
+  // No revalidatePath: the Posts page shows the returned media itself, and a
+  // revalidation would re-render the whole page with the answer.
   return { status: 'created', media: mediaRecord(newMedia, mediaPlan, mediaSource) }
 }
 

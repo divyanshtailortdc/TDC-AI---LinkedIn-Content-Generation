@@ -38,6 +38,8 @@ function freshnessToTbs(days: number): string | undefined {
   return undefined
 }
 
+const SEARCH_TIMEOUT_MS = 10_000
+
 /**
  * One search. Returns no results, rather than throwing, when it fails.
  * `country` (an ISO code) asks for results from that market.
@@ -63,7 +65,9 @@ export async function searchWeb(
         ...(options.country
           ? { gl: options.country === 'gb' ? 'uk' : options.country }
           : {})
-      })
+      }),
+      // A search that never answers would hold the run; it counts as failed.
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
     })
     if (!res.ok) {
       console.warn(`Serper search failed (${res.status}) for "${query}"`)

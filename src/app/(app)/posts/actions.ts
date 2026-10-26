@@ -26,7 +26,7 @@ import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
 import { runLinter } from '~/lib/lint/run-linter'
 import { validateImageUrl } from '~/lib/media/image-input'
-import { deleteDraftImages, viewableImageUrl } from '~/lib/media/image-store'
+import { deleteDraftImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
 import { loadPostsPage } from './posts-data'
 
@@ -90,10 +90,14 @@ export async function updateDraft(
             where: eq(ideasTable.id, existing.ideaId)
           })
         : null
-      // Checked against the post's own goal, as when it was drafted.
+      // Checked against the post's own goal, as when it was drafted. Only
+      // what the checks read is loaded: a save is not a generation.
       const ctx = idea
-        ? await loadIdeaContext(idea)
-        : await loadGenerationContext(existing.accountId, { goalIds: [] })
+        ? await loadIdeaContext(idea, { lintOnly: true })
+        : await loadGenerationContext(existing.accountId, {
+            goalIds: [],
+            lintOnly: true
+          })
       const citations = idea
         ? (idea.supportingEvidence?.length ?? 0)
         : ((
@@ -137,8 +141,6 @@ export async function updateDraft(
       })
       .where(eq(postDraftsTable.id, draftId))
 
-    revalidatePath('/posts')
-    revalidatePath(`/posts/${draftId}`)
     return { success: true, charCount, lintFindings }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to update draft' }
@@ -168,7 +170,6 @@ export async function approveDraft(draftId: string) {
     // An update that matched nothing is not an approval.
     if (!approved) throw new Error('Draft not found')
 
-    revalidatePath('/posts')
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve draft' }
@@ -212,7 +213,6 @@ export async function rejectDraft(draftId: string, reason?: string) {
       }
     })
 
-    revalidatePath('/posts')
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to reject draft' }
@@ -249,7 +249,6 @@ export async function updatePostMediaAction(
     if (payload.mode === 'none' || !payload.imageUrl) {
       await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
       await deleteDraftImages(draftId)
-      revalidatePath('/posts')
       return { success: true, media: null }
     }
 
@@ -264,7 +263,6 @@ export async function updatePostMediaAction(
       source: REVIEWER_URL_SOURCE
     })
 
-    revalidatePath('/posts')
     return {
       success: true,
       media: {
@@ -302,7 +300,6 @@ export async function removePostMediaAction(draftId: string) {
     await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
     await deleteDraftImages(draftId)
 
-    revalidatePath('/posts')
     return { success: true }
   } catch (err: any) {
     console.error('Error removing post media:', err)
@@ -393,51 +390,6 @@ export async function saveImageSettings(settings: {
     return {
       success: false as const,
       error: err?.message || 'Could not save the image settings.'
-    }
-  }
-}
-
-/**
- * Loads one media image on demand.
- *
- * The review queue lists every draft, but only the open post shows its image.
- * Shipping each base64 data URL with the page put megabytes into the initial
- * payload, so the bytes are fetched when a post is actually opened.
- */
-export async function fetchPostMediaImage(mediaId: string) {
-  await requireUser()
-  try {
-    const identityId = await requireIdentityId()
-
-    // Joined to the draft so one account cannot read another's images by id.
-    const [media] = await db
-      .select({ id: postMediaTable.id, imageUrl: postMediaTable.imageUrl })
-      .from(postMediaTable)
-      .innerJoin(
-        postDraftsTable,
-        eq(postMediaTable.draftId, postDraftsTable.id)
-      )
-      .where(
-        and(
-          eq(postMediaTable.id, mediaId),
-          eq(postDraftsTable.accountId, identityId)
-        )
-      )
-      .limit(1)
-
-    if (!media?.imageUrl) {
-      return { success: false as const, error: 'Image not found' }
-    }
-
-    return {
-      success: true as const,
-      imageUrl: await viewableImageUrl(media.imageUrl)
-    }
-  } catch (err: any) {
-    console.error('Error loading post media image:', err)
-    return {
-      success: false as const,
-      error: err?.message || 'Failed to load image'
     }
   }
 }

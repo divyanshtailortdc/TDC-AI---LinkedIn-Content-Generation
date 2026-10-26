@@ -3,7 +3,6 @@ import 'server-only'
 import { db } from '@/db'
 import { postDraftsTable, postMediaTable } from '@/db/schema'
 import { and, desc, eq } from 'drizzle-orm'
-import { revalidatePath } from 'next/cache'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
@@ -199,8 +198,7 @@ export async function createPromptMediaForDraft(input: {
     return inserted
   })
 
-  revalidatePath('/posts')
-
+  // No revalidatePath: the Posts page shows the returned media itself.
   return {
     status: 'created',
     media: {

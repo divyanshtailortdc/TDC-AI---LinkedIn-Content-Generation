@@ -8,12 +8,12 @@ import { isUuid } from '@/lib/ids'
 import { requireUser } from '@/lib/session'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { enqueueDrafting } from '~/jobs/drafting-queue'
 import {
-  describeDraftSelection,
-  draftSelection
+  claimDraftSelection,
+  describeDraftSelection
 } from '~/lib/ai/pipeline/draft-selection'
 import {
-  executeDraftingForIdea,
   settleRunAfterDrafting,
   settleRunAfterIdeaDecision
 } from '~/lib/ai/pipeline/drafting-run'
@@ -144,9 +144,12 @@ export async function editIdea(
 }
 
 /**
- * Writes posts for the selected ideas: only those that are approved, and only
+ * Starts posts for the selected ideas: only those that are approved, and only
  * the identity's own (a run's own, when `runId` is given). Selected ideas that
  * are not approved are skipped and counted, never drafted.
+ *
+ * Answers as soon as the ideas are claimed: the drafting queue writes the
+ * posts afterwards, and the page follows them with fetchIdeaStatuses.
  */
 export async function draftSelectedIdeas(options: {
   ideaIds: string[]
@@ -169,17 +172,17 @@ export async function draftSelectedIdeas(options: {
       ? (await requireOwnedRun(user.id, options.runId)).id
       : null
 
-    const outcome = await draftSelection(
+    const outcome = await claimDraftSelection(
       db,
       { accountId, ideaIds, runId },
-      { draft: executeDraftingForIdea, settleRun: settleRunAfterDrafting }
+      { settleRun: settleRunAfterDrafting }
     )
+    enqueueDrafting(outcome.claimed)
 
     revalidatePath('/ideas')
-    revalidatePath('/posts')
     revalidatePath('/runs')
 
-    if (outcome.drafted === 0) {
+    if (outcome.queued === 0) {
       return {
         success: false,
         error:
@@ -188,14 +191,48 @@ export async function draftSelectedIdeas(options: {
     }
     return {
       success: true,
-      draftedCount: outcome.drafted,
-      // Why some selected ideas did not become posts, if any did not.
+      queuedIds: outcome.claimed.map(c => c.ideaId),
+      // Why some selected ideas will not become posts, if any will not.
       note: describeDraftSelection(outcome) || null
     }
   } catch (err: any) {
     return {
       success: false,
       error: err.message || 'Failed to draft the selected ideas'
+    }
+  }
+}
+
+/**
+ * Where the given ideas stand, for a page following ideas being drafted:
+ * "drafting" until each is done, then "drafted", or "approved" again when its
+ * draft failed.
+ */
+export async function fetchIdeaStatuses(ideaIds: string[]) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    // A server action's arguments come from the browser, whatever the types say.
+    const ids = Array.isArray(ideaIds)
+      ? ideaIds.filter(isUuid).slice(0, 200)
+      : []
+    const ideas =
+      ids.length === 0
+        ? []
+        : await db
+            .select({ id: ideasTable.id, status: ideasTable.status })
+            .from(ideasTable)
+            .where(
+              and(
+                eq(ideasTable.accountId, accountId),
+                inArray(ideasTable.id, ids)
+              )
+            )
+    return { success: true as const, ideas }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'Failed to fetch the ideas'
     }
   }
 }

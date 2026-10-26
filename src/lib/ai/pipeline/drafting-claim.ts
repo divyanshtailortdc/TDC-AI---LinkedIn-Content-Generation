@@ -1,5 +1,5 @@
 import { ideasTable } from '@/db/schema'
-import { and, eq, lt, or } from 'drizzle-orm'
+import { and, eq, inArray, lt, notInArray, or } from 'drizzle-orm'
 import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
 
@@ -50,6 +50,53 @@ export async function claimIdeaForDrafting(
     )
     .returning({ id: ideasTable.id })
   return claimed.length > 0
+}
+
+/**
+ * Claims held by the drafting queue (src/jobs/drafting-queue.ts) are touched
+ * this often while the idea waits or is drafted, so a claim that stops being
+ * touched for DRAFTING_ABANDONED_AFTER_MS belongs to a process that has gone
+ * (a deploy, a crash) and its idea can be taken over and drafted.
+ */
+export const DRAFTING_HEARTBEAT_MS = 30 * 1000
+export const DRAFTING_ABANDONED_AFTER_MS = 2 * 60 * 1000
+
+/** Keeps the claims on ideas this process holds fresh; see DRAFTING_HEARTBEAT_MS. */
+export async function touchDraftingClaims(
+  database: DraftingDb,
+  ideaIds: string[]
+): Promise<void> {
+  if (ideaIds.length === 0) return
+  await database
+    .update(ideasTable)
+    .set({ updatedAt: new Date() })
+    .where(
+      and(inArray(ideasTable.id, ideaIds), eq(ideasTable.status, 'drafting'))
+    )
+}
+
+/**
+ * Takes over claims nobody has touched for DRAFTING_ABANDONED_AFTER_MS, except
+ * the ones this process holds. The touch is the take-over, so of two callers
+ * only one gets each idea.
+ */
+export async function takeOverAbandonedDraftingClaims(
+  database: DraftingDb,
+  heldIds: string[],
+  now = new Date()
+): Promise<Array<{ id: string; runId: string | null }>> {
+  const abandonedBefore = new Date(now.getTime() - DRAFTING_ABANDONED_AFTER_MS)
+  return database
+    .update(ideasTable)
+    .set({ updatedAt: now })
+    .where(
+      and(
+        eq(ideasTable.status, 'drafting'),
+        lt(ideasTable.updatedAt, abandonedBefore),
+        heldIds.length > 0 ? notInArray(ideasTable.id, heldIds) : undefined
+      )
+    )
+    .returning({ id: ideasTable.id, runId: ideasTable.runId })
 }
 
 /** Hands a claimed idea back after a failed draft, so it can be drafted again. */

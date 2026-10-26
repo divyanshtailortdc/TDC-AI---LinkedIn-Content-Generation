@@ -374,12 +374,16 @@ describe('picking goals and ideas controls what is generated', { skip: !url }, (
       .where(eq(schema.ideasTable.id, unselected.id))
 
     const before = sent.drafting.length
-    const outcome = await m.selection.draftSelection(
+    const { claimed, ...outcome } = await m.selection.claimDraftSelection(
       db,
       { accountId: ids.account, ideaIds: [both.id, gstIdea.id], runId: runs.multi },
-      { draft: m.drafting.executeDraftingForIdea, settleRun: m.drafting.settleRunAfterDrafting }
+      { settleRun: m.drafting.settleRunAfterDrafting }
     )
-    assert.deepStrictEqual(outcome, { drafted: 1, notApproved: 1, alreadyDrafted: 0, notFound: 0 })
+    assert.deepStrictEqual(outcome, { queued: 1, notApproved: 1, alreadyDrafted: 0, notFound: 0 })
+    assert.deepStrictEqual(claimed, [{ ideaId: both.id, runId: runs.multi }])
+    // What the drafting queue does with each claimed idea.
+    for (const { ideaId } of claimed) await m.drafting.draftClaimedIdeaOrRelease(ideaId)
+    await m.drafting.settleRunAfterDrafting(runs.multi)
 
     const posts = await db.select().from(schema.postDraftsTable).where(eq(schema.postDraftsTable.accountId, ids.account))
     assert.deepStrictEqual(posts.map(p => p.ideaId), [both.id])
@@ -407,12 +411,12 @@ describe('picking goals and ideas controls what is generated', { skip: !url }, (
     const before = sent.drafting.length
     const ideas = await m.db.select().from(m.schema.ideasTable).where(eq(m.schema.ideasTable.runId, runs.multi))
     const approved = ideas.filter(i => i.status === 'approved').map(i => i.id)
-    const outcome = await m.selection.draftSelection(
+    const outcome = await m.selection.claimDraftSelection(
       m.db,
       { accountId: ids.other, ideaIds: approved },
-      { draft: m.drafting.executeDraftingForIdea, settleRun: m.drafting.settleRunAfterDrafting }
+      { settleRun: m.drafting.settleRunAfterDrafting }
     )
-    assert.strictEqual(outcome.drafted, 0)
+    assert.strictEqual(outcome.queued, 0)
     assert.strictEqual(outcome.notFound, approved.length)
     assert.strictEqual(sent.drafting.length, before)
   })

@@ -127,12 +127,19 @@ export const EMPTY_HISTORY: ReviewHistory = {
   rejectionReasons: []
 }
 
+/**
+ * A knowledge document without its full text, which can run to tens of
+ * thousands of characters: prompts use its summary and claims, and only
+ * embedding (~/lib/ai/embeddings) reads the text, loading it itself.
+ */
+export type ContextKnowledgeDocument = Omit<KnowledgeDocument, 'content'>
+
 export interface GenerationContext {
   account: Account
   voice: VoiceConfig | null
   offerings: Offering[]
   audiences: Audience[]
-  knowledgeDocs: KnowledgeDocument[]
+  knowledgeDocs: ContextKnowledgeDocument[]
   samplePosts: SamplePost[]
   /** Every goal the account has. Only goal suggestions read it, to avoid repeats. */
   goals: Goal[]

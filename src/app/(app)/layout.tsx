@@ -1,4 +1,5 @@
 import { MobileNavProvider } from '@/components/mobile-nav'
+import { RefreshOnBack } from '@/components/refresh-on-back'
 import { Sidebar } from '@/components/sidebar'
 import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
@@ -45,7 +46,7 @@ export default async function AppLayout({
           user={{ name: user.name, email: user.email }}
         />
         <main className="bg-background relative flex min-w-0 flex-1 flex-col overflow-y-auto">
-          {children}
+          <RefreshOnBack>{children}</RefreshOnBack>
         </main>
         <ToastContainer />
       </div>

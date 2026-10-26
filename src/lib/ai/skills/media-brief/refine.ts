@@ -45,6 +45,12 @@ export interface RefineBlueprintResult {
   usage: CallUsage
 }
 
+/**
+ * A bound on the refine call, retries included; a failure keeps the first
+ * design (index.ts has the same for the brief).
+ */
+const REFINE_TIMEOUT_MS = 60_000
+
 export async function refineBlueprint(
   input: {
     blueprint: Blueprint
@@ -60,6 +66,8 @@ export async function refineBlueprint(
       prompt: buildRefinePrompt(input.blueprint),
       images: [input.reference, input.rendered],
       schema: BlueprintSchema,
+      timeoutMs: REFINE_TIMEOUT_MS,
+      maxRetries: 1,
       abortSignal: options.abortSignal
     })
     return {

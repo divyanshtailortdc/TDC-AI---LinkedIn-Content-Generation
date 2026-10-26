@@ -27,6 +27,7 @@ import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import type { IdentitySummary } from '@/lib/identity'
 import type { PageInfo } from '@/lib/pagination'
 import { STATUS_TABS, type StatusFilter } from './status-filter'
+import { useDraftingPoll } from './use-drafting-poll'
 
 type ClientIdeaData = IdeaCardData & {
   accountId: string
@@ -121,6 +122,13 @@ export function IdeasClient({
   const [draftError, setDraftError] = useState<string | null>(null)
   // The ideas behind the latest drafting attempt, so Try again retries exactly those.
   const [draftTargetIds, setDraftTargetIds] = useState<string[]>([])
+  // Ideas being drafted in the background, followed until they are done. One
+  // left drafting by an earlier visit is followed too, quietly: only a batch
+  // started here shows progress and opens the posts.
+  const [pollIds, setPollIds] = useState<string[]>(() =>
+    initialIdeas.filter((i) => i.status === 'drafting').map((i) => i.id)
+  )
+  const [openPostsWhenDone, setOpenPostsWhenDone] = useState(false)
   const isDrafting = draftStatus === 'processing'
   // While posts are being generated (and until we navigate to them), only the
   // progress panel is shown — the ideas list would just be noise.
@@ -265,28 +273,25 @@ export function IdeasClient({
     }
   }
 
-  // Drafts the ideas. The caller holds draftingRef.
+  // Queues the ideas for drafting. The caller holds draftingRef. The action
+  // answers at once; the posts are written in the background and followed by
+  // useDraftingPoll below.
   const runDrafting = async (targetIds: string[]) => {
-    // Optimistically flip the drafted ideas to their terminal state right away so
-    // the list reflects the action immediately, instead of sitting unchanged for
-    // the full duration of the (multi-LLM-call) server action below.
     setIsActionBusy(true)
     setDraftStatus('processing')
     setDraftError(null)
     setDraftTargetIds(targetIds)
-    setIdeas((prev) => prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'drafted' } : i)))
+    setIdeas((prev) => prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'drafting' } : i)))
 
     try {
       const res = await draftSelectedIdeas({ ideaIds: targetIds })
       if (res.success) {
-        setDraftStatus('success')
         setTicked((prev) => prev.filter((id) => !targetIds.includes(id)))
-        showToast({
-          title: 'Posts generated',
-          message: `${res.draftedCount} post${res.draftedCount === 1 ? '' : 's'} drafted and ready for review.${res.note ? ` ${res.note}` : ''}`,
-          type: 'success'
-        })
-        router.push('/posts')
+        if (res.note) {
+          showToast({ title: 'Some ideas were skipped', message: res.note, type: 'info' })
+        }
+        setOpenPostsWhenDone(true)
+        setPollIds(res.queuedIds ?? [])
       } else {
         // Roll the optimistic update back — drafting failed, so these ideas
         // are still just approved, not drafted.
@@ -316,6 +321,45 @@ export function IdeasClient({
       setIsActionBusy(false)
     }
   }
+
+  useDraftingPoll(pollIds, {
+    onStatuses: (rows) =>
+      setIdeas((prev) =>
+        prev.map((i) => {
+          const row = rows.find((r) => r.id === i.id)
+          return row ? { ...i, status: row.status } : i
+        })
+      ),
+    onDone: (rows) => {
+      setPollIds([])
+      const drafted = rows.filter((r) => r.status === 'drafted').length
+      const notDrafted = rows.length - drafted
+      if (!openPostsWhenDone) {
+        // A batch started elsewhere: the page's lists and counts catch up.
+        router.refresh()
+        return
+      }
+      if (drafted === 0) {
+        const message = 'No post could be drafted. The ideas are back to approved; try again.'
+        setDraftStatus('error')
+        setDraftError(message)
+        showToast({ title: 'Drafting failed', message, type: 'error' })
+        router.refresh()
+        return
+      }
+      setDraftStatus('success')
+      showToast({
+        title: 'Posts generated',
+        message: `${drafted} post${drafted === 1 ? '' : 's'} drafted and ready for review.${
+          notDrafted > 0
+            ? ` ${notDrafted} idea${notDrafted === 1 ? '' : 's'} could not be drafted and ${notDrafted === 1 ? 'is' : 'are'} back to approved.`
+            : ''
+        }`,
+        type: 'success'
+      })
+      router.push('/posts')
+    }
+  })
 
   // Posts are made only from the selected ideas that are approved.
   const handleDraftSelected = async () => {

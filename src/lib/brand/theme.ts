@@ -14,8 +14,7 @@ import { DEFAULT_FONT, findFont } from './fonts'
  * of the theme: they are loaded only where an image is rendered.
  */
 
-/** Where the Brand Theme page lives. */
-export const BRAND_THEME_PATH = '/brand'
+export { BRAND_THEME_PATH } from './theme-path'
 
 export const VISUAL_STYLES = [
   {

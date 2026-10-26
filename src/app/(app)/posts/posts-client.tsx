@@ -78,7 +78,6 @@ import {
 import { createPortal } from 'react-dom'
 import {
   approveDraft,
-  fetchPostMediaImage,
   loadMorePosts,
   regeneratePostMediaAction,
   rejectDraft,
@@ -96,6 +95,9 @@ import {
 } from './media-jobs'
 import { formatAbsoluteDate, formatAbsoluteDateTime } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+// Every change below is called out with markDataChanged(): the actions no
+// longer revalidate the page (see RefreshOnBack).
+import { markDataChanged } from '@/components/refresh-on-back'
 
 // Only shown when an image is zoomed, so it loads then.
 const ImageLightbox = dynamic(
@@ -765,7 +767,17 @@ export function PostsClientInner({
     if (!activeMediaId || activeMediaHasImage) return
 
     let cancelled = false
-    void fetchPostMediaImage(activeMediaId)
+    // A GET, not a Server Action: the browser runs actions one at a time, so
+    // the image would wait behind an approve or an edit made just before.
+    void fetch(`/api/media/${activeMediaId}`)
+      .then(async (response): Promise<
+        { success: true; imageUrl: string } | { success: false; error: string }
+      > => {
+        const body = await response.json().catch(() => null)
+        return body?.success && typeof body.imageUrl === 'string'
+          ? { success: true, imageUrl: body.imageUrl }
+          : { success: false, error: body?.error || 'Failed to load image' }
+      })
       .catch((err: any) => ({
         success: false as const,
         error: err?.message || 'Failed to load image'
@@ -1148,6 +1160,7 @@ export function PostsClientInner({
     setMediaError(null)
 
     try {
+      markDataChanged()
       const res = await regeneratePostMediaAction(postId, {
         mode: 'stock',
         customPrompt: stockSearchQuery.trim() || undefined
@@ -1188,6 +1201,7 @@ export function PostsClientInner({
     setMediaError(null)
 
     try {
+      markDataChanged()
       const res = await updatePostMediaAction(postId, {
         mode: 'stock',
         imageUrl: url,
@@ -1224,6 +1238,7 @@ export function PostsClientInner({
     setMediaMenuOpen(false)
 
     try {
+      markDataChanged()
       const res = await removePostMediaAction(postId)
       if (res.success) {
         setPosts(prev =>
@@ -1247,6 +1262,7 @@ export function PostsClientInner({
     if (!activePost) return
     setIsSaving(true)
     try {
+      markDataChanged()
       const res = await updateDraft(activePost.id, { hook: newHook })
       if (!res.success) throw new Error(res.error)
       setPosts(prev =>
@@ -1278,6 +1294,7 @@ export function PostsClientInner({
     if (!activePost) return
     setIsSaving(true)
     try {
+      markDataChanged()
       const res = await updateDraft(activePost.id, {
         hook: editedHook,
         body: editedBody,
@@ -1522,6 +1539,7 @@ export function PostsClientInner({
     const approvedId = activePost.id
     setIsSaving(true)
     try {
+      markDataChanged()
       const res = await approveDraft(approvedId)
       if (!res.success) throw new Error(res.error)
       refreshQueueAfterStatusChange(approvedId, 'approved')
@@ -1553,6 +1571,7 @@ export function PostsClientInner({
 
     setIsSaving(true)
     try {
+      markDataChanged()
       const res = await rejectDraft(rejectedId, reason?.trim() || undefined)
       if (!res.success) throw new Error(res.error)
       refreshQueueAfterStatusChange(rejectedId, 'rejected')
