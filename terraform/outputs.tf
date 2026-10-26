@@ -17,6 +17,11 @@ output "media_bucket" {
   value       = google_storage_bucket.media.name
 }
 
+output "worker_service" {
+  description = "The Cloud Run service that runs the job worker and the scheduler, when separate_worker is set; its logs show research runs."
+  value       = one(google_cloud_run_v2_service.worker[*].name)
+}
+
 output "migrate_command" {
   value = "gcloud run jobs execute ${google_cloud_run_v2_job.migrate.name} --region ${var.region} --wait"
 }

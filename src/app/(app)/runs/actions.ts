@@ -8,6 +8,7 @@ import { findOwnedRun } from '@/lib/ownership'
 import { requireUser } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import { enqueueRun, getRunDetails } from '~/jobs/queue'
+import { runsJobsHere } from '~/jobs/role'
 import { processRunImmediately } from '~/jobs/worker'
 
 /**
@@ -34,10 +35,13 @@ export async function triggerNewRun(goalIds: string[]) {
       throw new Error('Failed to create run record')
     }
     // Trigger processing asynchronously in background. Only a still-queued run
-    // is claimed, so an existing run already underway is left alone.
-    processRunImmediately(run.id).catch(err => {
-      console.error(`Background execution error for run ${run.id}:`, err)
-    })
+    // is claimed, so an existing run already underway is left alone. The web
+    // service leaves it to the worker service, which polls every few seconds.
+    if (runsJobsHere()) {
+      processRunImmediately(run.id).catch(err => {
+        console.error(`Background execution error for run ${run.id}:`, err)
+      })
+    }
 
     revalidatePath('/runs')
     revalidatePath(`${IDENTITY_PATH}/runs`)

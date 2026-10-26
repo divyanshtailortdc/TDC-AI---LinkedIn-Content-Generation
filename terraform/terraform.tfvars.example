@@ -9,6 +9,10 @@ region     = "asia-south1"
 
 admin_user_ids = ""
 
+# Runs the job worker in its own service (about $55 a month more). Leave off
+# until the event-loop delay log shows research runs slowing pages.
+# separate_worker = true
+
 ai_gateway_api_key = ""
 anthropic_api_key  = ""
 serper_api_key     = ""

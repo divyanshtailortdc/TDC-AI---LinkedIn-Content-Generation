@@ -229,9 +229,9 @@ resource "google_cloud_run_v2_service" "app" {
   template {
     service_account = google_service_account.app.email
 
-    # The job worker and cron scheduler run inside the server process
-    # (src/instrumentation.ts): exactly one instance, always on, so runs are
-    # picked up and schedules fire once.
+    # Unless separate_worker is set, the job worker and cron scheduler run
+    # inside the server process (src/instrumentation.ts): exactly one
+    # instance, always on, so runs are picked up and schedules fire once.
     scaling {
       min_instance_count = 1
       max_instance_count = 1
@@ -256,7 +256,10 @@ resource "google_cloud_run_v2_service" "app" {
           cpu    = "1"
           memory = "2Gi"
         }
-        # Keep CPU between requests so the worker keeps running.
+        # Keep CPU between requests so the worker keeps running. With
+        # separate_worker set, true bills only while serving, but the
+        # throttled idle loop makes the event-loop delay log
+        # (src/lib/event-loop-delay.ts) read high: switch once measured.
         cpu_idle          = false
         startup_cpu_boost = true
       }
@@ -267,7 +270,9 @@ resource "google_cloud_run_v2_service" "app" {
       }
 
       dynamic "env" {
-        for_each = local.plain_env
+        for_each = merge(local.plain_env, {
+          APP_ROLE = var.separate_worker ? "web" : "all"
+        })
         content {
           name  = env.key
           value = env.value
@@ -302,6 +307,90 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# --- Worker -------------------------------------------------------------
+
+# With separate_worker set: the job worker and cron scheduler
+# (src/instrumentation.ts), from the app's image in a service of their own, so
+# a research run never holds up page requests. Exactly one instance, always
+# on, so runs are picked up and schedules fire once. Nothing reaches it:
+# internal ingress and no invoker. It serves HTTP only because Cloud Run
+# checks the port at start-up.
+resource "google_cloud_run_v2_service" "worker" {
+  count = var.separate_worker ? 1 : 0
+
+  name                = "${var.service_name}-worker"
+  location            = var.region
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  deletion_protection = false
+
+  template {
+    service_account = google_service_account.app.email
+
+    scaling {
+      min_instance_count = 1
+      max_instance_count = 1
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.main.connection_name]
+      }
+    }
+
+    containers {
+      image = local.image
+
+      ports {
+        container_port = 3000
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "2Gi"
+        }
+        # It gets no requests, so CPU must stay on for the worker to run.
+        cpu_idle          = false
+        startup_cpu_boost = true
+      }
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+
+      dynamic "env" {
+        for_each = merge(local.plain_env, { APP_ROLE = "worker" })
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.secret_names
+        content {
+          name = env.value
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.app[env.value].secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_iam_member.app_sql_client,
+    google_secret_manager_secret_iam_member.app,
+    google_secret_manager_secret_version.app,
+    google_storage_bucket_iam_member.app_media,
+  ]
 }
 
 # --- Migrations ---------------------------------------------------------

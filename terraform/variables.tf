@@ -39,6 +39,12 @@ variable "admin_user_ids" {
   default     = ""
 }
 
+variable "separate_worker" {
+  description = "Run the job worker and scheduler in a Cloud Run service of their own (about $55 a month more) instead of inside the app's. Turn on if the event-loop delay log shows research runs slowing pages (README.md, \"Checking page latency during runs\")."
+  type        = bool
+  default     = false
+}
+
 variable "research_mode" {
   description = "How runs research the web: 'fixed' or 'agent'."
   type        = string

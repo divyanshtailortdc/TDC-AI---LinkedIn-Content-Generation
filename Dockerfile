@@ -36,5 +36,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Starts `next start`; src/instrumentation.ts boots the job worker and the
-# cron scheduler inside this same process.
+# cron scheduler inside this same process unless APP_ROLE=web. With
+# separate_worker set, Terraform runs this image twice: a web service
+# (APP_ROLE=web) and a worker (APP_ROLE=worker).
 CMD ["pnpm", "start"]

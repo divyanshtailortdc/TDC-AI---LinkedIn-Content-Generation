@@ -6,6 +6,10 @@ export const env = createEnv({
     APP_ENV: z
       .enum(['development', 'staging', 'production'])
       .default('development'),
+    // Which work this process does: 'web' serves pages and only queues runs,
+    // 'worker' runs the job worker and the scheduler, 'all' does both (as in
+    // `next dev`). terraform/ can split them (separate_worker).
+    APP_ROLE: z.enum(['all', 'web', 'worker']).default('all'),
     DATABASE_URL: z
       .string()
       .default(
@@ -50,6 +54,7 @@ export const env = createEnv({
 
   runtimeEnv: {
     APP_ENV: process.env.APP_ENV,
+    APP_ROLE: process.env.APP_ROLE,
     DATABASE_URL: process.env.DATABASE_URL,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     SERPER_API_KEY: process.env.SERPER_API_KEY,
