@@ -2,7 +2,7 @@ import 'server-only'
 
 import { db } from '@/db'
 import { ideasTable, postDraftsTable, runStepsTable, runsTable } from '@/db/schema'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 
 export interface SpendWindow {
   runs: number
@@ -122,7 +122,13 @@ export async function getAccountUsageSummary(
       })
       .from(runStepsTable)
       .innerJoin(runsTable, eq(runStepsTable.runId, runsTable.id))
-      .where(eq(runsTable.accountId, accountId))
+      // Only the stages shown; the rest would be summed and dropped.
+      .where(
+        and(
+          eq(runsTable.accountId, accountId),
+          inArray(runStepsTable.stage, BILLED_STAGES)
+        )
+      )
       .groupBy(runStepsTable.stage),
     db
       .select({ n: sql<number>`count(*)`.mapWith(Number) })

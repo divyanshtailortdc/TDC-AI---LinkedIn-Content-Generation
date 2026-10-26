@@ -1,12 +1,18 @@
 'use client'
 
-import { AiSetupCard } from '@/components/ai-setup/ai-setup-card'
+import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { SetupFrame, SetupStepper } from './setup-frame'
 import { getStepIndex, SETUP_STEPS } from './steps'
 import { IDENTITY_PATH } from '@/lib/identity-path'
 import { initialsOf } from '@/lib/initials'
+
+// Shown on the profile step only. Loaded there, so the other steps do not
+// carry the analysis form and its review dialogs in their bundle.
+const AiSetupCard = dynamic(() =>
+  import('@/components/ai-setup/ai-setup-card').then(m => m.AiSetupCard)
+)
 
 type ShellAccount = {
   id: string
