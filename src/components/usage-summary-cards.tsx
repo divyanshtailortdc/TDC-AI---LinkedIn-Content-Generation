@@ -102,6 +102,30 @@ export function UsageSummaryCards({
   )
 }
 
+/** Holds the cards' place while the totals load, so the page does not jump. */
+export function UsageSummarySkeleton() {
+  return (
+    <section role="status" aria-label="Loading token usage">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">Token usage</h2>
+        <div className="h-3 w-40 animate-pulse rounded bg-surface-hover" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div
+            key={i}
+            className="space-y-3 rounded-xl border border-border bg-surface p-4 shadow-xs"
+          >
+            <div className="h-3 w-20 animate-pulse rounded bg-surface-hover" />
+            <div className="h-6 w-24 animate-pulse rounded bg-surface-hover" />
+            <div className="h-3 w-28 animate-pulse rounded bg-surface-hover" />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function UsageCard({
   icon: Icon,
   label,

@@ -1,5 +1,8 @@
 import { PageHeader } from '@/components/page-header'
-import { UsageSummaryCards } from '@/components/usage-summary-cards'
+import {
+  UsageSummaryCards,
+  UsageSummarySkeleton
+} from '@/components/usage-summary-cards'
 import { db } from '@/db'
 import {
   accountsTable,
@@ -23,6 +26,7 @@ import {
   Users
 } from 'lucide-react'
 import Link from 'next/link'
+import { Suspense } from 'react'
 import { initialsOf } from '@/lib/initials'
 
 export const dynamic = 'force-dynamic'
@@ -45,24 +49,28 @@ export default async function DashboardPage() {
     )
   }
 
-  const [voiceConfigs, knowledgeDocs, goals, prefs, usage] = await Promise.all([
+  // Only whether each exists: one row is enough.
+  const [voiceConfigs, knowledgeDocs, goals, prefs] = await Promise.all([
     db
       .select({ accountId: voiceConfigsTable.accountId })
       .from(voiceConfigsTable)
-      .where(eq(voiceConfigsTable.accountId, account.id)),
+      .where(eq(voiceConfigsTable.accountId, account.id))
+      .limit(1),
     db
       .select({ accountId: knowledgeDocumentsTable.accountId })
       .from(knowledgeDocumentsTable)
-      .where(eq(knowledgeDocumentsTable.accountId, account.id)),
+      .where(eq(knowledgeDocumentsTable.accountId, account.id))
+      .limit(1),
     db
       .select({ accountId: goalsTable.accountId })
       .from(goalsTable)
-      .where(eq(goalsTable.accountId, account.id)),
+      .where(eq(goalsTable.accountId, account.id))
+      .limit(1),
     db
       .select({ accountId: preferencesTable.accountId })
       .from(preferencesTable)
-      .where(eq(preferencesTable.accountId, account.id)),
-    getAccountUsageSummary(account.id)
+      .where(eq(preferencesTable.accountId, account.id))
+      .limit(1)
   ])
 
   return (
@@ -74,7 +82,9 @@ export default async function DashboardPage() {
 
       <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
         <div className="mx-auto space-y-8">
-          <UsageSummaryCards {...usage} />
+          <Suspense fallback={<UsageSummarySkeleton />}>
+            <AccountUsage accountId={account.id} />
+          </Suspense>
 
           <section>
             <h2 className="mb-4 text-sm font-semibold tracking-tight text-foreground">
@@ -94,6 +104,14 @@ export default async function DashboardPage() {
       </div>
     </div>
   )
+}
+
+/**
+ * All-time usage adds up every run of the account, so it streams in on its
+ * own rather than holding the rest of the dashboard until it is done.
+ */
+async function AccountUsage({ accountId }: { accountId: string }) {
+  return <UsageSummaryCards {...await getAccountUsageSummary(accountId)} />
 }
 
 function CapabilityPanel({ capabilities }: { capabilities: Capability[] }) {
