@@ -485,8 +485,11 @@ export function IdeasClient({
             // With ideas ticked, every action works on the selection only.
             <>
               <span className="text-foreground inline-flex h-8 items-center gap-1 text-[13px] font-medium tabular-nums">
-                {/* The count is on the buttons too; phones keep one row. */}
-                <span className="hidden sm:inline">{selection.length} selected</span>
+                {/* Phones show just the number so the row stays one line. */}
+                <span>
+                  {selection.length}
+                  <span className="hidden sm:inline"> selected</span>
+                </span>
                 <button
                   type="button"
                   onClick={clearSelection}
@@ -505,7 +508,7 @@ export function IdeasClient({
                   className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
-                  <span>Approve {selectedProposed.length}</span>
+                  <span>Approve</span>
                 </button>
               )}
 
@@ -537,7 +540,7 @@ export function IdeasClient({
                     className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
-                    <span>Approve &amp; create {selection.length}</span>
+                    <span>Approve &amp; Create Posts</span>
                     <ArrowRight className="h-3.5 w-3.5" />
                   </button>
                 </ConfirmPopover>
