@@ -8,10 +8,8 @@ import {
   runsTable
 } from '@/db/schema'
 import { goalIdsOfRun } from '@/lib/ai/pipeline/ideation-run'
-import {  stopActiveRun } from '@/lib/ai/run-lifecycle'
-import { IDENTITY_PATH } from '@/lib/identity'
-import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
-import { requireIdentityId } from '@/lib/identity'
+import { recoverInterruptedRuns, stopActiveRun } from '@/lib/ai/run-lifecycle'
+import { IDENTITY_PATH, requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { findOwnedRun, ownedByUser } from '@/lib/ownership'
 import { PAGE_SIZE } from '@/lib/pagination'
@@ -60,6 +58,7 @@ export async function triggerNewRun(goalIds: string[]) {
         })
       )
     }
+    startInBackground(run.id)
 
     // No revalidatePath: it re-rendered the page the dialog was opened on,
     // which the dialog then leaves for the run's page. The Runs list notices
