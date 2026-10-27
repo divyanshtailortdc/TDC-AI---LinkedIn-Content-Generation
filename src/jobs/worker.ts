@@ -62,28 +62,39 @@ export async function processRunImmediately(runId: string) {
 
 /**
  * Starts queued runs, oldest first, until the slots are full or the queue is
- * empty. It does not wait for them, so a free slot is filled on the next tick
- * however long the other runs take.
+ * empty, and resolves once the runs it started have finished: for a caller
+ * that must stay alive until then (/api/cron/jobs on Vercel).
  */
-async function workerTick() {
+export async function processQueuedRuns() {
+  const started: Promise<unknown>[] = []
   while (takeRunSlot()) {
     let claimed
     try {
       claimed = await claimNextQueuedRun()
     } catch (err) {
       releaseRunSlot()
-      console.error('Worker tick error:', err)
-      return
+      throw err
     }
     if (!claimed) {
       releaseRunSlot()
-      return
+      break
     }
     const runId = claimed.id
-    void executeResearchAndIdeate(runId)
-      .catch(err => console.error(`Worker failed run ${runId}:`, err))
-      .finally(releaseRunSlot)
+    started.push(
+      executeResearchAndIdeate(runId)
+        .catch(err => console.error(`Worker failed run ${runId}:`, err))
+        .finally(releaseRunSlot)
+    )
   }
+  await Promise.all(started)
+}
+
+/**
+ * The poll. It does not wait for the runs it starts, so a free slot is filled
+ * on the next tick however long the other runs take.
+ */
+function workerTick() {
+  void processQueuedRuns().catch(err => console.error('Worker tick error:', err))
 }
 
 /** Fails runs whose process died mid-run; see run-lifecycle. */
@@ -96,11 +107,10 @@ async function recoveryTick() {
   } catch (err) {
     console.error('Run recovery error:', err)
   }
-  try {
-    await recoverAbandonedDrafting()
-  } catch (err) {
+  // Not awaited: it resolves when the resumed ideas are drafted.
+  recoverAbandonedDrafting().catch(err =>
     console.error('Drafting recovery error:', err)
-  }
+  )
 }
 
 export function startWorker() {

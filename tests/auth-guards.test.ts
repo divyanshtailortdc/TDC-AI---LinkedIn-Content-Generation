@@ -111,6 +111,8 @@ describe('every API route checks the session first', () => {
     .filter(file => file.endsWith('route.ts'))
     // Better Auth's own endpoints are the way in.
     .filter(file => !file.includes(`${path.sep}auth${path.sep}`))
+    // Called by a scheduler, never a signed-in user; checked below instead.
+    .filter(file => !file.includes(`${path.sep}cron${path.sep}`))
     .map(parse)
 
   for (const source of routes) {
@@ -119,6 +121,27 @@ describe('every API route checks the session first', () => {
         assert.ok(
           checksFirst(fn, 'getSessionUser'),
           `${fn.name!.text} must call getSessionUser() before any try block`
+        )
+      })
+    }
+  }
+})
+
+describe('every cron route checks its secret first', () => {
+  const routes = walk(path.join(SRC, 'app', 'api', 'cron'))
+    .filter(file => file.endsWith('route.ts'))
+    .map(parse)
+
+  it('finds the cron routes', () => {
+    assert.ok(routes.length >= 1, 'no cron route found')
+  })
+
+  for (const source of routes) {
+    for (const fn of exportedFunctions(source)) {
+      it(`${relative(source.fileName)}: ${fn.name!.text}`, () => {
+        assert.ok(
+          checksFirst(fn, 'authorized'),
+          `${fn.name!.text} must call authorized() before any try block`
         )
       })
     }
