@@ -26,7 +26,7 @@ import {
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 
 // In the order work moves: what to achieve, the ideas and posts it produces,
 // then when each post goes out.
@@ -130,9 +130,18 @@ function NavLink({
   /** How many things are waiting here; shown as a count, and bolds the label. */
   badge?: number
 }) {
+  // Prefetched once the pointer or focus reaches the link, not as soon as it
+  // is on screen: every page is rendered on the server, so prefetching all of
+  // them sent a request per link, again after each navigation or action.
+  const [intent, setIntent] = useState(false)
+  const showIntent = () => setIntent(true)
   return (
     <Link
       href={href}
+      prefetch={intent ? null : false}
+      onMouseEnter={showIntent}
+      onFocus={showIntent}
+      onTouchStart={showIntent}
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(

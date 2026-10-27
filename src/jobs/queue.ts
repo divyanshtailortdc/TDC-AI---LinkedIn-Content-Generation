@@ -124,8 +124,18 @@ export async function claimRunById(runId: string) {
   return claimed ?? null
 }
 
-export async function getRunDetails(runId: string) {
-  const [run, steps, findings, ideas] = await Promise.all([
+/**
+ * A run with its steps, findings and ideas. Pass the run's `accountId` when
+ * known (the ownership check returns it) to load its goals alongside the rest
+ * rather than after the run.
+ */
+export async function getRunDetails(runId: string, accountId?: string) {
+  const goalsOf = (account: string) =>
+    db
+      .select({ id: goalsTable.id, title: goalsTable.title })
+      .from(goalsTable)
+      .where(eq(goalsTable.accountId, account))
+  const [run, steps, findings, ideas, knownGoals] = await Promise.all([
     db.query.runsTable.findFirst({ where: eq(runsTable.id, runId) }),
     db.query.runStepsTable.findMany({
       where: eq(runStepsTable.runId, runId),
@@ -136,16 +146,12 @@ export async function getRunDetails(runId: string) {
     }),
     db.query.ideasTable.findMany({
       where: eq(ideasTable.runId, runId)
-    })
+    }),
+    accountId ? goalsOf(accountId) : Promise.resolve(null)
   ])
 
   // Goals as titled now; a deleted one by the title its ideas kept.
-  const goals = run
-    ? await db
-        .select({ id: goalsTable.id, title: goalsTable.title })
-        .from(goalsTable)
-        .where(eq(goalsTable.accountId, run.accountId))
-    : []
+  const goals = knownGoals ?? (run ? await goalsOf(run.accountId) : [])
   const titleOf = (id: string | null | undefined) =>
     goals.find(g => g.id === id)?.title
   const runGoalIds =
