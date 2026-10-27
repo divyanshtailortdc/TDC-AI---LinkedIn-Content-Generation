@@ -6,7 +6,8 @@ import {
   runsTable,
   type Run
 } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
+import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { env } from '~/env'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import { addUsage } from '~/lib/ai/usage'
@@ -35,7 +36,14 @@ import {
 import { checkNovelty } from '../../novelty'
 import { inferRegion } from '../region'
 import { recordStepUsage, refreshRunTotals } from '../run-accounting'
-import { failRun, keepRunAlive } from '../run-lifecycle'
+import {
+  closeStoppedRunSteps,
+  failRun,
+  keepRunAlive,
+  RunStoppedError,
+  STOPPED_RUN_STATUS,
+  watchForStop
+} from '../run-lifecycle'
 import { SkillError } from '../run-skill'
 import { generateIdeas, type GeneratedIdeaItem } from '../skills/ideation'
 import { buildGroundingCorpus } from './grounding-corpus'
@@ -67,12 +75,20 @@ const RUN_DEADLINE_MS = 15 * 60_000
 const DEADLINE_MESSAGE =
   'The run took longer than 15 minutes and was stopped. Start a new run.'
 
-/** Rejects once `signal` aborts, whether or not `work` has finished. */
-function untilDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+/**
+ * Rejects once `signal` aborts, whether or not `work` has finished: with
+ * RunStoppedError when the run was stopped, else as past its deadline.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   return Promise.race([
     work,
     new Promise<never>((_, reject) => {
-      const stop = () => reject(new Error(DEADLINE_MESSAGE))
+      const stop = () =>
+        reject(
+          signal.reason instanceof RunStoppedError
+            ? signal.reason
+            : new Error(DEADLINE_MESSAGE)
+        )
       if (signal.aborted) stop()
       else signal.addEventListener('abort', stop, { once: true })
     })
@@ -174,19 +190,47 @@ export async function executeResearchAndIdeate(
   // A throw fails the run here; if the process dies instead, the stopped
   // heartbeat lets the worker fail it (see run-lifecycle). Past the deadline
   // the run is failed and the worker freed; the deadline also cancels the
-  // model calls under way, and keeps late work from saving ideas.
+  // model calls under way, and keeps late work from saving ideas. Stopping
+  // the run from its page does the same, but leaves it stopped, not failed.
   const deadline = AbortSignal.timeout(RUN_DEADLINE_MS)
+  const stop = watchForStop(runId)
+  const signal = AbortSignal.any([deadline, stop.signal])
   const stopHeartbeat = keepRunAlive(runId)
   try {
-    return await untilDeadline(researchAndIdeate(run, deadline), deadline)
+    return await untilAborted(researchAndIdeate(run, signal), signal)
   } catch (err) {
+    if (err instanceof RunStoppedError) {
+      await closeStoppedRunSteps(runId).catch(cleanupErr =>
+        console.error(`Could not close steps of stopped run ${runId}:`, cleanupErr)
+      )
+      return { ideasCount: 0, findingsCount: 0, runId, status: STOPPED_RUN_STATUS }
+    }
     await failRun(runId, err).catch(cleanupErr =>
       console.error(`Could not mark run ${runId} failed:`, cleanupErr)
     )
     throw err
   } finally {
     stopHeartbeat()
+    stop.dispose()
   }
+}
+
+/**
+ * Moves an active run on to `status`. A run stopped meanwhile is left as it
+ * is, and the throw ends its work before the next stage opens a step.
+ */
+async function advanceRun(runId: string, status: string) {
+  const [moved] = await db
+    .update(runsTable)
+    .set({ status })
+    .where(
+      and(
+        eq(runsTable.id, runId),
+        inArray(runsTable.status, ACTIVE_RUN_STATUSES)
+      )
+    )
+    .returning({ id: runsTable.id })
+  if (!moved) throw new RunStoppedError()
 }
 
 /** The run's goals; a run queued before goal_ids existed has only goal_id. */
@@ -195,9 +239,10 @@ export function goalIdsOfRun(run: Pick<Run, 'goalIds' | 'goalId'>): string[] {
   return run.goalId ? [run.goalId] : []
 }
 
+/** `signal` aborts at the run's deadline or once it is stopped. */
 async function researchAndIdeate(
   run: Run,
-  deadline: AbortSignal
+  signal: AbortSignal
 ): Promise<ResearchIdeateResult> {
   const runId = run.id
   const ctx = await loadGenerationContext(run.accountId, {
@@ -256,6 +301,7 @@ async function researchAndIdeate(
   }
 
   // --------------------------------------------------------------- research
+  await advanceRun(runId, 'researching')
   const researchStart = Date.now()
   const [researchStep] = await db
     .insert(runStepsTable)
@@ -272,11 +318,6 @@ async function researchAndIdeate(
     })
     .returning()
 
-  await db
-    .update(runsTable)
-    .set({ status: 'researching' })
-    .where(eq(runsTable.id, runId))
-
   // The web and the knowledge base are read at once: neither needs the other.
   const [research, passages] = await Promise.all([
     researchTheWeb(ctx),
@@ -285,8 +326,9 @@ async function researchAndIdeate(
   const findings = research.findings
   if (researchStep) await recordStepUsage(runId, researchStep.id, research.usage)
 
-  // Past the deadline the run is already failed; stop before saving to it.
-  deadline.throwIfAborted()
+  // Past the deadline the run is already failed, and a stopped one already
+  // stopped; stop before saving to it.
+  signal.throwIfAborted()
   if (findings.length > 0) {
     await db.insert(researchFindingsTable).values(
       findings.map(f => ({
@@ -330,6 +372,7 @@ async function researchAndIdeate(
   }
 
   // --------------------------------------------------------------- ideation
+  await advanceRun(runId, 'ideating')
   const ideationStart = Date.now()
   const [ideationStep] = await db
     .insert(runStepsTable)
@@ -341,11 +384,6 @@ async function researchAndIdeate(
       requestSummary: `Generating and grounding ${targetIdeas} candidate ideas`
     })
     .returning()
-
-  await db
-    .update(runsTable)
-    .set({ status: 'ideating' })
-    .where(eq(runsTable.id, runId))
 
   const handle = getLanguageModel('ideation')
   if (!handle) {
@@ -390,7 +428,7 @@ async function researchAndIdeate(
       history: renderIdeationHistoryBlock(ctx, runId),
       candidateCount,
       assignedGoals,
-      abortSignal: deadline
+      abortSignal: signal
     })
     ideationUsage = ideation.usage
     candidates = ideation.candidates
@@ -403,6 +441,9 @@ async function researchAndIdeate(
     console.error('Idea generation failed:', err)
   }
   if (ideationStep) await recordStepUsage(runId, ideationStep.id, ideationUsage)
+  // A call cancelled by the stop or the deadline is not a model error to
+  // record on the step: the run is already settled.
+  signal.throwIfAborted()
 
   // ------------------------------------------------------------ selection
   // Repeats of earlier work go first, so they cannot take a place from a
@@ -432,7 +473,7 @@ async function researchAndIdeate(
           .join('\n\n'),
         candidateCount: missing.length * 2,
         assignedGoals: spreadGoals(missing, missing.length * 2),
-        abortSignal: deadline
+        abortSignal: signal
       })
       ideationUsage = addUsage(ideationUsage, retry.usage)
       candidates = [...candidates, ...retry.candidates]
@@ -531,9 +572,9 @@ async function researchAndIdeate(
   // saved on a run that then read as failed.
   const goalsById = new Map(ctx.selectedGoals.map(g => [g.id, g]))
   await db.transaction(async tx => {
-    // Inside the transaction, so a run failed at its deadline meanwhile
-    // gets neither the ideas nor the status that goes with them.
-    deadline.throwIfAborted()
+    // Inside the transaction, so a run failed at its deadline or stopped
+    // meanwhile gets neither the ideas nor the status that goes with them.
+    signal.throwIfAborted()
     await tx.insert(ideasTable).values(
       selected.map(idea => {
         // Validation guarantees one of the run's goals.
@@ -583,7 +624,7 @@ async function researchAndIdeate(
         .where(eq(runStepsTable.id, ideationStep.id))
     }
 
-    await tx
+    const [settled] = await tx
       .update(runsTable)
       .set({
         status: 'awaiting_idea_approval',
@@ -592,7 +633,16 @@ async function researchAndIdeate(
         model: handle.modelId,
         error: null
       })
-      .where(eq(runsTable.id, runId))
+      .where(
+        and(
+          eq(runsTable.id, runId),
+          inArray(runsTable.status, ACTIVE_RUN_STATUSES)
+        )
+      )
+      .returning({ id: runsTable.id })
+    // Stopped since the check above, before the stop check noticed: the
+    // ideas go back with the transaction.
+    if (!settled) throw new RunStoppedError()
   })
 
   await refreshRunTotals(runId)

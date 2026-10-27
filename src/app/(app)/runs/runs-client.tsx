@@ -208,7 +208,9 @@ export function RunsClient({
                           ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
                           : run.status === 'failed'
                             ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
-                            : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+                            : run.status === 'stopped'
+                              ? 'bg-surface-hover text-muted'
+                              : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
                     }`}>
                       {run.status.replace(/_/g, ' ')}
                     </span>

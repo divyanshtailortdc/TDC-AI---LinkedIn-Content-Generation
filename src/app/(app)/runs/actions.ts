@@ -7,7 +7,8 @@ import {
   runStepsTable,
   runsTable
 } from '@/db/schema'
-import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
+import { goalIdsOfRun } from '@/lib/ai/pipeline/ideation-run'
+import { recoverInterruptedRuns, stopActiveRun } from '@/lib/ai/run-lifecycle'
 import { IDENTITY_PATH, requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { findOwnedRun, ownedByUser } from '@/lib/ownership'
@@ -42,14 +43,7 @@ export async function triggerNewRun(goalIds: string[]) {
     if (!run) {
       throw new Error('Failed to create run record')
     }
-    // Trigger processing asynchronously in background. Only a still-queued run
-    // is claimed, so an existing run already underway is left alone. The web
-    // service leaves it to the worker service, which polls every few seconds.
-    if (runsJobsHere()) {
-      processRunImmediately(run.id).catch(err => {
-        console.error(`Background execution error for run ${run.id}:`, err)
-      })
-    }
+    startInBackground(run.id)
 
     revalidatePath('/runs')
     revalidatePath(`${IDENTITY_PATH}/runs`)
@@ -58,6 +52,84 @@ export async function triggerNewRun(goalIds: string[]) {
     return {
       success: false,
       error: err.message || 'Failed to trigger run',
+      runId: undefined
+    }
+  }
+}
+
+/**
+ * Trigger processing asynchronously in background. Only a still-queued run is
+ * claimed, so an existing run already underway is left alone. The web service
+ * leaves it to the worker service, which polls every few seconds.
+ */
+function startInBackground(runId: string) {
+  if (!runsJobsHere()) return
+  processRunImmediately(runId).catch(err => {
+    console.error(`Background execution error for run ${runId}:`, err)
+  })
+}
+
+/**
+ * Stops a run's analysis while it is queued or in progress. What it found so
+ * far stays on the run; it saves no ideas.
+ */
+export async function stopRun(runId: string) {
+  const user = await requireUser()
+  try {
+    const run = await findOwnedRun(db, user.id, runId)
+    if (!run) return { success: false as const, error: 'Run not found' }
+    if (!(await stopActiveRun(run.id))) {
+      return {
+        success: false as const,
+        error: 'This analysis has already finished.'
+      }
+    }
+    revalidatePath('/runs')
+    revalidatePath(`${IDENTITY_PATH}/runs`)
+    return { success: true as const }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'Failed to stop the run'
+    }
+  }
+}
+
+/**
+ * Runs the analysis again for a run's goals, as a new run from gathering
+ * context onwards. The run itself, its ideas and any posts drafted from them
+ * stay as they are; those ideas count as earlier work, so the new run looks
+ * for fresh angles. Works by the run's own identity, whichever is active.
+ */
+export async function reanalyzeRun(runId: string) {
+  const user = await requireUser()
+  try {
+    const owned = await findOwnedRun(db, user.id, runId)
+    const source = owned
+      ? await db.query.runsTable.findFirst({
+          where: eq(runsTable.id, owned.id),
+          columns: { goalIds: true, goalId: true }
+        })
+      : undefined
+    if (!owned || !source) throw new Error('Run not found')
+
+    const { run } = await enqueueRun({
+      accountId: owned.accountId,
+      goalIds: goalIdsOfRun(source),
+      trigger: 'manual'
+    })
+    if (!run) {
+      throw new Error('Failed to create run record')
+    }
+    startInBackground(run.id)
+
+    revalidatePath('/runs')
+    revalidatePath(`${IDENTITY_PATH}/runs`)
+    return { success: true as const, runId: run.id }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'Failed to re-analyze the run',
       runId: undefined
     }
   }

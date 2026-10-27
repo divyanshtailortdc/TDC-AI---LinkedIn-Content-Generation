@@ -34,7 +34,9 @@ export default async function SingleRunPage({ params }: RunPageProps) {
   }
 
   return (
+    // Keyed by run, so Re-analyze opening the new run starts from its own state.
     <RunDetailClient
+      key={run.id}
       initialRun={run}
       initialSteps={steps}
       initialFindings={findings}

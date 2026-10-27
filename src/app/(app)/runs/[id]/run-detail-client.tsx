@@ -19,6 +19,8 @@ import {
   Search,
   BookOpen,
   FileText,
+  RotateCcw,
+  Square,
   SquareCheck,
   Target,
   X
@@ -29,7 +31,7 @@ import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
-import { fetchRunStatus, pollRunProgress } from '../actions'
+import { fetchRunStatus, pollRunProgress, reanalyzeRun, stopRun } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import {
   approveIdea,
@@ -79,13 +81,22 @@ const STEP_LABELS: Record<string, string> = {
 
 const SOURCES_PREVIEW = 6
 
-type StageState = 'completed' | 'partial' | 'running' | 'failed' | 'incomplete' | 'waiting' | 'pending'
+type StageState =
+  | 'completed'
+  | 'partial'
+  | 'running'
+  | 'failed'
+  | 'stopped'
+  | 'incomplete'
+  | 'waiting'
+  | 'pending'
 
 const STAGE_STYLE: Record<StageState, string> = {
   completed: 'border-emerald-500/30 bg-emerald-500/5',
   partial: 'border-amber-500/30 bg-amber-500/5',
   running: 'border-accent/50 bg-accent/5',
   failed: 'border-rose-500/30 bg-rose-500/5',
+  stopped: 'border-border bg-surface-hover/50',
   incomplete: 'border-border bg-surface-hover/50',
   waiting: 'border-border bg-surface-hover/50',
   pending: 'border-border bg-surface-hover/50'
@@ -121,6 +132,7 @@ function summarizeStage(
   const done = stageSteps.filter(s => s.status === 'completed').length
   const failed = stageSteps.filter(s => s.status === 'failed').length
   const running = stageSteps.filter(s => s.status === 'running').length
+  const stopped = stageSteps.filter(s => s.status === 'stopped').length
   const durationMs = stageSteps.reduce((sum, s) => sum + (s.durationMs || 0), 0)
 
   let state: StageState
@@ -128,6 +140,7 @@ function summarizeStage(
   else if (done > 0 && failed > 0) state = 'partial'
   else if (done > 0) state = 'completed'
   else if (failed > 0) state = 'failed'
+  else if (stopped > 0) state = 'stopped'
   else if (running > 0) state = 'incomplete'
   else if (options.isRunning && options.isNextStage) state = 'running'
   else if (key === 'drafting' && options.awaitingApproval) state = 'waiting'
@@ -142,6 +155,7 @@ function summarizeStage(
     partial: `${done} done · ${failed} failed`,
     running: 'In progress…',
     failed: 'Failed',
+    stopped: 'Stopped',
     incomplete: 'Did not finish',
     waiting: 'Waiting for idea approval',
     pending: 'Not started'
@@ -226,6 +240,53 @@ export function RunDetailClient({
     // findings is read once, when polling starts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, run.id, router])
+
+  const [isStopping, setIsStopping] = useState(false)
+  const [isReanalyzing, setIsReanalyzing] = useState(false)
+
+  // The run reads stopped at once; the worker running it notices within
+  // seconds and cancels what is under way.
+  const handleStop = async () => {
+    setIsStopping(true)
+    try {
+      const res = await stopRun(run.id)
+      if (!res.success) {
+        showToast({ title: 'Could not stop the analysis', message: res.error, type: 'error' })
+      }
+      // Stopped, or finished meanwhile: either way the page takes the run as it now is.
+      const now = await fetchRunStatus(run.id)
+      if (now.success && now.run) {
+        setRun(now.run)
+        setSteps(now.steps)
+        setFindings(now.findings)
+        setIdeas(now.ideas)
+      }
+      router.refresh()
+    } finally {
+      setIsStopping(false)
+    }
+  }
+
+  // A new run for the same goals; this one, its ideas and their posts stay.
+  const handleReanalyze = async () => {
+    setIsReanalyzing(true)
+    try {
+      const res = await reanalyzeRun(run.id)
+      if (res.success && res.runId) {
+        router.push(`/runs/${res.runId}`)
+        return
+      }
+      showToast({ title: 'Could not re-analyze', message: res.error, type: 'error' })
+    } catch (err) {
+      // The action catches its own errors, so this is the request itself failing.
+      showToast({
+        title: 'Could not re-analyze',
+        message: err instanceof Error ? err.message : 'The run could not be started.',
+        type: 'error'
+      })
+    }
+    setIsReanalyzing(false)
+  }
 
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
 
@@ -677,19 +738,66 @@ export function RunDetailClient({
           <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6 shadow-xs">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-foreground">Progress</h2>
-              <span className="text-muted inline-flex items-center gap-1.5 text-xs tabular-nums">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-muted inline-flex items-center gap-1.5 text-xs tabular-nums">
+                  {isRunning ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Updating live
+                    </>
+                  ) : totalDurationMs > 0 ? (
+                    <>
+                      <Clock className="h-3.5 w-3.5" />
+                      {formatDuration(totalDurationMs)} total
+                    </>
+                  ) : null}
+                </span>
                 {isRunning ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Updating live
-                  </>
-                ) : totalDurationMs > 0 ? (
-                  <>
-                    <Clock className="h-3.5 w-3.5" />
-                    {formatDuration(totalDurationMs)} total
-                  </>
-                ) : null}
-              </span>
+                  <ConfirmPopover
+                    title="Stop this analysis?"
+                    description="Research and idea generation stop where they are, and this run saves no ideas. You can re-analyze it afterwards."
+                    confirmLabel="Stop analysis"
+                    tone="danger"
+                    onConfirm={handleStop}
+                    disabled={isStopping}
+                  >
+                    <button
+                      type="button"
+                      disabled={isStopping}
+                      className="inline-flex cursor-pointer h-7 items-center gap-1.5 rounded-lg border border-rose-500/30 px-3 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-400"
+                    >
+                      {isStopping ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Square className="h-3.5 w-3.5" />
+                      )}
+                      Stop analysis
+                    </button>
+                  </ConfirmPopover>
+                ) : (
+                  <ConfirmPopover
+                    title="Re-analyze these goals?"
+                    description="Starts a new run for the same goals, from gathering context onwards. This run, its ideas and their posts stay as they are."
+                    confirmLabel="Re-analyze"
+                    tone="neutral"
+                    onConfirm={handleReanalyze}
+                    disabled={isReanalyzing}
+                  >
+                    <button
+                      type="button"
+                      disabled={isReanalyzing}
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex cursor-pointer h-7 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isReanalyzing ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      )}
+                      Re-analyze
+                    </button>
+                  </ConfirmPopover>
+                )}
+              </div>
             </div>
 
             <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -879,6 +987,8 @@ function StageIcon({ state }: { state: StageState }) {
       return <AlertCircle className="h-4 w-4 text-rose-500" />
     case 'waiting':
       return <Hourglass className="text-muted h-4 w-4" />
+    case 'stopped':
+      return <Square className="text-muted h-4 w-4" />
     default:
       return <Clock className="text-muted h-4 w-4" />
   }
