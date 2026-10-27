@@ -8,8 +8,8 @@ import {
   runsTable
 } from '@/db/schema'
 import { goalIdsOfRun } from '@/lib/ai/pipeline/ideation-run'
-import { recoverInterruptedRuns, stopActiveRun } from '@/lib/ai/run-lifecycle'
-import { IDENTITY_PATH, requireIdentityId } from '@/lib/identity'
+import {  stopActiveRun } from '@/lib/ai/run-lifecycle'
+import { IDENTITY_PATH } from '@/lib/identity'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
@@ -21,6 +21,7 @@ import { after } from 'next/server'
 import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { runsJobsHere } from '~/jobs/role'
 import { processRunImmediately } from '~/jobs/worker'
+import { revalidatePath } from 'next/cache'
 
 /**
  * Starts a run for the signed-in user's identity (resolved here rather than
