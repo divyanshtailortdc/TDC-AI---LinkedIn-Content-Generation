@@ -1,6 +1,7 @@
 import { db } from '@/db'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 import { findOwnedAccount, findOwnedRun } from '@/lib/ownership'
+import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { requireUser } from '@/lib/session'
 import { notFound } from 'next/navigation'
 import { getRunDetails } from '~/jobs/queue'
@@ -19,15 +20,26 @@ export default async function SingleRunPage({ params }: RunPageProps) {
   const owned = await findOwnedRun(db, user.id, id)
   if (!owned) notFound()
 
-  // A run interrupted by a restart reads as failed, not as still in progress.
-  await recoverInterruptedRuns(owned.id)
-  const { run, steps, findings, ideas } = await getRunDetails(owned.id)
+  // Everything else at once: the ownership check gave the account.
+  let [details, account] = await Promise.all([
+    getRunDetails(owned.id, owned.accountId),
+    findOwnedAccount(db, user.id, owned.accountId)
+  ])
+
+  // A run interrupted by a restart reads as failed, not as still in
+  // progress. Only a run that still reads as in progress can be one, and the
+  // check is a write, so a finished run skips it.
+  if (details.run && ACTIVE_RUN_STATUSES.includes(details.run.status)) {
+    const recovered = await recoverInterruptedRuns(owned.id)
+    if (recovered.length > 0) {
+      details = await getRunDetails(owned.id, owned.accountId)
+    }
+  }
+  const { run, steps, findings, ideas } = details
 
   if (!run) {
     notFound()
   }
-
-  const account = await findOwnedAccount(db, user.id, run.accountId)
 
   if (!account) {
     notFound()

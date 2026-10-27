@@ -1,6 +1,7 @@
 'use client'
 
 import { triggerNewRun } from '@/app/(app)/runs/actions'
+import { markDataChanged } from '@/components/refresh-on-back'
 import { ideaTarget } from '@/lib/ai/idea-selection'
 import { cn } from '@/lib/cn'
 import {
@@ -120,6 +121,8 @@ function PickerDialog({
       const goalIds = active.map(g => g.id).filter(id => selected.includes(id))
       const res = await triggerNewRun(goalIds)
       if (res.success && res.runId) {
+        // The action no longer revalidates; Back still shows the new run.
+        markDataChanged()
         router.push(`/runs/${res.runId}`)
         return
       }

@@ -8,7 +8,8 @@ import { isUuid } from '@/lib/ids'
 import { requireUser } from '@/lib/session'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
-import { enqueueDrafting } from '~/jobs/drafting-queue'
+import { after } from 'next/server'
+import { enqueueDrafting, resumeAbandonedDrafting } from '~/jobs/drafting-queue'
 import {
   claimDraftSelection,
   describeDraftSelection
@@ -50,10 +51,9 @@ export async function approveIdea(ideaId: string) {
       )
     }
 
-    // The sidebar's Ideas badge counts these.
-    revalidatePath('/', 'layout')
-    revalidatePath('/ideas')
-    revalidatePath('/runs')
+    // No revalidatePath: it re-rendered the whole page and layout with every
+    // click. The pages update the idea and the sidebar badge themselves
+    // (~/lib/ideas-badge).
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve idea' }
@@ -93,10 +93,7 @@ export async function rejectIdea(ideaId: string, reason?: string) {
       })
     }
 
-    // The sidebar's Ideas badge counts these.
-    revalidatePath('/', 'layout')
-    revalidatePath('/ideas')
-    revalidatePath('/runs')
+    // No revalidatePath; see approveIdea.
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to reject idea' }
@@ -177,7 +174,13 @@ export async function draftSelectedIdeas(options: {
       { accountId, ideaIds, runId },
       { settleRun: settleRunAfterDrafting }
     )
-    enqueueDrafting(outcome.claimed)
+    // After the response, and kept alive until drafted: on Vercel a function
+    // is frozen once it has answered unless `after` holds it open.
+    after(() =>
+      enqueueDrafting(outcome.claimed).catch(err =>
+        console.error('Drafting failed:', err)
+      )
+    )
 
     revalidatePath('/ideas')
     revalidatePath('/runs')
@@ -228,6 +231,15 @@ export async function fetchIdeaStatuses(ideaIds: string[]) {
                 inArray(ideasTable.id, ids)
               )
             )
+    // A batch whose function ended (Vercel's time limit) leaves its claims
+    // untouched; the page following it resumes them.
+    if (ideas.some(idea => idea.status === 'drafting')) {
+      after(() =>
+        resumeAbandonedDrafting().catch(err =>
+          console.error('Drafting recovery error:', err)
+        )
+      )
+    }
     return { success: true as const, ideas }
   } catch (err: any) {
     return {

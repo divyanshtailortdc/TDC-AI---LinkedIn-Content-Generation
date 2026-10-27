@@ -4,11 +4,14 @@ import {
   Fragment,
   useEffect,
   useOptimistic,
+  startTransition,
   useRef,
   useState,
   useTransition,
   type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
+import { markDataChanged } from '@/components/refresh-on-back'
+import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -172,20 +175,56 @@ export function IdeasClient({
   const approvedCount = approvedIds.length
   const allProposedIds = proposedIds
 
-  const handleApprove = async (id: string) => {
+  // The tabs, counts and selections come from the server, so the page is
+  // refreshed after decisions, in the background: once none is still being
+  // saved, so a refresh never overwrites one in flight, and once for a burst.
+  const decisionsInFlight = useRef(0)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current)
+  }, [])
+  const refreshAfterDecisions = () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => {
+      if (decisionsInFlight.current === 0) startTransition(() => router.refresh())
+    }, 600)
+  }
+
+  // The decision shows at once and is put back if the server refuses it.
+  const decideIdea = async (id: string, status: 'approved' | 'rejected') => {
+    const previous = ideas.find((i) => i.id === id)?.status
+    if (!previous) return
+    const setStatus = (next: string) =>
+      setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, status: next } : i)))
     setIdeaActionBusyId(id)
+    setStatus(status)
+    decisionsInFlight.current++
     try {
-      const res = await approveIdea(id)
-      if (res.success) {
-        setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'approved' } : i)))
-        showToast({ title: 'Approved', message: 'Idea successfully approved', type: 'success' })
-      } else {
-        showToast({ title: 'Approve failed', message: res.error, type: 'error' })
-      }
+      const res = status === 'approved' ? await approveIdea(id) : await rejectIdea(id)
+      if (!res.success) throw new Error(res.error)
+      markDataChanged()
+      // The sidebar badge counts ideas still to review.
+      if (previous === 'proposed') adjustIdeasToReview(-1)
+      showToast(
+        status === 'approved'
+          ? { title: 'Approved', message: 'Idea successfully approved', type: 'success' }
+          : { title: 'Rejected', message: 'Idea rejected', type: 'info' }
+      )
+    } catch (err: any) {
+      setStatus(previous)
+      showToast({
+        title: status === 'approved' ? 'Approve failed' : 'Reject failed',
+        message: err?.message || 'Please try again.',
+        type: 'error'
+      })
     } finally {
+      decisionsInFlight.current--
       setIdeaActionBusyId(null)
+      refreshAfterDecisions()
     }
   }
+
+  const handleApprove = (id: string) => decideIdea(id, 'approved')
 
   const handleApproveAll = async () => {
     if (allProposedIds.length === 0) return
@@ -221,20 +260,7 @@ export function IdeasClient({
     }
   }
 
-  const handleReject = async (id: string) => {
-    setIdeaActionBusyId(id)
-    try {
-      const res = await rejectIdea(id)
-      if (res.success) {
-        setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'rejected' } : i)))
-        showToast({ title: 'Rejected', message: 'Idea rejected', type: 'info' })
-      } else {
-        showToast({ title: 'Reject failed', message: res.error, type: 'error' })
-      }
-    } finally {
-      setIdeaActionBusyId(null)
-    }
-  }
+  const handleReject = (id: string) => decideIdea(id, 'rejected')
 
   const handleEditSave = async (id: string, payload: { hookConcept: string; angle: string }) => {
     setIdeaActionBusyId(id)
@@ -459,8 +485,11 @@ export function IdeasClient({
             // With ideas ticked, every action works on the selection only.
             <>
               <span className="text-foreground inline-flex h-8 items-center gap-1 text-[13px] font-medium tabular-nums">
-                {/* The count is on the buttons too; phones keep one row. */}
-                <span className="hidden sm:inline">{selection.length} selected</span>
+                {/* Phones show just the number so the row stays one line. */}
+                <span>
+                  {selection.length}
+                  <span className="hidden sm:inline"> selected</span>
+                </span>
                 <button
                   type="button"
                   onClick={clearSelection}
@@ -479,7 +508,7 @@ export function IdeasClient({
                   className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
-                  <span>Approve {selectedProposed.length}</span>
+                  <span>Approve</span>
                 </button>
               )}
 
@@ -511,7 +540,7 @@ export function IdeasClient({
                     className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
-                    <span>Approve &amp; create {selection.length}</span>
+                    <span>Approve &amp; Create Posts</span>
                     <ArrowRight className="h-3.5 w-3.5" />
                   </button>
                 </ConfirmPopover>

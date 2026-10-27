@@ -10,12 +10,14 @@ import {
 import { goalIdsOfRun } from '@/lib/ai/pipeline/ideation-run'
 import { recoverInterruptedRuns, stopActiveRun } from '@/lib/ai/run-lifecycle'
 import { IDENTITY_PATH, requireIdentityId } from '@/lib/identity'
+import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
+import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { findOwnedRun, ownedByUser } from '@/lib/ownership'
 import { PAGE_SIZE } from '@/lib/pagination'
 import { requireUser } from '@/lib/session'
 import { and, desc, eq, getTableColumns, inArray } from 'drizzle-orm'
-import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { runsJobsHere } from '~/jobs/role'
 import { processRunImmediately } from '~/jobs/worker'
@@ -44,9 +46,23 @@ export async function triggerNewRun(goalIds: string[]) {
       throw new Error('Failed to create run record')
     }
     startInBackground(run.id)
+    // Processed after the response is sent. Only a still-queued run is
+    // claimed, so an existing run already underway is left alone. The web
+    // service leaves it to the worker service, which polls every few seconds.
+    // `after` rather than a promise left running: on a serverless host
+    // (Vercel) it keeps the function alive until the run is done, where a
+    // loose promise was frozen with the function once it had answered.
+    if (runsJobsHere()) {
+      after(() =>
+        processRunImmediately(run.id).catch(err => {
+          console.error(`Background execution error for run ${run.id}:`, err)
+        })
+      )
+    }
 
-    revalidatePath('/runs')
-    revalidatePath(`${IDENTITY_PATH}/runs`)
+    // No revalidatePath: it re-rendered the page the dialog was opened on,
+    // which the dialog then leaves for the run's page. The Runs list notices
+    // the new run by polling (pollRuns).
     return { success: true, runId: run.id }
   } catch (err: any) {
     return {
@@ -252,7 +268,7 @@ export async function fetchRunStatus(
     // Settles a run whose process died, so its page stops polling a run that
     // will never move again.
     await recoverInterruptedRuns(run.id)
-    const details = await getRunDetails(run.id)
+    const details = await getRunDetails(run.id, run.accountId)
     return { success: true, ...details }
   } catch (err: any) {
     return {

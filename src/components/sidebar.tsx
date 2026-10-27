@@ -7,6 +7,7 @@ import logoLight from '@/img/tdccommercelogo.webp'
 import { BRAND_THEME_PATH } from '@/lib/brand/theme-path'
 import { cn } from '@/lib/cn'
 import { IDENTITY_PATH } from '@/lib/identity-path'
+import { useIdeasToReview } from '@/lib/ideas-badge'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
   CalendarDays,
@@ -25,7 +26,7 @@ import {
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 
 // In the order work moves: what to achieve, the ideas and posts it produces,
 // then when each post goes out.
@@ -129,9 +130,18 @@ function NavLink({
   /** How many things are waiting here; shown as a count, and bolds the label. */
   badge?: number
 }) {
+  // Prefetched once the pointer or focus reaches the link, not as soon as it
+  // is on screen: every page is rendered on the server, so prefetching all of
+  // them sent a request per link, again after each navigation or action.
+  const [intent, setIntent] = useState(false)
+  const showIntent = () => setIntent(true)
   return (
     <Link
       href={href}
+      prefetch={intent ? null : false}
+      onMouseEnter={showIntent}
+      onFocus={showIntent}
+      onTouchStart={showIntent}
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
@@ -190,6 +200,7 @@ export function Sidebar({
   user: { name: string; email: string }
 }) {
   const pathname = usePathname()
+  const ideasBadge = useIdeasToReview(ideasToReview)
   const [collapsedPref, setCollapsed] = useSidebarCollapsed(initialCollapsed)
   const isDesktop = useIsDesktop()
   const { open, setOpen } = useMobileNav()
@@ -309,7 +320,7 @@ export function Sidebar({
                 icon={icon}
                 active={active}
                 collapsed={collapsed}
-                badge={'badge' in rest ? ideasToReview : 0}
+                badge={'badge' in rest ? ideasBadge : 0}
               />
             )
           })}
