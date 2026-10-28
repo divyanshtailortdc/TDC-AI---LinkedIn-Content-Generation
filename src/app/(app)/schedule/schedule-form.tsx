@@ -1,6 +1,7 @@
 'use client'
 
 import { Button } from '@/components/button'
+import { showToast } from '@/components/toast-notification'
 import type { Schedule } from '@/db/schema'
 import { cn } from '@/lib/cn'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
@@ -192,6 +193,7 @@ export function ScheduleForm({
     setIsSaving(true)
     setSavedSuccess(false)
     setError(null)
+    const timezone = zone ?? browserZone ?? undefined
     try {
       const res = await saveSchedule(accountId, {
         daysOfWeek: selectedDays,
@@ -200,13 +202,34 @@ export function ScheduleForm({
         dayGoals: Object.fromEntries(
           selectedDays.map(d => [String(d), dayGoals[d] ?? []])
         ),
-        timezone: zone ?? browserZone ?? undefined
+        timezone
       })
       if (!res.success) {
-        setError(res.error || 'Failed to save schedule')
+        const message = res.error || 'Failed to save schedule'
+        setError(message)
+        showToast({ title: 'Schedule not saved', message, type: 'error' })
         return
       }
+      // The schedule now has the zone just sent. A first save had none in
+      // state, which then read as "Server time zone" and an unsaved change.
+      if (timezone) setZone(timezone)
       setSavedSuccess(true)
+      const days = DAYS.filter(d => selectedDays.includes(d.id))
+        .map(d => d.label)
+        .join(', ')
+      showToast({
+        title: 'Schedule saved',
+        message: enabled
+          ? `Ideas will be generated on ${days} at ${timeOfDay}${timezone ? ` (${timezone})` : ''}.`
+          : 'Automatic runs are off. Nothing runs until you turn them on and save.',
+        type: 'success'
+      })
+    } catch {
+      // The request itself failed (offline, server unreachable): nothing saved.
+      const message =
+        'Could not reach the server. Check your connection and try again.'
+      setError(message)
+      showToast({ title: 'Schedule not saved', message, type: 'error' })
     } finally {
       setIsSaving(false)
     }

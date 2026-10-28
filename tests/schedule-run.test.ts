@@ -16,13 +16,16 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
   const client = postgres(url!, { max: 4, prepare: false })
   const database = drizzle(client, { schema })
   const tag = `qa-sched-${Date.now().toString(36)}`
-  const ids = { a: '', b: '', c: '', one: '', two: '', unpicked: '', paused: '', only: '' }
+  const ids = { a: '', b: '', c: '', d: '', one: '', two: '', unpicked: '', paused: '', only: '', fri: '', sat: '' }
   let scheduleId = ''
   let emptyScheduleId = ''
   let legacyScheduleId = ''
+  let lateScheduleId = ''
 
   // Fridays and Saturdays at 09:00 UTC, saved long before the slots below.
+  // The scheduler's tick at 09:05 starts the 09:00 slot.
   const friday = new Date('2027-03-05T09:05:00Z')
+  const fridaySlot = new Date('2027-03-05T09:00:00Z')
   const saturday = new Date('2027-03-06T09:05:00Z')
 
   const makeAccount = async (suffix: string) => {
@@ -67,6 +70,9 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
     ids.two = await makeGoal(ids.a, 'Second goal')
     ids.unpicked = await makeGoal(ids.a, 'Unpicked goal')
     ids.paused = await makeGoal(ids.a, 'Paused goal', false)
+    ids.d = await makeAccount('d')
+    ids.fri = await makeGoal(ids.d, 'Friday goal')
+    ids.sat = await makeGoal(ids.d, 'Saturday goal')
     const base = {
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
       timeOfDay: '09:00',
@@ -99,6 +105,19 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
       .values({ accountId: ids.c, ...base, dayGoals: null })
       .returning()
     legacyScheduleId = legacy!.id
+    // Fridays and Saturdays at 23:58 UTC: every tick that can start one falls
+    // on the next day.
+    const [late] = await database
+      .insert(schema.schedulesTable)
+      .values({
+        accountId: ids.d,
+        ...base,
+        daysOfWeek: [5, 6],
+        timeOfDay: '23:58',
+        dayGoals: { '5': [ids.fri], '6': [ids.sat] }
+      })
+      .returning()
+    lateScheduleId = late!.id
   })
 
   after(async () => {
@@ -115,8 +134,9 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
     assert.equal(runs[0]!.trigger, 'schedule')
     assert.equal(runs[0]!.status, 'queued')
     assert.deepEqual(runs[0]!.goalIds, [ids.two, ids.one])
+    // The slot is recorded, not the tick that started it.
     const after = await schedule(scheduleId)
-    assert.deepEqual(after.lastRunAt, friday)
+    assert.deepEqual(after.lastRunAt, fridaySlot)
     assert.equal(after.lastError, null)
   })
 
@@ -153,6 +173,30 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
     assert.equal((await runsOf(ids.b)).length, 0)
     const after = await schedule(emptyScheduleId)
     assert.match(after.lastError ?? '', /on Friday.*at least one active goal/)
-    assert.deepEqual(after.lastRunAt, friday)
+    assert.deepEqual(after.lastRunAt, fridaySlot)
+  })
+
+  it("a late-evening slot ticked after midnight runs once, for its own day's goals", async () => {
+    // Saturday 00:00: Friday's 23:58 slot, with Friday's goal.
+    await run(await schedule(lateScheduleId), new Date('2027-03-06T00:00:00Z'))
+    let runs = await runsOf(ids.d)
+    assert.equal(runs.length, 1)
+    assert.deepEqual(runs[0]!.goalIds, [ids.fri])
+    assert.deepEqual(
+      (await schedule(lateScheduleId)).lastRunAt,
+      new Date('2027-03-05T23:58:00Z')
+    )
+
+    // The next tick finds it already run.
+    await client`update runs set status = 'completed' where account_id = ${ids.d}`
+    await run(await schedule(lateScheduleId), new Date('2027-03-06T00:05:00Z'))
+    assert.equal((await runsOf(ids.d)).length, 1)
+
+    // Sunday 00:00: Saturday's own slot still runs, with Saturday's goal.
+    await run(await schedule(lateScheduleId), new Date('2027-03-07T00:00:00Z'))
+    runs = await runsOf(ids.d)
+    assert.equal(runs.length, 2)
+    const latest = runs.sort((x, y) => +y.createdAt - +x.createdAt)[0]!
+    assert.deepEqual(latest.goalIds, [ids.sat])
   })
 })

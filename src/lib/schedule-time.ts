@@ -157,17 +157,22 @@ function ranOnDay(
 }
 
 /**
- * The slot of `now`'s day that should start a run now, with that day's
- * weekday (whose goals the run serves), or null.
+ * The slot that should start a run now, with the weekday it belongs to (whose
+ * goals the run serves), or null.
  *
  * A slot is due from its time until SCHEDULE_GRACE_MS later, so a restart or
  * a failed attempt still gets its run on the next tick instead of waiting a
- * week. It is not due when
- *  - the day is not one of the chosen days, in the schedule's own zone,
- *  - a run already started on this calendar day (so moving the time later on
- *    the day a run happened, or changing zone, cannot run the day twice), or
+ * week. That window can run past midnight: a 23:58 slot is first ticked at
+ * 00:00, so yesterday's slot is looked at too. It is not due when
+ *  - its day is not one of the chosen days, in the schedule's own zone,
+ *  - a run is already on record for its calendar day (so moving the time
+ *    later on the day a run happened, or changing zone, cannot run the day
+ *    twice), or
  *  - the schedule was saved after the slot passed: saving at 09:30 an 09:00
  *    schedule must not start a run nobody asked for.
+ *
+ * The claim records the slot itself as `lastRunAt` (see scheduler), so a run
+ * that starts after midnight still counts for the day it was scheduled on.
  */
 export function dueSlot(
   schedule: DueCheck,
@@ -177,18 +182,24 @@ export function dueSlot(
   const minutes = parseTimeOfDay(schedule.timeOfDay || '09:00')
   if (minutes === null) return null
 
+  const days = schedule.daysOfWeek ?? [1, 3, 5]
   const today = zonedParts(now, zone)
-  if (!(schedule.daysOfWeek ?? [1, 3, 5]).includes(today.weekday)) return null
-
-  const slot = instantOf(today, minutes, zone)
-  const late = now.getTime() - slot.getTime()
-  if (late < 0 || late >= SCHEDULE_GRACE_MS) return null
-  if (schedule.updatedAt.getTime() > slot.getTime()) return null
-  if (schedule.lastRunAt && schedule.lastRunAt.getTime() >= slot.getTime()) {
-    return null
+  // The grace period is shorter than a day, so at most one of the two slots
+  // is inside it.
+  for (const offset of [0, -1]) {
+    const day = addDays(today, offset)
+    if (!days.includes(day.weekday)) continue
+    const slot = instantOf(day, minutes, zone)
+    const late = now.getTime() - slot.getTime()
+    if (late < 0 || late >= SCHEDULE_GRACE_MS) continue
+    if (schedule.updatedAt.getTime() > slot.getTime()) return null
+    if (schedule.lastRunAt && schedule.lastRunAt.getTime() >= slot.getTime()) {
+      return null
+    }
+    if (ranOnDay(schedule.lastRunAt, day, zone)) return null
+    return { slot, weekday: day.weekday }
   }
-  if (ranOnDay(schedule.lastRunAt, today, zone)) return null
-  return { slot, weekday: today.weekday }
+  return null
 }
 
 /**

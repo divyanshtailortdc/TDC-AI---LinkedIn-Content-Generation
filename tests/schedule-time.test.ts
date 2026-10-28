@@ -87,6 +87,88 @@ describe('when a scheduled idea run is due', () => {
     const later = new Date('2026-10-23T09:35:00Z') // 15:05 in Kolkata
     assert.strictEqual(dueSlot(ran, later), null)
   })
+
+  // Fridays and Saturdays at 23:58 in Kolkata. On Friday 23 Oct the next
+  // tick, 00:00, is already Saturday there.
+  const lateSlot = new Date('2026-10-23T18:28:00Z')
+  const nearMidnight = { ...base, daysOfWeek: [5, 6], timeOfDay: '23:58' }
+
+  it('keeps a late-evening slot due after midnight, for its own day', () => {
+    // Every tick after 23:55 falls on the next day: the slot used to be lost.
+    assert.deepStrictEqual(
+      dueSlot(nearMidnight, new Date('2026-10-23T18:30:00Z')),
+      {
+        slot: lateSlot,
+        weekday: 5
+      }
+    )
+    // The grace period still ends two hours after the slot.
+    assert.ok(
+      dueSlot(
+        nearMidnight,
+        new Date(lateSlot.getTime() + SCHEDULE_GRACE_MS - 60_000)
+      )
+    )
+    assert.strictEqual(
+      dueSlot(nearMidnight, new Date(lateSlot.getTime() + SCHEDULE_GRACE_MS)),
+      null
+    )
+    // A 23:00 slot that failed until midnight is retried after it.
+    assert.deepStrictEqual(
+      dueSlot({ ...base, timeOfDay: '23:00' }, new Date('2026-10-23T18:40:00Z'))
+        ?.weekday,
+      5
+    )
+  })
+
+  it("does not run yesterday's slot when yesterday is not a chosen day", () => {
+    // Saturday 00:00 in Kolkata, Saturdays only: Friday's 23:58 is not one.
+    assert.strictEqual(
+      dueSlot(
+        { ...nearMidnight, daysOfWeek: [6] },
+        new Date('2026-10-23T18:30:00Z')
+      ),
+      null
+    )
+  })
+
+  it("does not run yesterday's slot twice, nor let it block today's", () => {
+    // Claimed at 00:00 Saturday for Friday's slot: lastRunAt is the slot.
+    const ran = { ...nearMidnight, lastRunAt: lateSlot }
+    assert.strictEqual(dueSlot(ran, new Date('2026-10-23T18:35:00Z')), null)
+    // Saturday's own 23:58 still runs, at its first tick after midnight.
+    assert.deepStrictEqual(dueSlot(ran, new Date('2026-10-24T18:30:00Z')), {
+      slot: new Date('2026-10-24T18:28:00Z'),
+      weekday: 6
+    })
+    // And the schedule page counts Saturday as still to come.
+    assert.deepStrictEqual(
+      nextSlot(ran, new Date('2026-10-23T18:35:00Z'))?.slot,
+      new Date('2026-10-24T18:28:00Z')
+    )
+  })
+
+  it('is due on a tick for every minute of the day, every day', () => {
+    // The scheduler ticks every five minutes; no time of day may fall between.
+    const daily = { ...base, daysOfWeek: [0, 1, 2, 3, 4, 5, 6] }
+    const start = Date.parse('2026-10-22T18:30:00Z') // Friday 00:00 in Kolkata
+    for (const time of ['00:00', '09:03', '23:55', '23:56', '23:59']) {
+      let due = 0
+      for (let t = start; t < start + 86_400_000; t += 5 * 60_000) {
+        if (dueSlot({ ...daily, timeOfDay: time }, new Date(t))) due++
+      }
+      assert.ok(due > 0, `${time} was never due`)
+    }
+  })
+
+  it("does not run yesterday's slot when the schedule was saved after it", () => {
+    // Saved at 23:59 Friday, after the 23:58 slot.
+    const saved = {
+      ...nearMidnight,
+      updatedAt: new Date('2026-10-23T18:29:00Z')
+    }
+    assert.strictEqual(dueSlot(saved, new Date('2026-10-23T18:30:00Z')), null)
+  })
 })
 
 describe('the next run date', () => {

@@ -59,30 +59,24 @@ export async function runScheduleIfDue(sched: Schedule, now = new Date()) {
     // Claim the slot before enqueueing. Every `next dev` on the shared
     // database runs its own scheduler, so the claim is conditional: only one
     // caller's write lands, and a second tick or process cannot double up.
-    if (!(await claimScheduleSlot(db, sched, now))) return
+    // The slot, not the tick, is recorded: a late-evening slot ticked after
+    // midnight must still count for its own day (see dueSlot).
+    if (!(await claimScheduleSlot(db, sched, due.slot))) return
 
-    const goalIds = await scheduledGoalIds(sched, due.weekday)
-    if (goalIds.length === 0) {
-      // Not worth retrying: it stays so until the user picks a goal.
-      const message = `No goals to write for on ${WEEKDAY_NAMES[due.weekday]}: pick at least one active goal for that day.`
-      console.warn(
-        `Skipped the scheduled run for account ${sched.accountId}: ${message}`
-      )
-      await recordScheduleOutcome(db, sched.id, message)
-      return
-    }
-
+    let goalIds: string[]
     try {
-      await enqueueRun({
-        accountId: sched.accountId,
-        goalIds,
-        trigger: 'schedule'
-      })
-      await recordScheduleOutcome(db, sched.id, null)
+      goalIds = await scheduledGoalIds(sched, due.weekday)
+      if (goalIds.length > 0) {
+        await enqueueRun({
+          accountId: sched.accountId,
+          goalIds,
+          trigger: 'schedule'
+        })
+      }
     } catch (err) {
       // The slot goes back, so the next tick retries until the grace period
       // ends. A run already in progress is expected, not a failure.
-      await releaseScheduleSlot(db, sched, now)
+      await releaseScheduleSlot(db, sched, due.slot)
       if (err instanceof RunInProgressError) {
         console.warn(
           `Delayed the scheduled run for account ${sched.accountId}: one is already in progress.`
@@ -98,7 +92,24 @@ export async function runScheduleIfDue(sched: Schedule, now = new Date()) {
         sched.id,
         'The last scheduled run could not be started. It will try again shortly.'
       )
+      return
     }
+
+    // From here the run is queued (or deliberately skipped), so a failure
+    // below must not give the slot back: the next tick would queue it again.
+    if (goalIds.length === 0) {
+      // Not worth retrying: it stays so until the user picks a goal.
+      const message = `No goals to write for on ${WEEKDAY_NAMES[due.weekday]}: pick at least one active goal for that day.`
+      console.warn(
+        `Skipped the scheduled run for account ${sched.accountId}: ${message}`
+      )
+      await recordScheduleOutcome(db, sched.id, message)
+      return
+    }
+    console.info(
+      `Queued the scheduled run for account ${sched.accountId} (${WEEKDAY_NAMES[due.weekday]} ${due.slot.toISOString()}).`
+    )
+    await recordScheduleOutcome(db, sched.id, null)
   } catch (err) {
     // One schedule's failure must not stop the others.
     console.error(`Scheduler failed for account ${sched.accountId}:`, err)
@@ -118,11 +129,19 @@ export function startScheduler() {
 
   // Every 5 minutes: a slot is due for two hours after its time (see
   // dueSlot), so a run that could not start is retried on a later tick.
-  cron.schedule('*/5 * * * *', async () => {
-    try {
-      await runDueSchedules()
-    } catch (err) {
-      console.error('Scheduler tick error:', err)
-    }
-  })
+  cron.schedule(
+    '*/5 * * * *',
+    async () => {
+      try {
+        await runDueSchedules()
+      } catch (err) {
+        console.error('Scheduler tick error:', err)
+      }
+    },
+    // node-cron drops a tick whose timer fires over a second late, as it does
+    // while a run's work holds the event loop. A late tick is still right to
+    // run: dueSlot decides from the time it actually runs.
+    { missedExecutionTolerance: 60_000 }
+  )
+  console.info('Scheduler started: checking schedules every 5 minutes.')
 }

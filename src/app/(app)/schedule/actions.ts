@@ -13,6 +13,7 @@ import {
 import { requireUser } from '@/lib/session'
 import { AccountIdSchema, parseSetupPayload } from '@/lib/setup-payloads'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { DrizzleQueryError } from 'drizzle-orm/errors'
 import { revalidatePath } from 'next/cache'
 
 /**
@@ -72,6 +73,15 @@ export async function saveSchedule(
     revalidatePath('/schedule')
     return { success: true }
   } catch (err: any) {
+    // A database error's message is the whole query with its values: it is
+    // logged here, and the reviewer gets a plain message instead.
+    if (err instanceof DrizzleQueryError) {
+      console.error(`Failed to save the schedule of ${rawAccountId}:`, err)
+      return {
+        success: false,
+        error: 'Could not save the schedule. Please try again.'
+      }
+    }
     return { success: false, error: err.message || 'Failed to save schedule' }
   }
 }

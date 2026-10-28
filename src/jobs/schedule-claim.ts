@@ -22,6 +22,7 @@ function lastRunIs(lastRunAt: Date | null) {
 
 /**
  * Claims a schedule's slot: true only for the caller whose write lands.
+ * `lastRunAt` becomes the slot's own time, the day it counts for.
  *
  * The update is conditional on `lastRunAt` still being the value that was read
  * when the schedule was found due. Two ticks (or two processes) that found the
@@ -34,11 +35,11 @@ function lastRunIs(lastRunAt: Date | null) {
 export async function claimScheduleSlot(
   database: SchedulesDb,
   schedule: { id: string; lastRunAt: Date | null },
-  now: Date
+  slot: Date
 ): Promise<boolean> {
   const [claimed] = await database
     .update(schedulesTable)
-    .set({ lastRunAt: now })
+    .set({ lastRunAt: slot })
     .where(
       and(eq(schedulesTable.id, schedule.id), lastRunIs(schedule.lastRunAt))
     )
@@ -48,13 +49,13 @@ export async function claimScheduleSlot(
 
 /**
  * Gives a claimed slot back after the run could not be queued, so the next
- * tick tries again within the grace period. Only the claim made at `claimedAt`
- * is undone: a newer one is left alone.
+ * tick tries again within the grace period. Only the claim of `slot` is
+ * undone: a newer one is left alone.
  */
 export async function releaseScheduleSlot(
   database: SchedulesDb,
   schedule: { id: string; lastRunAt: Date | null },
-  claimedAt: Date
+  slot: Date
 ): Promise<void> {
   await database
     .update(schedulesTable)
@@ -62,7 +63,7 @@ export async function releaseScheduleSlot(
     .where(
       and(
         eq(schedulesTable.id, schedule.id),
-        eq(schedulesTable.lastRunAt, claimedAt)
+        eq(schedulesTable.lastRunAt, slot)
       )
     )
 }
