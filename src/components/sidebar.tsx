@@ -16,6 +16,7 @@ import {
   FileText,
   LayoutDashboard,
   Lightbulb,
+  Newspaper,
   Palette,
   Play,
   Plus,
@@ -35,7 +36,8 @@ const primaryNavItems = [
   { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
   { href: '/runs', label: 'Run Details', icon: Play },
   { href: '/posts', label: 'Posts', icon: FileText },
-  { href: '/schedule', label: 'Schedule', icon: CalendarDays }
+  { href: '/schedule', label: 'Schedule', icon: CalendarDays },
+  { href: '/newsletters', label: 'Newsletters', icon: Newspaper }
 ]
 
 /** Heading above a group of nav links; a thin divider in the collapsed rail. */

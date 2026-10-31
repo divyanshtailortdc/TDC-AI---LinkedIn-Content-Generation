@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -15,6 +16,12 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { ACTIVE_RUN_STATUSES } from '../lib/run-status'
+import {
+  NEWSLETTER_CATEGORIES,
+  NEWSLETTER_STATUSES,
+  type NewsletterCategory,
+  type NewsletterStatus
+} from '../lib/newsletters/status'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -780,6 +787,85 @@ export const brandThemesTable = pgTable('brand_themes', {
 })
 
 // ---------------------------------------------------------------------------
+// 18. Newsletters (1:N with Account) — publications found by discovery
+// ---------------------------------------------------------------------------
+
+/** `values` as a SQL list for a check constraint; they are constants, not input. */
+const sqlList = (values: readonly string[]) =>
+  sql.raw(values.map(v => `'${v}'`).join(', '))
+
+export const newslettersTable = pgTable(
+  'newsletters',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    // The user who ran the discovery that last found it.
+    discoveredByUserId: uuid('discovered_by_user_id').references(
+      () => authUsersTable.id,
+      { onDelete: 'set null' }
+    ),
+    name: text('name').notNull(),
+    publisher: text('publisher').notNull(),
+    description: text('description').notNull(),
+    category: varchar('category', { length: 20 })
+      .$type<NewsletterCategory>()
+      .notNull(),
+    topics: jsonb('topics').$type<string[]>().default([]).notNull(),
+    // 0-100: how well it fits the identity's industry, offerings and audience.
+    relevanceScore: integer('relevance_score').notNull(),
+    relevanceReason: text('relevance_reason'),
+    websiteUrl: text('website_url').notNull(),
+    // The page with the subscribe form, fetched and checked during discovery.
+    signupUrl: text('signup_url').notNull(),
+    // signupUrl normalized (src/lib/urls.ts), so one list is stored once.
+    signupUrlKey: text('signup_url_key').notNull(),
+    // Declared by the publisher's pages; recorded only, not read yet.
+    feedUrl: text('feed_url'),
+    feedType: varchar('feed_type', { length: 10 }).$type<'rss' | 'atom'>(),
+    status: varchar('status', { length: 30 })
+      .$type<NewsletterStatus>()
+      .default('discovered')
+      .notNull(),
+    statusChangedAt: commonFieldDefs.date('status_changed_at'),
+    // When the user last opened the signup page; it does not change status.
+    signupOpenedAt: commonFieldDefs.date('signup_opened_at'),
+    discoveredAt: commonFieldDefs.date('discovered_at').notNull().defaultNow(),
+    // Discovery finding it again refreshes the description and score.
+    lastDiscoveredAt: commonFieldDefs
+      .date('last_discovered_at')
+      .notNull()
+      .defaultNow(),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    uniqueIndex('newsletters_account_signup_key_uq').on(
+      table.accountId,
+      table.signupUrlKey
+    ),
+    // The page lists an identity's newsletters best match first.
+    index('newsletters_account_score_idx').on(
+      table.accountId,
+      table.relevanceScore
+    ),
+    index('newsletters_account_status_idx').on(table.accountId, table.status),
+    check(
+      'newsletters_status_check',
+      sql`${table.status} in (${sqlList(NEWSLETTER_STATUSES)})`
+    ),
+    check(
+      'newsletters_category_check',
+      sql`${table.category} in (${sqlList(NEWSLETTER_CATEGORIES)})`
+    ),
+    check(
+      'newsletters_relevance_score_check',
+      sql`${table.relevanceScore} between 0 and 100`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -801,6 +887,7 @@ export const postCitations = postCitationsTable
 export const postMedia = postMediaTable
 export const schedules = schedulesTable
 export const feedback = feedbackTable
+export const newsletters = newslettersTable
 
 // Backward-compatible aliases
 export const draftsTable = postDraftsTable
@@ -870,3 +957,6 @@ export type NewFeedback = typeof feedbackTable.$inferInsert
 
 export type BrandTheme = typeof brandThemesTable.$inferSelect
 export type NewBrandTheme = typeof brandThemesTable.$inferInsert
+
+export type Newsletter = typeof newslettersTable.$inferSelect
+export type NewNewsletter = typeof newslettersTable.$inferInsert

@@ -107,7 +107,7 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
 }
 
 /** `fn` over `items`, at most `limit` at a time; results in the items' order. */
-async function mapConcurrently<T, R>(
+export async function mapConcurrently<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>

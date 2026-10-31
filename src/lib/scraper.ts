@@ -95,7 +95,7 @@ export async function scrapeUrl(url: string): Promise<ScrapedContent> {
 }
 
 /** What a browser sends, so sites serve the page they show people. */
-const BROWSER_HEADERS = {
+export const BROWSER_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
   Accept:

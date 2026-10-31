@@ -8,6 +8,7 @@ import {
   goalsTable,
   ideasTable,
   knowledgeDocumentsTable,
+  newslettersTable,
   offeringsTable,
   postCitationsTable,
   postDraftsTable,
@@ -35,7 +36,8 @@ export const accountsRelations = relations(accountsTable, ({ one, many }) => ({
   runs: many(runsTable),
   ideas: many(ideasTable),
   postDrafts: many(postDraftsTable),
-  feedback: many(feedbackTable)
+  feedback: many(feedbackTable),
+  newsletters: many(newslettersTable)
 }))
 
 export const voiceConfigsRelations = relations(voiceConfigsTable, ({ one }) => ({
@@ -226,6 +228,13 @@ export const feedbackRelations = relations(feedbackTable, ({ one }) => ({
 export const brandThemesRelations = relations(brandThemesTable, ({ one }) => ({
   account: one(accountsTable, {
     fields: [brandThemesTable.accountId],
+    references: [accountsTable.id]
+  })
+}))
+
+export const newslettersRelations = relations(newslettersTable, ({ one }) => ({
+  account: one(accountsTable, {
+    fields: [newslettersTable.accountId],
     references: [accountsTable.id]
   })
 }))
