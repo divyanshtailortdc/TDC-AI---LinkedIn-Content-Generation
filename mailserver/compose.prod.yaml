@@ -1,0 +1,14 @@
+# Production overrides: the standard ports, a Let's Encrypt certificate for
+# MAIL_HOSTNAME (issued on the host by certbot), and Fail2Ban.
+services:
+  mailserver:
+    environment:
+      SSL_TYPE: letsencrypt
+      ENABLE_FAIL2BAN: 1
+    cap_add:
+      - NET_ADMIN # Fail2Ban bans with iptables
+    ports: !override
+      - '25:25'
+      - '993:993'
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro

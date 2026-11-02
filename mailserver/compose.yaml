@@ -1,0 +1,30 @@
+# The inbound mail server: receives newsletters for identity addresses
+# (anything@INBOUND_DOMAIN) into one mailbox that the app reads over IMAP.
+# Receive-only, nothing is sent from it. See README.md.
+#
+# Local:      docker compose up -d          (SMTP on 2525, IMAPS on 9993)
+# Production: docker compose -f compose.yaml -f compose.prod.yaml up -d
+#
+# Mail, accounts and certificates live in MAIL_DATA_DIR (default
+# ~/.tdc-mailserver), outside the repository: they hold email and secrets,
+# and the app's build reads the repository's files.
+services:
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:16.0.1
+    container_name: tdc-mailserver
+    # The name the MX record points at; the TLS certificate is issued for it.
+    hostname: ${MAIL_HOSTNAME:-mail.tdc.test}
+    env_file: mailserver.env
+    environment:
+      SSL_TYPE: self-signed
+    ports:
+      - '2525:25' # SMTP: where other servers deliver mail
+      - '9993:993' # IMAPS: where the app reads it
+    volumes:
+      - ${MAIL_DATA_DIR:-${HOME}/.tdc-mailserver}/mail-data/:/var/mail/
+      - ${MAIL_DATA_DIR:-${HOME}/.tdc-mailserver}/mail-state/:/var/mail-state/
+      - ${MAIL_DATA_DIR:-${HOME}/.tdc-mailserver}/mail-logs/:/var/log/mail/
+      - ${MAIL_DATA_DIR:-${HOME}/.tdc-mailserver}/config/:/tmp/docker-mailserver/
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    stop_grace_period: 1m

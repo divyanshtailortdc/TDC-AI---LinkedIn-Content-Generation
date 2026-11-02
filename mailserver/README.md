@@ -1,0 +1,115 @@
+# Inbound mail server
+
+Our own receive-only mail server for identity addresses: every email sent to `anything@INBOUND_DOMAIN` (e.g. `priya-rao-k7x2@in.example.com`) lands in one mailbox, `catchall@INBOUND_DOMAIN`, which the app reads over IMAP. It runs [docker-mailserver](https://github.com/docker-mailserver/docker-mailserver) 16.0.1 (Postfix for SMTP, Dovecot for IMAP, Rspamd for spam). It never sends mail.
+
+| File | What it is |
+| --- | --- |
+| `compose.yaml` | The server, for local use: SMTP on 2525, IMAPS on 9993, a self-signed certificate |
+| `compose.prod.yaml` | Production overrides: ports 25 and 993, Let's Encrypt, Fail2Ban |
+| `mailserver.env` | Receive-only settings (no secrets) |
+| `setup.sh` | One-time setup: catch-all rule, local certificate, the mailbox, then start |
+| `$MAIL_DATA_DIR` (default `~/.tdc-mailserver`) | Mail, accounts, certificates and logs. Kept outside the repository: they hold email and secrets, and the app's build reads the repository's files |
+
+## How an email finds its identity
+
+1. Postfix accepts mail for any address at the domain and rewrites it (`$MAIL_DATA_DIR/config/postfix-regexp.cf`):
+   `priya-rao-k7x2@in.example.com` → `catchall+priya-rao-k7x2@in.example.com`
+2. Dovecot stores it in the `catchall` mailbox and adds `Delivered-To: catchall+priya-rao-k7x2@in.example.com`.
+3. The app reads the part after `+` to find the identity. This works when the newsletter's own `To:` shows a list address instead (BCC-style sending), because `Delivered-To` comes from the SMTP envelope.
+
+Dovecot only adds `Delivered-To` when a delivery has one recipient, so Postfix delivers each recipient separately (`lmtp_destination_recipient_limit = 1` in `$MAIL_DATA_DIR/config/postfix-main.cf`, written by `setup.sh`). An email sent to several identities at once then becomes one copy per identity.
+
+Mail for other domains is refused (`Relay access denied`), and so is mail from sender domains that do not exist in DNS.
+
+## Local
+
+```bash
+cd mailserver
+./setup.sh in.tdc.test
+```
+
+It prints the app's settings for `.env` (see [Connecting the app](#connecting-the-app)), including the mailbox password, which is shown only once. The server is reachable at:
+
+- SMTP `localhost:2525`: send test mail here.
+- IMAPS `localhost:9993`, user `catchall@in.tdc.test`. The certificate is for `mail.tdc.test` and `localhost`, signed by the local CA `~/.tdc-mailserver/config/ssl/demoCA/cacert.pem`, which the app trusts through `MAIL_IMAP_TLS_CA_FILE`. Certificate checks stay on.
+
+Send a test email (the sender's domain must exist in DNS, or Postfix refuses it):
+
+```bash
+python3 - <<'EOF'
+import smtplib
+from email.message import EmailMessage
+m = EmailMessage()
+m["From"], m["To"], m["Subject"] = "news@substack.com", "priya-rao-k7x2@in.tdc.test", "Hello"
+m.set_content("Test issue")
+with smtplib.SMTP("localhost", 2525) as s:
+    s.send_message(m)
+EOF
+```
+
+Useful commands:
+
+```bash
+docker logs -f tdc-mailserver                                  # server log
+docker exec tdc-mailserver tail -f /var/log/mail/mail.log      # each delivery
+docker exec tdc-mailserver postmap -q someone@in.tdc.test pcre:/etc/postfix/regexp   # test the rewrite
+docker compose up -d --force-recreate                          # apply changed config or certificates
+docker compose down                                            # stop (mail is kept)
+docker compose down && sudo rm -rf ~/.tdc-mailserver           # start over (files are owned by the container's users)
+```
+
+## Connecting the app
+
+Put the values `setup.sh` printed in the app's `.env` (documented in `.env.example`):
+
+| Variable | Local | Production |
+| --- | --- | --- |
+| `INBOUND_EMAIL_DOMAIN` | `in.tdc.test` | `in.example.com` |
+| `MAIL_IMAP_HOST` | `localhost` | `mail.example.com` |
+| `MAIL_IMAP_PORT` | `9993` | `993` |
+| `MAIL_IMAP_USER` | `catchall@in.tdc.test` | `catchall@in.example.com` |
+| `MAIL_IMAP_PASSWORD` | printed by `setup.sh` | printed by `setup.sh`; keep it in a secret store |
+| `MAIL_IMAP_TLS_CA_FILE` | `~/.tdc-mailserver/config/ssl/demoCA/cacert.pem` (full path) | unset (Let's Encrypt is trusted) |
+
+Then restart the app. What it does:
+
+- **Addresses.** Opening Inbox gives the identity its address, `<handle>-<4 random characters>@INBOUND_EMAIL_DOMAIN`, kept in `inbound_addresses`. The random part stops anyone from guessing addresses to spam. The page shows the address with a Copy button.
+- **Sync** (`src/lib/mail/sync.ts`): every minute, and on **Refresh**, one pass reads the new UIDs of `INBOX` (read-only), parses each email and stores it in `mail_messages` for the identity named in its `Delivered-To`. A copy for an address no identity has is skipped and stays on the server. The cursor and the last outcome are in `mail_sync_state`; a failed pass shows its reason in the inbox and retries after 1 minute, doubling up to an hour.
+- **Duplicates** are refused by the database: the same UID twice, or the same `Message-ID` for the same identity (which also covers re-reading the mailbox after a UIDVALIDITY change).
+- **Isolation.** The inbox reads only the signed-in user's own identity's mail.
+
+## Production
+
+1. **A server** with a static public IP that accepts inbound port 25: a small VM is enough (e.g. GCP `e2-small`). Cloud Run cannot receive SMTP, and home or office connections usually block port 25. Outbound port 25 is not needed: nothing is sent.
+2. **DNS** (`example.com` stands for the company domain; the main domain's own MX records are not touched):
+
+   ```
+   mail.example.com   A    <server's static IP>
+   in.example.com     MX   10 mail.example.com
+   ```
+
+   The MX must name a host with an A record, not a CNAME. On Cloudflare, set the A record to **DNS only** (grey cloud): its proxy carries web traffic only, not mail.
+3. **Firewall**:
+   - 25 open to everyone (mail arrives here).
+   - 993 open only to the app's servers. Vercel's functions have no fixed addresses, so with the app on Vercel it stays open to all, protected by TLS, the mailbox password and Fail2Ban.
+   - 80 open while certbot issues or renews the certificate.
+   - Everything else closed.
+4. **Certificate** on the host: `sudo certbot certonly --standalone -d mail.example.com`. Certbot renews it by itself, and the server picks up the renewed certificate.
+5. **Start**: `MAIL_HOSTNAME=mail.example.com MAIL_DATA_DIR=/srv/mailserver ./setup.sh in.example.com --production` (pass the same `MAIL_DATA_DIR` to later `docker compose` commands), then put the printed settings in the app's environment (a secret store, not a file).
+6. **Sync trigger, when the app runs on Vercel**: it has no timers, so the inbox only syncs on Refresh or when `/api/cron/jobs` is called (daily in `vercel.json`). Call it every 2 minutes from the mail server, with the app's `CRON_SECRET`:
+
+   ```bash
+   (crontab -l 2>/dev/null; echo '*/2 * * * * curl -fsS -m 60 -H "Authorization: Bearer <CRON_SECRET>" https://<app-url>/api/cron/jobs >/dev/null') | crontab -
+   ```
+
+7. **Check from outside**:
+   - `nc -vz mail.example.com 25` answers.
+   - Mail to a random address `@in.example.com` from a Gmail account arrives in the `catchall` mailbox.
+   - Mail to another domain is refused (`Relay access denied`).
+
+### Running it
+
+- **Backups**: back up `$MAIL_DATA_DIR` (at least `mail-data/` and `config/`).
+- **Updates**: bump the pinned image tag after reading the upstream changelog, then `docker compose -f compose.yaml -f compose.prod.yaml up -d`.
+- **Downtime**: sending servers retry for about 4–5 days, so short downtime loses no mail; longer downtime does. Monitor port 25 and the container's health (`docker inspect -f '{{.State.Health.Status}}' tdc-mailserver`).
+- **Disk**: the app keeps its own copy of every email. Mail on the server can be pruned once it is synced; a retention rule is not set up yet.
