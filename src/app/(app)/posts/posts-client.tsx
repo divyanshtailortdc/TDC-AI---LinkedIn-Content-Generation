@@ -100,7 +100,11 @@ import {
   trackPostsPage,
   type MediaJobOutcome
 } from './media-jobs'
-import { formatAbsoluteDate, formatAbsoluteDateTime } from '@/lib/format-date'
+import {
+  formatAbsoluteDate,
+  formatAbsoluteDateTime,
+  formatRelativeDate
+} from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 // Every change below is called out with markDataChanged(): the actions no
 // longer revalidate the page (see RefreshOnBack).
@@ -358,26 +362,6 @@ function dayKey(value: Date | string): string {
   const date = toDate(value)
   if (Number.isNaN(date.getTime())) return 'unknown'
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
-}
-
-/** Short, scannable timestamp for a dense queue list. Depends on "now". */
-function formatRelativeDate(value: Date | string): string {
-  const date = toDate(value)
-  if (Number.isNaN(date.getTime())) return ''
-
-  const diffMs = Date.now() - date.getTime()
-  const minutes = Math.floor(diffMs / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-
-  const days = Math.floor(hours / 24)
-  if (days === 1) return 'yesterday'
-  if (days < 7) return `${days}d ago`
-
-  return formatAbsoluteDate(date)
 }
 
 /** Day header text. Relative wording is only used once mounted. */

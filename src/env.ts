@@ -35,6 +35,19 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     LINKEDIN_CLIENT_ID: z.string().optional(),
     LINKEDIN_CLIENT_SECRET: z.string().optional(),
+    // Inbox: our own mail server (mailserver/README.md). Every address at
+    // INBOUND_EMAIL_DOMAIN delivers into one IMAP mailbox the app reads.
+    // Unset, the inbox is off.
+    INBOUND_EMAIL_DOMAIN: z
+      .string()
+      .regex(/^[a-z0-9.-]+\.[a-z0-9-]+$/i, 'INBOUND_EMAIL_DOMAIN must be a domain')
+      .optional(),
+    MAIL_IMAP_HOST: z.string().optional(),
+    MAIL_IMAP_PORT: z.coerce.number().int().positive().default(993),
+    MAIL_IMAP_USER: z.string().optional(),
+    MAIL_IMAP_PASSWORD: z.string().optional(),
+    /** Local only: the CA that signed a self-signed server certificate. */
+    MAIL_IMAP_TLS_CA_FILE: z.string().optional(),
     /** Comma-separated auth user ids that are always admins (Admin plugin `adminUserIds`). */
     ADMIN_USER_IDS: z.string().optional(),
     // Post images, in any S3-compatible store (src/lib/media/image-store.ts).
@@ -67,6 +80,12 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
+    INBOUND_EMAIL_DOMAIN: process.env.INBOUND_EMAIL_DOMAIN,
+    MAIL_IMAP_HOST: process.env.MAIL_IMAP_HOST,
+    MAIL_IMAP_PORT: process.env.MAIL_IMAP_PORT,
+    MAIL_IMAP_USER: process.env.MAIL_IMAP_USER,
+    MAIL_IMAP_PASSWORD: process.env.MAIL_IMAP_PASSWORD,
+    MAIL_IMAP_TLS_CA_FILE: process.env.MAIL_IMAP_TLS_CA_FILE,
     ADMIN_USER_IDS: process.env.ADMIN_USER_IDS,
     STORAGE_BUCKET: process.env.STORAGE_BUCKET,
     STORAGE_ENDPOINT: process.env.STORAGE_ENDPOINT,

@@ -13,3 +13,4 @@ docs
 tsconfig.tsbuildinfo
 package-lock.json
 terraform
+mailserver

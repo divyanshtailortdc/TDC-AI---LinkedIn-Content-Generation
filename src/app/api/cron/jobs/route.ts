@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { after } from 'next/server'
 import { env } from '~/env'
 import { recoverAbandonedDrafting } from '~/jobs/drafting-queue'
+import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
 import { runDueSchedules } from '~/jobs/scheduler'
 import { processQueuedRuns } from '~/jobs/worker'
@@ -10,10 +11,10 @@ import { recoverInterruptedRuns } from '~/lib/ai/run-lifecycle'
 /**
  * One pass of the job timers, for hosts where they do not run (Vercel; see
  * runsJobTimers): fails runs whose process died, starts the runs of due
- * schedules, runs queued runs, and resumes abandoned drafting. Call it every
- * few minutes from a scheduler with `Authorization: Bearer <CRON_SECRET>`;
- * Vercel Cron sends that header itself. A schedule's slot stays due for two
- * hours, so a late call still starts it.
+ * schedules, runs queued runs, resumes abandoned drafting and syncs the inbox
+ * when it is due. Call it every few minutes from a scheduler with
+ * `Authorization: Bearer <CRON_SECRET>`; Vercel Cron sends that header itself.
+ * A schedule's slot stays due for two hours, so a late call still starts it.
  */
 
 function authorized(request: Request) {
@@ -40,7 +41,8 @@ export async function GET(request: Request) {
       processQueuedRuns().catch(err => console.error('Cron run error:', err)),
       recoverAbandonedDrafting().catch(err =>
         console.error('Drafting recovery error:', err)
-      )
+      ),
+      runInboxSync()
     ])
   )
 

@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { readableText } from './html-text'
 import { resolvePublicHttpUrl, safeFetch } from './safe-url'
 import { extractSiteLinks, type SiteLink } from './site-links'
 
@@ -111,24 +112,10 @@ export const BROWSER_HEADERS = {
 /** A homepage with its scripts inlined can run to a few megabytes; menus come early. */
 const MAX_HTML_CHARS = 3_000_000
 
-/**
- * Elements that end a line of text. Without a break after them, the text of
- * a page whose HTML has no whitespace between tags ran together, as in
- * "SolutionsIntegrations".
- */
-const BLOCK_ELEMENTS =
-  'address, article, aside, blockquote, br, dd, div, dl, dt, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul'
-
 /** A page's readable text from its HTML, or null when it has too little to read. */
 function readHtml(html: string, pageUrl: string): ScrapedContent | null {
   const $ = cheerio.load(html)
-
-  // Remove noise tags
-  $('script, style, noscript, svg, iframe, [role="banner"]').remove()
-  $(BLOCK_ELEMENTS).after('\n')
-  // Links and buttons side by side are separate words ("Solutions Pricing");
-  // spans are not, as a heading may set each letter in its own.
-  $('a, button').after(' ')
+  let bodyText = readableText($)
 
   const title =
     $('meta[property="og:title"]').attr('content') ||
@@ -139,15 +126,6 @@ function readHtml(html: string, pageUrl: string): ScrapedContent | null {
     $('meta[name="description"]').attr('content') ||
     $('meta[property="og:description"]').attr('content') ||
     ''
-
-  // Extract text comprehensively from body, headings, lists, and sections
-  let bodyText = $('body')
-    .text()
-    .replace(/\r\n|\r/g, '\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/ ?\n ?/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
 
   if (metaDesc && !bodyText.includes(metaDesc)) {
     bodyText = `**Overview:** ${metaDesc}\n\n${bodyText}`

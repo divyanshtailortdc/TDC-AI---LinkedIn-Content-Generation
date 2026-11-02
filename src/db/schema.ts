@@ -1,6 +1,8 @@
 import {
+  bigint,
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -866,6 +868,121 @@ export const newslettersTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 19. Inbound Addresses (1:1 with Account) — where an identity receives mail
+// ---------------------------------------------------------------------------
+
+export const inboundAddressesTable = pgTable('inbound_addresses', {
+  id: commonFieldDefs.id(),
+  accountId: uuid('account_id')
+    .notNull()
+    .unique()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  // Lower-case, at INBOUND_EMAIL_DOMAIN: the address the identity subscribes
+  // to newsletters with. Our mail server accepts any address at the domain.
+  address: text('address').notNull().unique(),
+  createdAt: commonFieldDefs.dates.createdAt
+})
+
+// ---------------------------------------------------------------------------
+// 20. Mail Sync State — the app's place in the mailbox it reads
+// ---------------------------------------------------------------------------
+
+export const mailSyncStateTable = pgTable('mail_sync_state', {
+  id: commonFieldDefs.id(),
+  // The IMAP account read (MAIL_IMAP_USER); another one starts its own cursor.
+  mailbox: text('mailbox').notNull().unique(),
+  // The IMAP cursor. UIDs only compare within one UIDVALIDITY: a new value
+  // means the mailbox was rebuilt and the cursor starts over.
+  uidValidity: bigint('uid_validity', { mode: 'number' }),
+  lastUid: bigint('last_uid', { mode: 'number' }).default(0).notNull(),
+  // One sync at a time across processes: a pass claims the lease with a
+  // conditional update and every write it makes checks it still holds it.
+  syncLeaseUntil: commonFieldDefs.date('sync_lease_until'),
+  // "Refresh" in the inbox: the next tick syncs without waiting for nextSyncAt.
+  syncRequestedAt: commonFieldDefs.date('sync_requested_at'),
+  nextSyncAt: commonFieldDefs.date('next_sync_at').defaultNow().notNull(),
+  lastSyncedAt: commonFieldDefs.date('last_synced_at'),
+  // Why the last pass failed, in words for the inbox; null after one that worked.
+  lastError: text('last_error'),
+  consecutiveFailures: integer('consecutive_failures').default(0).notNull(),
+  ...commonFieldDefs.dates
+})
+
+// ---------------------------------------------------------------------------
+// 21. Mail Messages (1:N with Account) — emails received for an identity
+// ---------------------------------------------------------------------------
+
+export type MailAddress = { name: string | null; address: string }
+
+/** What is kept of an attachment: its description, never its content. */
+export type MailAttachmentMeta = {
+  filename: string | null
+  contentType: string
+  size: number
+}
+
+const tsvector = customType<{ data: string }>({
+  dataType: () => 'tsvector'
+})
+
+export const mailMessagesTable = pgTable(
+  'mail_messages',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    mailboxId: uuid('mailbox_id')
+      .notNull()
+      .references(() => mailSyncStateTable.id),
+    uidValidity: bigint('uid_validity', { mode: 'number' }).notNull(),
+    uid: bigint('uid', { mode: 'number' }).notNull(),
+    // Survives a UIDVALIDITY change, so a re-sync recognises stored messages.
+    messageIdHeader: text('message_id_header'),
+    fromName: text('from_name'),
+    fromAddress: text('from_address'),
+    toAddresses: jsonb('to_addresses').$type<MailAddress[]>().default([]).notNull(),
+    ccAddresses: jsonb('cc_addresses').$type<MailAddress[]>().default([]).notNull(),
+    subject: text('subject'),
+    snippet: text('snippet'),
+    textBody: text('text_body'),
+    // As sent. Only ever shown inside a sandboxed iframe (inbox/email-body.tsx).
+    htmlBody: text('html_body'),
+    attachments: jsonb('attachments')
+      .$type<MailAttachmentMeta[]>()
+      .default([])
+      .notNull(),
+    // Only the first MAIL_SYNC_SETTINGS.maxSourceBytes were downloaded.
+    truncated: boolean('truncated').default(false).notNull(),
+    sentAt: commonFieldDefs.date('sent_at'),
+    receivedAt: commonFieldDefs.date('received_at').notNull(),
+    // Inbox search: 'simple' (no stemming), as mail comes in any language.
+    // The sender's address is also split at @ and . so "acme" finds it.
+    searchVector: tsvector('search_vector').generatedAlwaysAs(
+      sql`setweight(to_tsvector('simple', coalesce(subject, '')), 'A') || setweight(to_tsvector('simple', coalesce(from_name, '') || ' ' || coalesce(from_address, '') || ' ' || translate(coalesce(from_address, ''), '@.', '  ')), 'B') || setweight(to_tsvector('simple', left(coalesce(text_body, ''), 100000)), 'C')`
+    ),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    uniqueIndex('mail_messages_uid_uq').on(
+      table.mailboxId,
+      table.uidValidity,
+      table.uid
+    ),
+    uniqueIndex('mail_messages_account_message_id_uq')
+      .on(table.accountId, table.messageIdHeader)
+      .where(sql`message_id_header is not null`),
+    // The inbox list: newest first, with the id as tiebreaker.
+    index('mail_messages_account_received_idx').on(
+      table.accountId,
+      table.receivedAt,
+      table.id
+    ),
+    index('mail_messages_search_idx').using('gin', table.searchVector)
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -960,3 +1077,7 @@ export type NewBrandTheme = typeof brandThemesTable.$inferInsert
 
 export type Newsletter = typeof newslettersTable.$inferSelect
 export type NewNewsletter = typeof newslettersTable.$inferInsert
+
+export type MailSyncState = typeof mailSyncStateTable.$inferSelect
+
+export type NewMailMessage = typeof mailMessagesTable.$inferInsert

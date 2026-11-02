@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { goalsTable, schedulesTable } from '@/db/schema'
 import { dueSlot, WEEKDAY_NAMES } from '@/lib/schedule-time'
 import { and, desc, eq } from 'drizzle-orm'
+import { runInboxSync } from './mail-sync'
 import { enqueueRun } from './queue'
 import { MAX_GOALS_PER_RUN } from './run-goals'
 import { RunInProgressError } from './run-guard'
@@ -143,5 +144,17 @@ export function startScheduler() {
     // run: dueSlot decides from the time it actually runs.
     { missedExecutionTolerance: 60_000 }
   )
-  console.info('Scheduler started: checking schedules every 5 minutes.')
+
+  // Every minute: the inbox, when its interval passed or someone pressed
+  // Refresh. Not awaited: a pass can outlast the tick (see mail-sync).
+  cron.schedule(
+    '* * * * *',
+    () => {
+      void runInboxSync()
+    },
+    { missedExecutionTolerance: 60_000 }
+  )
+  console.info(
+    'Scheduler started: checking schedules every 5 minutes and the inbox every minute.'
+  )
 }

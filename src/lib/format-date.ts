@@ -33,3 +33,23 @@ export function formatAbsoluteDateTime(value: Date | string): string {
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes}`
 }
+
+/** Short, scannable timestamp for a dense list: "5m ago", "yesterday". Depends on "now". */
+export function formatRelativeDate(value: Date | string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const diffMs = Date.now() - date.getTime()
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d ago`
+
+  return formatAbsoluteDate(date)
+}
