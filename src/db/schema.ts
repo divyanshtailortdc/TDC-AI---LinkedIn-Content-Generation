@@ -868,20 +868,34 @@ export const newslettersTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// 19. Inbound Addresses (1:1 with Account) — where an identity receives mail
+// 19. Inbound Addresses (1:N with Account) — where an identity receives mail
 // ---------------------------------------------------------------------------
 
-export const inboundAddressesTable = pgTable('inbound_addresses', {
-  id: commonFieldDefs.id(),
-  accountId: uuid('account_id')
-    .notNull()
-    .unique()
-    .references(() => accountsTable.id, { onDelete: 'cascade' }),
-  // Lower-case, at INBOUND_EMAIL_DOMAIN: the address the identity subscribes
-  // to newsletters with. Our mail server accepts any address at the domain.
-  address: text('address').notNull().unique(),
-  createdAt: commonFieldDefs.dates.createdAt
-})
+export const inboundAddressesTable = pgTable(
+  'inbound_addresses',
+  {
+    id: commonFieldDefs.id(),
+    // Null once the workspace is deleted: the row stays so the address is
+    // never given to anyone else.
+    accountId: uuid('account_id').references(() => accountsTable.id, {
+      onDelete: 'set null'
+    }),
+    // The part before the @, lower-case (src/lib/mail/local-part.ts); the
+    // domain is INBOUND_EMAIL_DOMAIN. Our mail server accepts any address at
+    // the domain, so nothing is created there.
+    localPart: text('local_part').notNull().unique(),
+    // Null for the address the workspace shows and subscribes with. Set when
+    // they chose another: a replaced address still delivers to them.
+    replacedAt: commonFieldDefs.date('replaced_at'),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    uniqueIndex('inbound_addresses_current_uq')
+      .on(table.accountId)
+      .where(sql`replaced_at is null`),
+    index('inbound_addresses_account_idx').on(table.accountId)
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // 20. Mail Sync State — the app's place in the mailbox it reads

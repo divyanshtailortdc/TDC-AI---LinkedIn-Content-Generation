@@ -2,15 +2,46 @@
 
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
+import { INBOX_PATH } from '@/lib/inbox-path'
 import { requireUser } from '@/lib/session'
+import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
+import { chooseInboundAddress } from '~/lib/mail/addresses'
+import { normalizeLocalPart } from '~/lib/mail/local-part'
 import { readMailSyncStatus, requestMailSync } from '~/lib/mail/mailbox'
 import { inboundMailConfig } from '~/lib/mail/settings'
 import { loadInboxMessage } from './inbox-data'
 
 const NOT_SET_UP = 'The inbox is not set up on this server.'
+
+/**
+ * "Change" next to the address: makes the name typed (`marketing`, or all of
+ * `marketing@<domain>`) the identity's address. The old one keeps delivering.
+ */
+export async function changeInboxAddress(input: string) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const config = inboundMailConfig()
+    if (!config) return { success: false as const, error: NOT_SET_UP }
+    const localPart = normalizeLocalPart(
+      typeof input === 'string' ? input : '',
+      config.domain
+    )
+    const error = await chooseInboundAddress(accountId, localPart)
+    if (error) return { success: false as const, error }
+    revalidatePath(INBOX_PATH)
+    return {
+      success: true as const,
+      address: `${localPart}@${config.domain}`
+    }
+  } catch (err) {
+    console.error('Changing the inbox address failed:', err)
+    return { success: false as const, error: 'Could not change the address.' }
+  }
+}
 
 /** One email in full, for the reading pane. Only the user's own identity's. */
 export async function getInboxMessage(messageId: string) {

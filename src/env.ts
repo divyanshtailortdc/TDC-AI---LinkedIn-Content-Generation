@@ -36,11 +36,21 @@ export const env = createEnv({
     LINKEDIN_CLIENT_ID: z.string().optional(),
     LINKEDIN_CLIENT_SECRET: z.string().optional(),
     // Inbox: our own mail server (mailserver/README.md). Every address at
-    // INBOUND_EMAIL_DOMAIN delivers into one IMAP mailbox the app reads.
-    // Unset, the inbox is off.
+    // INBOUND_EMAIL_DOMAIN (inbox.tdcai.com in production) delivers into one
+    // IMAP mailbox the app reads. Unset, the inbox is off. Production refuses
+    // the reserved test domains (.test, example.com, …): nobody can send to
+    // them, so the addresses people subscribe with would never receive mail.
     INBOUND_EMAIL_DOMAIN: z
       .string()
       .regex(/^[a-z0-9.-]+\.[a-z0-9-]+$/i, 'INBOUND_EMAIL_DOMAIN must be a domain')
+      .refine(
+        domain =>
+          process.env.APP_ENV !== 'production' ||
+          !/(^|\.)(test|example|invalid|localhost|local)$|(^|\.)example\.(com|net|org)$/i.test(
+            domain
+          ),
+        'INBOUND_EMAIL_DOMAIN must be a real domain in production'
+      )
       .optional(),
     MAIL_IMAP_HOST: z.string().optional(),
     MAIL_IMAP_PORT: z.coerce.number().int().positive().default(993),

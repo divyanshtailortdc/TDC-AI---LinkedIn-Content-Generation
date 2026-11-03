@@ -197,6 +197,13 @@
       "when": 1793602281604,
       "tag": "0027_inbound_mail",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793684610607,
+      "tag": "0028_inbound_address_local_parts",
+      "breakpoints": true
     }
   ]
 }

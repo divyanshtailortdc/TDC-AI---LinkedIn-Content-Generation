@@ -99,11 +99,12 @@ function attachmentsOf(parsed: ParsedMail | null): MailAttachmentMeta[] {
 }
 
 /**
- * The identity address a copy was delivered to, lower-case, or null. Our mail
- * server rewrites every address at the domain to `<mailbox>+<local part>`
- * and Dovecot records that in Delivered-To (mailserver/README.md), which
- * holds even when a newsletter's own To shows a list address. Read from the
- * fetched header alone, so a copy can be routed before it is parsed.
+ * The local part of the identity address a copy was delivered to (`test`
+ * for test@<domain>), lower-case, or null. Our mail server rewrites every
+ * address at the domain to `<mailbox>+<local part>` and Dovecot records that
+ * in Delivered-To (mailserver/README.md), which holds even when a
+ * newsletter's own To shows a list address. Read from the fetched header
+ * alone, so a copy can be routed before it is parsed.
  */
 export function recipientOf(
   message: FetchMessageObject,
@@ -114,10 +115,10 @@ export function recipientOf(
     .match(/^delivered-to:\s*<?([^\s<>]+@[^\s<>]+)>?/im)?.[1]
     ?.toLowerCase()
   const prefix = `${mailbox.user.split('@')[0]}+`
-  return deliveredTo?.startsWith(prefix) &&
-    deliveredTo.endsWith(`@${mailbox.domain}`)
-    ? deliveredTo.slice(prefix.length)
-    : null
+  const suffix = `@${mailbox.domain}`
+  if (!deliveredTo?.startsWith(prefix) || !deliveredTo.endsWith(suffix))
+    return null
+  return deliveredTo.slice(prefix.length, -suffix.length) || null
 }
 
 export function toMessageRow(

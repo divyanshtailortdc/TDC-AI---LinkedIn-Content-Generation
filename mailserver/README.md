@@ -1,6 +1,6 @@
 # Inbound mail server
 
-Our own receive-only mail server for identity addresses: every email sent to `anything@INBOUND_DOMAIN` (e.g. `priya-rao-k7x2@in.example.com`) lands in one mailbox, `catchall@INBOUND_DOMAIN`, which the app reads over IMAP. It runs [docker-mailserver](https://github.com/docker-mailserver/docker-mailserver) 16.0.1 (Postfix for SMTP, Dovecot for IMAP, Rspamd for spam). It never sends mail.
+Our own receive-only mail server for identity addresses: every email sent to `anything@INBOUND_DOMAIN` (in production `inbox.tdcai.com`, e.g. `test@inbox.tdcai.com`) lands in one mailbox, `catchall@INBOUND_DOMAIN`, which the app reads over IMAP. It runs [docker-mailserver](https://github.com/docker-mailserver/docker-mailserver) 16.0.1 (Postfix for SMTP, Dovecot for IMAP, Rspamd for spam). It never sends mail.
 
 | File | What it is |
 | --- | --- |
@@ -13,9 +13,9 @@ Our own receive-only mail server for identity addresses: every email sent to `an
 ## How an email finds its identity
 
 1. Postfix accepts mail for any address at the domain and rewrites it (`$MAIL_DATA_DIR/config/postfix-regexp.cf`):
-   `priya-rao-k7x2@in.example.com` → `catchall+priya-rao-k7x2@in.example.com`
-2. Dovecot stores it in the `catchall` mailbox and adds `Delivered-To: catchall+priya-rao-k7x2@in.example.com`.
-3. The app reads the part after `+` to find the identity. This works when the newsletter's own `To:` shows a list address instead (BCC-style sending), because `Delivered-To` comes from the SMTP envelope.
+   `test@inbox.tdcai.com` → `catchall+test@inbox.tdcai.com`
+2. Dovecot stores it in the `catchall` mailbox and adds `Delivered-To: catchall+test@inbox.tdcai.com`.
+3. The app reads the part after `+` (`test`) and looks it up in `inbound_addresses` to find the workspace. This works when the newsletter's own `To:` shows a list address instead (BCC-style sending), because `Delivered-To` comes from the SMTP envelope.
 
 Dovecot only adds `Delivered-To` when a delivery has one recipient, so Postfix delivers each recipient separately (`lmtp_destination_recipient_limit = 1` in `$MAIL_DATA_DIR/config/postfix-main.cf`, written by `setup.sh`). An email sent to several identities at once then becomes one copy per identity.
 
@@ -40,7 +40,7 @@ python3 - <<'EOF'
 import smtplib
 from email.message import EmailMessage
 m = EmailMessage()
-m["From"], m["To"], m["Subject"] = "news@substack.com", "priya-rao-k7x2@in.tdc.test", "Hello"
+m["From"], m["To"], m["Subject"] = "news@substack.com", "test@in.tdc.test", "Hello"
 m.set_content("Test issue")
 with smtplib.SMTP("localhost", 2525) as s:
     s.send_message(m)
@@ -64,16 +64,16 @@ Put the values `setup.sh` printed in the app's `.env` (documented in `.env.examp
 
 | Variable | Local | Production |
 | --- | --- | --- |
-| `INBOUND_EMAIL_DOMAIN` | `in.tdc.test` | `in.example.com` |
-| `MAIL_IMAP_HOST` | `localhost` | `mail.example.com` |
+| `INBOUND_EMAIL_DOMAIN` | `in.tdc.test` | `inbox.tdcai.com` |
+| `MAIL_IMAP_HOST` | `localhost` | `mail.tdcai.com` |
 | `MAIL_IMAP_PORT` | `9993` | `993` |
-| `MAIL_IMAP_USER` | `catchall@in.tdc.test` | `catchall@in.example.com` |
+| `MAIL_IMAP_USER` | `catchall@in.tdc.test` | `catchall@inbox.tdcai.com` |
 | `MAIL_IMAP_PASSWORD` | printed by `setup.sh` | printed by `setup.sh`; keep it in a secret store |
 | `MAIL_IMAP_TLS_CA_FILE` | `~/.tdc-mailserver/config/ssl/demoCA/cacert.pem` (full path) | unset (Let's Encrypt is trusted) |
 
 Then restart the app. What it does:
 
-- **Addresses.** Opening Inbox gives the identity its address, `<handle>-<4 random characters>@INBOUND_EMAIL_DOMAIN`, kept in `inbound_addresses`. The random part stops anyone from guessing addresses to spam. The page shows the address with a Copy button.
+- **Addresses** (`src/lib/mail/addresses.ts`). Opening Inbox gives the workspace an address named after the person who owns it, from the name and email they sign in with, never from the LinkedIn identity, so editing that identity leaves the address alone. For test Sisodia the app tries `test`, then `test.sisodia`, the username of her sign-in email, other forms of her name, and only then `test.sisodia2` and so on. There are no random characters. The page shows the address with Copy and Change: Change picks another name at the domain (`marketing@inbox.tdcai.com`). The old address keeps delivering to the same workspace. An address is never given to another workspace, not after a change and not after its workspace is deleted, because newsletters send sign-in links to it. A workspace can hold 5 addresses. Mail-system names (`postmaster`, `abuse`, `catchall`, …) and the names certificate authorities email (`admin`, `webmaster`, `hostmaster`, …) are reserved. Only the part before the @ is stored, so changing `INBOUND_EMAIL_DOMAIN` moves every address to the new domain.
 - **Sync** (`src/lib/mail/sync.ts`): every minute, and on **Refresh**, one pass reads the new UIDs of `INBOX` (read-only), parses each email and stores it in `mail_messages` for the identity named in its `Delivered-To`. A copy for an address no identity has is skipped and stays on the server. The cursor and the last outcome are in `mail_sync_state`; a failed pass shows its reason in the inbox and retries after 1 minute, doubling up to an hour.
 - **Duplicates** are refused by the database: the same UID twice, or the same `Message-ID` for the same identity (which also covers re-reading the mailbox after a UIDVALIDITY change).
 - **Isolation.** The inbox reads only the signed-in user's own identity's mail.
@@ -81,21 +81,26 @@ Then restart the app. What it does:
 ## Production
 
 1. **A server** with a static public IP that accepts inbound port 25: a small VM is enough (e.g. GCP `e2-small`). Cloud Run cannot receive SMTP, and home or office connections usually block port 25. Outbound port 25 is not needed: nothing is sent.
-2. **DNS** (`example.com` stands for the company domain; the main domain's own MX records are not touched):
+2. **DNS** for `tdcai.com` (its own MX records, if any, are not touched):
 
    ```
-   mail.example.com   A    <server's static IP>
-   in.example.com     MX   10 mail.example.com
+   mail.tdcai.com     A    <server's static IP>
+   inbox.tdcai.com    MX   10 mail.tdcai.com
+   inbox.tdcai.com    TXT  "v=spf1 -all"
    ```
 
-   The MX must name a host with an A record, not a CNAME. On Cloudflare, set the A record to **DNS only** (grey cloud): its proxy carries web traffic only, not mail.
+   - The MX must name a host with an A record, not a CNAME.
+   - Remove any other MX record for `inbox.tdcai.com`. In particular, remove a "null MX" (`0 .`): parked domains often have one, and it tells every sender the domain takes no mail.
+   - A wildcard record (`*.tdcai.com`) does not replace the explicit `mail` A record.
+   - The SPF record says nothing is ever sent from the inbox domain, which is true: it only receives.
+   - On Cloudflare, set the A record to **DNS only** (grey cloud): its proxy carries web traffic only, not mail.
 3. **Firewall**:
    - 25 open to everyone (mail arrives here).
    - 993 open only to the app's servers. Vercel's functions have no fixed addresses, so with the app on Vercel it stays open to all, protected by TLS, the mailbox password and Fail2Ban.
    - 80 open while certbot issues or renews the certificate.
    - Everything else closed.
-4. **Certificate** on the host: `sudo certbot certonly --standalone -d mail.example.com`. Certbot renews it by itself, and the server picks up the renewed certificate.
-5. **Start**: `MAIL_HOSTNAME=mail.example.com MAIL_DATA_DIR=/srv/mailserver ./setup.sh in.example.com --production` (pass the same `MAIL_DATA_DIR` to later `docker compose` commands), then put the printed settings in the app's environment (a secret store, not a file).
+4. **Certificate** on the host: `sudo certbot certonly --standalone -d mail.tdcai.com`. Certbot renews it by itself, and the server picks up the renewed certificate.
+5. **Start**: `MAIL_HOSTNAME=mail.tdcai.com MAIL_DATA_DIR=/srv/mailserver ./setup.sh inbox.tdcai.com --production` (pass the same `MAIL_DATA_DIR` to later `docker compose` commands), then put the printed settings in the app's environment (a secret store, not a file).
 6. **Sync trigger, when the app runs on Vercel**: it has no timers, so the inbox only syncs on Refresh or when `/api/cron/jobs` is called (daily in `vercel.json`). Call it every 2 minutes from the mail server, with the app's `CRON_SECRET`:
 
    ```bash
@@ -103,8 +108,9 @@ Then restart the app. What it does:
    ```
 
 7. **Check from outside**:
-   - `nc -vz mail.example.com 25` answers.
-   - Mail to a random address `@in.example.com` from a Gmail account arrives in the `catchall` mailbox.
+   - `dig +short MX inbox.tdcai.com` shows only `10 mail.tdcai.com.`, and `dig +short A mail.tdcai.com` shows the server's IP.
+   - `nc -vz mail.tdcai.com 25` answers.
+   - Mail sent from a Gmail account to your own address (shown in Inbox) arrives there after the next sync.
    - Mail to another domain is refused (`Relay access denied`).
 
 ### Running it

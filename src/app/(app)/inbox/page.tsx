@@ -2,7 +2,10 @@ import { NoIdentity } from '@/components/no-identity'
 import { getIdentity } from '@/lib/identity'
 import { parsePage } from '@/lib/pagination'
 import type { Metadata } from 'next'
-import { ensureInboundAddress } from '~/lib/mail/addresses'
+import {
+  ensureInboundAddress,
+  replacedInboundAddresses
+} from '~/lib/mail/addresses'
 import { readMailSyncStatus } from '~/lib/mail/mailbox'
 import { inboundMailConfig } from '~/lib/mail/settings'
 import { InboxClient } from './inbox-client'
@@ -27,13 +30,25 @@ export default async function InboxPage({
 
   const params = await searchParams
   const query = parseInboxQuery(params.q)
-  const [address, status, { rows, pageInfo }] = await Promise.all([
-    ensureInboundAddress(identity.id, identity.handle, config.domain),
-    readMailSyncStatus(config.user),
-    loadInboxPage(identity.id, { page: parsePage(params.page), query })
-  ])
+  const [address, earlierAddresses, status, { rows, pageInfo }] =
+    await Promise.all([
+      ensureInboundAddress(identity.id, config.domain),
+      replacedInboundAddresses(identity.id, config.domain),
+      readMailSyncStatus(config.user),
+      loadInboxPage(identity.id, { page: parsePage(params.page), query })
+    ])
 
   return (
-    <InboxClient inbox={{ address, status, messages: rows, pageInfo, query }} />
+    <InboxClient
+      inbox={{
+        address,
+        earlierAddresses,
+        domain: config.domain,
+        status,
+        messages: rows,
+        pageInfo,
+        query
+      }}
+    />
   )
 }

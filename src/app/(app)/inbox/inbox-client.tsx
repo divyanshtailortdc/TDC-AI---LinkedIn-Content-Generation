@@ -13,7 +13,6 @@ import { INBOX_PATH, MAX_INBOX_QUERY_LENGTH } from '@/lib/inbox-path'
 import type { PageInfo } from '@/lib/pagination'
 import {
   ArrowLeft,
-  Copy,
   Inbox,
   Loader2,
   Mail,
@@ -27,14 +26,19 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import type { MailSyncStatus } from '~/lib/mail/mailbox'
 import { getInboxMessage, getInboxSyncStatus, refreshInbox } from './actions'
 import { EmailBody } from './email-body'
+import { InboxAddress } from './inbox-address'
 import type { InboxListItem, InboxMessage } from './inbox-data'
 
 const SYNCING_POLL_MS = 3000
 const IDLE_POLL_MS = 60_000
 
 type InboxData = {
-  /** The identity's address: mail sent to it shows up here. */
-  address: string
+  /** The identity's address: mail sent to it shows up here. Null until chosen. */
+  address: string | null
+  /** Replaced addresses, which still deliver here. */
+  earlierAddresses: string[]
+  /** INBOUND_EMAIL_DOMAIN, for choosing a new address. */
+  domain: string
   status: MailSyncStatus
   messages: InboxListItem[]
   pageInfo: PageInfo
@@ -99,6 +103,8 @@ function NotSetUp() {
 
 function IdentityInbox({
   address,
+  earlierAddresses,
+  domain,
   status,
   messages,
   pageInfo,
@@ -157,15 +163,6 @@ function IdentityInbox({
     }
   }
 
-  const copyAddress = async () => {
-    try {
-      await navigator.clipboard.writeText(address)
-      showToast({ type: 'success', title: 'Address copied', message: address })
-    } catch {
-      showToast({ type: 'error', title: 'Could not copy the address' })
-    }
-  }
-
   const openMessage = async (id: string) => {
     setSelectedId(id)
     setDetailError(null)
@@ -218,21 +215,11 @@ function IdentityInbox({
           </Button>
         }
         bottomContent={
-          <div className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="text-muted shrink-0">Your address</span>
-            <code className="text-foreground truncate font-medium">
-              {address}
-            </code>
-            <button
-              type="button"
-              onClick={copyAddress}
-              aria-label="Copy the address"
-              title="Copy"
-              className="text-muted hover:bg-foreground/10 hover:text-foreground flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors"
-            >
-              <Copy aria-hidden className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          <InboxAddress
+            address={address}
+            domain={domain}
+            earlierAddresses={earlierAddresses}
+          />
         }
       />
 
@@ -390,7 +377,7 @@ function IdentityInbox({
                 className="text-muted hover:text-foreground inline-flex w-fit cursor-pointer items-center gap-1.5 text-xs font-medium lg:hidden"
               >
                 <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-                Back to inbox
+                Back to inbox 
               </button>
               {detailError ? (
                 <FormAlert variant="error">{detailError}</FormAlert>
@@ -417,7 +404,7 @@ function EmptyList({
 }: {
   syncing: boolean
   query: string
-  address: string
+  address: string | null
 }) {
   return (
     <div className="text-muted flex flex-col items-center px-4 py-12 text-center text-xs leading-relaxed">
@@ -434,8 +421,9 @@ function EmptyList({
       ) : (
         <>
           <Inbox aria-hidden className="mb-2 h-5 w-5 opacity-60" />
-          No emails yet. Subscribe to newsletters with {address} and they show
-          up here.
+          {address
+            ? `No emails yet. Subscribe to newsletters with ${address} and they show up here.`
+            : 'No emails yet. Choose your address above, then subscribe to newsletters with it.'}
         </>
       )}
     </div>

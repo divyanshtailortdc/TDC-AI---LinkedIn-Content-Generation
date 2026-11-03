@@ -6,7 +6,7 @@
 #
 # Usage: ./setup.sh <inbound-domain> [--production]
 #   ./setup.sh in.tdc.test                       local
-#   MAIL_HOSTNAME=mail.example.com ./setup.sh in.example.com --production
+#   MAIL_HOSTNAME=mail.tdcai.com ./setup.sh inbox.tdcai.com --production
 set -euo pipefail
 cd "$(dirname "$0")"
 

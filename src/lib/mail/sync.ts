@@ -15,7 +15,7 @@ import {
 } from 'imapflow'
 import { simpleParser, type SimpleParserOptions } from 'mailparser'
 import { readFileSync } from 'node:fs'
-import { identitiesByAddress } from './addresses'
+import { identitiesByLocalPart } from './addresses'
 import {
   claimSyncLease,
   holdsLease,
@@ -189,7 +189,7 @@ async function rowsFor(
   owner: { mailboxId: string; uidValidity: number }
 ) {
   const recipients = messages.map(message => recipientOf(message, config))
-  const identities = await identitiesByAddress(
+  const identities = await identitiesByLocalPart(
     recipients.filter((recipient): recipient is string => recipient !== null)
   )
   const rows: NewMailMessage[] = []
