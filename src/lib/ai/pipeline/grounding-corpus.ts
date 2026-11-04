@@ -1,3 +1,4 @@
+import type { NewsletterStory } from '~/lib/intel/retrieval'
 import { isRecent } from '~/lib/research/findings'
 import type { Finding } from '~/lib/research/web-search'
 import { isGenericPage, isReferencePage } from '~/lib/urls'
@@ -98,6 +99,7 @@ export function buildRetrievalQueries(ctx: GenerationContext): string[] {
 export interface CorpusSources {
   offeringFacts: number
   knowledgePassages: number
+  newsletterItems: number
   webFindings: number
   documentSummaries: number
   knowledgeClaims: number
@@ -114,7 +116,8 @@ export function buildGroundingCorpus(
   ctx: GenerationContext,
   findings: Finding[],
   passages: KnowledgePassage[] = [],
-  now = new Date()
+  now = new Date(),
+  stories: NewsletterStory[] = []
 ): GroundingCorpus & { sources: CorpusSources } {
   // Documents a goal's retrieval matched come first, closest first, so their
   // summaries and claims lead the slice the prompt shows; the rest keep their
@@ -174,6 +177,45 @@ export function buildGroundingCorpus(
     })
   }
 
+  // Stories from the account's newsletters: the newsletter's own words, dated
+  // when the email arrived, then what was read of the article, dated by the
+  // article. Taken across stories in turn, so one cannot crowd out the rest.
+  const day = (date: Date | null) => date?.toISOString().slice(0, 10)
+  const newsletter = interleave(
+    stories.map(story => {
+      const source = {
+        sourceUrl: story.url || undefined,
+        origin: 'newsletter' as const
+      }
+      const told = day(story.receivedAt)
+      const items: Claim[] = [
+        {
+          ...source,
+          claim: story.blurb || story.headline,
+          quote: story.blurb || undefined,
+          sourceTitle: `${story.headline} (in ${story.newsletter})`,
+          publishedAt: told,
+          isFresh: fresh(story.url || undefined, told)
+        }
+      ]
+      if (story.article) {
+        const dated = day(story.article.publishedAt) ?? told
+        const article = {
+          ...source,
+          sourceTitle: story.article.title || story.headline,
+          publishedAt: dated,
+          isFresh: fresh(story.url || undefined, dated)
+        }
+        if (story.article.summary)
+          items.push({ ...article, claim: story.article.summary })
+        for (const c of story.article.claims.slice(0, 2)) {
+          if (c.claim) items.push({ ...article, claim: c.claim, quote: c.quote })
+        }
+      }
+      return items
+    })
+  )
+
   const web: Claim[] = []
   for (const f of findings) {
     if (!f.snippet && !f.title) continue
@@ -224,7 +266,14 @@ export function buildGroundingCorpus(
     )
   )
 
-  const verifiedClaims = interleave([own, retrieved, web, summaries, keyClaims])
+  const verifiedClaims = interleave([
+    own,
+    retrieved,
+    newsletter,
+    web,
+    summaries,
+    keyClaims
+  ])
   return {
     verifiedClaims,
     hasFreshEvidence: verifiedClaims.some(c => c.isFresh),
@@ -233,6 +282,7 @@ export function buildGroundingCorpus(
     sources: {
       offeringFacts: own.length,
       knowledgePassages: retrieved.length,
+      newsletterItems: newsletter.length,
       webFindings: web.length,
       documentSummaries: summaries.length,
       knowledgeClaims: keyClaims.length

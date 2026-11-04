@@ -1,5 +1,9 @@
 import type { CheerioAPI } from 'cheerio'
 
+/** Zero-width and filler characters newsletters pad their preview text with. */
+export const INVISIBLE =
+  /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\u3164\ufeff\uffa0]/g
+
 /**
  * Elements that end a line of text. Without a break after them, the text of
  * a page whose HTML has no whitespace between tags ran together, as in

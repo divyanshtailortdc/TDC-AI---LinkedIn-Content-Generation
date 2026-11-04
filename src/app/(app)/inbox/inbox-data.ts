@@ -2,13 +2,20 @@ import 'server-only'
 
 import { db } from '@/db'
 import {
+  intelArticlesTable,
+  intelMentionsTable,
   mailMessagesTable,
   type MailAddress,
   type MailAttachmentMeta
 } from '@/db/schema'
 import { MAX_INBOX_QUERY_LENGTH } from '@/lib/inbox-path'
 import { loadPage } from '@/lib/pagination'
-import { and, count, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, sql } from 'drizzle-orm'
+import type {
+  ArticleStatus,
+  DigestKind,
+  ExtractionStatus
+} from '~/lib/intel/status'
 import { inboxSearchQuery } from '~/lib/mail/search'
 
 /** Emails are one-line rows, so a page holds more of them than other lists. */
@@ -113,4 +120,103 @@ export async function loadInboxMessage(
     .where(and(eq(messages.id, messageId), eq(messages.accountId, accountId)))
     .limit(1)
   return row ?? null
+}
+
+/** A story extracted from an email, with what was read of its article. */
+export type InboxStory = {
+  id: string
+  headline: string
+  blurb: string | null
+  url: string | null
+  sponsored: boolean
+  article: {
+    status: ArticleStatus
+    title: string | null
+    siteName: string | null
+    publishedAt: Date | null
+    summary: string | null
+    /** Its first few claims, each backed by a verbatim quote. */
+    claims: string[]
+    /** Why it was skipped or failed. */
+    note: string | null
+  } | null
+}
+
+/** What extraction found in an email (src/lib/intel), for the reading pane. */
+export type InboxInsights = {
+  status: ExtractionStatus
+  error: string | null
+  kind: DigestKind | null
+  summary: string | null
+  topics: string[]
+  stories: InboxStory[]
+}
+
+const SHOWN_CLAIMS = 3
+
+/** One of the identity's emails' extraction, or null for a missing or foreign id. */
+export async function loadInboxInsights(
+  accountId: string,
+  messageId: string
+): Promise<InboxInsights | null> {
+  const [message] = await db
+    .select({
+      status: messages.extractionStatus,
+      error: messages.extractionError,
+      kind: messages.digestKind,
+      summary: messages.digestSummary,
+      topics: messages.digestTopics
+    })
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.accountId, accountId)))
+    .limit(1)
+  if (!message) return null
+
+  const mentions = intelMentionsTable
+  const articles = intelArticlesTable
+  const rows = await db
+    .select({
+      id: mentions.id,
+      headline: mentions.headline,
+      blurb: mentions.blurb,
+      url: mentions.url,
+      sponsored: mentions.isSponsored,
+      articleStatus: articles.status,
+      title: articles.title,
+      siteName: articles.siteName,
+      publishedAt: articles.publishedAt,
+      articleSummary: articles.summary,
+      claims: articles.keyClaims,
+      note: articles.lastError
+    })
+    .from(mentions)
+    .leftJoin(articles, eq(articles.id, mentions.articleId))
+    .where(
+      and(eq(mentions.messageId, messageId), eq(mentions.accountId, accountId))
+    )
+    .orderBy(asc(mentions.position))
+
+  return {
+    ...message,
+    stories: rows.map(row => ({
+      id: row.id,
+      headline: row.headline,
+      blurb: row.blurb,
+      url: row.url,
+      sponsored: row.sponsored,
+      article: row.articleStatus
+        ? {
+            status: row.articleStatus,
+            title: row.title,
+            siteName: row.siteName,
+            publishedAt: row.publishedAt,
+            summary: row.articleSummary,
+            claims: (row.claims ?? [])
+              .slice(0, SHOWN_CLAIMS)
+              .map(claim => claim.claim),
+            note: row.note
+          }
+        : null
+    }))
+  }
 }

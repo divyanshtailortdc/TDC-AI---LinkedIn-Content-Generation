@@ -6,13 +6,15 @@ import { INBOX_PATH } from '@/lib/inbox-path'
 import { requireUser } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
+import { runMailExtraction } from '~/jobs/mail-extraction'
 import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
+import { retryEmailExtraction } from '~/lib/intel/extract-email'
 import { chooseInboundAddress } from '~/lib/mail/addresses'
 import { normalizeLocalPart } from '~/lib/mail/local-part'
 import { readMailSyncStatus, requestMailSync } from '~/lib/mail/mailbox'
 import { inboundMailConfig } from '~/lib/mail/settings'
-import { loadInboxMessage } from './inbox-data'
+import { loadInboxInsights, loadInboxMessage } from './inbox-data'
 
 const NOT_SET_UP = 'The inbox is not set up on this server.'
 
@@ -62,8 +64,9 @@ export async function getInboxMessage(messageId: string) {
 
 /**
  * "Refresh": asks for a sync of the mailbox and, where this process runs
- * jobs, starts it after the response. One pass at a time (the sync lease),
- * so pressing it again while one runs does nothing extra.
+ * jobs, starts it after the response, then extracts what arrived. One pass
+ * at a time (the sync lease), so pressing it again while one runs does
+ * nothing extra.
  */
 export async function refreshInbox() {
   await requireUser()
@@ -72,7 +75,7 @@ export async function refreshInbox() {
     const config = inboundMailConfig()
     if (!config) return { success: false as const, error: NOT_SET_UP }
     await requestMailSync(config.user)
-    if (runsJobsHere()) after(runInboxSync)
+    if (runsJobsHere()) after(() => runInboxSync().then(runMailExtraction))
     return { success: true as const }
   } catch (err) {
     console.error('Requesting an inbox sync failed:', err)
@@ -93,5 +96,45 @@ export async function getInboxSyncStatus() {
   } catch (err) {
     console.error('Reading the inbox sync status failed:', err)
     return { success: false as const, error: 'Could not check the sync.' }
+  }
+}
+
+/**
+ * The stories and links extracted from one email, for the reading pane,
+ * which polls this while extraction runs. Only the user's own identity's.
+ */
+export async function getInboxInsights(messageId: string) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const insights = isUuid(messageId)
+      ? await loadInboxInsights(accountId, messageId)
+      : null
+    if (!insights) return { success: false as const, error: 'Email not found.' }
+    return { success: true as const, insights }
+  } catch (err) {
+    console.error("Loading an email's extraction failed:", err)
+    return {
+      success: false as const,
+      error: 'Could not load what was found in this email.'
+    }
+  }
+}
+
+/** "Try again" after an email's extraction failed: due at once. */
+export async function retryInboxInsights(messageId: string) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const retried =
+      isUuid(messageId) && (await retryEmailExtraction(accountId, messageId))
+    if (!retried) {
+      return { success: false as const, error: 'There is nothing to retry.' }
+    }
+    if (runsJobsHere()) after(runMailExtraction)
+    return { success: true as const }
+  } catch (err) {
+    console.error("Retrying an email's extraction failed:", err)
+    return { success: false as const, error: 'Could not try again.' }
   }
 }

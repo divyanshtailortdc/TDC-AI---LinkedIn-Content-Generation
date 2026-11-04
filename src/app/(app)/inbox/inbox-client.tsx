@@ -26,6 +26,7 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import type { MailSyncStatus } from '~/lib/mail/mailbox'
 import { getInboxMessage, getInboxSyncStatus, refreshInbox } from './actions'
 import { EmailBody } from './email-body'
+import { EmailInsights } from './email-insights'
 import { InboxAddress } from './inbox-address'
 import type { InboxListItem, InboxMessage } from './inbox-data'
 
@@ -499,6 +500,7 @@ function MessageView({
           </FormAlert>
         )}
       </header>
+      <EmailInsights key={`insights-${message.id}`} messageId={message.id} />
       <EmailBody
         key={message.id}
         html={message.htmlBody}

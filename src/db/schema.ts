@@ -10,6 +10,7 @@ import {
   numeric,
   pgTable,
   text,
+  type AnyPgColumn,
   timestamp,
   uniqueIndex,
   uuid,
@@ -24,6 +25,14 @@ import {
   type NewsletterCategory,
   type NewsletterStatus
 } from '../lib/newsletters/status'
+import {
+  ARTICLE_STATUSES,
+  DIGEST_KINDS,
+  EXTRACTION_STATUSES,
+  type ArticleStatus,
+  type DigestKind,
+  type ExtractionStatus
+} from '../lib/intel/status'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -975,6 +984,27 @@ export const mailMessagesTable = pgTable(
     searchVector: tsvector('search_vector').generatedAlwaysAs(
       sql`setweight(to_tsvector('simple', coalesce(subject, '')), 'A') || setweight(to_tsvector('simple', coalesce(from_name, '') || ' ' || coalesce(from_address, '') || ' ' || translate(coalesce(from_address, ''), '@.', '  ')), 'B') || setweight(to_tsvector('simple', left(coalesce(text_body, ''), 100000)), 'C')`
     ),
+    // Extraction (src/lib/intel): the email's stories and links. The row is
+    // its own queue item: claimed with a conditional update, retried with
+    // back-off (src/lib/intel/settings.ts).
+    extractionStatus: varchar('extraction_status', { length: 20 })
+      .$type<ExtractionStatus>()
+      .default('pending')
+      .notNull(),
+    extractionAttempts: integer('extraction_attempts').default(0).notNull(),
+    extractionNextAt: commonFieldDefs
+      .date('extraction_next_at')
+      .defaultNow()
+      .notNull(),
+    // When the current claim was made; doubles as its token.
+    extractionLockedAt: commonFieldDefs.date('extraction_locked_at'),
+    extractionError: text('extraction_error'),
+    extractedAt: commonFieldDefs.date('extracted_at'),
+    // What the digest found (null until extracted): only a newsletter's
+    // stories are kept (intel_mentions).
+    digestKind: varchar('digest_kind', { length: 20 }).$type<DigestKind>(),
+    digestSummary: text('digest_summary'),
+    digestTopics: jsonb('digest_topics').$type<string[]>().default([]).notNull(),
     createdAt: commonFieldDefs.dates.createdAt
   },
   table => [
@@ -992,7 +1022,120 @@ export const mailMessagesTable = pgTable(
       table.receivedAt,
       table.id
     ),
-    index('mail_messages_search_idx').using('gin', table.searchVector)
+    index('mail_messages_search_idx').using('gin', table.searchVector),
+    // The extraction queue: due emails, oldest first.
+    index('mail_messages_extraction_due_idx').on(
+      table.extractionStatus,
+      table.extractionNextAt
+    ),
+    check(
+      'mail_messages_extraction_status_check',
+      sql`${table.extractionStatus} in (${sqlList(EXTRACTION_STATUSES)})`
+    ),
+    check(
+      'mail_messages_digest_kind_check',
+      sql`${table.digestKind} in (${sqlList(DIGEST_KINDS)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// 22. Intel Articles — pages that newsletter stories link to
+// ---------------------------------------------------------------------------
+
+/** A claim from an article with the verbatim quote behind it (knowledge-extraction). */
+export type ArticleClaim = { claim: string; quote: string; confidence?: number }
+
+// Shared by every workspace: an article is read once however many
+// newsletters link to it. A workspace only reaches the ones its own emails
+// mention (intel_mentions).
+export const intelArticlesTable = pgTable(
+  'intel_articles',
+  {
+    id: commonFieldDefs.id(),
+    // Where the story's link led, without tracking or reader parameters
+    // (src/lib/intel/links.ts): one row per page.
+    canonicalUrl: text('canonical_url').notNull().unique(),
+    // A queue item like an email's extraction; see ARTICLE_STATUSES.
+    status: varchar('status', { length: 20 })
+      .$type<ArticleStatus>()
+      .default('pending')
+      .notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    nextAttemptAt: commonFieldDefs
+      .date('next_attempt_at')
+      .defaultNow()
+      .notNull(),
+    lockedAt: commonFieldDefs.date('locked_at'),
+    // Why it was skipped or failed, in words for the inbox.
+    lastError: text('last_error'),
+    // Set with status 'duplicate': the article with the same text.
+    duplicateOfId: uuid('duplicate_of_id').references(
+      (): AnyPgColumn => intelArticlesTable.id,
+      { onDelete: 'set null' }
+    ),
+    title: text('title'),
+    siteName: text('site_name'),
+    author: text('author'),
+    description: text('description'),
+    publishedAt: commonFieldDefs.date('published_at'),
+    content: text('content'),
+    wordCount: integer('word_count'),
+    // sha256 of the normalised text: the same article at another address.
+    contentHash: varchar('content_hash', { length: 64 }),
+    // From the knowledge-extraction skill, as for knowledge documents.
+    summary: text('summary'),
+    topics: jsonb('topics').$type<string[]>().default([]).notNull(),
+    keyClaims: jsonb('key_claims').$type<ArticleClaim[]>().default([]).notNull(),
+    fetchedAt: commonFieldDefs.date('fetched_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('intel_articles_due_idx').on(table.status, table.nextAttemptAt),
+    index('intel_articles_content_hash_idx').on(table.contentHash),
+    check(
+      'intel_articles_status_check',
+      sql`${table.status} in (${sqlList(ARTICLE_STATUSES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// 23. Intel Mentions (N:1 with Mail Message) — the stories an email covers
+// ---------------------------------------------------------------------------
+
+export const intelMentionsTable = pgTable(
+  'intel_mentions',
+  {
+    id: commonFieldDefs.id(),
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => mailMessagesTable.id, { onDelete: 'cascade' }),
+    // The email's workspace, copied here so its stories are found directly.
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    // Null when the story has no link, or its link leads to nothing readable.
+    articleId: uuid('article_id').references(() => intelArticlesTable.id, {
+      onDelete: 'set null'
+    }),
+    // Its order in the email, from 0.
+    position: integer('position').notNull(),
+    headline: text('headline').notNull(),
+    // The newsletter's own words about it, verbatim (newsletter-digest guard).
+    blurb: text('blurb'),
+    // Where the link led, or the link as written when it could not be followed.
+    url: text('url'),
+    isSponsored: boolean('is_sponsored').default(false).notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    uniqueIndex('intel_mentions_message_position_uq').on(
+      table.messageId,
+      table.position
+    ),
+    index('intel_mentions_article_idx').on(table.articleId),
+    index('intel_mentions_account_idx').on(table.accountId, table.createdAt)
   ]
 )
 
@@ -1095,3 +1238,6 @@ export type NewNewsletter = typeof newslettersTable.$inferInsert
 export type MailSyncState = typeof mailSyncStateTable.$inferSelect
 
 export type NewMailMessage = typeof mailMessagesTable.$inferInsert
+
+export type IntelArticle = typeof intelArticlesTable.$inferSelect
+export type IntelMention = typeof intelMentionsTable.$inferSelect

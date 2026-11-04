@@ -11,6 +11,7 @@ import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { env } from '~/env'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import { addUsage } from '~/lib/ai/usage'
+import { retrieveNewsletterStories } from '~/lib/intel/retrieval'
 import {
   isWebSearchConfigured,
   runWebSearch,
@@ -311,17 +312,19 @@ async function researchAndIdeate(
       status: 'running',
       startedAt: new Date(),
       requestSummary: !ctx.prefs.research.use_web_search
-        ? 'Reading the knowledge base (web search disabled in preferences)'
+        ? 'Reading the knowledge base and newsletters (web search disabled in preferences)'
         : env.RESEARCH_MODE === 'agent'
-          ? 'Research agent searching the web and reading pages, plus the knowledge base'
-          : 'Searching the web and reading the knowledge base'
+          ? 'Research agent searching the web and reading pages, plus the knowledge base and newsletters'
+          : 'Searching the web and reading the knowledge base and newsletters'
     })
     .returning()
 
-  // The web and the knowledge base are read at once: neither needs the other.
-  const [research, passages] = await Promise.all([
+  // The web, the knowledge base and the newsletters are read at once: none
+  // needs the others.
+  const [research, passages, stories] = await Promise.all([
     researchTheWeb(ctx),
-    retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx))
+    retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx)),
+    retrieveNewsletterStories(ctx)
   ])
   const findings = research.findings
   if (researchStep) await recordStepUsage(runId, researchStep.id, research.usage)
@@ -342,7 +345,7 @@ async function researchAndIdeate(
     )
   }
 
-  const corpus = buildGroundingCorpus(ctx, findings, passages)
+  const corpus = buildGroundingCorpus(ctx, findings, passages, new Date(), stories)
 
   if (researchStep) {
     await db
@@ -361,6 +364,8 @@ async function researchAndIdeate(
           recentEvidence: corpus.verifiedClaims.filter(c => c.isFresh).length,
           knowledgeClaims: corpus.sources.knowledgeClaims,
           knowledgePassages: passages.length,
+          newsletterStories: stories.length,
+          newsletterItems: corpus.sources.newsletterItems,
           documentSummaries: corpus.sources.documentSummaries,
           offeringFacts: corpus.sources.offeringFacts,
           totalEvidence: corpus.verifiedClaims.length,

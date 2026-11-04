@@ -579,6 +579,7 @@ describe('buildGroundingCorpus', () => {
     assert.deepStrictEqual(corpus.sources, {
       offeringFacts: 3,
       knowledgePassages: 1,
+      newsletterItems: 0,
       webFindings: 1,
       documentSummaries: 2,
       knowledgeClaims: 60

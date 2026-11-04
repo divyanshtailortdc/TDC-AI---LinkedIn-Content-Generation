@@ -6,7 +6,7 @@ import type {
 import { load } from 'cheerio'
 import type { FetchMessageObject, MessageAddressObject } from 'imapflow'
 import type { AddressObject, EmailAddress, ParsedMail } from 'mailparser'
-import { readableText } from '../html-text'
+import { INVISIBLE, readableText } from '../html-text'
 import { MAIL_SYNC_SETTINGS } from './settings'
 
 /**
@@ -15,10 +15,6 @@ import { MAIL_SYNC_SETTINGS } from './settings'
  * when the source could not be parsed, so a malformed email is still listed
  * instead of blocking the sync cursor.
  */
-
-/** Zero-width and filler characters newsletters pad their preview text with. */
-const INVISIBLE =
-  /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\u3164\ufeff\uffa0]/g
 
 /** Postgres text and jsonb reject NUL, which broken mailers do send. */
 function clean(value: string | null | undefined, max?: number): string | null {

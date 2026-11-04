@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { goalsTable, schedulesTable } from '@/db/schema'
 import { dueSlot, WEEKDAY_NAMES } from '@/lib/schedule-time'
 import { and, desc, eq } from 'drizzle-orm'
+import { runMailExtraction } from './mail-extraction'
 import { runInboxSync } from './mail-sync'
 import { enqueueRun } from './queue'
 import { MAX_GOALS_PER_RUN } from './run-goals'
@@ -146,11 +147,12 @@ export function startScheduler() {
   )
 
   // Every minute: the inbox, when its interval passed or someone pressed
-  // Refresh. Not awaited: a pass can outlast the tick (see mail-sync).
+  // Refresh, then extraction of what arrived. Not awaited: a pass can
+  // outlast the tick (see mail-sync and mail-extraction).
   cron.schedule(
     '* * * * *',
     () => {
-      void runInboxSync()
+      void runInboxSync().then(runMailExtraction)
     },
     { missedExecutionTolerance: 60_000 }
   )

@@ -15,6 +15,9 @@ import type {
   GeneratedIdeaItem,
   IdeaGenerationItem
 } from '../src/lib/ai/skills/ideation/schema'
+import type { GenerationContext } from '../src/lib/ai/context-blocks'
+import { buildGroundingCorpus } from '../src/lib/ai/pipeline/grounding-corpus'
+import type { NewsletterStory } from '../src/lib/intel/retrieval'
 
 const own = {
   claim: 'Ledgerly closes the books in five working days',
@@ -29,7 +32,14 @@ const web = {
   sourceUrl: 'https://blog.example.com/a',
   origin: 'web' as const
 }
-const corpus: GroundingCorpus = { verifiedClaims: [own, web] }
+const newsletter = {
+  claim: 'Quick commerce now takes 30% of urban grocery orders',
+  quote: 'Quick commerce now takes 30% of urban grocery orders',
+  sourceTitle: 'Quick commerce hits 30% (in The Retail Brief)',
+  sourceUrl: 'https://news.example.com/quick-commerce',
+  origin: 'newsletter' as const
+}
+const corpus: GroundingCorpus = { verifiedClaims: [own, web, newsletter] }
 
 function idea(evidenceClaim: string): GeneratedIdeaItem {
   return {
@@ -113,6 +123,16 @@ describe('"verified" is for the account\'s own material', () => {
     assert.equal(result.idea.supportingEvidence[0]?.sourceUrl, web.sourceUrl)
   })
 
+  it('a newsletter match is "sourced", and the prompt says where it came from', () => {
+    assert.equal(factTypeFor('newsletter'), 'sourced')
+    const result = validateIdea(idea(newsletter.claim), corpus)
+    assert.equal(result.idea.supportingEvidence[0]?.factType, 'sourced')
+    assert.match(
+      renderCorpusForPrompt(corpus, 10),
+      /\[E3\][\s\S]*Origin: a newsletter the account receives/
+    )
+  })
+
   it('a claim matching the account\'s own proof point stays "verified"', () => {
     const result = validateIdea(idea(own.claim), corpus)
     assert.equal(result.idea.supportingEvidence[0]?.factType, 'verified')
@@ -132,5 +152,50 @@ describe('"verified" is for the account\'s own material', () => {
       resolved.supportingEvidence.map(e => e.factType),
       ['verified', 'sourced']
     )
+  })
+})
+
+describe('newsletter stories in the corpus', () => {
+  const now = new Date('2026-11-04T10:00:00Z')
+  const ctx = {
+    account: { name: 'Ledgerly', headline: 'Bookkeeping' },
+    offerings: [],
+    knowledgeDocs: [],
+    selectedGoals: [],
+    prefs: { research: { freshness_days: 30 } }
+  } as unknown as GenerationContext
+  const story = (n: number, articleDate: Date | null): NewsletterStory => ({
+    headline: `Story ${n}`,
+    blurb: `What the newsletter says about story ${n}.`,
+    url: `https://news.example.com/${n}`,
+    newsletter: 'The Retail Brief',
+    receivedAt: new Date('2026-11-02T08:00:00Z'),
+    article: {
+      title: `Article ${n}`,
+      summary: `Summary of article ${n}.`,
+      publishedAt: articleDate,
+      claims: [{ claim: `Claim ${n}`, quote: `Quote ${n}` }]
+    }
+  })
+
+  it('takes one item from each story in turn, dated by the email or the article', () => {
+    const result = buildGroundingCorpus(ctx, [], [], now, [
+      story(1, new Date('2014-03-25T00:00:00Z')),
+      story(2, null)
+    ])
+    const items = result.verifiedClaims
+    assert.equal(result.sources.newsletterItems, 6)
+    assert.deepEqual(
+      items.slice(0, 2).map(c => c.claim),
+      ['What the newsletter says about story 1.', 'What the newsletter says about story 2.']
+    )
+    assert.ok(items.every(c => c.origin === 'newsletter'))
+    // The newsletter's words are this week's; an old article stays background.
+    assert.equal(items[0]!.isFresh, true)
+    const oldArticle = items.find(c => c.claim === 'Summary of article 1.')!
+    assert.equal(oldArticle.publishedAt, '2014-03-25')
+    assert.equal(oldArticle.isFresh, false)
+    // An undated article takes the email's date.
+    assert.equal(items.find(c => c.claim === 'Summary of article 2.')!.publishedAt, '2026-11-02')
   })
 })

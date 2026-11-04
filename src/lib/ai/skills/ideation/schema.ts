@@ -209,6 +209,12 @@ export const IdeaGenerationBatchSchema = z.object({
     .describe('List of generated post ideas')
 })
 
+/**
+ * Where a piece of evidence came from: the account's own offerings, its
+ * knowledge base, a web page, or a story in a newsletter it receives.
+ */
+export type EvidenceOrigin = 'own' | 'knowledge' | 'web' | 'newsletter'
+
 /** Evidence as the validator expects it, resolved from the run's corpus. */
 export interface CorpusEvidenceSource {
   claim: string
@@ -217,5 +223,5 @@ export interface CorpusEvidenceSource {
   sourceTitle?: string
   sourceId?: string
   publishedAt?: string
-  origin?: 'own' | 'knowledge' | 'web'
+  origin?: EvidenceOrigin
 }
