@@ -15,6 +15,7 @@ import {
   type Idea
 } from '@/db/schema'
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
+import { isOldNews } from '~/lib/intel/settings'
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import {
   EMPTY_HISTORY,
@@ -193,7 +194,9 @@ export async function loadGenerationContext(
     voice: voice ?? null,
     offerings: offerings.filter(o => o.isActive),
     audiences,
-    knowledgeDocs,
+    // Saved news past its age stays in the Knowledge base, but no prompt,
+    // retrieval or evidence reads it (src/lib/intel/settings.ts).
+    knowledgeDocs: knowledgeDocs.filter(doc => !isOldNews(doc)),
     samplePosts: samplePosts.filter(s => s.isActive),
     goals,
     selectedGoals,

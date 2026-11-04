@@ -45,6 +45,8 @@ type KnowledgeDoc = {
   keyClaims: Array<{ claim: string; quote: string; confidence?: number }> | null
   wordCount?: number
   createdAt: Date | string
+  /** Saved news past its age: kept, but no longer used for ideas (isOldNews). */
+  oldNews?: boolean
 }
 
 export function KnowledgeClient({
@@ -723,6 +725,11 @@ export function KnowledgeClient({
                         >
                           {doc.sourceType}
                         </span>
+                        {doc.oldNews && (
+                          <span className="bg-surface-hover text-muted rounded-full px-2 py-0.5 text-[11px] font-medium">
+                            Over 6 months old · not used for ideas
+                          </span>
+                        )}
                         <h3 className="text-foreground truncate text-sm font-semibold">
                           {doc.title}
                         </h3>

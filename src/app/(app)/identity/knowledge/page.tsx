@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { knowledgeDocumentsTable } from '@/db/schema'
 import { requireIdentity } from '@/lib/identity'
 import { desc, eq } from 'drizzle-orm'
+import { isOldNews } from '~/lib/intel/settings'
 import { KnowledgeClient } from './knowledge-client'
 
 export default async function KnowledgePage() {
@@ -19,6 +20,7 @@ export default async function KnowledgePage() {
       summary: knowledgeDocumentsTable.summary,
       keyClaims: knowledgeDocumentsTable.keyClaims,
       wordCount: knowledgeDocumentsTable.wordCount,
+      publishedAt: knowledgeDocumentsTable.publishedAt,
       createdAt: knowledgeDocumentsTable.createdAt
     })
     .from(knowledgeDocumentsTable)
@@ -30,7 +32,7 @@ export default async function KnowledgePage() {
       <KnowledgeClient
         accountId={account.id}
         accountName={account.name}
-        initialDocs={docs}
+        initialDocs={docs.map(doc => ({ ...doc, oldNews: isOldNews(doc) }))}
       />
     </SetupShell>
   )

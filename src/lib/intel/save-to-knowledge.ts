@@ -72,7 +72,9 @@ export async function saveStoryToKnowledge(
     .values({
       accountId,
       title: (story.title || story.headline).slice(0, 300),
-      sourceType: 'url',
+      // News, aged out of generation in time (isOldNews), unlike a page the
+      // user added.
+      sourceType: 'newsletter',
       sourceUrl: story.url,
       content: story.content,
       author: story.author,

@@ -69,3 +69,22 @@ export class RetryLaterError extends Error {
     this.name = 'RetryLaterError'
   }
 }
+
+/**
+ * An article saved to the Knowledge base from the Library (source_type
+ * 'newsletter') is news: this many days after it was published (or saved,
+ * without a date) it stays in the Knowledge base, but no generation reads it
+ * any more (src/lib/ai/context.ts), so old figures and "latest" claims do not
+ * pass for current ones. Documents the user added are never aged.
+ */
+export const SAVED_NEWS_MAX_AGE_DAYS = 180
+
+/** A Knowledge base document that is saved news past SAVED_NEWS_MAX_AGE_DAYS. */
+export function isOldNews(
+  doc: { sourceType: string; publishedAt: Date | null; createdAt: Date },
+  now = new Date()
+): boolean {
+  if (doc.sourceType !== 'newsletter') return false
+  const dated = doc.publishedAt ?? doc.createdAt
+  return now.getTime() - dated.getTime() > SAVED_NEWS_MAX_AGE_DAYS * 86_400_000
+}

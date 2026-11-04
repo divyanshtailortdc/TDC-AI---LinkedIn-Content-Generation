@@ -4,11 +4,13 @@ import { db } from '@/db'
 import {
   EMBEDDING_DIMENSIONS,
   intelArticlesTable,
-  intelMentionsTable
+  intelMentionsTable,
+  mailMessagesTable
 } from '@/db/schema'
 import { embedMany } from 'ai'
-import { and, desc, eq, isNull, lt, ne, notInArray, or } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, lt, ne, notInArray, or } from 'drizzle-orm'
 import { getEmbeddingModel } from '../ai'
+import { RESEARCH_SETTINGS } from '../ai/context-blocks'
 import { mapConcurrently } from '../research/web-search'
 import { storyText } from './story-ranking'
 
@@ -18,8 +20,9 @@ import { storyText } from './story-ranking'
  * read, so the article's summary counts too, but not for long: after an hour
  * it is embedded with what it has, and again once the article is read
  * (read-article.ts clears it). A new embedding model embeds every story
- * again. Two passes embedding the same story write the same vector, so no
- * claim is needed.
+ * again. Only stories a run can take are embedded: recent and not sponsored.
+ * Two passes embedding the same story write the same vector, so no claim is
+ * needed.
  *
  * Failures: with the model down, busy or out of budget, every story waits
  * for the next pass. When the model works but refuses something in a batch,
@@ -34,6 +37,14 @@ const EMBED_TIMEOUT_MS = 60_000
 
 const mentions = intelMentionsTable
 const articles = intelArticlesTable
+const messages = mailMessagesTable
+
+/** Stories received before this are past the freshness window: no run reads their embedding. */
+export function embeddingWindowStart(now = new Date()) {
+  return new Date(
+    now.getTime() - RESEARCH_SETTINGS.freshness_days * 24 * 60 * 60_000
+  )
+}
 
 type EmbeddingHandle = NonNullable<ReturnType<typeof getEmbeddingModel>>
 
@@ -106,9 +117,14 @@ export async function indexDueStories(limit = BATCH): Promise<number> {
       articleSummary: articles.summary
     })
     .from(mentions)
+    .innerJoin(messages, eq(messages.id, mentions.messageId))
     .leftJoin(articles, eq(articles.id, mentions.articleId))
     .where(
       and(
+        // Only what a run can take (retrieval.ts): never a sponsored story,
+        // nor one older than the freshness window. tidy.ts drops the rest.
+        eq(mentions.isSponsored, false),
+        gte(messages.receivedAt, embeddingWindowStart()),
         or(
           isNull(mentions.embedding),
           ne(mentions.embeddingModel, handle.modelId)
