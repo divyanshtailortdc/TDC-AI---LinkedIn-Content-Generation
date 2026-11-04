@@ -58,6 +58,13 @@ export const env = createEnv({
     MAIL_IMAP_PASSWORD: z.string().optional(),
     /** Local only: the CA that signed a self-signed server certificate. */
     MAIL_IMAP_TLS_CA_FILE: z.string().optional(),
+    // Inbox through Cloudflare Email Routing (cloudflare/email-worker/README.md):
+    // the secret the Email Worker signs each email it posts to
+    // /api/mail/inbound with. Unset, that route is off. Works with or without IMAP.
+    MAIL_WEBHOOK_SECRET: z
+      .string()
+      .min(32, 'MAIL_WEBHOOK_SECRET must be at least 32 characters')
+      .optional(),
     /** Comma-separated auth user ids that are always admins (Admin plugin `adminUserIds`). */
     ADMIN_USER_IDS: z.string().optional(),
     // Post images, in any S3-compatible store (src/lib/media/image-store.ts).
@@ -96,6 +103,7 @@ export const env = createEnv({
     MAIL_IMAP_USER: process.env.MAIL_IMAP_USER,
     MAIL_IMAP_PASSWORD: process.env.MAIL_IMAP_PASSWORD,
     MAIL_IMAP_TLS_CA_FILE: process.env.MAIL_IMAP_TLS_CA_FILE,
+    MAIL_WEBHOOK_SECRET: process.env.MAIL_WEBHOOK_SECRET,
     ADMIN_USER_IDS: process.env.ADMIN_USER_IDS,
     STORAGE_BUCKET: process.env.STORAGE_BUCKET,
     STORAGE_ENDPOINT: process.env.STORAGE_ENDPOINT,

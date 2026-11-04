@@ -7,7 +7,7 @@ import {
   replacedInboundAddresses
 } from '~/lib/mail/addresses'
 import { readMailSyncStatus } from '~/lib/mail/mailbox'
-import { inboundMailConfig } from '~/lib/mail/settings'
+import { inboxConfig } from '~/lib/mail/settings'
 import { InboxClient } from './inbox-client'
 import { loadInboxPage, parseInboxQuery } from './inbox-data'
 
@@ -25,7 +25,7 @@ export default async function InboxPage({
   const identity = await getIdentity()
   if (!identity) return <NoIdentity title="Inbox" />
 
-  const config = inboundMailConfig()
+  const config = inboxConfig()
   if (!config) return <InboxClient inbox={null} />
 
   const params = await searchParams
@@ -34,7 +34,7 @@ export default async function InboxPage({
     await Promise.all([
       ensureInboundAddress(identity.id, config.domain),
       replacedInboundAddresses(identity.id, config.domain),
-      readMailSyncStatus(config.user),
+      readMailSyncStatus(config.statusMailbox),
       loadInboxPage(identity.id, { page: parsePage(params.page), query })
     ])
 

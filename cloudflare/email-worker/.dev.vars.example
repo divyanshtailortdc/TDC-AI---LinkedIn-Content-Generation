@@ -1,0 +1,5 @@
+# Local values for `npm run dev`; copy to .dev.vars (git-ignored).
+# The local app's webhook, and the same MAIL_WEBHOOK_SECRET as the app's .env
+# (generate one with: openssl rand -base64 32).
+WEBHOOK_URL="http://localhost:3000/api/mail/inbound"
+WEBHOOK_SECRET=""
