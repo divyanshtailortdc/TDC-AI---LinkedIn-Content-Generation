@@ -1,4 +1,4 @@
-import type { NewsletterStory } from '~/lib/intel/retrieval'
+import type { NewsletterStory } from '~/lib/intel/story-ranking'
 import { isRecent } from '~/lib/research/findings'
 import type { Finding } from '~/lib/research/web-search'
 import { isGenericPage, isReferencePage } from '~/lib/urls'

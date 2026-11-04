@@ -1,4 +1,5 @@
 -- Inbound addresses are named after the person who owns the workspace
+-- (name@<domain>, src/lib/mail/addresses.ts) instead of the identity's
 -- handle plus random characters, and only the part before the @ is stored.
 -- A workspace can have several: one current, the rest replaced but still
 -- delivering. Rows outlive their workspace (account_id set to null), so an

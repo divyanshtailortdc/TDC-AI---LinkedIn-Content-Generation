@@ -81,6 +81,8 @@ Then restart the app. What it does:
   2. The `newsletter-digest` skill (Haiku) tells newsletters from confirmations, welcome emails and promotions. For a newsletter it lists the stories, each with the newsletter's own words, copied word for word, and its link. Without an AI key, each link becomes a story.
   3. Each story's link is followed through click-tracker redirects, without the reader's tokens. Unsubscribe, confirm, account, share and social links are never followed.
   4. The article is read once for all workspaces (`intel_articles`, one row per address) and summarised with verbatim claims (the `knowledge-extraction` skill).
+  5. Each story is embedded (headline, the newsletter's words and the article summary), so a run can take the stories closest to its goals (`src/lib/intel/retrieval.ts`). This needs `AI_GATEWAY_API_KEY`; without it, stories are matched by the words they share with the goals.
+  - **Library** (`/library`): every story with its article, searchable. **Save to Knowledge base** copies an article into the workspace's own Knowledge base. Every run reads it from there as verified material, and it stops arriving as newsletter evidence.
   - **Dropped or skipped:** pages that are gone, not web pages, or too thin to read (paywalls, sign-in pages) are skipped, and the story keeps the newsletter's words. The same text at another address becomes a duplicate.
   - **Retries:** busy sites and model timeouts are retried after 5 minutes, doubling up to 12 hours, and an item is marked failed after 5 attempts.
   - **In the inbox:** the reading pane shows the summary, topics and stories, with a Try again button after a failure.

@@ -211,6 +211,13 @@
       "when": 1793707445651,
       "tag": "0029_mail_extraction",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793771169954,
+      "tag": "0030_newsletter_library",
+      "breakpoints": true
     }
   ]
 }

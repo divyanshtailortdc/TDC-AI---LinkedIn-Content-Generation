@@ -45,20 +45,6 @@ export async function triggerNewRun(goalIds: string[]) {
       throw new Error('Failed to create run record')
     }
     startInBackground(run.id)
-    // Processed after the response is sent. Only a still-queued run is
-    // claimed, so an existing run already underway is left alone. The web
-    // service leaves it to the worker service, which polls every few seconds.
-    // `after` rather than a promise left running: on a serverless host
-    // (Vercel) it keeps the function alive until the run is done, where a
-    // loose promise was frozen with the function once it had answered.
-    if (runsJobsHere()) {
-      after(() =>
-        processRunImmediately(run.id).catch(err => {
-          console.error(`Background execution error for run ${run.id}:`, err)
-        })
-      )
-    }
-    startInBackground(run.id)
 
     // No revalidatePath: it re-rendered the page the dialog was opened on,
     // which the dialog then leaves for the run's page. The Runs list notices
@@ -74,15 +60,21 @@ export async function triggerNewRun(goalIds: string[]) {
 }
 
 /**
- * Trigger processing asynchronously in background. Only a still-queued run is
- * claimed, so an existing run already underway is left alone. The web service
- * leaves it to the worker service, which polls every few seconds.
+ * Processes the run after the response is sent. Only a still-queued run is
+ * claimed, so an existing run already underway is left alone. The web
+ * service leaves it to the worker service, which polls every few seconds.
+ * `after` rather than a promise left running: on a serverless host (Vercel)
+ * it keeps the function alive until the run is done, where a loose promise
+ * was frozen with the function once it had answered and left the run
+ * claimed but never finished.
  */
 function startInBackground(runId: string) {
   if (!runsJobsHere()) return
-  processRunImmediately(runId).catch(err => {
-    console.error(`Background execution error for run ${runId}:`, err)
-  })
+  after(() =>
+    processRunImmediately(runId).catch(err => {
+      console.error(`Background execution error for run ${runId}:`, err)
+    })
+  )
 }
 
 /**

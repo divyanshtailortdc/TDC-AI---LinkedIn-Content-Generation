@@ -14,10 +14,10 @@ export async function runMailExtraction() {
   if (globalThis.__mailExtractionRunning) return
   globalThis.__mailExtractionRunning = true
   try {
-    const { emails, articles } = await runExtractionPass()
-    if (emails > 0 || articles > 0) {
+    const { emails, articles, stories } = await runExtractionPass()
+    if (emails > 0 || articles > 0 || stories > 0) {
       console.info(
-        `Mail extraction: ${emails} email(s) and ${articles} article(s) processed.`
+        `Mail extraction: ${emails} email(s), ${articles} article(s) and ${stories} story embedding(s) processed.`
       )
     }
   } catch (err) {

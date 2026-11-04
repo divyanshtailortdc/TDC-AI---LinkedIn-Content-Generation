@@ -251,7 +251,6 @@ export type ScrapedArticle = ScrapedContent & {
   canonicalUrl: string | null
   siteName: string | null
   author: string | null
-  description: string | null
   publishedAt: Date | null
 }
 
@@ -374,8 +373,6 @@ export function readArticleHtml(
       ld.datePublished ??
       $('time[datetime]').first().attr('datetime')
   )
-  const description =
-    meta('meta[name="description"]') || meta('meta[property="og:description"]')
   const canonicalUrl =
     absoluteHttpUrl($('link[rel="canonical"]').attr('href'), pageUrl) ??
     absoluteHttpUrl(meta('meta[property="og:url"]'), pageUrl)
@@ -397,7 +394,6 @@ export function readArticleHtml(
     canonicalUrl,
     siteName,
     author,
-    description,
     publishedAt
   }
 }
@@ -476,7 +472,6 @@ export async function scrapeArticle(
       canonicalUrl: direct?.canonicalUrl ?? null,
       siteName: direct?.siteName ?? null,
       author: direct?.author ?? null,
-      description: direct?.description ?? null,
       publishedAt: direct?.publishedAt ?? null
     }
   }

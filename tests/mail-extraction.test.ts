@@ -11,6 +11,12 @@ import {
   isActionLink,
   isArticleUrl
 } from '../src/lib/intel/links'
+import {
+  pickStories,
+  rankByWords,
+  storyText,
+  type StoryRow
+} from '../src/lib/intel/story-ranking'
 import { readArticleHtml } from '../src/lib/scraper'
 
 const filler = Array.from(
@@ -360,6 +366,78 @@ describe('readArticleHtml', () => {
         'https://news.example.com/x'
       ),
       null
+    )
+  })
+})
+
+describe('choosing a run’s newsletter stories', () => {
+  const row = (
+    id: string,
+    headline: string,
+    extra: Partial<StoryRow> = {}
+  ): StoryRow => ({
+    id,
+    headline,
+    blurb: null,
+    url: `https://news.example.com/${id}`,
+    articleId: `article-${id}`,
+    fromName: 'ERP News',
+    fromAddress: null,
+    receivedAt: new Date('2026-11-04T08:00:00Z'),
+    articleTitle: null,
+    articleSummary: null,
+    articlePublishedAt: null,
+    articleClaims: null,
+    articleTopics: null,
+    ...extra
+  })
+
+  it('keeps only stories that share a word with the goals, most shared first', () => {
+    const ranked = rankByWords(
+      [
+        row('a', 'SAP names a new chief executive'),
+        row('b', 'D2C founders and their month-end close'),
+        row('c', 'Why the close is late', {
+          articleTopics: ['finance operations', 'D2C']
+        })
+      ],
+      ['Become the finance operations person D2C founders trust']
+    )
+    assert.deepStrictEqual(
+      ranked.map(r => r.id),
+      ['c', 'b']
+    )
+  })
+
+  it('takes a story once, skips articles saved to the knowledge base, and stops at the limit', () => {
+    const lists = [
+      [
+        row('a', 'A'),
+        row('b', 'B', { url: 'https://news.example.com/b?utm_source=x' })
+      ],
+      [
+        row('a2', 'A again', { articleId: 'article-a' }),
+        row('c', 'C'),
+        row('d', 'D')
+      ]
+    ]
+    const stories = pickStories(lists, ['https://news.example.com/b'], 2)
+    assert.deepStrictEqual(
+      stories.map(s => s.headline),
+      ['A', 'C']
+    )
+    assert.strictEqual(stories[0]!.newsletter, 'ERP News')
+  })
+
+  it('embeds a story by its headline, the newsletter’s words and the article summary', () => {
+    assert.strictEqual(
+      storyText({
+        headline: 'H',
+        blurb: 'B',
+        articleTitle: 'H',
+        articleSummary: 'S'
+      }),
+      'H\nB\nS'
     )
   })
 })

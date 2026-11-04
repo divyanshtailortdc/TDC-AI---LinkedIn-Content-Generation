@@ -138,11 +138,13 @@ describe('ideas status filter', () => {
   it('reads a known status and falls back to all', () => {
     assert.equal(parseStatusFilter('approved'), 'approved')
     assert.equal(parseStatusFilter(['rejected']), 'rejected')
-    assert.equal(parseStatusFilter('drafted'), 'all')
+    assert.equal(parseStatusFilter('drafted'), 'drafted')
+    // Ideas being drafted have no tab of their own.
+    assert.equal(parseStatusFilter('drafting'), 'all')
     assert.equal(parseStatusFilter(undefined), 'all')
   })
 
-  it('counts drafting and drafted ideas only under all', () => {
+  it('counts ideas being drafted only under all', () => {
     assert.deepEqual(
       statusFilterCounts([
         { status: 'proposed', n: 4 },
@@ -150,7 +152,7 @@ describe('ideas status filter', () => {
         { status: 'drafting', n: 1 },
         { status: 'drafted', n: 7 }
       ]),
-      { proposed: 4, approved: 2, rejected: 0, all: 14 }
+      { proposed: 4, approved: 2, drafted: 7, rejected: 0, all: 14 }
     )
   })
 })

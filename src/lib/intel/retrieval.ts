@@ -4,137 +4,174 @@ import { db } from '@/db'
 import {
   intelArticlesTable,
   intelMentionsTable,
-  mailMessagesTable,
-  type ArticleClaim
+  mailMessagesTable
 } from '@/db/schema'
-import { and, asc, desc, eq, gte } from 'drizzle-orm'
-import { goalText, type GenerationContext } from '../ai/context-blocks'
+import { embedMany } from 'ai'
+import {
+  and,
+  asc,
+  cosineDistance,
+  desc,
+  eq,
+  gte,
+  isNull,
+  ne,
+  or,
+  sql,
+  type SQL
+} from 'drizzle-orm'
+import { getEmbeddingModel } from '../ai'
+import type { GenerationContext } from '../ai/context-blocks'
+import {
+  buildRetrievalQueries,
+  interleave
+} from '../ai/pipeline/grounding-corpus'
+import {
+  pickStories,
+  rankByWords,
+  type NewsletterStory,
+  type StoryRow
+} from './story-ranking'
+
+export type { NewsletterStory } from './story-ranking'
 
 /**
  * Newsletter stories for a run's evidence: the workspace's own, from emails
  * that arrived within the freshness window, with what was read of each
- * article. Ranked by how many words of the run's goals they share, then by
- * how recent they are; embeddings would rank better and come with search.
- * Sponsored stories never count as evidence.
+ * article. Each of the run's goals finds the stories closest to it in
+ * meaning (their embeddings, index-stories.ts), the goals' best in turn.
+ * Stories not embedded yet, or all of them without an embedding model, are
+ * matched by the words they share with the goals. Either way a story must be
+ * close to a goal: an unrelated one is not evidence. Sponsored stories never
+ * count (story-ranking.ts has the rest of the rules).
  */
 
 /** Stories a run's evidence takes; each brings up to four items. */
 export const NEWSLETTER_STORIES_PER_RUN = 8
-/** Stories looked at before ranking. */
-const CANDIDATES = 80
+/** Stories each goal's search returns before the closeness cut. */
+const PER_GOAL = 12
+/**
+ * Cosine similarity below which a story is about something else than the
+ * goal. Measured on the first real issues (text-embedding-3-small): stories
+ * on a goal's subject scored 0.30 to 0.58 against its text, unrelated ones
+ * up to 0.29.
+ */
+export const MIN_STORY_SIMILARITY = 0.3
+/** Stories looked at when matching by words. */
+const WORD_CANDIDATES = 80
+const EMBED_TIMEOUT_MS = 30_000
 
-export type NewsletterStory = {
-  headline: string
-  /** The newsletter's own words about it, verbatim. */
-  blurb: string | null
-  url: string | null
-  /** The newsletter's name: its sender. */
-  newsletter: string
-  receivedAt: Date
-  article: {
-    title: string | null
-    summary: string | null
-    publishedAt: Date | null
-    claims: ArticleClaim[]
-  } | null
+const mentions = intelMentionsTable
+const messages = mailMessagesTable
+const articles = intelArticlesTable
+
+const storyFields = {
+  id: mentions.id,
+  headline: mentions.headline,
+  blurb: mentions.blurb,
+  url: mentions.url,
+  articleId: mentions.articleId,
+  fromName: messages.fromName,
+  fromAddress: messages.fromAddress,
+  receivedAt: messages.receivedAt,
+  articleTitle: articles.title,
+  articleSummary: articles.summary,
+  articlePublishedAt: articles.publishedAt,
+  articleClaims: articles.keyClaims,
+  articleTopics: articles.topics
 }
 
-const STOPWORDS = new Set(
-  'the and for are was you our its has how why who all any can new now one out get use not but about after also because become been being between both could does each from have into make more most much need only other over same should some such than that their them then there these they this those through very what when where which while will with would your yours trust people person'.split(
-    ' '
+/** The stories closest to each query, each query's best in turn. */
+async function byMeaning(
+  recent: SQL,
+  queries: string[],
+  handle: NonNullable<ReturnType<typeof getEmbeddingModel>>
+): Promise<StoryRow[]> {
+  const { embeddings } = await embedMany({
+    model: handle.model,
+    values: queries,
+    abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
+  })
+  const perGoal = await Promise.all(
+    embeddings.map(async embedding => {
+      const distance = cosineDistance(mentions.embedding, embedding)
+      const rows = await db
+        .select({
+          ...storyFields,
+          similarity: sql<number>`1 - (${distance})`.mapWith(Number)
+        })
+        .from(mentions)
+        .innerJoin(messages, eq(messages.id, mentions.messageId))
+        .leftJoin(
+          articles,
+          and(eq(articles.id, mentions.articleId), eq(articles.status, 'done'))
+        )
+        .where(and(recent, eq(mentions.embeddingModel, handle.modelId)))
+        .orderBy(asc(distance))
+        .limit(PER_GOAL)
+      return rows.filter(row => row.similarity >= MIN_STORY_SIMILARITY)
+    })
   )
-)
-
-function words(text: string) {
-  return new Set(
-    text
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter(word => word.length >= 3 && !STOPWORDS.has(word))
-  )
+  return interleave(perGoal)
 }
 
 export async function retrieveNewsletterStories(
   ctx: GenerationContext,
   now = new Date()
 ): Promise<NewsletterStory[]> {
+  const queries = buildRetrievalQueries(ctx)
+  if (queries.length === 0) return []
   const since = new Date(
     now.getTime() - ctx.prefs.research.freshness_days * 24 * 60 * 60 * 1000
   )
-  const mentions = intelMentionsTable
-  const messages = mailMessagesTable
-  const articles = intelArticlesTable
-  const rows = await db
-    .select({
-      headline: mentions.headline,
-      blurb: mentions.blurb,
-      url: mentions.url,
-      articleId: mentions.articleId,
-      fromName: messages.fromName,
-      fromAddress: messages.fromAddress,
-      receivedAt: messages.receivedAt,
-      articleTitle: articles.title,
-      articleSummary: articles.summary,
-      articlePublishedAt: articles.publishedAt,
-      articleClaims: articles.keyClaims,
-      articleTopics: articles.topics
-    })
+  const recent = and(
+    eq(mentions.accountId, ctx.account.id),
+    eq(mentions.isSponsored, false),
+    eq(messages.digestKind, 'newsletter'),
+    gte(messages.receivedAt, since)
+  )!
+
+  const handle = getEmbeddingModel()
+  let closest: StoryRow[] = []
+  let matchedByMeaning = false
+  if (handle) {
+    try {
+      closest = await byMeaning(recent, queries, handle)
+      matchedByMeaning = true
+    } catch (err) {
+      console.warn(
+        'Matching newsletter stories by meaning failed, using words:',
+        err
+      )
+    }
+  }
+
+  // Stories without an embedding yet; all of them when meaning could not be used.
+  const unembedded =
+    handle && matchedByMeaning
+      ? and(
+          recent,
+          or(
+            isNull(mentions.embedding),
+            ne(mentions.embeddingModel, handle.modelId)
+          )
+        )
+      : recent
+  const wordRows = await db
+    .select(storyFields)
     .from(mentions)
     .innerJoin(messages, eq(messages.id, mentions.messageId))
     .leftJoin(
       articles,
       and(eq(articles.id, mentions.articleId), eq(articles.status, 'done'))
     )
-    .where(
-      and(
-        eq(mentions.accountId, ctx.account.id),
-        eq(mentions.isSponsored, false),
-        eq(messages.digestKind, 'newsletter'),
-        gte(messages.receivedAt, since)
-      )
-    )
+    .where(unembedded)
     .orderBy(desc(messages.receivedAt), asc(mentions.position))
-    .limit(CANDIDATES)
+    .limit(WORD_CANDIDATES)
 
-  const goalWords = words(ctx.selectedGoals.map(goalText).join(' '))
-  const scored = rows.map((row, order) => {
-    const text = [
-      row.headline,
-      row.blurb,
-      row.articleTitle,
-      row.articleSummary,
-      ...(row.articleTopics ?? [])
-    ]
-      .filter(Boolean)
-      .join(' ')
-    const shared = [...words(text)].filter(word => goalWords.has(word)).length
-    return { row, shared, order }
-  })
-  scored.sort((a, b) => b.shared - a.shared || a.order - b.order)
-
-  // The same article from two newsletters is one story: the best-ranked one.
-  const seen = new Set<string>()
-  const stories: NewsletterStory[] = []
-  for (const { row } of scored) {
-    const key = row.articleId ?? row.url ?? row.headline
-    if (seen.has(key)) continue
-    seen.add(key)
-    stories.push({
-      headline: row.headline,
-      blurb: row.blurb,
-      url: row.url,
-      newsletter: row.fromName || row.fromAddress || 'a newsletter',
-      receivedAt: row.receivedAt,
-      article: row.articleSummary
-        ? {
-            title: row.articleTitle,
-            summary: row.articleSummary,
-            publishedAt: row.articlePublishedAt,
-            claims: row.articleClaims ?? []
-          }
-        : null
-    })
-    if (stories.length === NEWSLETTER_STORIES_PER_RUN) break
-  }
-  return stories
+  return pickStories(
+    [closest, rankByWords(wordRows, queries)],
+    ctx.knowledgeDocs.flatMap(doc => (doc.sourceUrl ? [doc.sourceUrl] : [])),
+    NEWSLETTER_STORIES_PER_RUN
+  )
 }

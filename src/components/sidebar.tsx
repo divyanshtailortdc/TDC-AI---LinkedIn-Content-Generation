@@ -8,9 +8,11 @@ import { BRAND_THEME_PATH } from '@/lib/brand/theme-path'
 import { cn } from '@/lib/cn'
 import { IDENTITY_PATH } from '@/lib/identity-path'
 import { INBOX_PATH } from '@/lib/inbox-path'
+import { LIBRARY_PATH } from '@/lib/library-path'
 import { useIdeasToReview } from '@/lib/ideas-badge'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
+  BookOpen,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -35,6 +37,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 // ideas and posts it produces, then when each post goes out.
 const primaryNavItems = [
   { href: INBOX_PATH, label: 'Inbox', icon: Inbox },
+  { href: LIBRARY_PATH, label: 'Library', icon: BookOpen },
   { href: '/goals', label: 'Goals', icon: Target },
   { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
   { href: '/runs', label: 'Run Details', icon: Play },

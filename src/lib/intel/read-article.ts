@@ -2,7 +2,18 @@ import 'server-only'
 
 import { db } from '@/db'
 import { intelArticlesTable, intelMentionsTable } from '@/db/schema'
-import { and, asc, eq, inArray, lt, lte, ne, or, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql
+} from 'drizzle-orm'
 import { createHash } from 'node:crypto'
 import { extractKnowledgeClaims } from '../ai/skills/knowledge-extraction'
 import {
@@ -149,11 +160,9 @@ async function read(article: ClaimedArticle) {
     title: page.title.slice(0, 500),
     siteName: page.siteName,
     author: page.author?.slice(0, 200) ?? null,
-    description: page.description?.slice(0, 1000) ?? null,
     publishedAt: page.publishedAt,
     wordCount: page.wordCount,
     contentHash: hash,
-    fetchedAt: new Date(),
     lastError: null
   }
 
@@ -166,9 +175,10 @@ async function read(article: ClaimedArticle) {
         duplicateOfId: original
       })
       if (held) {
+        // Their stories now read as the original: embedded again with it.
         await tx
           .update(mentions)
-          .set({ articleId: original })
+          .set({ articleId: original, embedding: null, embeddingModel: null })
           .where(eq(mentions.articleId, article.id))
       }
     })
@@ -176,7 +186,7 @@ async function read(article: ClaimedArticle) {
   }
 
   const knowledge = await extractKnowledgeClaims(page.title, content)
-  await finish(db, article, {
+  const held = await finish(db, article, {
     ...facts,
     status: 'done',
     content,
@@ -184,6 +194,16 @@ async function read(article: ClaimedArticle) {
     topics: knowledge.topics,
     keyClaims: knowledge.claims
   })
+  // A story embedded before its article was read (index-stories.ts) is
+  // embedded again with the article's summary.
+  if (held) {
+    await db
+      .update(mentions)
+      .set({ embedding: null, embeddingModel: null })
+      .where(
+        and(eq(mentions.articleId, article.id), isNotNull(mentions.embedding))
+      )
+  }
 }
 
 async function recordFailure(article: ClaimedArticle, err: unknown) {

@@ -73,7 +73,8 @@ describe('supplying an image does not rewrite the media history', { skip: !url }
     ])
   })
   after(async () => {
-    await client`delete from accounts where handle = ${handle}`
+    // The second test adds `${handle}-old`; both go.
+    await client`delete from accounts where handle like ${handle + '%'}`
     await client.end()
   })
 

@@ -29,6 +29,7 @@ import { buildPrompt as buildMediaPrompt } from '../src/lib/ai/skills/media-brie
 import { collectFigureSources } from '../src/lib/ai/skills/post-drafting/guard'
 import * as draftingPrompt from '../src/lib/ai/skills/post-drafting/prompt'
 import { runLinter } from '../src/lib/lint/run-linter'
+import { ICON_NAMES } from '../src/lib/media/canvas/icon-names'
 
 /**
  * Prompts are checked across identities from unrelated fields, because the
@@ -360,9 +361,12 @@ describe('prompts across unrelated identities', () => {
         )
         assert.ok(!text.includes(other.ctx.account.name))
       }
-      // Domains and defaults that were once hardcoded for every account.
+      // Domains and defaults that were once hardcoded for every account. The
+      // media prompt's icon catalogue ("warehouse", "truck"…) is the same for
+      // everyone by design, so it does not count.
+      const ownText = text.replace(ICON_NAMES.join(', '), '')
       for (const banned of ['FlowERP', 'warehouse', 'Business strategy', 'strategic technology leadership']) {
-        assert.ok(!text.includes(banned), `hardcoded "${banned}"`)
+        assert.ok(!ownText.includes(banned), `hardcoded "${banned}"`)
       }
     })
   }

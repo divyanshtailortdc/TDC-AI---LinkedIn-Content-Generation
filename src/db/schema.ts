@@ -1077,7 +1077,6 @@ export const intelArticlesTable = pgTable(
     title: text('title'),
     siteName: text('site_name'),
     author: text('author'),
-    description: text('description'),
     publishedAt: commonFieldDefs.date('published_at'),
     content: text('content'),
     wordCount: integer('word_count'),
@@ -1087,12 +1086,16 @@ export const intelArticlesTable = pgTable(
     summary: text('summary'),
     topics: jsonb('topics').$type<string[]>().default([]).notNull(),
     keyClaims: jsonb('key_claims').$type<ArticleClaim[]>().default([]).notNull(),
-    fetchedAt: commonFieldDefs.date('fetched_at'),
+    // Library search ('simple': no stemming, as articles come in any language).
+    searchVector: tsvector('search_vector').generatedAlwaysAs(
+      sql`setweight(to_tsvector('simple', coalesce(title, '')), 'A') || setweight(to_tsvector('simple', coalesce(summary, '')), 'B') || setweight(to_tsvector('simple', left(coalesce(content, ''), 100000)), 'C')`
+    ),
     ...commonFieldDefs.dates
   },
   table => [
     index('intel_articles_due_idx').on(table.status, table.nextAttemptAt),
     index('intel_articles_content_hash_idx').on(table.contentHash),
+    index('intel_articles_search_idx').using('gin', table.searchVector),
     check(
       'intel_articles_status_check',
       sql`${table.status} in (${sqlList(ARTICLE_STATUSES)})`
@@ -1127,6 +1130,16 @@ export const intelMentionsTable = pgTable(
     // Where the link led, or the link as written when it could not be followed.
     url: text('url'),
     isSponsored: boolean('is_sponsored').default(false).notNull(),
+    // What the story is about, for matching it to a run's goals by meaning
+    // (src/lib/intel/index-stories.ts): its headline, the newsletter's words
+    // and the article's summary, embedded once the article is read. Null
+    // until then, or without an embedding model.
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIMENSIONS }),
+    embeddingModel: varchar('embedding_model', { length: 100 }),
+    // Library search, like the inbox's.
+    searchVector: tsvector('search_vector').generatedAlwaysAs(
+      sql`setweight(to_tsvector('simple', coalesce(headline, '')), 'A') || setweight(to_tsvector('simple', coalesce(blurb, '')), 'B')`
+    ),
     createdAt: commonFieldDefs.dates.createdAt
   },
   table => [
@@ -1135,7 +1148,12 @@ export const intelMentionsTable = pgTable(
       table.position
     ),
     index('intel_mentions_article_idx').on(table.articleId),
-    index('intel_mentions_account_idx').on(table.accountId, table.createdAt)
+    index('intel_mentions_account_idx').on(table.accountId, table.createdAt),
+    index('intel_mentions_embedding_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
+    index('intel_mentions_search_idx').using('gin', table.searchVector)
   ]
 )
 

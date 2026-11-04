@@ -17,7 +17,7 @@ import type {
 } from '../src/lib/ai/skills/ideation/schema'
 import type { GenerationContext } from '../src/lib/ai/context-blocks'
 import { buildGroundingCorpus } from '../src/lib/ai/pipeline/grounding-corpus'
-import type { NewsletterStory } from '../src/lib/intel/retrieval'
+import type { NewsletterStory } from '../src/lib/intel/story-ranking'
 
 const own = {
   claim: 'Ledgerly closes the books in five working days',
