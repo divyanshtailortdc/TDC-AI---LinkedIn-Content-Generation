@@ -25,8 +25,8 @@ import {
  * Webhook mail is filed under its own mail_sync_state row
  * (MAIL_WEBHOOK_SETTINGS.mailbox), with a digest of the delivery as its UID
  * (deliveryUid), so the same unique indexes refuse duplicates: a repeated
- * post by UID, a resent email by Message-ID, also across the two ways in
- * while both are on.
+ * post by UID, a resent email by Message-ID or, without one, by its content
+ * (contentHashOf), also across the two ways in while both are on.
  */
 
 export type InboundResult =
@@ -128,7 +128,7 @@ export async function receiveInboundEmail(
   const [stored] = await db
     .insert(mailMessagesTable)
     .values(row)
-    // No target: skips a row that clashes with either unique index.
+    // No target: skips a row that clashes with any of its unique indexes.
     .onConflictDoNothing()
     .returning({ id: mailMessagesTable.id })
   if (!stored) return { status: 'duplicate' }

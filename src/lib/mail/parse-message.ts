@@ -5,6 +5,7 @@ import type {
 } from '@/db/schema'
 import { load } from 'cheerio'
 import type { FetchMessageObject, MessageAddressObject } from 'imapflow'
+import { createHash } from 'node:crypto'
 import type {
   AddressObject,
   EmailAddress,
@@ -118,6 +119,33 @@ function attachmentsOf(parsed: ParsedMail | null): MailAttachmentMeta[] {
 }
 
 /**
+ * What makes a stored email the same email whatever its Message-ID: the
+ * sender, subject and both bodies exactly as stored. The unique index on
+ * (identity, content_hash) then refuses a copy delivered again without a
+ * Message-ID, resent under a new one, or read again from a rebuilt mailbox.
+ * Exact on purpose: two different issues must never be taken for one.
+ *
+ * Null without a body, so emails that could not be parsed are never taken
+ * for one another. Migration 0031 computes the same digest in SQL for the
+ * mail stored before it; keep the two in step.
+ */
+export function contentHashOf(
+  row: Pick<NewMailMessage, 'fromAddress' | 'subject' | 'htmlBody' | 'textBody'>
+): string | null {
+  if (!row.htmlBody && !row.textBody) return null
+  return createHash('sha256')
+    .update(
+      [
+        row.fromAddress ?? '',
+        row.subject ?? '',
+        row.htmlBody ?? '',
+        row.textBody ?? ''
+      ].join('\n')
+    )
+    .digest('hex')
+}
+
+/**
  * The local part of the identity address a copy was delivered to (`test`
  * for test@<domain>), lower-case, or null. Our mail server rewrites every
  * address at the domain to `<mailbox>+<local part>` and Dovecot records that
@@ -152,7 +180,7 @@ export function toMessageRow(
   const textBody = bodyText(parsed, html)
   const sentAt = validDate(parsed?.date) ?? validDate(envelope?.date)
 
-  return {
+  const row: NewMailMessage = {
     accountId: owner.accountId,
     mailboxId: owner.mailboxId,
     uidValidity: owner.uidValidity,
@@ -177,4 +205,5 @@ export function toMessageRow(
     sentAt,
     receivedAt: validDate(message.internalDate) ?? sentAt ?? new Date()
   }
+  return { ...row, contentHash: contentHashOf(row) }
 }

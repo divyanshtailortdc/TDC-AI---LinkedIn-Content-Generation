@@ -41,8 +41,9 @@ import {
  * UIDs above it and handles them oldest first, in batches; each batch's rows
  * and the cursor move in one transaction, so a crash part-way never skips
  * mail and never stores it twice. The database refuses duplicates as well:
- * UNIQUE (mailbox, UIDVALIDITY, UID), and (identity, Message-ID), which
- * outlives a UIDVALIDITY change.
+ * UNIQUE (mailbox, UIDVALIDITY, UID), (identity, Message-ID), which
+ * outlives a UIDVALIDITY change, and (identity, content hash), for the same
+ * email without a Message-ID or resent under a new one (contentHashOf).
  *
  * Each copy is stored for the identity whose address it was delivered to.
  * Mail for an address no identity has (spam to made-up addresses) is skipped;
@@ -135,7 +136,7 @@ async function commitBatch(
       .returning({ id: mailSyncStateTable.id })
     if (!held) throw new LeaseLostError()
     if (rows.length === 0) return 0
-    // No target: skips a row that clashes with either unique index.
+    // No target: skips a row that clashes with any of its unique indexes.
     const inserted = await tx
       .insert(mailMessagesTable)
       .values(rows)

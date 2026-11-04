@@ -962,6 +962,10 @@ export const mailMessagesTable = pgTable(
     uid: bigint('uid', { mode: 'number' }).notNull(),
     // Survives a UIDVALIDITY change, so a re-sync recognises stored messages.
     messageIdHeader: text('message_id_header'),
+    // sha256 of the sender, subject and both bodies as stored
+    // (contentHashOf, src/lib/mail/parse-message.ts): the same email again
+    // without a Message-ID, or resent under a new one. Null without a body.
+    contentHash: varchar('content_hash', { length: 64 }),
     fromName: text('from_name'),
     fromAddress: text('from_address'),
     toAddresses: jsonb('to_addresses').$type<MailAddress[]>().default([]).notNull(),
@@ -1016,6 +1020,9 @@ export const mailMessagesTable = pgTable(
     uniqueIndex('mail_messages_account_message_id_uq')
       .on(table.accountId, table.messageIdHeader)
       .where(sql`message_id_header is not null`),
+    uniqueIndex('mail_messages_account_content_hash_uq')
+      .on(table.accountId, table.contentHash)
+      .where(sql`content_hash is not null`),
     // The inbox list: newest first, with the id as tiebreaker.
     index('mail_messages_account_received_idx').on(
       table.accountId,

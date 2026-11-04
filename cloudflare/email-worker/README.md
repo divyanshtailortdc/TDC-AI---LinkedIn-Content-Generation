@@ -29,9 +29,10 @@ The two ways in can run side by side. Each one stores into the same `mail_messag
 
 The worker never uses `setReject` for a failure on our side, because that would bounce the email for good. It throws instead, and Cloudflare turns that into a temporary SMTP error. It also awaits the post inside the handler (not `ctx.waitUntil`), so the sender hears the real outcome.
 
-**Duplicates.** Webhook mail is filed under its own `mail_sync_state` row (`cloudflare-email-routing`), which no IMAP pass touches. Its UID is a 53-bit SHA-256 digest of the recipient and the source, so the existing unique indexes do the work. No migration was needed:
+**Duplicates.** Webhook mail is filed under its own `mail_sync_state` row (`cloudflare-email-routing`), which no IMAP pass touches. Its UID is a 53-bit SHA-256 digest of the recipient and the source, so the unique indexes do the work:
 - `(mailbox, UIDVALIDITY, UID)` refuses the same delivery posted twice, for example a worker retry after a lost response.
 - `(identity, Message-ID)` refuses an email the sender sent again, or one that already came in through IMAP.
+- `(identity, content_hash)` refuses the same email without a `Message-ID`, or resent under a new one (sender, subject and both bodies as stored; see `contentHashOf` in `src/lib/mail/parse-message.ts`).
 
 **Logs.** These never include content or addresses:
 - App: `Inbound mail: stored, 4052979 bytes, 22 ms.`, plus a line for each refusal with its reason.
