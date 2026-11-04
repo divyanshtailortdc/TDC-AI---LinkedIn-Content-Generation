@@ -2,7 +2,7 @@ import 'server-only'
 
 import { db } from '@/db'
 import { newslettersTable } from '@/db/schema'
-import { loadGenerationContext } from '@/lib/ai/context'
+import { loadGenerationContext, type GenerationContext } from '@/lib/ai/context'
 import { interleave } from '@/lib/ai/pipeline/grounding-corpus'
 import { inferRegion } from '@/lib/ai/region'
 import {
@@ -269,9 +269,7 @@ async function saveNewsletters(
 }
 
 /** Has the profile anything to match newsletters against beyond a name? */
-function hasProfileSubstance(
-  ctx: Awaited<ReturnType<typeof loadGenerationContext>>
-): boolean {
+function hasProfileSubstance(ctx: GenerationContext): boolean {
   return Boolean(
     ctx.account.industry?.trim() ||
     ctx.account.bio?.trim() ||

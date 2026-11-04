@@ -92,9 +92,10 @@ function NotSetUp() {
             The inbox is not set up yet
           </h2>
           <p className="text-muted text-sm leading-relaxed">
-            An administrator needs to run the mail server and set
-            INBOUND_EMAIL_DOMAIN and the MAIL_IMAP_* settings (see
-            mailserver/README.md).
+            An administrator needs to set INBOUND_EMAIL_DOMAIN and either
+            MAIL_WEBHOOK_SECRET for Cloudflare Email Routing (see
+            cloudflare/email-worker/README.md) or the MAIL_IMAP_* settings for
+            our mail server (see mailserver/README.md).
           </p>
         </div>
       </div>
@@ -233,7 +234,7 @@ function IdentityInbox({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside
           className={cn(
-            'border-border bg-surface w-full shrink-0 flex-col lg:flex lg:w-[380px] lg:border-r',
+            'border-border bg-surface w-full shrink-0 flex-col lg:flex lg:w-95 lg:border-r',
             selectedId ? 'hidden' : 'flex'
           )}
         >
@@ -378,7 +379,7 @@ function IdentityInbox({
                 className="text-muted hover:text-foreground inline-flex w-fit cursor-pointer items-center gap-1.5 text-xs font-medium lg:hidden"
               >
                 <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-                Back to inbox 
+                Back to inbox
               </button>
               {detailError ? (
                 <FormAlert variant="error">{detailError}</FormAlert>
@@ -441,11 +442,11 @@ function MessageView({
   return (
     <>
       <header className="space-y-3">
-        <h2 className="text-foreground text-lg font-semibold tracking-tight break-words sm:text-xl">
+        <h2 className="text-foreground text-lg font-semibold tracking-tight wrap-break-word sm:text-xl">
           {message.subject || '(no subject)'}
         </h2>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-0.5 text-sm break-words">
+          <div className="min-w-0 space-y-0.5 text-sm wrap-break-word">
             <p className="text-foreground">
               <span className="font-medium">{senderOf(message)}</span>
               {message.fromName && message.fromAddress && (

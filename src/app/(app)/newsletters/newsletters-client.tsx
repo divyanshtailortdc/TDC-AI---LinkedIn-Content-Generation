@@ -28,7 +28,7 @@ import {
   Rss,
   Search
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   discoverNewslettersAction,
   recordSignupOpenedAction,
@@ -53,11 +53,13 @@ type NewsletterRow = {
 
 type Filter = 'all' | 'discovered' | 'saved' | 'subscribed' | 'other'
 
-const FILTERS: Array<{
+type FilterOption = {
   value: Filter
   label: string
   statuses: NewsletterStatus[] | null
-}> = [
+}
+
+const FILTERS: FilterOption[] = [
   { value: 'all', label: 'All', statuses: null },
   { value: 'discovered', label: 'New', statuses: ['discovered'] },
   { value: 'saved', label: 'Saved', statuses: ['saved'] },
@@ -81,6 +83,13 @@ const STATUS_TONE: Record<NewsletterStatus, string> = {
   active: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   unsubscribed: 'bg-surface-hover text-muted',
   failed: 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
+}
+
+/** The newsletters a filter shows: those in its statuses, or all of them. */
+function inFilter(newsletters: NewsletterRow[], { statuses }: FilterOption) {
+  return statuses
+    ? newsletters.filter(n => statuses.includes(n.status))
+    : newsletters
 }
 
 function scoreTone(score: number): string {
@@ -200,17 +209,12 @@ export function NewslettersClient({
   }
 
   const counts = Object.fromEntries(
-    FILTERS.map(f => [
-      f.value,
-      f.statuses
-        ? newsletters.filter(n => f.statuses!.includes(n.status)).length
-        : newsletters.length
-    ])
+    FILTERS.map(f => [f.value, inFilter(newsletters, f).length])
   ) as Record<Filter, number>
-  const activeFilter = FILTERS.find(f => f.value === filter)!
-  const shown = activeFilter.statuses
-    ? newsletters.filter(n => activeFilter.statuses!.includes(n.status))
-    : newsletters
+  const shown = inFilter(
+    newsletters,
+    FILTERS.find(f => f.value === filter)!
+  )
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -355,8 +359,23 @@ function NewsletterCard({
   onOpenedSignup: () => void
 }) {
   const mounted = useHasMounted()
-  const can = (action: NewsletterAction) =>
-    nextNewsletterStatus(n.status, action) !== null
+  /** A button for `action`, only where it applies to the current status. */
+  const actionButton = (
+    action: NewsletterAction,
+    label: ReactNode,
+    title?: string
+  ) =>
+    nextNewsletterStatus(n.status, action) !== null && (
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={busy}
+        onClick={() => onAction(action)}
+        title={title}
+      >
+        {label}
+      </Button>
+    )
   const signupHref = safeHref(n.signupUrl)
   const websiteHref = safeHref(n.websiteUrl)
 
@@ -472,50 +491,34 @@ function NewsletterCard({
             Open Signup Page
           </a>
         )}
-        {can('save') && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => onAction('save')}
-          >
+        {actionButton(
+          'save',
+          <>
             <Bookmark className="h-3.5 w-3.5" />
             Save
-          </Button>
+          </>
         )}
-        {can('unsave') && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => onAction('unsave')}
-            title="Remove from saved"
-          >
+        {actionButton(
+          'unsave',
+          <>
             <BookmarkCheck className="text-accent h-3.5 w-3.5" />
             Saved
-          </Button>
+          </>,
+          'Remove from saved'
         )}
-        {can('mark_subscribed') && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => onAction('mark_subscribed')}
-          >
+        {actionButton(
+          'mark_subscribed',
+          <>
             <CheckCircle2 className="h-3.5 w-3.5" />
             Mark as Subscribed
-          </Button>
+          </>
         )}
-        {can('mark_unsubscribed') && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => onAction('mark_unsubscribed')}
-          >
+        {actionButton(
+          'mark_unsubscribed',
+          <>
             <MailX className="h-3.5 w-3.5" />
             Mark as Unsubscribed
-          </Button>
+          </>
         )}
         {busy && (
           <Loader2
@@ -530,36 +533,9 @@ function NewsletterCard({
           <span className="text-foreground mr-1 font-medium">
             Finished on their page? Tell us how it went:
           </span>
-          {can('mark_subscribed') && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => onAction('mark_subscribed')}
-            >
-              I&apos;m subscribed
-            </Button>
-          )}
-          {can('mark_pending') && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => onAction('mark_pending')}
-            >
-              Waiting for confirmation email
-            </Button>
-          )}
-          {can('mark_failed') && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => onAction('mark_failed')}
-            >
-              Couldn&apos;t sign up
-            </Button>
-          )}
+          {actionButton('mark_subscribed', "I'm subscribed")}
+          {actionButton('mark_pending', 'Waiting for confirmation email')}
+          {actionButton('mark_failed', "Couldn't sign up")}
         </div>
       )}
     </article>

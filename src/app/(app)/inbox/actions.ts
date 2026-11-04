@@ -13,7 +13,7 @@ import { retryEmailExtraction } from '~/lib/intel/extract-email'
 import { chooseInboundAddress } from '~/lib/mail/addresses'
 import { normalizeLocalPart } from '~/lib/mail/local-part'
 import { readMailSyncStatus, requestMailSync } from '~/lib/mail/mailbox'
-import { inboundMailConfig } from '~/lib/mail/settings'
+import { inboxConfig } from '~/lib/mail/settings'
 import { loadInboxInsights, loadInboxMessage } from './inbox-data'
 
 const NOT_SET_UP = 'The inbox is not set up on this server.'
@@ -26,7 +26,7 @@ export async function changeInboxAddress(input: string) {
   await requireUser()
   try {
     const accountId = await requireIdentityId()
-    const config = inboundMailConfig()
+    const config = inboxConfig()
     if (!config) return { success: false as const, error: NOT_SET_UP }
     const localPart = normalizeLocalPart(
       typeof input === 'string' ? input : '',
@@ -66,15 +66,20 @@ export async function getInboxMessage(messageId: string) {
  * "Refresh": asks for a sync of the mailbox and, where this process runs
  * jobs, starts it after the response, then extracts what arrived. One pass
  * at a time (the sync lease), so pressing it again while one runs does
- * nothing extra.
+ * nothing extra. Without IMAP there is nothing to pull: webhook mail is
+ * stored as it arrives, so only its extraction runs.
  */
 export async function refreshInbox() {
   await requireUser()
   try {
     await requireIdentityId()
-    const config = inboundMailConfig()
+    const config = inboxConfig()
     if (!config) return { success: false as const, error: NOT_SET_UP }
-    await requestMailSync(config.user)
+    if (!config.imap) {
+      if (runsJobsHere()) after(runMailExtraction)
+      return { success: true as const }
+    }
+    await requestMailSync(config.imap.user)
     if (runsJobsHere()) after(() => runInboxSync().then(runMailExtraction))
     return { success: true as const }
   } catch (err) {
@@ -87,11 +92,11 @@ export async function refreshInbox() {
 export async function getInboxSyncStatus() {
   await requireUser()
   try {
-    const config = inboundMailConfig()
+    const config = inboxConfig()
     if (!config) return { success: false as const, error: NOT_SET_UP }
     return {
       success: true as const,
-      status: await readMailSyncStatus(config.user)
+      status: await readMailSyncStatus(config.statusMailbox)
     }
   } catch (err) {
     console.error('Reading the inbox sync status failed:', err)

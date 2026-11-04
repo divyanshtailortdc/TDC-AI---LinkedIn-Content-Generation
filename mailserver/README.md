@@ -2,6 +2,8 @@
 
 Our own receive-only mail server for identity addresses: every email sent to `anything@INBOUND_DOMAIN` (in production `inbox.tdcai.com`, e.g. `test@inbox.tdcai.com`) lands in one mailbox, `catchall@INBOUND_DOMAIN`, which the app reads over IMAP. It runs [docker-mailserver](https://github.com/docker-mailserver/docker-mailserver) 16.0.1 (Postfix for SMTP, Dovecot for IMAP, Rspamd for spam). It never sends mail.
 
+Cloudflare Email Routing can deliver to the same inbox instead, or as well, without a server: see `cloudflare/email-worker/README.md`.
+
 | File | What it is |
 | --- | --- |
 | `compose.yaml` | The server, for local use: SMTP on 2525, IMAPS on 9993, a self-signed certificate |

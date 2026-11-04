@@ -23,8 +23,19 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 const NEWSLETTERS_PATH = '/newsletters'
+const NOT_FOUND = 'Newsletter not found'
+const DISCOVERY_FAILED = 'Discovery could not finish. Please try again.'
 
-const NewsletterIdSchema = idSchema('Newsletter not found')
+/** What the user is told when a model call of discovery fails, by reason. */
+const SKILL_ERROR_MESSAGES: Record<SkillError['reason'], string> = {
+  not_configured:
+    'AI is not configured. Set ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to discover newsletters.',
+  quota_exceeded: 'The AI budget has been reached. Please try again later.',
+  timeout: 'Discovery took too long. Please try again.',
+  failed: DISCOVERY_FAILED
+}
+
+const NewsletterIdSchema = idSchema(NOT_FOUND)
 const NewsletterActionSchema = z.enum(NEWSLETTER_ACTIONS)
 
 type ActionResult<T = object> =
@@ -54,24 +65,13 @@ export async function discoverNewslettersAction(): Promise<
       return { success: false, error: error.message }
     }
     if (error instanceof SkillError) {
-      const messages: Record<SkillError['reason'], string> = {
-        not_configured:
-          'AI is not configured. Set ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to discover newsletters.',
-        quota_exceeded:
-          'The AI budget has been reached. Please try again later.',
-        timeout: 'Discovery took too long. Please try again.',
-        failed: 'Discovery could not finish. Please try again.'
-      }
       if (error.reason !== 'not_configured') {
         console.error('Newsletter discovery failed:', error)
       }
-      return { success: false, error: messages[error.reason] }
+      return { success: false, error: SKILL_ERROR_MESSAGES[error.reason] }
     }
     console.error('Newsletter discovery failed:', error)
-    return {
-      success: false,
-      error: 'Discovery could not finish. Please try again.'
-    }
+    return { success: false, error: DISCOVERY_FAILED }
   }
 }
 
@@ -121,11 +121,11 @@ export async function updateNewsletterStatusAction(
       success: false,
       error: exists
         ? 'That does not apply to this newsletter any more. Refresh the page.'
-        : 'Newsletter not found'
+        : NOT_FOUND
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return { success: false, error: 'Newsletter not found' }
+      return { success: false, error: NOT_FOUND }
     }
     console.error('Updating newsletter status failed:', error)
     return { success: false, error: 'Could not update the newsletter.' }
@@ -150,10 +150,8 @@ export async function recordSignupOpenedAction(
         )
       )
       .returning({ id: newslettersTable.id })
-    return row
-      ? { success: true }
-      : { success: false, error: 'Newsletter not found' }
+    return row ? { success: true } : { success: false, error: NOT_FOUND }
   } catch {
-    return { success: false, error: 'Newsletter not found' }
+    return { success: false, error: NOT_FOUND }
   }
 }

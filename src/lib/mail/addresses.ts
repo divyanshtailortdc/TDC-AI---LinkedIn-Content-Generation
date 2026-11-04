@@ -27,7 +27,7 @@ import { addressCandidates, localPartError } from './local-part'
 const addresses = inboundAddressesTable
 
 /** Counting replaced ones, so one workspace cannot hold many names. */
-export const MAX_ADDRESSES_PER_WORKSPACE = 5
+const MAX_ADDRESSES_PER_WORKSPACE = 5
 
 const TAKEN = 'That address is taken. Please choose another.'
 

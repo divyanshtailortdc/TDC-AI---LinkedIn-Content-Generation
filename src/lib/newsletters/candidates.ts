@@ -48,7 +48,8 @@ const NEWSLETTER_PLATFORMS = [
   'mailerlite.com'
 ]
 
-function hostOf(url: string): string | null {
+/** The host without `www.`, or null when `url` does not parse. */
+export function hostOf(url: string): string | null {
   try {
     return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
   } catch {

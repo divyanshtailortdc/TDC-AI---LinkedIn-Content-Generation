@@ -13,7 +13,7 @@ import {
   type FetchQueryObject,
   type ImapFlowError
 } from 'imapflow'
-import { simpleParser, type SimpleParserOptions } from 'mailparser'
+import { simpleParser } from 'mailparser'
 import { readFileSync } from 'node:fs'
 import { identitiesByLocalPart } from './addresses'
 import {
@@ -25,7 +25,7 @@ import {
   recordSyncSuccess,
   type SyncLease
 } from './mailbox'
-import { recipientOf, toMessageRow } from './parse-message'
+import { PARSER_OPTIONS, recipientOf, toMessageRow } from './parse-message'
 import {
   inboundMailConfig,
   MAIL_SYNC_SETTINGS,
@@ -65,16 +65,6 @@ const FETCH_QUERY: FetchQueryObject = {
   // Routes a copy before its source is parsed (see rowsFor).
   headers: ['delivered-to'],
   source: { maxLength: MAIL_SYNC_SETTINGS.maxSourceBytes }
-}
-
-const PARSER_OPTIONS: SimpleParserOptions = {
-  // cid: images stay links: inlining them as data URLs multiplies the HTML size.
-  keepCidLinks: true,
-  // HTML-only mail gets its text from readableText (parse-message.ts), the
-  // one conversion for every email; mailparser's own shouts headings in capitals.
-  skipHtmlToText: true,
-  skipTextToHtml: true,
-  skipTextLinks: true
 }
 
 /** Network errors worth a quiet retry rather than the raw message. */

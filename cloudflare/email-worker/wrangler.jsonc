@@ -1,0 +1,17 @@
+// Cloudflare Email Worker for the inbound domain (README.md).
+// Production: `npm run deploy`, after `npx wrangler secret put WEBHOOK_SECRET`.
+// Local: `npm run dev` reads .dev.vars instead (copy .dev.vars.example).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tdc-inbound-mail",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  // No routes or custom domain: Email Routing calls it, nothing on the web does.
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    // The production app. WEBHOOK_SECRET is a secret, never put here.
+    "WEBHOOK_URL": "https://tdc-ai-linked-in-content-generation.vercel.app/api/mail/inbound"
+  }
+}

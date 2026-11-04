@@ -113,6 +113,8 @@ describe('every API route checks the session first', () => {
     .filter(file => !file.includes(`${path.sep}auth${path.sep}`))
     // Called by a scheduler, never a signed-in user; checked below instead.
     .filter(file => !file.includes(`${path.sep}cron${path.sep}`))
+    // Called by the Cloudflare Email Worker; checked below instead.
+    .filter(file => !file.includes(`${path.sep}mail${path.sep}inbound${path.sep}`))
     .map(parse)
 
   for (const source of routes) {
@@ -121,6 +123,27 @@ describe('every API route checks the session first', () => {
         assert.ok(
           checksFirst(fn, 'getSessionUser'),
           `${fn.name!.text} must call getSessionUser() before any try block`
+        )
+      })
+    }
+  }
+})
+
+describe('the inbound mail webhook checks its signature first', () => {
+  const routes = walk(path.join(SRC, 'app', 'api', 'mail', 'inbound'))
+    .filter(file => file.endsWith('route.ts'))
+    .map(parse)
+
+  it('finds the webhook route', () => {
+    assert.strictEqual(routes.length, 1, 'no inbound mail route found')
+  })
+
+  for (const source of routes) {
+    for (const fn of exportedFunctions(source)) {
+      it(`${relative(source.fileName)}: ${fn.name!.text}`, () => {
+        assert.ok(
+          checksFirst(fn, 'signatureError'),
+          `${fn.name!.text} must call signatureError() before any try block`
         )
       })
     }

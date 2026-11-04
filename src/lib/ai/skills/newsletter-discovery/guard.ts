@@ -1,4 +1,4 @@
-import { signupUrlKey } from '@/lib/newsletters/candidates'
+import { hostOf, signupUrlKey } from '@/lib/newsletters/candidates'
 import type { NewsletterCategory } from '@/lib/newsletters/status'
 import {
   MAX_QUERIES,
@@ -64,14 +64,11 @@ function clean(text: string, max: number): string {
 export function newsletterIdentityKey(
   n: Pick<ClassifiedNewsletter, 'name' | 'websiteUrl'>
 ): string {
-  let host = ''
-  try {
-    host = new URL(n.websiteUrl).hostname.replace(/^www\./, '')
-  } catch {}
-  return `${n.name
+  const name = n.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
-    .trim()}@${host}`
+    .trim()
+  return `${name}@${hostOf(n.websiteUrl) ?? ''}`
 }
 
 /**

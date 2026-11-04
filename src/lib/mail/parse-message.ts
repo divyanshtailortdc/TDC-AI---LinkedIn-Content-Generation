@@ -5,7 +5,12 @@ import type {
 } from '@/db/schema'
 import { load } from 'cheerio'
 import type { FetchMessageObject, MessageAddressObject } from 'imapflow'
-import type { AddressObject, EmailAddress, ParsedMail } from 'mailparser'
+import type {
+  AddressObject,
+  EmailAddress,
+  ParsedMail,
+  SimpleParserOptions
+} from 'mailparser'
 import { INVISIBLE, readableText } from '../html-text'
 import { MAIL_SYNC_SETTINGS } from './settings'
 
@@ -13,8 +18,26 @@ import { MAIL_SYNC_SETTINGS } from './settings'
  * One fetched IMAP message as a mail_messages row for the identity it was
  * delivered to. mailparser's result is preferred; the IMAP envelope fills in
  * when the source could not be parsed, so a malformed email is still listed
- * instead of blocking the sync cursor.
+ * instead of blocking the sync cursor. Webhook mail (webhook.ts) is built the
+ * same way, from a message shaped like a fetched one.
  */
+
+/** How every email's source is parsed, whichever way it arrived. */
+export const PARSER_OPTIONS: SimpleParserOptions = {
+  // cid: images stay links: inlining them as data URLs multiplies the HTML size.
+  keepCidLinks: true,
+  // HTML-only mail gets its text from readableText (below), the one
+  // conversion for every email; mailparser's own shouts headings in capitals.
+  skipHtmlToText: true,
+  skipTextToHtml: true,
+  skipTextLinks: true
+}
+
+/** What toMessageRow reads of a message besides its parsed source. */
+export type ReceivedMessage = Pick<
+  FetchMessageObject,
+  'uid' | 'envelope' | 'size' | 'internalDate'
+>
 
 /** Postgres text and jsonb reject NUL, which broken mailers do send. */
 function clean(value: string | null | undefined, max?: number): string | null {
@@ -119,7 +142,7 @@ export function recipientOf(
 
 export function toMessageRow(
   owner: { accountId: string; mailboxId: string; uidValidity: number },
-  message: FetchMessageObject,
+  message: ReceivedMessage,
   parsed: ParsedMail | null
 ): NewMailMessage {
   const envelope = message.envelope
