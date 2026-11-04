@@ -377,7 +377,7 @@ function IdentityInbox({
                 className="text-muted hover:text-foreground inline-flex w-fit cursor-pointer items-center gap-1.5 text-xs font-medium lg:hidden"
               >
                 <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-                Back to inbox 
+                Back to inbox
               </button>
               {detailError ? (
                 <FormAlert variant="error">{detailError}</FormAlert>

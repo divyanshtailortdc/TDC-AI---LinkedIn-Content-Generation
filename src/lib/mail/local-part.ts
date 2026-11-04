@@ -5,7 +5,7 @@
  * src/lib/mail/addresses.ts stores and assigns them.
  */
 
-export const LOCAL_PART_MIN = 2
+const LOCAL_PART_MIN = 2
 export const LOCAL_PART_MAX = 40
 
 /** Lower-case letters and digits, with single dots, hyphens or underscores between them. */
