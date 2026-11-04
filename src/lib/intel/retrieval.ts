@@ -128,7 +128,9 @@ export async function retrieveNewsletterStories(
     eq(mentions.accountId, ctx.account.id),
     eq(mentions.isSponsored, false),
     eq(messages.digestKind, 'newsletter'),
-    gte(messages.receivedAt, since)
+    gte(messages.receivedAt, since),
+    // A newsletter the user unsubscribed from is no longer a source.
+    isNull(messages.senderUnsubscribedAt)
   )!
 
   const handle = getEmbeddingModel()

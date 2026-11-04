@@ -6,8 +6,9 @@ import {
   intelMentionsTable,
   knowledgeDocumentsTable
 } from '@/db/schema'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull } from 'drizzle-orm'
 import { indexKnowledgeDocument } from '../ai/embeddings'
+import { articleUrlKey } from './links'
 
 /**
  * "Save to Knowledge base" in the Library: a story's article becomes one of
@@ -53,12 +54,18 @@ export async function saveStoryToKnowledge(
     return 'Only a story whose article was read can be saved.'
   }
 
-  const [existing] = await db
-    .select({ id: docs.id })
+  // Already there, also when added by hand under another way of writing its
+  // address ("www.", a trailing slash, tracking parameters).
+  const saved = await db
+    .select({ sourceUrl: docs.sourceUrl })
     .from(docs)
-    .where(and(eq(docs.accountId, accountId), eq(docs.sourceUrl, story.url)))
-    .limit(1)
-  if (existing) return null
+    .where(and(eq(docs.accountId, accountId), isNotNull(docs.sourceUrl)))
+  const address = articleUrlKey(story.url)
+  if (
+    saved.some(doc => doc.sourceUrl && articleUrlKey(doc.sourceUrl) === address)
+  ) {
+    return null
+  }
 
   const [inserted] = await db
     .insert(docs)

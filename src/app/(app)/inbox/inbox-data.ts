@@ -150,6 +150,13 @@ export type InboxInsights = {
   summary: string | null
   topics: string[]
   stories: InboxStory[]
+  /**
+   * The newer version of this issue (a correction, a resend), which carries
+   * the stories both have; null while this is the newest.
+   */
+  newerVersion: { subject: string | null; receivedAt: Date } | null
+  /** Who sent it, and whether the user unsubscribed from them; null without an address. */
+  sender: { address: string; unsubscribed: boolean } | null
 }
 
 const SHOWN_CLAIMS = 3
@@ -165,12 +172,30 @@ export async function loadInboxInsights(
       error: messages.extractionError,
       kind: messages.digestKind,
       summary: messages.digestSummary,
-      topics: messages.digestTopics
+      topics: messages.digestTopics,
+      supersededById: messages.supersededById,
+      fromAddress: messages.fromAddress,
+      senderUnsubscribedAt: messages.senderUnsubscribedAt
     })
     .from(messages)
     .where(and(eq(messages.id, messageId), eq(messages.accountId, accountId)))
     .limit(1)
   if (!message) return null
+  const { supersededById, fromAddress, senderUnsubscribedAt, ...extraction } =
+    message
+
+  const [newerVersion] = supersededById
+    ? await db
+        .select({ subject: messages.subject, receivedAt: messages.receivedAt })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.id, supersededById),
+            eq(messages.accountId, accountId)
+          )
+        )
+        .limit(1)
+    : []
 
   const mentions = intelMentionsTable
   const articles = intelArticlesTable
@@ -197,7 +222,11 @@ export async function loadInboxInsights(
     .orderBy(asc(mentions.position))
 
   return {
-    ...message,
+    ...extraction,
+    newerVersion: newerVersion ?? null,
+    sender: fromAddress
+      ? { address: fromAddress, unsubscribed: senderUnsubscribedAt !== null }
+      : null,
     stories: rows.map(row => ({
       id: row.id,
       headline: row.headline,

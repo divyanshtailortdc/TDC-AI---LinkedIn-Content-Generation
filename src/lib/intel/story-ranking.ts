@@ -1,5 +1,5 @@
 import type { ArticleClaim } from '@/db/schema'
-import { canonicalArticleUrl } from './links'
+import { articleUrlKey } from './links'
 
 /**
  * Choosing a run's newsletter stories from the rows retrieval.ts loads. Pure,
@@ -109,16 +109,16 @@ export function pickStories(
   savedUrls: Iterable<string>,
   limit: number
 ): NewsletterStory[] {
-  const saved = new Set(
-    [...savedUrls].map(url => canonicalArticleUrl(url) ?? url)
-  )
+  // However the address is written ("www.", a trailing slash, tracking).
+  const saved = new Set([...savedUrls].map(articleUrlKey))
   const seen = new Set<string>()
   const stories: NewsletterStory[] = []
   for (const row of lists.flat()) {
-    const key = row.articleId ?? row.url ?? row.headline
+    const address = row.url ? articleUrlKey(row.url) : null
+    const key = row.articleId ?? address ?? row.headline
     if (seen.has(key)) continue
     seen.add(key)
-    if (row.url && saved.has(canonicalArticleUrl(row.url) ?? row.url)) continue
+    if (address && saved.has(address)) continue
     stories.push({
       headline: row.headline,
       blurb: row.blurb,

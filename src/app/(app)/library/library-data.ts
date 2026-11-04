@@ -9,7 +9,8 @@ import {
 } from '@/db/schema'
 import { MAX_LIBRARY_QUERY_LENGTH } from '@/lib/library-path'
 import { loadPage } from '@/lib/pagination'
-import { and, asc, count, desc, eq, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, isNotNull, or, sql } from 'drizzle-orm'
+import { articleUrlKey } from '~/lib/intel/links'
 import type { ArticleStatus } from '~/lib/intel/status'
 import { inboxSearchQuery } from '~/lib/mail/search'
 
@@ -24,6 +25,8 @@ export type LibraryStory = {
   blurb: string | null
   url: string | null
   sponsored: boolean
+  /** From a sender the user unsubscribed from: kept, but not used for ideas. */
+  unsubscribed: boolean
   newsletter: string
   receivedAt: Date
   article: {
@@ -72,8 +75,6 @@ export async function loadLibraryPage(
         )
       : undefined
   )
-  const saved = sql<boolean>`exists (select 1 from ${knowledgeDocumentsTable} where ${knowledgeDocumentsTable.accountId} = ${mentions.accountId} and ${knowledgeDocumentsTable.sourceUrl} = ${articles.canonicalUrl})`
-
   const { rows, pageInfo } = await loadPage({
     page,
     pageSize: LIBRARY_PAGE_SIZE,
@@ -96,6 +97,7 @@ export async function loadLibraryPage(
           fromName: messages.fromName,
           fromAddress: messages.fromAddress,
           receivedAt: messages.receivedAt,
+          unsubscribedAt: messages.senderUnsubscribedAt,
           articleStatus: articles.status,
           title: articles.title,
           siteName: articles.siteName,
@@ -106,7 +108,7 @@ export async function loadLibraryPage(
           claims: articles.keyClaims,
           topics: articles.topics,
           note: articles.lastError,
-          saved
+          articleUrl: articles.canonicalUrl
         })
         .from(mentions)
         .innerJoin(messages, eq(messages.id, mentions.messageId))
@@ -117,6 +119,19 @@ export async function loadLibraryPage(
         .limit(limit)
   })
 
+  // Saved when the Knowledge base has its article under any way of writing
+  // its address, as saveStoryToKnowledge decides.
+  const docs = await db
+    .select({ sourceUrl: knowledgeDocumentsTable.sourceUrl })
+    .from(knowledgeDocumentsTable)
+    .where(
+      and(
+        eq(knowledgeDocumentsTable.accountId, accountId),
+        isNotNull(knowledgeDocumentsTable.sourceUrl)
+      )
+    )
+  const saved = new Set(docs.map(doc => articleUrlKey(doc.sourceUrl!)))
+
   return {
     pageInfo,
     stories: rows.map((row): LibraryStory => ({
@@ -125,6 +140,7 @@ export async function loadLibraryPage(
       blurb: row.blurb,
       url: row.url,
       sponsored: row.sponsored,
+      unsubscribed: row.unsubscribedAt !== null,
       newsletter: row.fromName || row.fromAddress || 'Newsletter',
       receivedAt: row.receivedAt,
       article: row.articleStatus
@@ -143,7 +159,7 @@ export async function loadLibraryPage(
             note: row.note
           }
         : null,
-      saved: Boolean(row.saved)
+      saved: row.articleUrl ? saved.has(articleUrlKey(row.articleUrl)) : false
     }))
   }
 }

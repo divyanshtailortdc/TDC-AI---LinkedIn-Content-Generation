@@ -1,12 +1,7 @@
 import 'server-only'
 
 import { EPHEMERAL_CACHE, getLanguageModel, type AIStage } from '@/lib/ai'
-import {
-  generateText,
-  NoObjectGeneratedError,
-  Output,
-  RetryError
-} from 'ai'
+import { generateText, NoObjectGeneratedError, Output, RetryError } from 'ai'
 import type { z } from 'zod'
 import { parseJsonLoosely } from './parse-json'
 import { EMPTY_USAGE, readCallUsage, type CallUsage } from './usage'
@@ -29,10 +24,7 @@ export type SkillResult<T> = {
 }
 
 export type SkillFailure =
-  | 'not_configured'
-  | 'timeout'
-  | 'quota_exceeded'
-  | 'failed'
+  'not_configured' | 'timeout' | 'quota_exceeded' | 'failed'
 
 export class SkillError extends Error {
   /** Tokens billed before the failure, so run totals stay true. */
@@ -44,18 +36,60 @@ export class SkillError extends Error {
   readonly text?: string
   /** "Provider (model)", when a model was reached. */
   readonly modelUsed?: string
+  /**
+   * For 'failed': the provider was rate-limited, overloaded, down or out of
+   * reach, so the same call may well succeed later (isTransientError).
+   */
+  readonly transient: boolean
 
   constructor(
     message: string,
     readonly reason: SkillFailure,
-    details: { usage?: CallUsage; text?: string; modelUsed?: string } = {}
+    details: {
+      usage?: CallUsage
+      text?: string
+      modelUsed?: string
+      transient?: boolean
+    } = {}
   ) {
     super(message)
     this.name = 'SkillError'
     this.usage = details.usage ?? EMPTY_USAGE
     this.text = details.text
     this.modelUsed = details.modelUsed
+    this.transient = details.transient ?? false
   }
+}
+
+/**
+ * A provider failure that may pass: rate-limited (429), overloaded or down
+ * (5xx), a request timeout (408) or the network. The SDK retries these
+ * itself a little first; what is left is worth trying again later.
+ */
+export function isTransientError(error: unknown): boolean {
+  const cause = RetryError.isInstance(error) ? error.lastError : error
+  const { statusCode, isRetryable } = (cause ?? {}) as {
+    statusCode?: unknown
+    isRetryable?: unknown
+  }
+  if (isRetryable === true) return true
+  return (
+    typeof statusCode === 'number' &&
+    (statusCode === 408 || statusCode === 429 || statusCode >= 500)
+  )
+}
+
+/**
+ * A model call that may succeed if made again later: it timed out, the
+ * budget ran out, or the provider was busy or out of reach.
+ */
+export function isBusyError(error: unknown): error is SkillError {
+  return (
+    error instanceof SkillError &&
+    (error.reason === 'timeout' ||
+      error.reason === 'quota_exceeded' ||
+      error.transient)
+  )
 }
 
 /**
@@ -177,7 +211,7 @@ export async function runSkill<S extends z.ZodType>(opts: {
     throw new SkillError(
       error instanceof Error ? error.message : 'The model call failed.',
       timedOut ? 'timeout' : 'failed',
-      { modelUsed }
+      { modelUsed, transient: !timedOut && isTransientError(error) }
     )
   }
 }

@@ -196,6 +196,11 @@ function StoryCard({
             Sponsored
           </span>
         )}
+        {story.unsubscribed && (
+          <span className="bg-surface-hover rounded-full px-1.5 py-0.5 text-[10px] font-semibold">
+            Unsubscribed · not used for ideas
+          </span>
+        )}
       </div>
 
       <div className="flex items-start gap-3">

@@ -5,13 +5,13 @@ import type {
 } from '@/db/schema'
 import { load } from 'cheerio'
 import type { FetchMessageObject, MessageAddressObject } from 'imapflow'
-import { createHash } from 'node:crypto'
 import type {
   AddressObject,
   EmailAddress,
   ParsedMail,
   SimpleParserOptions
 } from 'mailparser'
+import { createHash } from 'node:crypto'
 import { INVISIBLE, readableText } from '../html-text'
 import { MAIL_SYNC_SETTINGS } from './settings'
 
@@ -205,5 +205,21 @@ export function toMessageRow(
     sentAt,
     receivedAt: validDate(message.internalDate) ?? sentAt ?? new Date()
   }
-  return { ...row, contentHash: contentHashOf(row) }
+  return {
+    ...row,
+    contentHash: contentHashOf(row),
+    // Listed from its envelope, but with nothing to read: the inbox says so,
+    // instead of calling it "not a newsletter". Not retried on its own, as
+    // the same bytes fail the same way.
+    ...(parsed
+      ? {}
+      : {
+          extractionStatus: 'failed' as const,
+          extractionError: UNREADABLE_EMAIL
+        })
+  }
 }
+
+/** Why an email whose source could not be parsed has no stories. */
+export const UNREADABLE_EMAIL =
+  'Its content could not be read: the email is malformed or arrived incomplete.'

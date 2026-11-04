@@ -28,8 +28,26 @@ export const EXTRACTION_SETTINGS = {
   passDeadlineMs: 4 * 60_000,
   /** A claim older than this belongs to a process that died; it is taken over. */
   claimTtlMs: 10 * 60_000,
+  /**
+   * A newsletter's email within this time of another of its emails, with at
+   * least this share of their stories the same, is a new version of that
+   * issue: a correction, a resend, or the issue at a second address
+   * (extract-email.ts). Its daily or weekly issues share far fewer.
+   */
+  versionWindowMs: 3 * 24 * 60 * 60_000,
+  versionMinOverlap: 0.6,
   /** Attempts before an email or article is marked failed. */
   maxAttempts: 5,
+  /**
+   * Attempts for a failure that may pass (the AI model busy, out of budget
+   * or timed out, a site down): with the back-off below, about a week. On
+   * the last one, a busy model is done without: the email gets the
+   * heuristic digest and the article the heuristic summary, rather than
+   * nothing.
+   */
+  maxTransientAttempts: 20,
+  /** A model call summarising an article; past this it is tried again later. */
+  articleModelTimeoutMs: 2 * 60_000,
   /** Back-off after a failure that may pass: 5 min, doubling, at most 12 hours. */
   backoffBaseMs: 5 * 60_000,
   backoffMaxMs: 12 * 60 * 60_000

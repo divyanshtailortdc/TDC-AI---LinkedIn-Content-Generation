@@ -34,8 +34,9 @@ import { EXTRACTION_SETTINGS, retryAt, RetryLaterError } from './settings'
  * Claimed like an email (extract-email.ts), several at a time. A page that is
  * gone, not a web page, or too thin to read (a paywall, a sign-in page) is
  * skipped for good; its stories keep the newsletter's own words. The same
- * text at a second address becomes a duplicate of the first, and its stories
- * are moved there.
+ * text at a second address, or a page that names or redirects to an address
+ * already read, becomes a duplicate of the first, and its stories are moved
+ * there; only its facts are kept, never its text.
  */
 
 const articles = intelArticlesTable
@@ -108,16 +109,22 @@ function contentHash(text: string) {
     .digest('hex')
 }
 
-/** An article already read with this text, or at the address the page names as its own. */
+/**
+ * An article already read with this text, or at an address this page also
+ * goes by: the one it names as its own (rel=canonical, og:url) or the one
+ * fetching it ended at, after redirects.
+ */
 async function findOriginal(
+  database: Tx | typeof db,
   article: ClaimedArticle,
   hash: string,
   page: ScrapedArticle
 ) {
-  const ownUrl = page.canonicalUrl
-    ? canonicalArticleUrl(page.canonicalUrl)
-    : null
-  const [original] = await db
+  const addresses = [page.canonicalUrl, page.url].flatMap(url => {
+    const address = url ? canonicalArticleUrl(url) : null
+    return address && address !== article.canonicalUrl ? [address] : []
+  })
+  const [original] = await database
     .select({ id: articles.id })
     .from(articles)
     .where(
@@ -126,12 +133,35 @@ async function findOriginal(
         eq(articles.status, 'done'),
         or(
           eq(articles.contentHash, hash),
-          ownUrl ? eq(articles.canonicalUrl, ownUrl) : undefined
+          addresses.length > 0
+            ? inArray(articles.canonicalUrl, addresses)
+            : undefined
         )
       )
     )
     .limit(1)
   return original?.id ?? null
+}
+
+/** Stores the article as a copy of `original` and hands its stories over. */
+async function storeDuplicate(
+  tx: Tx,
+  article: ClaimedArticle,
+  facts: Partial<typeof articles.$inferInsert>,
+  original: string
+) {
+  const held = await finish(tx, article, {
+    ...facts,
+    status: 'duplicate',
+    duplicateOfId: original
+  })
+  if (held) {
+    // Their stories now read as the original: embedded again with it.
+    await tx
+      .update(mentions)
+      .set({ articleId: original, embedding: null, embeddingModel: null })
+      .where(eq(mentions.articleId, article.id))
+  }
 }
 
 async function read(article: ClaimedArticle) {
@@ -166,50 +196,67 @@ async function read(article: ClaimedArticle) {
     lastError: null
   }
 
-  const original = await findOriginal(article, hash, page)
+  // A copy already read needs no model call.
+  const original = await findOriginal(db, article, hash, page)
   if (original) {
-    await db.transaction(async tx => {
-      const held = await finish(tx, article, {
-        ...facts,
-        status: 'duplicate',
-        duplicateOfId: original
-      })
-      if (held) {
-        // Their stories now read as the original: embedded again with it.
-        await tx
-          .update(mentions)
-          .set({ articleId: original, embedding: null, embeddingModel: null })
-          .where(eq(mentions.articleId, article.id))
-      }
-    })
+    await db.transaction(tx => storeDuplicate(tx, article, facts, original))
     return
   }
 
-  const knowledge = await extractKnowledgeClaims(page.title, content)
-  const held = await finish(db, article, {
-    ...facts,
-    status: 'done',
-    content,
-    summary: knowledge.summary,
-    topics: knowledge.topics,
-    keyClaims: knowledge.claims
-  })
-  // A story embedded before its article was read (index-stories.ts) is
-  // embedded again with the article's summary.
-  if (held) {
-    await db
-      .update(mentions)
-      .set({ embedding: null, embeddingModel: null })
-      .where(
-        and(eq(mentions.articleId, article.id), isNotNull(mentions.embedding))
-      )
+  let knowledge
+  try {
+    knowledge = await extractKnowledgeClaims(page.title, content, {
+      timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
+      // After about a week of a busy model, the heuristic summary.
+      throwWhenBusy: article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
+    })
+  } catch (err) {
+    // A busy model: the page is read again on the next attempt.
+    throw new RetryLaterError(
+      `The AI model was busy: ${err instanceof Error ? err.message : String(err)}`
+    )
   }
+  await db.transaction(async tx => {
+    // Looked for again under a lock on the text: the same text at another
+    // address may have been read at the same time (a pass reads several at
+    // once), and only the first one stored is kept.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`article:${hash}`}, 0))`
+    )
+    const first = await findOriginal(tx, article, hash, page)
+    if (first) return storeDuplicate(tx, article, facts, first)
+
+    const held = await finish(tx, article, {
+      ...facts,
+      status: 'done',
+      content,
+      summary: knowledge.summary,
+      topics: knowledge.topics,
+      keyClaims: knowledge.claims
+    })
+    // A story embedded before its article was read (index-stories.ts) is
+    // embedded again with the article's summary.
+    if (held) {
+      await tx
+        .update(mentions)
+        .set({ embedding: null, embeddingModel: null })
+        .where(
+          and(eq(mentions.articleId, article.id), isNotNull(mentions.embedding))
+        )
+    }
+  })
 }
 
+/** As for an email (extract-email.ts): soon for an error, after about a week for a failure that may pass. */
 async function recordFailure(article: ClaimedArticle, err: unknown) {
-  if (!(err instanceof RetryLaterError))
+  const retryable = err instanceof RetryLaterError
+  if (!retryable)
     console.error(`Reading article ${article.canonicalUrl} failed:`, err)
-  const giveUp = article.attempts >= EXTRACTION_SETTINGS.maxAttempts
+  const giveUp =
+    article.attempts >=
+    (retryable
+      ? EXTRACTION_SETTINGS.maxTransientAttempts
+      : EXTRACTION_SETTINGS.maxAttempts)
   await finish(db, article, {
     status: giveUp ? 'failed' : 'pending',
     nextAttemptAt: giveUp ? undefined : retryAt(article.attempts),

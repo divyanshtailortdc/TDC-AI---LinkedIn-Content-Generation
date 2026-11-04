@@ -1009,6 +1009,18 @@ export const mailMessagesTable = pgTable(
     digestKind: varchar('digest_kind', { length: 20 }).$type<DigestKind>(),
     digestSummary: text('digest_summary'),
     digestTopics: jsonb('digest_topics').$type<string[]>().default([]).notNull(),
+    // The newer version of this issue, once one arrives: a correction, a
+    // resend, or the issue at a second address (src/lib/intel/extract-email.ts).
+    // The stories both carry are kept with the newer one.
+    supersededById: uuid('superseded_by_id').references(
+      (): AnyPgColumn => mailMessagesTable.id,
+      { onDelete: 'set null' }
+    ),
+    // When the user said they unsubscribed from this email's sender; null
+    // while subscribed. Every email from the sender carries it, and one that
+    // arrives later inherits it (src/lib/intel/extract-email.ts): what was
+    // stored stays, but runs stop using its stories and new mail is not read.
+    senderUnsubscribedAt: commonFieldDefs.date('sender_unsubscribed_at'),
     createdAt: commonFieldDefs.dates.createdAt
   },
   table => [
@@ -1030,6 +1042,10 @@ export const mailMessagesTable = pgTable(
       table.id
     ),
     index('mail_messages_search_idx').using('gin', table.searchVector),
+    // Deleting an email finds the older versions pointing to it.
+    index('mail_messages_superseded_by_idx')
+      .on(table.supersededById)
+      .where(sql`superseded_by_id is not null`),
     // The extraction queue: due emails, oldest first.
     index('mail_messages_extraction_due_idx').on(
       table.extractionStatus,

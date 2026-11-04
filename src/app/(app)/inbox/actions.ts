@@ -3,13 +3,17 @@
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { INBOX_PATH } from '@/lib/inbox-path'
+import { LIBRARY_PATH } from '@/lib/library-path'
 import { requireUser } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { runMailExtraction } from '~/jobs/mail-extraction'
 import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
-import { retryEmailExtraction } from '~/lib/intel/extract-email'
+import {
+  retryEmailExtraction,
+  setSenderUnsubscribed
+} from '~/lib/intel/extract-email'
 import { chooseInboundAddress } from '~/lib/mail/addresses'
 import { normalizeLocalPart } from '~/lib/mail/local-part'
 import { readMailSyncStatus, requestMailSync } from '~/lib/mail/mailbox'
@@ -141,5 +145,31 @@ export async function retryInboxInsights(messageId: string) {
   } catch (err) {
     console.error("Retrying an email's extraction failed:", err)
     return { success: false as const, error: 'Could not try again.' }
+  }
+}
+
+/**
+ * "I unsubscribed from this sender" on an email, or Undo
+ * (setSenderUnsubscribed). Undo reads the emails skipped meanwhile.
+ */
+export async function setInboxSenderUnsubscribed(
+  messageId: string,
+  unsubscribed: boolean
+) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const changed =
+      isUuid(messageId) &&
+      (await setSenderUnsubscribed(accountId, messageId, unsubscribed))
+    if (!changed) {
+      return { success: false as const, error: 'This email has no sender.' }
+    }
+    if (!unsubscribed && runsJobsHere()) after(runMailExtraction)
+    revalidatePath(LIBRARY_PATH)
+    return { success: true as const }
+  } catch (err) {
+    console.error('Changing a sender subscription failed:', err)
+    return { success: false as const, error: 'Could not save that.' }
   }
 }

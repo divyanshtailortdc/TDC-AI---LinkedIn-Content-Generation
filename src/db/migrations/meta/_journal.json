@@ -225,6 +225,20 @@
       "when": 1793774721513,
       "tag": "0031_mail_content_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793783406553,
+      "tag": "0032_mail_issue_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793791841868,
+      "tag": "0033_mail_sender_unsubscribed",
+      "breakpoints": true
     }
   ]
 }

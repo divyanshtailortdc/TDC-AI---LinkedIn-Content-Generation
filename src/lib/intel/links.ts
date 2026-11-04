@@ -1,4 +1,4 @@
-import { isGenericPage } from '../urls'
+import { isGenericPage, normalizeUrlForCompare } from '../urls'
 
 /**
  * Which links in a newsletter lead to something worth reading, and the
@@ -70,6 +70,17 @@ export function canonicalArticleUrl(raw: string): string | null {
     if (TRACKING_PARAM.test(key)) url.searchParams.delete(key)
   }
   return url.toString()
+}
+
+/**
+ * One key for every way of writing an article's address: without tracking
+ * or reader parameters (canonicalArticleUrl), scheme, "www." or a trailing
+ * slash, so "https://www.x.com/a/" and "http://x.com/a?utm_source=y" are the
+ * same article. For comparing addresses (the Knowledge base, a run's
+ * evidence), never for fetching.
+ */
+export function articleUrlKey(raw: string): string {
+  return normalizeUrlForCompare(canonicalArticleUrl(raw) ?? raw)
 }
 
 /** True when the link's text or address acts on the subscription or account. */

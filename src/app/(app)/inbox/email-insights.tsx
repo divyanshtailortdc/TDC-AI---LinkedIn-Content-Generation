@@ -7,7 +7,11 @@ import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { ChevronDown, ExternalLink, Loader2, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useState, useTransition } from 'react'
 import type { DigestKind } from '~/lib/intel/status'
-import { getInboxInsights, retryInboxInsights } from './actions'
+import {
+  getInboxInsights,
+  retryInboxInsights,
+  setInboxSenderUnsubscribed
+} from './actions'
 import type { InboxInsights, InboxStory } from './inbox-data'
 
 const POLL_MS = 4000
@@ -56,6 +60,7 @@ export function EmailInsights({ messageId }: { messageId: string }) {
   const [insights, setInsights] = useState<InboxInsights | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retrying, startRetry] = useTransition()
+  const [changingSender, startSenderChange] = useTransition()
 
   const show = useCallback(
     (res: Awaited<ReturnType<typeof getInboxInsights>> | null) => {
@@ -101,11 +106,21 @@ export function EmailInsights({ messageId }: { messageId: string }) {
       else setError(res?.error ?? 'Could not try again.')
     })
 
+  const changeSender = (unsubscribed: boolean) =>
+    startSenderChange(async () => {
+      const res = await setInboxSenderUnsubscribed(
+        messageId,
+        unsubscribed
+      ).catch(() => null)
+      if (res?.success) show(await check())
+      else setError(res?.error ?? 'Could not save that.')
+    })
+
   if (!insights) {
     return error ? <p className="text-muted text-xs">{error}</p> : null
   }
 
-  const { status, kind, summary, topics, stories } = insights
+  const { status, kind, summary, topics, stories, newerVersion } = insights
   return (
     <details
       open
@@ -129,7 +144,10 @@ export function EmailInsights({ messageId }: { messageId: string }) {
         {(status === 'pending' || status === 'processing') && (
           <p className="text-muted flex items-center gap-2 text-xs">
             <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
-            Reading this email for its stories and links…
+            {/* Waiting to try again after a failure that may pass. */}
+            {status === 'pending' && insights.error
+              ? `${insights.error} Trying again automatically.`
+              : 'Reading this email for its stories and links…'}
           </p>
         )}
 
@@ -170,12 +188,26 @@ export function EmailInsights({ messageId }: { messageId: string }) {
                 ))}
               </ul>
             )}
-            {stories.length === 0 ? (
+            {newerVersion && (
               <p className="text-muted text-xs">
-                {kind && kind !== 'newsletter'
-                  ? `This looks like ${KIND_LABELS[kind]}, so no stories were taken from it.`
-                  : 'No stories with links were found in this email.'}
+                A newer version of this issue arrived
+                {hasMounted &&
+                  ` on ${formatAbsoluteDate(newerVersion.receivedAt)}`}
+                {newerVersion.subject ? `: “${newerVersion.subject}”` : ''}. The
+                stories it repeats are listed with it.
               </p>
+            )}
+            {stories.length === 0 ? (
+              // An older version whose stories all moved says so above.
+              !newerVersion && (
+                <p className="text-muted text-xs">
+                  {/* A reason it was not read (an unsubscribed sender). */}
+                  {insights.error ??
+                    (kind && kind !== 'newsletter'
+                      ? `This looks like ${KIND_LABELS[kind]}, so no stories were taken from it.`
+                      : 'No stories with links were found in this email.')}
+                </p>
+              )
             ) : (
               <ol className="space-y-3">
                 {stories.map((story, i) => (
@@ -190,9 +222,49 @@ export function EmailInsights({ messageId }: { messageId: string }) {
             )}
           </>
         )}
+        {insights.sender && (
+          <SenderSubscription
+            sender={insights.sender}
+            saving={changingSender}
+            onChange={changeSender}
+          />
+        )}
         {error && <p className="text-muted text-xs">{error}</p>}
       </div>
     </details>
+  )
+}
+
+/**
+ * "I unsubscribed from this sender", or Undo. Unsubscribing deletes nothing:
+ * the stories stay in the Library, but ideas stop using them and new mail
+ * from the sender is not read (setSenderUnsubscribed).
+ */
+function SenderSubscription({
+  sender,
+  saving,
+  onChange
+}: {
+  sender: { address: string; unsubscribed: boolean }
+  saving: boolean
+  onChange: (unsubscribed: boolean) => void
+}) {
+  return (
+    <div className="border-border flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t pt-3">
+      <p className="text-muted min-w-0 flex-1 text-xs break-words">
+        {sender.unsubscribed
+          ? `You unsubscribed from ${sender.address}. Its stories stay in the Library but are not used for ideas, and new emails from it are not read.`
+          : `Unsubscribed from ${sender.address}? Its stories stay in the Library but stop being used for ideas.`}
+      </p>
+      <Button
+        variant="secondary"
+        size="sm"
+        loading={saving}
+        onClick={() => onChange(!sender.unsubscribed)}
+      >
+        {sender.unsubscribed ? 'Undo' : 'I unsubscribed'}
+      </Button>
+    </div>
   )
 }
 
