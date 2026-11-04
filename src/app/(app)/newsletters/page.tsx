@@ -4,7 +4,7 @@ import { newslettersTable } from '@/db/schema'
 import { isAICapable } from '@/lib/ai'
 import { getIdentity } from '@/lib/identity'
 import { isWebSearchConfigured } from '@/lib/research/web-search'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, ne } from 'drizzle-orm'
 import { NewslettersClient } from './newsletters-client'
 
 export const dynamic = 'force-dynamic'
@@ -34,7 +34,12 @@ export default async function NewslettersPage() {
       discoveredAt: newslettersTable.discoveredAt
     })
     .from(newslettersTable)
-    .where(eq(newslettersTable.accountId, identity.id))
+    .where(
+      and(
+        eq(newslettersTable.accountId, identity.id),
+        ne(newslettersTable.status, 'removed')
+      )
+    )
     .orderBy(
       desc(newslettersTable.relevanceScore),
       desc(newslettersTable.discoveredAt)

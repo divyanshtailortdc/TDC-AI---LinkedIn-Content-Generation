@@ -13,6 +13,9 @@
  *   for the inbox step that reads them. Opening the signup page never does.
  * - unsubscribed: the user left the list.
  * - failed: the user could not sign up (form broken, list closed, paywall).
+ * - removed: the user does not want it. Hidden from the page, and kept rather
+ *   than deleted so discovery, which never changes a status, does not bring
+ *   it back.
  */
 export const NEWSLETTER_STATUSES = [
   'discovered',
@@ -21,7 +24,8 @@ export const NEWSLETTER_STATUSES = [
   'subscribed',
   'active',
   'unsubscribed',
-  'failed'
+  'failed',
+  'removed'
 ] as const
 
 export type NewsletterStatus = (typeof NEWSLETTER_STATUSES)[number]
@@ -33,7 +37,8 @@ export const NEWSLETTER_STATUS_LABELS: Record<NewsletterStatus, string> = {
   subscribed: 'Subscribed',
   active: 'Active',
   unsubscribed: 'Unsubscribed',
-  failed: 'Signup failed'
+  failed: 'Signup failed',
+  removed: 'Removed'
 }
 
 /** What the user can do to a newsletter from the page. */
@@ -43,7 +48,8 @@ export const NEWSLETTER_ACTIONS = [
   'mark_pending',
   'mark_subscribed',
   'mark_unsubscribed',
-  'mark_failed'
+  'mark_failed',
+  'remove'
 ] as const
 
 export type NewsletterAction = (typeof NEWSLETTER_ACTIONS)[number]
@@ -76,6 +82,10 @@ const TRANSITIONS: Record<
   mark_failed: {
     from: ['discovered', 'saved', 'pending_confirmation'],
     to: 'failed'
+  },
+  remove: {
+    from: NEWSLETTER_STATUSES.filter(status => status !== 'removed'),
+    to: 'removed'
   }
 }
 

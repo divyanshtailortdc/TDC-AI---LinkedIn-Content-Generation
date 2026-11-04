@@ -1,0 +1,2 @@
+ALTER TABLE "newsletters" DROP CONSTRAINT "newsletters_status_check";--> statement-breakpoint
+ALTER TABLE "newsletters" ADD CONSTRAINT "newsletters_status_check" CHECK ("newsletters"."status" in ('discovered', 'saved', 'pending_confirmation', 'subscribed', 'active', 'unsubscribed', 'failed', 'removed'));

@@ -50,6 +50,18 @@ describe('newsletter status transitions', () => {
     )
   })
 
+  it('removes from any status, and nothing leads out of removed', () => {
+    for (const status of NEWSLETTER_STATUSES) {
+      assert.equal(
+        nextNewsletterStatus(status, 'remove'),
+        status === 'removed' ? null : 'removed'
+      )
+    }
+    for (const action of NEWSLETTER_ACTIONS) {
+      assert.equal(nextNewsletterStatus('removed', action), null)
+    }
+  })
+
   it('no user action leads to active', () => {
     for (const status of NEWSLETTER_STATUSES) {
       for (const action of NEWSLETTER_ACTIONS) {

@@ -5,6 +5,7 @@ import { newslettersTable } from '@/db/schema'
 import { SkillError } from '@/lib/ai/run-skill'
 import { getIdentity, requireIdentityId } from '@/lib/identity'
 import { idSchema } from '@/lib/ids'
+import { NEWSLETTERS_PATH } from '@/lib/newsletters-path'
 import {
   discoverNewsletters,
   NewsletterDiscoveryError,
@@ -22,7 +23,6 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
-const NEWSLETTERS_PATH = '/newsletters'
 const NOT_FOUND = 'Newsletter not found'
 const DISCOVERY_FAILED = 'Discovery could not finish. Please try again.'
 
