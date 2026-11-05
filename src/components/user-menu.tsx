@@ -3,8 +3,11 @@
 import { AddPasskeyButton } from '@/components/add-passkey-button'
 import { SignOutButton } from '@/components/sign-out-button'
 import { cn } from '@/lib/cn'
-import { SECURITY_SETTINGS_PATH } from '@/lib/settings-path'
-import { ChevronsUpDown, UserCog } from 'lucide-react'
+import {
+  SECURITY_SETTINGS_PATH,
+  THEME_SETTINGS_PATH
+} from '@/lib/settings-path'
+import { ChevronsUpDown, Paintbrush, UserCog } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useId, useRef, useState } from 'react'
 
@@ -25,7 +28,7 @@ const ITEM_SELECTOR = '[role="menuitem"]:not(:disabled)'
 
 /**
  * The signed-in user at the foot of the sidebar. Clicking it opens a menu
- * with the account actions (settings, add a passkey, sign out). In the collapsed rail
+ * with the account actions (settings, theme, add a passkey, sign out). In the collapsed rail
  * only the avatar shows, and the menu opens beside it with the name and email.
  */
 export function UserMenu({
@@ -160,6 +163,15 @@ export function UserMenu({
         >
           <UserCog aria-hidden className="text-muted h-4 w-4" />
           Settings
+        </Link>
+        <Link
+          href={THEME_SETTINGS_PATH}
+          role="menuitem"
+          onClick={close}
+          className="text-foreground hover:bg-foreground/10 focus-visible:bg-foreground/10 flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none"
+        >
+          <Paintbrush aria-hidden className="text-muted h-4 w-4" />
+          Theme preferences
         </Link>
         <AddPasskeyButton onSelect={close} />
         <div role="separator" className="bg-border mx-1 my-1.5 h-px" />

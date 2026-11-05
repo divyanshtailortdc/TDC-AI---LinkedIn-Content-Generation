@@ -1,5 +1,5 @@
 {
-  "id": "d08a973d-5de6-4eb7-b767-91106cf0b2e0",
+  "id": "29626fd3-b30f-4006-9967-da166fe56e97",
   "prevId": "54bd0021-0629-47cb-b12e-473aefc3da50",
   "version": "7",
   "dialect": "postgresql",
@@ -1221,18 +1221,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 80
-        },
-        "goal_fit_score": {
-          "name": "goal_fit_score",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "goal_fit_note": {
-          "name": "goal_fit_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "unsupported_claims": {
           "name": "unsupported_claims",
@@ -2825,7 +2813,7 @@
       "checkConstraints": {
         "newsletters_status_check": {
           "name": "newsletters_status_check",
-          "value": "\"newsletters\".\"status\" in ('discovered', 'saved', 'pending_confirmation', 'subscribed', 'active', 'unsubscribed', 'failed')"
+          "value": "\"newsletters\".\"status\" in ('discovered', 'saved', 'pending_confirmation', 'subscribed', 'active', 'unsubscribed', 'failed', 'removed')"
         },
         "newsletters_category_check": {
           "name": "newsletters_category_check",

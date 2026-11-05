@@ -1,8 +1,10 @@
 'use client'
 
 import { Button, buttonClassName } from '@/components/button'
+import { ConfirmPopover } from '@/components/confirm-popover'
 import { FormAlert } from '@/components/form-alert'
 import { PageHeader } from '@/components/page-header'
+import { StatusFilterMenu } from '@/components/status-filter-menu'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
 import { formatAbsoluteDate } from '@/lib/format-date'
@@ -26,7 +28,8 @@ import {
   MailX,
   Newspaper,
   Rss,
-  Search
+  Search,
+  Trash2
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import {
@@ -51,7 +54,7 @@ type NewsletterRow = {
   discoveredAt: Date | string
 }
 
-type Filter = 'all' | 'discovered' | 'saved' | 'subscribed' | 'other'
+type Filter = 'all' | 'discovered' | 'subscribed' | 'other'
 
 type FilterOption = {
   value: Filter
@@ -60,9 +63,9 @@ type FilterOption = {
 }
 
 const FILTERS: FilterOption[] = [
-  { value: 'all', label: 'All', statuses: null },
-  { value: 'discovered', label: 'New', statuses: ['discovered'] },
-  { value: 'saved', label: 'Saved', statuses: ['saved'] },
+  { value: 'all', label: 'All statuses', statuses: null },
+  // Saved ones are not subscribed to yet either, so they count as new.
+  { value: 'discovered', label: 'New', statuses: ['discovered', 'saved'] },
   {
     value: 'subscribed',
     label: 'Subscribed',
@@ -75,6 +78,10 @@ const FILTERS: FilterOption[] = [
   }
 ]
 
+const FILTER_VALUES = FILTERS.map(f => f.value)
+const filterLabel = (value: Filter) =>
+  FILTERS.find(f => f.value === value)!.label
+
 const STATUS_TONE: Record<NewsletterStatus, string> = {
   discovered: 'bg-surface-hover text-muted',
   saved: 'bg-accent/10 text-accent',
@@ -82,7 +89,8 @@ const STATUS_TONE: Record<NewsletterStatus, string> = {
   subscribed: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   active: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   unsubscribed: 'bg-surface-hover text-muted',
-  failed: 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
+  failed: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
+  removed: 'bg-surface-hover text-muted'
 }
 
 /** The newsletters a filter shows: those in its statuses, or all of them. */
@@ -188,7 +196,10 @@ export function NewslettersClient({
         return
       }
       setNewsletters(prev =>
-        prev.map(n => (n.id === id ? { ...n, status: result.status } : n))
+        result.status === 'removed'
+          ? // The page does not list removed ones; drop it here as well.
+            prev.filter(n => n.id !== id)
+          : prev.map(n => (n.id === id ? { ...n, status: result.status } : n))
       )
       setOpenedIds(prev => prev.filter(openedId => openedId !== id))
     } catch {
@@ -219,7 +230,7 @@ export function NewslettersClient({
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
-        title="Newsletters"
+        title="Discover Newsletters"
         description="Newsletters that fit your profile. You subscribe on each publisher's own page."
         actions={
           <Button
@@ -234,37 +245,21 @@ export function NewslettersClient({
         }
         bottomContent={
           newsletters.length > 0 ? (
-            <div
-              className="flex items-center gap-1.5"
-              role="group"
-              aria-label="Filter by status"
-            >
-              {FILTERS.map(f => (
-                <button
-                  key={f.value}
-                  type="button"
-                  aria-pressed={filter === f.value}
-                  onClick={() => setFilter(f.value)}
-                  className={cn(
-                    'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors',
-                    filter === f.value
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-muted hover:bg-surface-hover hover:text-foreground'
-                  )}
-                >
-                  {f.label}
-                  <span className="tabular-nums opacity-70">
-                    {counts[f.value]}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <StatusFilterMenu
+              value={filter}
+              options={FILTER_VALUES}
+              label={filterLabel}
+              counts={counts}
+              onChange={setFilter}
+            />
           ) : undefined
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto max-w-4xl space-y-4 pb-16">
+      <div className="flex-1 overflow-y-auto p-4">
+        {/* A container, so the two-column grid follows the room left beside
+            the sidebar (open or collapsed), not the width of the screen. */}
+        <div className="@container space-y-4">
           {!canDiscover && (
             <FormAlert variant="info">
               Discovery needs {missingKeys.join(' and ')} to be set on the
@@ -328,16 +323,18 @@ export function NewslettersClient({
               </p>
             </div>
           ) : (
-            shown.map(n => (
-              <NewsletterCard
-                key={n.id}
-                newsletter={n}
-                busy={pendingId === n.id}
-                askHowItWent={openedIds.includes(n.id)}
-                onAction={action => handleAction(n.id, action)}
-                onOpenedSignup={() => handleOpenedSignup(n.id)}
-              />
-            ))
+            <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-2">
+              {shown.map(n => (
+                <NewsletterCard
+                  key={n.id}
+                  newsletter={n}
+                  busy={pendingId === n.id}
+                  askHowItWent={openedIds.includes(n.id)}
+                  onAction={action => handleAction(n.id, action)}
+                  onOpenedSignup={() => handleOpenedSignup(n.id)}
+                />
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -380,7 +377,7 @@ function NewsletterCard({
   const websiteHref = safeHref(n.websiteUrl)
 
   return (
-    <article className="border-border bg-surface space-y-3 rounded-xl border p-5">
+    <article className="border-border bg-surface @container flex h-full flex-col gap-3 rounded-xl border p-4 sm:p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -436,7 +433,7 @@ function NewsletterCard({
         </div>
       )}
 
-      <dl className="text-muted grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+      <dl className="text-muted grid gap-x-6 gap-y-1 text-xs @md:grid-cols-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <dt className="sr-only">Website</dt>
           <Globe aria-hidden className="h-3.5 w-3.5 shrink-0" />
@@ -478,7 +475,8 @@ function NewsletterCard({
         )}
       </dl>
 
-      <div className="border-border flex flex-wrap items-center gap-2 border-t pt-3">
+      {/* At the bottom, so the buttons of cards side by side line up. */}
+      <div className="border-border mt-auto flex flex-wrap items-center gap-2 border-t pt-3">
         {signupHref && (
           <a
             href={signupHref}
@@ -526,6 +524,26 @@ function NewsletterCard({
             className="text-muted h-4 w-4 animate-spin"
           />
         )}
+        <div className="ml-auto">
+          <ConfirmPopover
+            title="Remove this newsletter?"
+            description="It is taken off your list, and discovering again will not add it back."
+            confirmLabel="Remove"
+            align="end"
+            onConfirm={() => onAction('remove')}
+            disabled={busy}
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              className="hover:text-rose-600 dark:hover:text-rose-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove
+            </Button>
+          </ConfirmPopover>
+        </div>
       </div>
 
       {askHowItWent && (

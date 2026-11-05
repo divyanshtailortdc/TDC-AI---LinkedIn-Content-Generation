@@ -1,13 +1,17 @@
 'use client'
 
 import { cn } from '@/lib/cn'
-import { SECURITY_SETTINGS_PATH } from '@/lib/settings-path'
-import { ShieldCheck } from 'lucide-react'
+import {
+  SECURITY_SETTINGS_PATH,
+  THEME_SETTINGS_PATH
+} from '@/lib/settings-path'
+import { Paintbrush, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const TABS = [
-  { href: SECURITY_SETTINGS_PATH, label: 'Security', icon: ShieldCheck }
+  { href: SECURITY_SETTINGS_PATH, label: 'Security', icon: ShieldCheck },
+  { href: THEME_SETTINGS_PATH, label: 'Theme', icon: Paintbrush }
 ]
 
 export function SettingsTabs() {

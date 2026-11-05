@@ -1901,7 +1901,7 @@ export function PostsClientInner({
                 type="button"
                 onClick={handleApprove}
                 disabled={isSaving}
-                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-emerald-800 disabled:opacity-60"
+                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-60"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {isSaving

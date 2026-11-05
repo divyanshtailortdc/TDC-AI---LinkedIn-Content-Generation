@@ -1,6 +1,6 @@
 {
-  "id": "6e5d3a89-53ec-45be-a35d-001349a8320f",
-  "prevId": "d08a973d-5de6-4eb7-b767-91106cf0b2e0",
+  "id": "d8362c5c-21c4-46d3-8d9f-6f7a3c253e77",
+  "prevId": "29626fd3-b30f-4006-9967-da166fe56e97",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2837,7 +2837,7 @@
       "checkConstraints": {
         "newsletters_status_check": {
           "name": "newsletters_status_check",
-          "value": "\"newsletters\".\"status\" in ('discovered', 'saved', 'pending_confirmation', 'subscribed', 'active', 'unsubscribed', 'failed')"
+          "value": "\"newsletters\".\"status\" in ('discovered', 'saved', 'pending_confirmation', 'subscribed', 'active', 'unsubscribed', 'failed', 'removed')"
         },
         "newsletters_category_check": {
           "name": "newsletters_category_check",

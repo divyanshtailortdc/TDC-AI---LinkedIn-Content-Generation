@@ -378,14 +378,14 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                   title="Are you sure?"
                   description="It moves to Approved and becomes eligible for drafting."
                   confirmLabel="Yes"
-                  tone="success"
+                  tone="neutral"
                   onConfirm={handleApproveClick}
                   disabled={isBusy}
                 >
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-2.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-emerald-800 disabled:opacity-60"
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-2.5 text-xs font-semibold text-background shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-60"
                   >
                     {isBusy ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

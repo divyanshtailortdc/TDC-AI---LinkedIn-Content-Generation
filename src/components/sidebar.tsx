@@ -7,11 +7,13 @@ import logoLight from '@/img/tdccommercelogo.webp'
 import { BRAND_THEME_PATH } from '@/lib/brand/theme-path'
 import { cn } from '@/lib/cn'
 import { IDENTITY_PATH } from '@/lib/identity-path'
-import { INBOX_PATH } from '@/lib/inbox-path'
 import { useIdeasToReview } from '@/lib/ideas-badge'
+import { INBOX_PATH } from '@/lib/inbox-path'
+import { NEWSLETTERS_PATH } from '@/lib/newsletters-path'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -22,25 +24,59 @@ import {
   Palette,
   Play,
   Plus,
+  Search,
   Settings,
   Target,
+  UserRound,
   X
 } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore
+} from 'react'
 
-// In the order work moves: the mail that comes in, what to achieve, the
-// ideas and posts it produces, then when each post goes out.
+type SubNavItem = {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  /** Active only on this exact path, not the paths under it. */
+  exact?: boolean
+  /** How many things are waiting here, as on NavLink. */
+  badge?: number
+}
+
+function isSubNavActive(pathname: string, { href, exact }: SubNavItem) {
+  return exact ? pathname === href : pathname.startsWith(href)
+}
+
+// In the order the work moves: find newsletters and subscribe, then read
+// what arrives. Its stories go to the Knowledge base on their own (Account
+// Setup → Knowledge → From newsletters), so there is no page for them here.
+// Discover is the section's own path, which Inbox starts with.
+const newsletterNavItems: SubNavItem[] = [
+  { href: NEWSLETTERS_PATH, label: 'Discover', icon: Search, exact: true },
+  { href: INBOX_PATH, label: 'Inbox', icon: Inbox }
+]
+
+// In the order work moves: the newsletters that come in, the runs and posts
+// they produce, then when each post goes out. Goals and Ideas sit under
+// Account Setup.
 const primaryNavItems = [
-  { href: INBOX_PATH, label: 'Inbox', icon: Inbox },
-  { href: '/goals', label: 'Goals', icon: Target },
-  { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: 'ideas' as const },
+  {
+    href: NEWSLETTERS_PATH,
+    label: 'Newsletters',
+    icon: Newspaper,
+    items: newsletterNavItems
+  },
   { href: '/runs', label: 'Run Details', icon: Play },
   { href: '/posts', label: 'Posts', icon: FileText },
-  { href: '/schedule', label: 'Schedule', icon: CalendarDays },
-  { href: '/newsletters', label: 'Newsletters', icon: Newspaper }
+  { href: '/schedule', label: 'Schedule', icon: CalendarDays }
 ]
 
 /** Heading above a group of nav links; a thin divider in the collapsed rail. */
@@ -125,7 +161,8 @@ function NavLink({
   icon: Icon,
   active,
   collapsed,
-  badge = 0
+  badge = 0,
+  nested = false
 }: {
   href: string
   label: string
@@ -134,6 +171,8 @@ function NavLink({
   collapsed: boolean
   /** How many things are waiting here; shown as a count, and bolds the label. */
   badge?: number
+  /** A page inside an expanded NavGroup: smaller, under its group's label. */
+  nested?: boolean
 }) {
   // Prefetched once the pointer or focus reaches the link, not as soon as it
   // is on screen: every page is rendered on the server, so prefetching all of
@@ -150,8 +189,9 @@ function NavLink({
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'group relative flex h-11 items-center rounded-xl text-[15px] transition-colors',
-        collapsed ? 'justify-center px-0' : 'gap-3.5 px-3.5',
+        'group relative flex items-center rounded-xl transition-colors',
+        nested ? 'h-10 gap-3 px-3 text-sm' : 'h-11 text-[15px]',
+        !nested && (collapsed ? 'justify-center px-0' : 'gap-3.5 px-3.5'),
         badge > 0 ? 'font-semibold' : 'font-medium',
         active
           ? 'bg-brand/20 text-brand-strong'
@@ -159,13 +199,16 @@ function NavLink({
       )}
     >
       {/* The active page's marker, flush against the sidebar's left edge. */}
-      {active && (
+      {active && !nested && (
         <span
           aria-hidden
           className="bg-brand absolute top-0 -left-3 h-full w-0.75 rounded-r-full"
         />
       )}
-      <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+      <Icon
+        className={cn('shrink-0', nested ? 'h-4 w-4' : 'h-5 w-5')}
+        strokeWidth={1.75}
+      />
       {!collapsed && <span className="truncate">{label}</span>}
       {!collapsed && badge > 0 && (
         <span className="bg-brand/20 text-brand-strong ml-auto inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums">
@@ -186,6 +229,133 @@ function NavLink({
         </span>
       )}
     </Link>
+  )
+}
+
+/**
+ * A nav entry whose pages fold under it, joined by a branch line. It opens
+ * on its own when one of its pages becomes the current one, so that page is
+ * never hidden; otherwise the user's toggle decides. The collapsed rail has
+ * no room for labels, so there it lists the pages as icons instead.
+ */
+function NavGroup({
+  label,
+  icon: Icon,
+  items,
+  pathname,
+  collapsed
+}: {
+  label: string
+  icon: typeof LayoutDashboard
+  items: SubNavItem[]
+  pathname: string
+  collapsed: boolean
+}) {
+  const panelId = useId()
+  const containsActive = items.some(item => isSubNavActive(pathname, item))
+  const [expanded, setExpanded] = useState(containsActive)
+  // Coming into the group from another page opens it; adjusted while
+  // rendering rather than in an effect, so it never paints closed first.
+  const [wasActive, setWasActive] = useState(containsActive)
+  if (containsActive !== wasActive) {
+    setWasActive(containsActive)
+    if (containsActive) setExpanded(true)
+  }
+  // Folded away, the group shows what is waiting in its pages.
+  const badge = items.reduce((sum, item) => sum + (item.badge ?? 0), 0)
+  const showBadge = badge > 0 && !expanded
+
+  if (collapsed) {
+    return items.map(item => (
+      <NavLink
+        key={item.href}
+        href={item.href}
+        label={item.label}
+        icon={item.icon}
+        active={isSubNavActive(pathname, item)}
+        collapsed
+        badge={item.badge}
+      />
+    ))
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded(open => !open)}
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        className={cn(
+          'relative flex h-11 w-full items-center gap-3.5 rounded-xl px-3.5 text-[15px] transition-colors',
+          showBadge ? 'font-semibold' : 'font-medium',
+          // Folded away, the group itself shows that the current page is in it.
+          containsActive && !expanded
+            ? 'bg-brand/20 text-brand-strong'
+            : 'text-foreground hover:bg-foreground/10 hover:shadow-xs'
+        )}
+      >
+        {containsActive && !expanded && (
+          <span
+            aria-hidden
+            className="bg-brand absolute top-0 -left-3 h-full w-0.75 rounded-r-full"
+          />
+        )}
+        <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+        <span className="truncate">{label}</span>
+        {showBadge && (
+          <span className="bg-brand/20 text-brand-strong ml-auto inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            'text-muted h-4 w-4 shrink-0 transition-transform duration-200',
+            !showBadge && 'ml-auto',
+            expanded && 'rotate-180'
+          )}
+        />
+      </button>
+
+      {/* Rows animate from 0fr to 1fr, so the panel opens to its own height. */}
+      <div
+        id={panelId}
+        inert={!expanded}
+        className={cn(
+          'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
+          expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        )}
+      >
+        <ul className="overflow-hidden pt-1">
+          {items.map((item, index) => (
+            <li key={item.href} className="relative pb-1 pl-10">
+              {/* The branch into this page, from the line under the group's icon. */}
+              <span
+                aria-hidden
+                className="border-sidebar-border absolute -top-1 left-6 h-[calc(50%+0.125rem)] w-3 rounded-bl-lg border-b border-l"
+              />
+              {/* The line carried on down to the next page. */}
+              {index < items.length - 1 && (
+                <span
+                  aria-hidden
+                  className="bg-sidebar-border absolute top-1/2 bottom-0 left-6 w-px"
+                />
+              )}
+              <NavLink
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                active={isSubNavActive(pathname, item)}
+                collapsed={false}
+                badge={item.badge}
+                nested
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   )
 }
 
@@ -211,6 +381,19 @@ export function Sidebar({
   const { open, setOpen } = useMobileNav()
   // The drawer always shows the full sidebar; only the desktop rail collapses.
   const collapsed = collapsedPref && isDesktop
+  // Brand Theme styles the identity's posts, so it waits for one.
+  const accountSetupItems: SubNavItem[] = [
+    {
+      href: IDENTITY_PATH,
+      label: hasIdentity ? 'Identity Setup' : 'Set up identity',
+      icon: hasIdentity ? UserRound : Plus
+    },
+    { href: '/goals', label: 'Goals', icon: Target },
+    { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: ideasBadge },
+    ...(hasIdentity
+      ? [{ href: BRAND_THEME_PATH, label: 'Brand Theme', icon: Palette }]
+      : [])
+  ]
   const toggle = () => setCollapsed(!collapsedPref)
 
   useEffect(() => {
@@ -314,39 +497,39 @@ export function Sidebar({
             collapsed={collapsed}
           />
 
-          <NavSection label="Primary" collapsed={collapsed} />
+          <NavSection label="Workspace" collapsed={collapsed} />
+          <NavGroup
+            label="Account Setup"
+            icon={Settings}
+            items={accountSetupItems}
+            pathname={pathname}
+            collapsed={collapsed}
+          />
+
+          <NavSection label="Publishing" collapsed={collapsed} />
           {primaryNavItems.map(({ href, label, icon, ...rest }) => {
-            const active = pathname.startsWith(href)
+            if (rest.items)
+              return (
+                <NavGroup
+                  key={href}
+                  label={label}
+                  icon={icon}
+                  items={rest.items}
+                  pathname={pathname}
+                  collapsed={collapsed}
+                />
+              )
             return (
               <NavLink
                 key={href}
                 href={href}
                 label={label}
                 icon={icon}
-                active={active}
+                active={pathname.startsWith(href)}
                 collapsed={collapsed}
-                badge={'badge' in rest ? ideasBadge : 0}
               />
             )
           })}
-
-          <NavSection label="Setup" collapsed={collapsed} />
-          <NavLink
-            href={IDENTITY_PATH}
-            label={hasIdentity ? 'Account Setup' : 'Set up identity'}
-            icon={hasIdentity ? Settings : Plus}
-            active={pathname.startsWith(IDENTITY_PATH)}
-            collapsed={collapsed}
-          />
-          {hasIdentity && (
-            <NavLink
-              href={BRAND_THEME_PATH}
-              label="Brand Theme"
-              icon={Palette}
-              active={pathname.startsWith(BRAND_THEME_PATH)}
-              collapsed={collapsed}
-            />
-          )}
         </nav>
 
         <div

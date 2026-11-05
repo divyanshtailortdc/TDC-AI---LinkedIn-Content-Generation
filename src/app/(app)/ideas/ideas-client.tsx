@@ -7,15 +7,13 @@ import {
   startTransition,
   useRef,
   useState,
-  useTransition,
-  type KeyboardEvent as ReactKeyboardEvent
+  useTransition
 } from 'react'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
-import { createPortal } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, ListFilter, SquareCheck, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, SquareCheck, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
@@ -23,6 +21,7 @@ import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-
 import { approveIdea, rejectIdea, editIdea, draftSelectedIdeas, approveAllIdeas } from './actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
+import { StatusFilterMenu } from '@/components/status-filter-menu'
 import { Pagination } from '@/components/pagination'
 import { cn } from '@/lib/cn'
 import { formatAbsoluteDateTime } from '@/lib/format-date'
@@ -476,7 +475,7 @@ export function IdeasClient({
           isDrafting ? (
             <span
               aria-busy
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white opacity-75 shadow-sm"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background opacity-75 shadow-sm"
             >
               <Sparkles className="h-3.5 w-3.5 animate-pulse" />
               Generating posts…
@@ -505,7 +504,7 @@ export function IdeasClient({
                   type="button"
                   onClick={handleApproveSelected}
                   disabled={isActionBusy}
-                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
                   <span>Approve</span>
@@ -517,7 +516,7 @@ export function IdeasClient({
                   type="button"
                   onClick={handleDraftSelected}
                   disabled={isActionBusy}
-                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
@@ -528,7 +527,7 @@ export function IdeasClient({
                   title={`Approve and create ${selection.length} post${selection.length === 1 ? '' : 's'}?`}
                   description={`The ${selectedProposed.length} selected idea${selectedProposed.length === 1 ? ' still to review is' : 's still to review are'} approved, then a post is drafted for each selected idea. Ideas you did not select are left alone.`}
                   confirmLabel="Approve & create"
-                  tone="success"
+                  tone="neutral"
                   align="end"
                   // Don't await: the popover would otherwise stay open for the whole drafting run.
                   onConfirm={() => void handleApproveSelectedAndDraft()}
@@ -537,7 +536,7 @@ export function IdeasClient({
                   <button
                     type="button"
                     disabled={isActionBusy}
-                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     <span>Approve &amp; Create Posts</span>
@@ -553,14 +552,14 @@ export function IdeasClient({
                   title={`Approve all ${allProposedIds.length} ideas?`}
                   description="Every idea waiting for review moves to Approved. No posts are written until you select ideas and create them."
                   confirmLabel="Approve all"
-                  tone="success"
+                  tone="neutral"
                   onConfirm={handleApproveAll}
                   disabled={isActionBusy}
                 >
                   <button
                     type="button"
                     disabled={isActionBusy}
-                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                   >
                     <CheckCheck className="h-3.5 w-3.5" />
                     <span>Approve all ({allProposedIds.length})</span>
@@ -574,7 +573,7 @@ export function IdeasClient({
                   type="button"
                   onClick={() => setTicked(approvedIds)}
                   disabled={isActionBusy}
-                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <SquareCheck className="h-3.5 w-3.5" />
                   <span>Select {approvedCount} approved</span>
@@ -588,6 +587,8 @@ export function IdeasClient({
             <div className="flex items-center gap-3">
               <StatusFilterMenu
                 value={selectedStatus}
+                options={STATUS_TABS}
+                label={statusLabel}
                 counts={statusCounts}
                 onChange={changeStatus}
               />
@@ -695,134 +696,6 @@ export function IdeasClient({
         </div>
       </div>
     </div>
-  )
-}
-
-/**
- * The status filter: a button that opens a short menu of statuses with their
- * counts. Picking one applies it straight away. The menu is portalled to the
- * body so the page header cannot clip it.
- */
-function StatusFilterMenu({
-  value,
-  counts,
-  onChange
-}: {
-  value: StatusFilter
-  counts: Record<StatusFilter, number>
-  onChange: (next: StatusFilter) => void
-}) {
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState({ top: 0, left: 0 })
-
-  // Focus goes back to the button that opened the menu, not to the page body.
-  const closeMenu = () => {
-    setOpen(false)
-    buttonRef.current?.focus()
-  }
-
-  // Arrow keys, Home and End move between the options; Tab leaves the menu.
-  const onMenuKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    const items = Array.from(
-      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []
-    )
-    const index = items.indexOf(document.activeElement as HTMLButtonElement)
-    const move = (next: number) => {
-      e.preventDefault()
-      items[(next + items.length) % items.length]?.focus()
-    }
-    if (e.key === 'ArrowDown') move(index + 1)
-    else if (e.key === 'ArrowUp') move(index - 1)
-    else if (e.key === 'Home') move(0)
-    else if (e.key === 'End') move(items.length - 1)
-    else if (e.key === 'Tab') {
-      e.preventDefault()
-      closeMenu()
-    }
-  }
-
-  const openMenu = () => {
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const width = Math.min(224, window.innerWidth - 32)
-    setPosition({
-      top: rect.bottom + 8,
-      left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
-    })
-    setOpen(true)
-  }
-
-  useEffect(() => {
-    if (!open) return
-    const close = () => setOpen(false)
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setOpen(false)
-      buttonRef.current?.focus()
-    }
-    window.addEventListener('resize', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('resize', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => (open ? setOpen(false) : openMenu())}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover"
-      >
-        <ListFilter className="h-3.5 w-3.5 text-muted" />
-        {statusLabel(value)}
-        <span className="text-muted tabular-nums">({counts[value]})</span>
-      </button>
-
-      {open &&
-        createPortal(
-          <>
-            <div aria-hidden className="fixed inset-0 z-40" onClick={closeMenu} />
-            <div
-              ref={menuRef}
-              role="menu"
-              aria-label="Filter by status"
-              onKeyDown={onMenuKeyDown}
-              style={{ top: position.top, left: position.left }}
-              className="fixed z-50 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface p-1 shadow-lg"
-            >
-              {STATUS_TABS.map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={value === st}
-                  autoFocus={value === st}
-                  onClick={() => {
-                    onChange(st)
-                    closeMenu()
-                  }}
-                  className={cn(
-                    'flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-left text-xs transition-colors hover:bg-surface-hover',
-                    value === st ? 'font-semibold text-foreground' : 'text-muted hover:text-foreground'
-                  )}
-                >
-                  <Check className={cn('h-3.5 w-3.5 shrink-0', value !== st && 'invisible')} />
-                  <span className="flex-1">{statusLabel(st)}</span>
-                  <span className="tabular-nums">{counts[st]}</span>
-                </button>
-              ))}
-            </div>
-          </>,
-          document.body
-        )}
-    </>
   )
 }
 

@@ -243,15 +243,15 @@
     {
       "idx": 34,
       "version": "7",
-      "when": 1793794324315,
-      "tag": "0034_idea_goal_fit",
+      "when": 1793793160703,
+      "tag": "0034_newsletter_removed_status",
       "breakpoints": true
     },
     {
       "idx": 35,
       "version": "7",
-      "when": 1793794515305,
-      "tag": "0035_story_use_in_ideas",
+      "when": 1793855264967,
+      "tag": "0035_idea_goal_fit_and_story_use",
       "breakpoints": true
     }
   ]

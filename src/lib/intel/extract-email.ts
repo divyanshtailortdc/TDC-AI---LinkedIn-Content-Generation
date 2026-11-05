@@ -506,7 +506,7 @@ export async function retryEmailExtraction(
 /**
  * "I unsubscribed" on an email, or Undo. Every email from its sender (the
  * exact address), now and later, carries the date. What was stored stays:
- * the inbox, the Library and the Knowledge base keep it, and retention
+ * the inbox and the Knowledge base keep it, and retention
  * removes it in time; but runs stop using its stories (retrieval.ts), and
  * new mail from the sender is listed without being read.
  *

@@ -71,7 +71,7 @@ export class RetryLaterError extends Error {
 }
 
 /**
- * An article saved to the Knowledge base from the Library (source_type
+ * An article saved to the Knowledge base from the former Library (source_type
  * 'newsletter') is news: this many days after it was published (or saved,
  * without a date) it stays in the Knowledge base, but no generation reads it
  * any more (src/lib/ai/context.ts), so old figures and "latest" claims do not
