@@ -475,7 +475,7 @@ export function IdeasClient({
           isDrafting ? (
             <span
               aria-busy
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white opacity-75 shadow-sm"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background opacity-75 shadow-sm"
             >
               <Sparkles className="h-3.5 w-3.5 animate-pulse" />
               Generating posts…
@@ -504,7 +504,7 @@ export function IdeasClient({
                   type="button"
                   onClick={handleApproveSelected}
                   disabled={isActionBusy}
-                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
                   <span>Approve</span>
@@ -516,7 +516,7 @@ export function IdeasClient({
                   type="button"
                   onClick={handleDraftSelected}
                   disabled={isActionBusy}
-                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
@@ -527,7 +527,7 @@ export function IdeasClient({
                   title={`Approve and create ${selection.length} post${selection.length === 1 ? '' : 's'}?`}
                   description={`The ${selectedProposed.length} selected idea${selectedProposed.length === 1 ? ' still to review is' : 's still to review are'} approved, then a post is drafted for each selected idea. Ideas you did not select are left alone.`}
                   confirmLabel="Approve & create"
-                  tone="success"
+                  tone="neutral"
                   align="end"
                   // Don't await: the popover would otherwise stay open for the whole drafting run.
                   onConfirm={() => void handleApproveSelectedAndDraft()}
@@ -536,7 +536,7 @@ export function IdeasClient({
                   <button
                     type="button"
                     disabled={isActionBusy}
-                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     <span>Approve &amp; Create Posts</span>
@@ -552,14 +552,14 @@ export function IdeasClient({
                   title={`Approve all ${allProposedIds.length} ideas?`}
                   description="Every idea waiting for review moves to Approved. No posts are written until you select ideas and create them."
                   confirmLabel="Approve all"
-                  tone="success"
+                  tone="neutral"
                   onConfirm={handleApproveAll}
                   disabled={isActionBusy}
                 >
                   <button
                     type="button"
                     disabled={isActionBusy}
-                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                   >
                     <CheckCheck className="h-3.5 w-3.5" />
                     <span>Approve all ({allProposedIds.length})</span>
@@ -573,7 +573,7 @@ export function IdeasClient({
                   type="button"
                   onClick={() => setTicked(approvedIds)}
                   disabled={isActionBusy}
-                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <SquareCheck className="h-3.5 w-3.5" />
                   <span>Select {approvedCount} approved</span>

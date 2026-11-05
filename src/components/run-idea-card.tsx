@@ -541,7 +541,7 @@ export function RunIdeaCard({
                         // A rejected idea is rarely brought back, so it stays quiet.
                         idea.status === 'rejected'
                           ? 'border-border text-foreground hover:bg-surface-hover border'
-                          : 'bg-emerald-700 text-white hover:bg-emerald-800'
+                          : 'bg-accent text-background hover:bg-accent-hover'
                       )}
                     >
                       {isBusy ? (

@@ -573,7 +573,7 @@ export function RunDetailClient({
           isDrafting ? (
             <span
               aria-busy
-              className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 text-white text-[13px] font-semibold opacity-75 shadow-sm"
+              className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent text-background text-[13px] font-semibold opacity-75 shadow-sm"
             >
               <Sparkles className="w-3.5 h-3.5 animate-pulse" />
               Generating posts…
@@ -598,7 +598,7 @@ export function RunDetailClient({
                   type="button"
                   onClick={() => void handleApproveSelected()}
                   disabled={isBusy}
-                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                 >
                   {isApprovingAll ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -617,7 +617,7 @@ export function RunDetailClient({
                     ? 'Approve the selected ideas first'
                     : undefined
                 }
-                className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
@@ -631,14 +631,14 @@ export function RunDetailClient({
                   title={`Approve all ${proposedCount} ideas?`}
                   description="Every idea in this run waiting for review moves to Approved. No posts are written until you select ideas and create them."
                   confirmLabel="Approve all"
-                  tone="success"
+                  tone="neutral"
                   onConfirm={handleApproveAll}
                   disabled={isBusy}
                 >
                   <button
                     type="button"
                     disabled={isBusy}
-                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                   >
                     {isApprovingAll ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -656,7 +656,7 @@ export function RunDetailClient({
                     setTicked(ideas.filter((i) => i.status === 'approved').map((i) => i.id))
                   }
                   disabled={isBusy}
-                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <SquareCheck className="w-3.5 h-3.5" />
                   <span>Select {approvedCount} approved</span>
