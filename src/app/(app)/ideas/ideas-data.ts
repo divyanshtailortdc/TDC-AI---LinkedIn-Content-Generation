@@ -57,6 +57,8 @@ export async function loadIdeasPage(
             score: ideasTable.score,
             groundingScore: ideasTable.groundingScore,
             originalityScore: ideasTable.originalityScore,
+            goalFitScore: ideasTable.goalFitScore,
+            goalFitNote: ideasTable.goalFitNote,
             unsupportedClaims: ideasTable.unsupportedClaims,
             sourceIds: ideasTable.sourceIds,
             risks: ideasTable.risks,

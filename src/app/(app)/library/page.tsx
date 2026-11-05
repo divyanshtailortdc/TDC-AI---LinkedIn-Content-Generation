@@ -1,30 +1,20 @@
-import { NoIdentity } from '@/components/no-identity'
-import { getIdentity } from '@/lib/identity'
-import { parsePage } from '@/lib/pagination'
-import type { Metadata } from 'next'
-import { LibraryClient } from './library-client'
-import { loadLibraryPage, parseLibraryQuery } from './library-data'
+import { NEWSLETTER_KNOWLEDGE_PATH } from '@/lib/knowledge-path'
+import { redirect } from 'next/navigation'
 
-export const dynamic = 'force-dynamic'
-
-export const metadata: Metadata = {
-  title: 'Library · TDC LinkedIn Content Engine'
-}
-
+/**
+ * The Library moved into the Knowledge base ("From newsletters"); links to
+ * it land there, with their search.
+ */
 export default async function LibraryPage({
   searchParams
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const identity = await getIdentity()
-  if (!identity) return <NoIdentity title="Library" />
-
-  const params = await searchParams
-  const query = parseLibraryQuery(params.q)
-  const { stories, pageInfo } = await loadLibraryPage(identity.id, {
-    page: parsePage(params.page),
+  const { q } = await searchParams
+  const query = Array.isArray(q) ? q[0] : q
+  redirect(
     query
-  })
-
-  return <LibraryClient stories={stories} pageInfo={pageInfo} query={query} />
+      ? `${NEWSLETTER_KNOWLEDGE_PATH}&q=${encodeURIComponent(query)}`
+      : NEWSLETTER_KNOWLEDGE_PATH
+  )
 }

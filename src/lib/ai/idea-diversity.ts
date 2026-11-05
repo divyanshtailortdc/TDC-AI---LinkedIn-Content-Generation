@@ -128,7 +128,12 @@ export interface DiversityCheckResult {
 /** How ideas are ranked: grounding first, then originality and strength. */
 export function ideaQuality(idea: GeneratedIdeaItem): number {
   // ?? not ||: a grounding score of 0 is a score, not a missing one.
-  return (idea.groundingScore ?? 80) * 0.4 + (idea.originalityScore ?? 80) * 0.3 + (idea.estimatedStrength ?? 80) * 0.3
+  const craft = (idea.groundingScore ?? 80) * 0.4 + (idea.originalityScore ?? 80) * 0.3 + (idea.estimatedStrength ?? 80) * 0.3
+  // An idea is for its goal: once reviewed, how well it achieves it counts
+  // for 40% of its rank.
+  return typeof idea.goalFitScore === 'number'
+    ? craft * 0.6 + idea.goalFitScore * 0.4
+    : craft
 }
 
 export function filterDiverseIdeas(

@@ -37,10 +37,11 @@ async function tidyOncePerDay() {
   if (Date.now() - last < TIDY_SETTINGS.everyMs) return
   globalThis.__intelTidiedAt = Date.now()
   try {
-    const { embeddings, articles } = await tidyIntelStorage()
-    if (embeddings > 0 || articles > 0) {
+    const { embeddings, articles, emailHtml, articleText } =
+      await tidyIntelStorage()
+    if (embeddings + articles + emailHtml + articleText > 0) {
       console.info(
-        `Storage upkeep: ${embeddings} unused story embedding(s) dropped, ${articles} unused article(s) deleted.`
+        `Storage upkeep: ${embeddings} unused story embedding(s) dropped, ${articles} unused article(s) deleted, ${emailHtml} email(s) kept as text only, ${articleText} article text(s) cleared.`
       )
     }
   } catch (err) {

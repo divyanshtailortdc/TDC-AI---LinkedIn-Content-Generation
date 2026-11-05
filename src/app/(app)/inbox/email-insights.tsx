@@ -237,7 +237,7 @@ export function EmailInsights({ messageId }: { messageId: string }) {
 
 /**
  * "I unsubscribed from this sender", or Undo. Unsubscribing deletes nothing:
- * the stories stay in the Library, but ideas stop using them and new mail
+ * the stories stay in the Knowledge base, but ideas stop using them and new mail
  * from the sender is not read (setSenderUnsubscribed).
  */
 function SenderSubscription({
@@ -253,8 +253,8 @@ function SenderSubscription({
     <div className="border-border flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t pt-3">
       <p className="text-muted min-w-0 flex-1 text-xs break-words">
         {sender.unsubscribed
-          ? `You unsubscribed from ${sender.address}. Its stories stay in the Library but are not used for ideas, and new emails from it are not read.`
-          : `Unsubscribed from ${sender.address}? Its stories stay in the Library but stop being used for ideas.`}
+          ? `You unsubscribed from ${sender.address}. Its stories stay in your Knowledge base but are not used for ideas, and new emails from it are not read.`
+          : `Unsubscribed from ${sender.address}? Its stories stay in your Knowledge base but stop being used for ideas.`}
       </p>
       <Button
         variant="secondary"

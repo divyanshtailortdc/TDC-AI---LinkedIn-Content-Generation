@@ -29,9 +29,11 @@ import {
   ARTICLE_STATUSES,
   DIGEST_KINDS,
   EXTRACTION_STATUSES,
+  STORY_USES,
   type ArticleStatus,
   type DigestKind,
-  type ExtractionStatus
+  type ExtractionStatus,
+  type StoryUse
 } from '../lib/intel/status'
 import { authUsersTable } from './auth-schema'
 
@@ -562,6 +564,11 @@ export const ideasTable = pgTable('ideas', {
   score: integer('score').default(80).notNull(),
   groundingScore: integer('grounding_score').default(80).notNull(),
   originalityScore: integer('originality_score').default(80).notNull(),
+  // How well the idea achieves its goal (reader, message, action) and why,
+  // from the goal review (src/lib/ai/skills/goal-review). Null for ideas from
+  // before it, or when the review could not run.
+  goalFitScore: integer('goal_fit_score'),
+  goalFitNote: text('goal_fit_note'),
   unsupportedClaims: jsonb('unsupported_claims').$type<string[]>().default([]),
   sourceIds: jsonb('source_ids').$type<string[]>().default([]),
   risks: jsonb('risks').$type<string[]>().default([]),
@@ -1153,6 +1160,12 @@ export const intelMentionsTable = pgTable(
     // Where the link led, or the link as written when it could not be followed.
     url: text('url'),
     isSponsored: boolean('is_sponsored').default(false).notNull(),
+    // Whether ideas may use it: automatically while it is recent, kept past
+    // that, or never (STORY_USES). Set by the user, never by extraction.
+    useInIdeas: varchar('use_in_ideas', { length: 10 })
+      .$type<StoryUse>()
+      .default('auto')
+      .notNull(),
     // What the story is about, for matching it to a run's goals by meaning
     // (src/lib/intel/index-stories.ts): its headline, the newsletter's words
     // and the article's summary, embedded once the article is read. Null
@@ -1176,7 +1189,11 @@ export const intelMentionsTable = pgTable(
       'hnsw',
       table.embedding.op('vector_cosine_ops')
     ),
-    index('intel_mentions_search_idx').using('gin', table.searchVector)
+    index('intel_mentions_search_idx').using('gin', table.searchVector),
+    check(
+      'intel_mentions_use_in_ideas_check',
+      sql`${table.useInIdeas} in (${sqlList(STORY_USES)})`
+    )
   ]
 )
 

@@ -46,6 +46,7 @@ import {
   watchForStop
 } from '../run-lifecycle'
 import { SkillError } from '../run-skill'
+import { applyGoalReviews, reviewGoalFit } from '../skills/goal-review'
 import { generateIdeas, type GeneratedIdeaItem } from '../skills/ideation'
 import { buildGroundingCorpus } from './grounding-corpus'
 
@@ -426,6 +427,22 @@ async function researchAndIdeate(
     []
   let modelError: string | null = null
 
+  // Every grounded idea is judged against the goal it was written for: its
+  // reader, its message, its action. One that misses is discarded with why,
+  // and the rest carry their score into selection.
+  const goalMisses: Array<{ title: string; reason: string; goalId?: string }> =
+    []
+  let goalReviewed = 0
+  const reviewAgainstGoals = async (ideas: GeneratedIdeaItem[]) => {
+    const review = await reviewGoalFit(ctx, ideas, signal)
+    ideationUsage = addUsage(ideationUsage, review.usage)
+    goalReviewed += review.reviews.filter(Boolean).length
+    const { kept, missed } = applyGoalReviews(ideas, review.reviews)
+    goalMisses.push(...missed)
+    discarded.push(...missed)
+    return kept
+  }
+
   try {
     const ideation = await generateIdeas({
       ctx,
@@ -445,6 +462,8 @@ async function researchAndIdeate(
     if (err instanceof SkillError) ideationUsage = err.usage
     console.error('Idea generation failed:', err)
   }
+  const grounded = validated.length
+  validated = await reviewAgainstGoals(validated)
   if (ideationStep) await recordStepUsage(runId, ideationStep.id, ideationUsage)
   // A call cancelled by the stop or the deadline is not a model error to
   // record on the step: the run is already settled.
@@ -461,40 +480,61 @@ async function researchAndIdeate(
   discarded.push(...picked.discarded)
 
   // A goal the user picked but no usable idea serves gets one more try, for
-  // that goal alone: a second model call only when coverage needs it.
+  // that goal alone: a second model call only when coverage needs it. It is
+  // told which ideas missed their goal and why. When every idea missed, the
+  // retry is a whole batch rather than leaving the run empty.
   let retried = false
-  if (uncovered.length > 0 && selected.length > 0 && !modelError) {
+  if (
+    uncovered.length > 0 &&
+    !modelError &&
+    (selected.length > 0 || goalMisses.length > 0)
+  ) {
     retried = true
     const missing = uncovered.map(id => goalLabel(goalIds.indexOf(id)))
+    const retryCount =
+      selected.length > 0 ? missing.length * 2 : candidateCount
     try {
       const retry = await generateIdeas({
         ctx,
         corpus,
         history: [
           renderIdeationHistoryBlock(ctx, runId),
-          `ALREADY PROPOSED IN THIS RUN — do not repeat these:\n${selected.map(i => `- ${i.title}`).join('\n')}`
+          selected.length > 0
+            ? `ALREADY PROPOSED IN THIS RUN — do not repeat these:\n${selected.map(i => `- ${i.title}`).join('\n')}`
+            : '',
+          goalMisses.length > 0
+            ? `THESE IDEAS MISSED THEIR GOAL — write ones that achieve it:\n${goalMisses.map(m => `- ${m.title}: ${m.reason}`).join('\n')}`
+            : ''
         ]
           .filter(Boolean)
           .join('\n\n'),
-        candidateCount: missing.length * 2,
-        assignedGoals: spreadGoals(missing, missing.length * 2),
+        candidateCount: retryCount,
+        assignedGoals: spreadGoals(missing, retryCount),
         abortSignal: signal
       })
       ideationUsage = addUsage(ideationUsage, retry.usage)
       candidates = [...candidates, ...retry.candidates]
-      validated = [...validated, ...retry.valid]
       discarded.push(...retry.discarded)
-      const fresh = retry.valid.filter(
-        idea =>
-          checkNovelty(
-            idea.hookConcept,
-            `${idea.title} ${idea.thesis} ${idea.coreArgument}`,
-            pastWork
-          ).isNovel
-      )
-      const covered = coverEveryGoal(selected, fresh, goalIds, targetIdeas)
-      selected = covered.selected
-      uncovered = covered.uncovered
+      const reviewed = await reviewAgainstGoals(retry.valid)
+      validated = [...validated, ...reviewed]
+      if (selected.length === 0) {
+        const again = selectIdeas(reviewed, pastWork, targetIdeas, goalIds)
+        selected = again.selected
+        uncovered = again.uncovered
+        discarded.push(...again.discarded)
+      } else {
+        const fresh = reviewed.filter(
+          idea =>
+            checkNovelty(
+              idea.hookConcept,
+              `${idea.title} ${idea.thesis} ${idea.coreArgument}`,
+              pastWork
+            ).isNovel
+        )
+        const covered = coverEveryGoal(selected, fresh, goalIds, targetIdeas)
+        selected = covered.selected
+        uncovered = covered.uncovered
+      }
     } catch (err) {
       // The run keeps what it has; the goal is reported as uncovered.
       if (err instanceof SkillError) {
@@ -519,6 +559,13 @@ async function researchAndIdeate(
     }
   })
 
+  // The mean of the scores given; null when none were.
+  const averageOf = (scores: Array<number | undefined>) => {
+    const given = scores.filter((n): n is number => typeof n === 'number')
+    return given.length > 0
+      ? Math.round(given.reduce((sum, n) => sum + n, 0) / given.length)
+      : null
+  }
   const averageGrounding =
     selected.length > 0
       ? Math.round(
@@ -534,7 +581,7 @@ async function researchAndIdeate(
     costUsd: ideationUsage.costUsd.toFixed(4),
     responseJson: {
       generated: candidates.length,
-      survivedGrounding: validated.length,
+      survivedGrounding: grounded,
       selected: selected.length,
       discarded,
       perspectiveAngles: selected.map(i => i.perspectiveAngle),
@@ -547,6 +594,11 @@ async function researchAndIdeate(
       })),
       retriedForGoals: retried,
       uncoveredGoals,
+      goalReview: {
+        reviewed: goalReviewed,
+        missedGoal: goalMisses.length,
+        averageGoalFit: averageOf(selected.map(i => i.goalFitScore))
+      },
       averageGroundingScore: averageGrounding,
       model: handle.modelId,
       usage: ideationUsage
@@ -614,6 +666,8 @@ async function researchAndIdeate(
         score: idea.estimatedStrength,
         groundingScore: idea.groundingScore ?? 80,
         originalityScore: idea.originalityScore ?? 80,
+        goalFitScore: idea.goalFitScore ?? null,
+        goalFitNote: idea.goalFitNote ?? null,
         unsupportedClaims: idea.unsupportedClaims || [],
         sourceIds: idea.sourceIds || [],
         risks: idea.risks || [],

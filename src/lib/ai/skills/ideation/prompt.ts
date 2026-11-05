@@ -86,7 +86,7 @@ Every fact you use must be true of THIS account and traceable to THIS evidence o
 WHO YOU ARE WRITING FOR (context, not a list of topics)
 ${renderIdentityBlock(ctx)}
 
-WHO IS READING: separate reader groups. Write each idea for exactly one of them and give its label as audienceRef; never blend groups with different needs into one idea.
+WHO FOLLOWS THIS ACCOUNT: separate reader groups. Write each idea for the one group of people its goal is meant to reach, never a blend of groups with different needs, and name them in readers. When one of these groups is those people, give its label as audienceRef. A goal can aim at people none of these groups describe (its title or message says who, e.g. "D2C founders"): then write for the people the goal names and give audienceRef "none".
 ${renderAudienceSegmentsBlock(audienceSegments(ctx))}
 
 WHERE THE READERS ARE
@@ -96,7 +96,11 @@ ${
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
 
-THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject.
+THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject. An idea achieves its goal only when all three hold:
+1. Reader: it is written for the people the goal is meant to reach.
+2. Message: its argument lands the goal's message, so a reader who agrees with it has come round to that message, not just to its topic.
+3. Action: its takeaway gives that reader a reason to take the goal's desired action (for lead generation, a reason to want help with the problem), without turning the post into an advert.
+Every idea is reviewed against these three before anyone sees it, and one that misses any of them is discarded.
 ${renderGoalsBlock(ctx.selectedGoals)}
 
 HOW THIS AUTHOR SOUNDS
@@ -152,12 +156,13 @@ For each idea provide:
 - perspectiveAngle: the lens from the list above (each idea must use a different one)
 - angle: the distinctive point of view in a phrase
 - goalRefs: the label of the goal assigned to this idea first, then any other goal its argument also moves, e.g. ["G1"] or ["G2", "G1"]
-- audienceRef: the label of the one reader group this idea is for, e.g. "A2"
+- readers: who exactly this idea is for, in a few plain words: the people its goal is meant to reach
+- audienceRef: the label of the reader group those readers belong to, e.g. "A2", or "none" when no group listed is them
 - format: the post format that fits best
 - whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"
 - hookConcept: the idea for the first ${input.hookMaxChars} characters, before the fold. A concept, not final copy.
 - coreArgument: the "so what", in full
-- audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message
+- audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message and giving them a reason to take its desired action
 - supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
 - mediaBrief: one sentence of visual direction for the image
 - noveltyNote: why this is not the generic take on the subject

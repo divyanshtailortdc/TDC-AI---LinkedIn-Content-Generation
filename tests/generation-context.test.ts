@@ -333,6 +333,8 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
     score: 80,
     groundingScore: 80,
     originalityScore: 80,
+    goalFitScore: null,
+    goalFitNote: null,
     unsupportedClaims: [],
     sourceIds: [],
     risks: [],

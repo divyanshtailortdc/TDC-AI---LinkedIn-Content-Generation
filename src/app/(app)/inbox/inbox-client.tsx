@@ -23,7 +23,9 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState, useTransition } from 'react'
+import { RETENTION_SETTINGS } from '~/lib/intel/settings'
 import type { MailSyncStatus } from '~/lib/mail/mailbox'
+import { isTestDomain } from '~/lib/mail/test-domain'
 import { getInboxMessage, getInboxSyncStatus, refreshInbox } from './actions'
 import { EmailBody } from './email-body'
 import { EmailInsights } from './email-insights'
@@ -45,6 +47,12 @@ type InboxData = {
   pageInfo: PageInfo
   /** The search the page was loaded with (?q=). */
   query: string
+}
+
+/** Old enough that upkeep has cleared its HTML (src/lib/intel/tidy.ts). */
+function isPastHtmlRetention(message: Pick<InboxMessage, 'receivedAt'>) {
+  const days = RETENTION_SETTINGS.emailHtmlDays * 24 * 60 * 60_000
+  return Date.now() - new Date(message.receivedAt).getTime() > days
 }
 
 function senderOf(message: Pick<InboxListItem, 'fromName' | 'fromAddress'>) {
@@ -423,9 +431,11 @@ function EmptyList({
       ) : (
         <>
           <Inbox aria-hidden className="mb-2 h-5 w-5 opacity-60" />
-          {address
-            ? `No emails yet. Subscribe to newsletters with ${address} and they show up here.`
-            : 'No emails yet. Choose your address above, then subscribe to newsletters with it.'}
+          {!address
+            ? 'No emails yet. Choose your address above, then subscribe to newsletters with it.'
+            : isTestDomain(address.slice(address.indexOf('@') + 1))
+              ? `No emails yet. Send a test email to ${address} through the local mail server and it shows up here.`
+              : `No emails yet. Subscribe to newsletters with ${address} and they show up here.`}
         </>
       )}
     </div>
@@ -498,6 +508,13 @@ function MessageView({
         {message.truncated && (
           <FormAlert variant="info">
             This email is large, so only its first part was saved.
+          </FormAlert>
+        )}
+        {hasMounted && !message.htmlBody && isPastHtmlRetention(message) && (
+          <FormAlert variant="info">
+            Shown as text: an email&apos;s original layout is kept for{' '}
+            {RETENTION_SETTINGS.emailHtmlDays} days. Its stories stay in your
+            Knowledge base.
           </FormAlert>
         )}
       </header>

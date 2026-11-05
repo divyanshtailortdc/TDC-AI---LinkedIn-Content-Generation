@@ -4,29 +4,32 @@ import { db } from '@/db'
 import {
   intelArticlesTable,
   intelMentionsTable,
-  knowledgeDocumentsTable,
   mailMessagesTable
 } from '@/db/schema'
-import { MAX_LIBRARY_QUERY_LENGTH } from '@/lib/library-path'
+import { MAX_NEWSLETTER_QUERY_LENGTH } from '@/lib/knowledge-path'
 import { loadPage } from '@/lib/pagination'
-import { and, asc, count, desc, eq, isNotNull, or, sql } from 'drizzle-orm'
-import { articleUrlKey } from '~/lib/intel/links'
-import type { ArticleStatus } from '~/lib/intel/status'
+import { and, asc, count, desc, eq, or, sql } from 'drizzle-orm'
+import { RESEARCH_SETTINGS } from '~/lib/ai/context-blocks'
+import type { ArticleStatus, StoryUse } from '~/lib/intel/status'
 import { inboxSearchQuery } from '~/lib/mail/search'
 
-const LIBRARY_PAGE_SIZE = 20
+const PAGE_SIZE = 20
 /** Claims shown under an article; the rest stay in the article. */
 const SHOWN_CLAIMS = 3
 
 /** A story from one of the identity's newsletters, with its article. */
-export type LibraryStory = {
+export type KnowledgeStory = {
   id: string
   headline: string
   blurb: string | null
   url: string | null
   sponsored: boolean
-  /** From a sender the user unsubscribed from: kept, but not used for ideas. */
+  /** From a sender the user unsubscribed from. */
   unsubscribed: boolean
+  /** Whether ideas may use it (STORY_USES). */
+  use: StoryUse
+  /** Until when ideas use it automatically: the freshness window. */
+  freshUntil: Date
   newsletter: string
   receivedAt: Date
   article: {
@@ -42,8 +45,6 @@ export type LibraryStory = {
     /** Why it was skipped or failed. */
     note: string | null
   } | null
-  /** Its article is one of the identity's knowledge documents. */
-  saved: boolean
 }
 
 const mentions = intelMentionsTable
@@ -51,9 +52,9 @@ const messages = mailMessagesTable
 const articles = intelArticlesTable
 
 /** ?q= as the search box shows it. */
-export function parseLibraryQuery(value: string | string[] | undefined) {
+export function parseNewsletterQuery(value: string | string[] | undefined) {
   const raw = Array.isArray(value) ? value[0] : value
-  return (raw ?? '').trim().slice(0, MAX_LIBRARY_QUERY_LENGTH)
+  return (raw ?? '').trim().slice(0, MAX_NEWSLETTER_QUERY_LENGTH)
 }
 
 /**
@@ -61,7 +62,7 @@ export function parseLibraryQuery(value: string | string[] | undefined) {
  * matching a search of the stories and their articles. Callers pass the
  * signed-in user's own identity, so it only ever lists theirs.
  */
-export async function loadLibraryPage(
+export async function loadNewsletterStories(
   accountId: string,
   { page, query }: { page: number; query: string }
 ) {
@@ -75,9 +76,10 @@ export async function loadLibraryPage(
         )
       : undefined
   )
+
   const { rows, pageInfo } = await loadPage({
     page,
-    pageSize: LIBRARY_PAGE_SIZE,
+    pageSize: PAGE_SIZE,
     count: async () => {
       const [row] = await db
         .select({ n: count() })
@@ -94,6 +96,7 @@ export async function loadLibraryPage(
           blurb: mentions.blurb,
           url: mentions.url,
           sponsored: mentions.isSponsored,
+          use: mentions.useInIdeas,
           fromName: messages.fromName,
           fromAddress: messages.fromAddress,
           receivedAt: messages.receivedAt,
@@ -107,8 +110,7 @@ export async function loadLibraryPage(
           summary: articles.summary,
           claims: articles.keyClaims,
           topics: articles.topics,
-          note: articles.lastError,
-          articleUrl: articles.canonicalUrl
+          note: articles.lastError
         })
         .from(mentions)
         .innerJoin(messages, eq(messages.id, mentions.messageId))
@@ -119,28 +121,18 @@ export async function loadLibraryPage(
         .limit(limit)
   })
 
-  // Saved when the Knowledge base has its article under any way of writing
-  // its address, as saveStoryToKnowledge decides.
-  const docs = await db
-    .select({ sourceUrl: knowledgeDocumentsTable.sourceUrl })
-    .from(knowledgeDocumentsTable)
-    .where(
-      and(
-        eq(knowledgeDocumentsTable.accountId, accountId),
-        isNotNull(knowledgeDocumentsTable.sourceUrl)
-      )
-    )
-  const saved = new Set(docs.map(doc => articleUrlKey(doc.sourceUrl!)))
-
+  const freshMs = RESEARCH_SETTINGS.freshness_days * 24 * 60 * 60_000
   return {
     pageInfo,
-    stories: rows.map((row): LibraryStory => ({
+    stories: rows.map((row): KnowledgeStory => ({
       id: row.id,
       headline: row.headline,
       blurb: row.blurb,
       url: row.url,
       sponsored: row.sponsored,
       unsubscribed: row.unsubscribedAt !== null,
+      use: row.use,
+      freshUntil: new Date(row.receivedAt.getTime() + freshMs),
       newsletter: row.fromName || row.fromAddress || 'Newsletter',
       receivedAt: row.receivedAt,
       article: row.articleStatus
@@ -158,8 +150,7 @@ export async function loadLibraryPage(
             topics: row.topics ?? [],
             note: row.note
           }
-        : null,
-      saved: row.articleUrl ? saved.has(articleUrlKey(row.articleUrl)) : false
+        : null
     }))
   }
 }

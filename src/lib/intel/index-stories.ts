@@ -20,7 +20,8 @@ import { storyText } from './story-ranking'
  * read, so the article's summary counts too, but not for long: after an hour
  * it is embedded with what it has, and again once the article is read
  * (read-article.ts clears it). A new embedding model embeds every story
- * again. Only stories a run can take are embedded: recent and not sponsored.
+ * again. Only stories a run can take are embedded: recent and not sponsored,
+ * or kept by the user, and never one the user excluded.
  * Two passes embedding the same story write the same vector, so no claim is
  * needed.
  *
@@ -121,10 +122,17 @@ export async function indexDueStories(limit = BATCH): Promise<number> {
     .leftJoin(articles, eq(articles.id, mentions.articleId))
     .where(
       and(
-        // Only what a run can take (retrieval.ts): never a sponsored story,
-        // nor one older than the freshness window. tidy.ts drops the rest.
-        eq(mentions.isSponsored, false),
-        gte(messages.receivedAt, embeddingWindowStart()),
+        // Only what a run can take (retrieval.ts): a recent story that is not
+        // sponsored, or one the user keeps; never one the user excluded.
+        // tidy.ts drops the rest.
+        ne(mentions.useInIdeas, 'never'),
+        or(
+          eq(mentions.useInIdeas, 'keep'),
+          and(
+            eq(mentions.isSponsored, false),
+            gte(messages.receivedAt, embeddingWindowStart())
+          )
+        ),
         or(
           isNull(mentions.embedding),
           ne(mentions.embeddingModel, handle.modelId)

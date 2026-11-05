@@ -36,14 +36,15 @@ import {
 export type { NewsletterStory } from './story-ranking'
 
 /**
- * Newsletter stories for a run's evidence: the workspace's own, from emails
- * that arrived within the freshness window, with what was read of each
- * article. Each of the run's goals finds the stories closest to it in
- * meaning (their embeddings, index-stories.ts), the goals' best in turn.
- * Stories not embedded yet, or all of them without an embedding model, are
- * matched by the words they share with the goals. Either way a story must be
- * close to a goal: an unrelated one is not evidence. Sponsored stories never
- * count (story-ranking.ts has the rest of the rules).
+ * Newsletter stories for a run's evidence: the workspace's own, with what was
+ * read of each article. Automatically, a story counts while it is recent,
+ * not sponsored and from a newsletter the user still receives; the user can
+ * keep one past that, or exclude one for good (STORY_USES). Each of the
+ * run's goals finds the stories closest to it in meaning (their embeddings,
+ * index-stories.ts), the goals' best in turn. Stories not embedded yet, or
+ * all of them without an embedding model, are matched by the words they
+ * share with the goals. Either way a story must be close to a goal: an
+ * unrelated one is not evidence (story-ranking.ts has the rest of the rules).
  */
 
 /** Stories a run's evidence takes; each brings up to four items. */
@@ -126,11 +127,18 @@ export async function retrieveNewsletterStories(
   )
   const recent = and(
     eq(mentions.accountId, ctx.account.id),
-    eq(mentions.isSponsored, false),
     eq(messages.digestKind, 'newsletter'),
-    gte(messages.receivedAt, since),
-    // A newsletter the user unsubscribed from is no longer a source.
-    isNull(messages.senderUnsubscribedAt)
+    ne(mentions.useInIdeas, 'never'),
+    or(
+      // A story the user keeps counts whatever its age or sender.
+      eq(mentions.useInIdeas, 'keep'),
+      and(
+        eq(mentions.isSponsored, false),
+        gte(messages.receivedAt, since),
+        // A newsletter the user unsubscribed from is no longer a source.
+        isNull(messages.senderUnsubscribedAt)
+      )
+    )
   )!
 
   const handle = getEmbeddingModel()

@@ -9,6 +9,7 @@ import {
   localPartError,
   normalizeLocalPart
 } from '~/lib/mail/local-part'
+import { isTestDomain } from '~/lib/mail/test-domain'
 import { changeInboxAddress } from './actions'
 
 const ICON_BUTTON =
@@ -45,30 +46,41 @@ export function InboxAddress({
 
   if (address && !editing) {
     return (
-      <div className="flex min-w-0 items-center gap-2 text-sm">
-        <span className="text-muted shrink-0">Your address</span>
-        <code className="text-foreground truncate font-medium">{address}</code>
-        <button
-          type="button"
-          onClick={copyAddress}
-          aria-label="Copy the address"
-          title="Copy"
-          className={ICON_BUTTON}
-        >
-          <Copy aria-hidden className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setError(null)
-            setEditing(true)
-          }}
-          aria-label="Change the address"
-          title="Change"
-          className={ICON_BUTTON}
-        >
-          <Pencil aria-hidden className="h-3.5 w-3.5" />
-        </button>
+      <div className="min-w-0 space-y-1">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="text-muted shrink-0">Your address</span>
+          <code className="text-foreground truncate font-medium">
+            {address}
+          </code>
+          <button
+            type="button"
+            onClick={copyAddress}
+            aria-label="Copy the address"
+            title="Copy"
+            className={ICON_BUTTON}
+          >
+            <Copy aria-hidden className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              setEditing(true)
+            }}
+            aria-label="Change the address"
+            title="Change"
+            className={ICON_BUTTON}
+          >
+            <Pencil aria-hidden className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {isTestDomain(domain) && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            A test address: {domain} does not exist on the internet, so
+            newsletter sites refuse it and cannot send to it. It only receives
+            mail sent to the local mail server (mailserver/README.md).
+          </p>
+        )}
       </div>
     )
   }

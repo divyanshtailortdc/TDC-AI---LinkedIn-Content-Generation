@@ -3,7 +3,7 @@
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { INBOX_PATH } from '@/lib/inbox-path'
-import { LIBRARY_PATH } from '@/lib/library-path'
+import { KNOWLEDGE_PATH } from '@/lib/knowledge-path'
 import { requireUser } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
@@ -166,7 +166,7 @@ export async function setInboxSenderUnsubscribed(
       return { success: false as const, error: 'This email has no sender.' }
     }
     if (!unsubscribed && runsJobsHere()) after(runMailExtraction)
-    revalidatePath(LIBRARY_PATH)
+    revalidatePath(KNOWLEDGE_PATH)
     return { success: true as const }
   } catch (err) {
     console.error('Changing a sender subscription failed:', err)

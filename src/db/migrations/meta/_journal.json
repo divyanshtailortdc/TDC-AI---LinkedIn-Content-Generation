@@ -239,6 +239,20 @@
       "when": 1793791841868,
       "tag": "0033_mail_sender_unsubscribed",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793794324315,
+      "tag": "0034_idea_goal_fit",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793794515305,
+      "tag": "0035_story_use_in_ideas",
+      "breakpoints": true
     }
   ]
 }

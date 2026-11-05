@@ -869,7 +869,11 @@ export function resolveGeneratedIdea(
     perspectiveAngle: generated.perspectiveAngle,
     angle: generated.angle,
     ...resolveGoalRefs(generated.goalRefs, goals),
-    targetAudience: byLabel('A', generated.audienceRef, audiences),
+    // A goal can aim at readers none of the profile's groups describe; the
+    // idea then names them itself.
+    targetAudience:
+      byLabel('A', generated.audienceRef, audiences) ??
+      (generated.readers?.trim() || undefined),
     format: generated.format,
     whyNow: clean(generated.whyNow),
     hookConcept: generated.hookConcept,

@@ -44,6 +44,9 @@ export interface RunIdeaCardData {
   risks?: string[] | null
   score?: number | null
   originalityScore?: number | null
+  /** How well it achieves its goal, and why (the goal review). */
+  goalFitScore?: number | null
+  goalFitNote?: string | null
   status: string
 }
 
@@ -192,6 +195,7 @@ export function RunIdeaCard({
     typeof idea.groundingScore === 'number' ? idea.groundingScore : null
   const weakSources = isOpen && grounding !== null && grounding < WEAK_GROUNDING
   const scores = [
+    typeof idea.goalFitScore === 'number' && `Goal fit ${idea.goalFitScore}/100`,
     grounding !== null && `Sources ${grounding}%`,
     typeof idea.score === 'number' && `Strength ${idea.score}/100`,
     typeof idea.originalityScore === 'number' &&
@@ -207,6 +211,7 @@ export function RunIdeaCard({
     !!detailThesis ||
     !!detailTakeaway ||
     !!idea.noveltyNote ||
+    !!idea.goalFitNote ||
     evidence.length > 0 ||
     scores.length > 0 ||
     canEdit
@@ -383,6 +388,9 @@ export function RunIdeaCard({
 
           {showDetails && (
             <div className="border-border mt-4 space-y-3 border-t pt-4 text-sm">
+              {idea.goalFitNote && (
+                <DetailRow label="For its goal">{idea.goalFitNote}</DetailRow>
+              )}
               {goals.length > 1 && (
                 <DetailRow label="Goals">
                   {goals[0]} (main goal; sets the call to action), also{' '}

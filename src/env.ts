@@ -1,5 +1,6 @@
 import { createEnv } from '@t3-oss/env-nextjs'
 import { z } from 'zod'
+import { isTestDomain } from './lib/mail/test-domain'
 
 export const env = createEnv({
   server: {
@@ -44,11 +45,7 @@ export const env = createEnv({
       .string()
       .regex(/^[a-z0-9.-]+\.[a-z0-9-]+$/i, 'INBOUND_EMAIL_DOMAIN must be a domain')
       .refine(
-        domain =>
-          process.env.APP_ENV !== 'production' ||
-          !/(^|\.)(test|example|invalid|localhost|local)$|(^|\.)example\.(com|net|org)$/i.test(
-            domain
-          ),
+        domain => process.env.APP_ENV !== 'production' || !isTestDomain(domain),
         'INBOUND_EMAIL_DOMAIN must be a real domain in production'
       )
       .optional(),

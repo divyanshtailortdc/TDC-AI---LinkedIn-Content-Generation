@@ -134,6 +134,10 @@ export const IdeaItemSchema = z.object({
   estimatedStrength: z.number().int().min(1).max(100).default(85),
   groundingScore: z.number().int().min(0).max(100).default(85),
   originalityScore: z.number().int().min(0).max(100).default(85),
+  // Set by the goal review (skills/goal-review), not by the model writing
+  // the idea: how well it achieves its goal, and why.
+  goalFitScore: z.number().int().min(0).max(100).optional(),
+  goalFitNote: z.string().optional(),
   unsupportedClaims: z.array(z.string()).default([]),
   sourceIds: z.array(z.string()).default([]),
   risks: z.array(z.string()).default([])
@@ -162,10 +166,15 @@ export const IdeaGenerationItemSchema = z.object({
     .describe(
       'Labels of the goals this idea serves, its assigned (main) goal first, e.g. ["G1"] or ["G1", "G3"].'
     ),
+  readers: z
+    .string()
+    .describe(
+      'Who exactly this idea is written for, in a few plain words, e.g. "D2C founders who still wait weeks for their numbers": the people its goal is meant to reach.'
+    ),
   audienceRef: z
     .string()
     .describe(
-      'The label of the one reader group this idea is written for, e.g. "A2".'
+      'The label of the reader group those readers belong to, e.g. "A2", or "none" when no group listed is them.'
     ),
   format: IdeaItemSchema.shape.format,
   whyNow: IdeaItemSchema.shape.whyNow,

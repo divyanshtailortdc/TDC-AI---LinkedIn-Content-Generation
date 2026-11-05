@@ -47,7 +47,7 @@ export const SETUP_STEPS: SetupStep[] = [
     icon: BookOpen,
     title: 'Knowledge',
     description:
-      'Add sources so posts are grounded in facts you can stand behind.'
+      'Your own sources, and what your newsletters bring in, so posts are grounded in facts you can stand behind.'
   },
   {
     key: 'preferences',

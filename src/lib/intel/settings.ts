@@ -79,6 +79,23 @@ export class RetryLaterError extends Error {
  */
 export const SAVED_NEWS_MAX_AGE_DAYS = 180
 
+/**
+ * How long what extraction has used up is kept in full (src/lib/intel/tidy.ts).
+ * Client-safe, so the inbox can say why an old email shows as text.
+ */
+export const RETENTION_SETTINGS = {
+  /**
+   * An email's HTML, once its stories are extracted: after this it is shown
+   * as its text, which stays, as do its stories.
+   */
+  emailHtmlDays: 30,
+  /**
+   * An article's full text: after this its summary, quoted claims and link
+   * stay, which is all ideas read of it.
+   */
+  articleTextDays: 180
+} as const
+
 /** A Knowledge base document that is saved news past SAVED_NEWS_MAX_AGE_DAYS. */
 export function isOldNews(
   doc: { sourceType: string; publishedAt: Date | null; createdAt: Date },

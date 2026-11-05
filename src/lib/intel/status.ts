@@ -46,3 +46,15 @@ export const DIGEST_KINDS = [
 ] as const
 
 export type DigestKind = (typeof DIGEST_KINDS)[number]
+
+/**
+ * Whether ideas may use a story (intel_mentions.use_in_ideas), set from the
+ * Knowledge base's "From newsletters" view:
+ * - auto: while it is recent, not sponsored and from a newsletter the user
+ *   still receives, and only when it is relevant to a run's goals.
+ * - keep: also after that, as long as it is relevant: an evergreen report.
+ * - never: not at all: wrong, off-brand or not wanted.
+ */
+export const STORY_USES = ['auto', 'keep', 'never'] as const
+
+export type StoryUse = (typeof STORY_USES)[number]
