@@ -2894,9 +2894,9 @@ export function PostsClientInner({
                       <div className="flex items-center justify-between gap-2 text-[11px]">
                         {brand.hasLogo || brand.colors.length > 0 ? (
                           <span className="text-muted inline-flex min-w-0 items-center gap-1.5">
-                            {brand.colors.map(color => (
+                            {brand.colors.map((color, i) => (
                               <span
-                                key={color}
+                                   key={`${i}-${color}`}
                                 aria-hidden
                                 className="border-border h-3 w-3 shrink-0 rounded-full border"
                                 style={{ background: color }}
