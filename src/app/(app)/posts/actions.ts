@@ -15,11 +15,16 @@ import {
   type BackgroundPattern
 } from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
-import { linkedInPublishConfig } from '@/lib/linkedin/config'
+import { isUuid } from '@/lib/ids'
+import { linkedInPublishConfig, publishDeps } from '@/lib/linkedin/config'
 import {
   cancelPendingPublications,
   hasLivePublication
 } from '@/lib/linkedin/publication-queries'
+import {
+  deletePublishedPost,
+  latestPublicationOf
+} from '@/lib/linkedin/publishing'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
 import { postCharCount } from '@/lib/post-text'
@@ -245,6 +250,117 @@ export async function rejectDraft(draftId: string, reason?: string) {
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to reject draft' }
+  }
+}
+
+/**
+ * Takes a post out of the Posts queue (it shows under the Hidden filter), or
+ * puts it back. Nothing else about it changes: a scheduled publication still
+ * goes out.
+ */
+export async function setDraftHidden(draftId: string, hidden: boolean) {
+  await requireUser()
+  try {
+    if (!isUuid(draftId)) throw new Error('Draft not found')
+    const identityId = await requireIdentityId()
+    const [row] = await db
+      .update(postDraftsTable)
+      .set({ hiddenAt: hidden ? new Date() : null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(postDraftsTable.id, draftId),
+          eq(postDraftsTable.accountId, identityId)
+        )
+      )
+      .returning({ hiddenAt: postDraftsTable.hiddenAt })
+    if (!row) throw new Error('Draft not found')
+    return {
+      success: true as const,
+      hiddenAt: row.hiddenAt?.toISOString() ?? null
+    }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error:
+        err.message ||
+        (hidden ? 'Failed to hide the post' : 'Failed to show the post')
+    }
+  }
+}
+
+/**
+ * Deletes a post from the app for good, with its alternates, sources and
+ * images. A scheduled publication is called off, and one going out right now
+ * stops the delete. Its LinkedIn publications stay, without the post, as the
+ * record of what was published. With `alsoFromLinkedIn` a published post is
+ * deleted from LinkedIn first, and if that fails the post is kept.
+ */
+export async function deleteDraft(
+  draftId: string,
+  options: { alsoFromLinkedIn?: boolean } = {}
+) {
+  const user = await requireUser()
+  try {
+    if (!isUuid(draftId)) throw new Error('Draft not found')
+    const identityId = await requireIdentityId()
+    const owned = and(
+      eq(postDraftsTable.id, draftId),
+      eq(postDraftsTable.accountId, identityId)
+    )
+    const [draft] = await db
+      .select({ id: postDraftsTable.id })
+      .from(postDraftsTable)
+      .where(owned)
+      .limit(1)
+    if (!draft) throw new Error('Draft not found')
+
+    let deletedFromLinkedIn = false
+    if (options.alsoFromLinkedIn) {
+      const deps = publishDeps()
+      if (!deps) {
+        throw new Error('Publishing to LinkedIn is not set up on this server.')
+      }
+      const latest = await latestPublicationOf(db, user.id, draftId)
+      if (latest?.status === 'published' && !latest.deletedAt) {
+        await deletePublishedPost(deps, user.id, latest.id)
+        deletedFromLinkedIn = true
+      }
+    }
+
+    // Only when publishing is set up, like the rest of the app.
+    const linkedIn = linkedInPublishConfig() !== null
+    await db.transaction(async tx => {
+      if (linkedIn) {
+        // Called off first, as in rejectDraft, so a worker claiming one now
+        // either already moved it (caught below) or finds it cancelled. One
+        // in flight whose post was not sent yet is stopped too.
+        await cancelPendingPublications(
+          tx,
+          { draftId },
+          {
+            message: 'Cancelled because the post was deleted.',
+            code: 'not_approved'
+          },
+          { includeUnsentInFlight: true }
+        )
+        if (await hasLivePublication(tx, draftId, ['publishing'])) {
+          throw new Error(
+            'This post is being published to LinkedIn right now. Try again in a moment.'
+          )
+        }
+      }
+      await tx.delete(postDraftsTable).where(owned)
+    })
+
+    // The rows went with the post; its images in storage go now.
+    await deleteDraftImages(draftId)
+
+    return { success: true as const, deletedFromLinkedIn }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'Failed to delete the post'
+    }
   }
 }
 

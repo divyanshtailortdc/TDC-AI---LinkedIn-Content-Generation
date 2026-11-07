@@ -14,6 +14,7 @@ import type { LinkedInAppConfig, TokenSet } from '../src/lib/linkedin/oauth'
 import {
   cancelPublication,
   claimPublication,
+  deletePublishedPost,
   executePublication,
   type PostImage,
   PublishRequestError,
@@ -42,12 +43,19 @@ const config: LinkedInAppConfig = {
   encryptionKey: randomBytes(32)
 }
 
-type Call = { method: string; url: string; body?: any; auth?: string }
+type Call = {
+  method: string
+  url: string
+  body?: any
+  auth?: string
+  restliMethod?: string
+}
 
 /** A stand-in for LinkedIn: records calls, answers posts from a queue. */
 function fakeLinkedIn() {
   const calls: Call[] = []
   let postResponses: Array<() => Response> = []
+  let deleteResponses: Array<() => Response> = []
   let postCount = 0
   const fetchFn = (async (input: string | URL, init: RequestInit = {}) => {
     const href = String(input)
@@ -56,11 +64,16 @@ function fakeLinkedIn() {
       method: init.method ?? 'GET',
       url: href,
       auth: headers.Authorization,
+      restliMethod: headers['X-RestLi-Method'],
       body:
         typeof init.body === 'string' && init.body.startsWith('{')
           ? JSON.parse(init.body)
           : undefined
     })
+    if (init.method === 'DELETE' && href.includes('/rest/posts/')) {
+      const next = deleteResponses.shift()
+      return next ? next() : new Response(null, { status: 204 })
+    }
     if (href.endsWith('/rest/posts')) {
       const next = postResponses.shift()
       if (next) return next()
@@ -95,8 +108,12 @@ function fakeLinkedIn() {
     fetchFn,
     calls,
     postCalls: () => calls.filter(c => c.url.endsWith('/rest/posts')),
+    deleteCalls: () => calls.filter(c => c.method === 'DELETE'),
     failNextPosts: (...responses: Array<() => Response>) => {
       postResponses = responses
+    },
+    answerNextDeletes: (...responses: Array<() => Response>) => {
+      deleteResponses = responses
     }
   }
 }
@@ -694,6 +711,98 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       .from(schema.linkedinPublicationsTable)
       .where(eq(schema.linkedinPublicationsTable.id, scheduled.id))
     assert.strictEqual(row!.status, 'cancelled')
+  })
+
+  describe('deleting', () => {
+    it('deletes a published post from LinkedIn; it stays published, so it never goes out again', async () => {
+      const k = await newUser('k', 'google')
+      await connect(k.userId, 'MEMBER_K')
+      const draft = await newPost(k.accountId)
+      const published = await publishNow(k.userId, draft)
+
+      const deleted = await deletePublishedPost(
+        deps(),
+        k.userId,
+        published.id
+      )
+      assert.strictEqual(deleted.status, 'published')
+      assert.ok(deleted.deletedAt, 'deletedAt set')
+      const [call] = linkedIn.deleteCalls()
+      assert.strictEqual(
+        call!.url,
+        `https://api.linkedin.com/rest/posts/${encodeURIComponent(published.linkedinPostUrn!)}`
+      )
+      assert.strictEqual(call!.restliMethod, 'DELETE')
+
+      // Once deleted, deleting again does not call LinkedIn.
+      await deletePublishedPost(deps(), k.userId, published.id)
+      assert.strictEqual(linkedIn.deleteCalls().length, 1)
+      assert.strictEqual(
+        await codeOf(publishNow(k.userId, draft)),
+        'already_posted'
+      )
+    })
+
+    it("only the publisher can delete it, and only as the member it went out as", async () => {
+      const l = await newUser('l', 'google')
+      const m = await newUser('m', 'google')
+      await connect(l.userId, 'MEMBER_L')
+      await connect(m.userId, 'MEMBER_M')
+      const published = await publishNow(l.userId, await newPost(l.accountId))
+
+      assert.strictEqual(
+        await codeOf(deletePublishedPost(deps(), m.userId, published.id)),
+        'not_found'
+      )
+      await connect(l.userId, 'MEMBER_L_OTHER')
+      assert.strictEqual(
+        await codeOf(deletePublishedPost(deps(), l.userId, published.id)),
+        'missing_permission'
+      )
+      assert.strictEqual(linkedIn.deleteCalls().length, 0)
+    })
+
+    it('a LinkedIn error leaves it undeleted; a post LinkedIn no longer has counts as deleted', async () => {
+      const n = await newUser('n', 'google')
+      await connect(n.userId, 'MEMBER_N')
+      const published = await publishNow(n.userId, await newPost(n.accountId))
+
+      linkedIn.answerNextDeletes(
+        () => new Response(null, { status: 500 }),
+        () => Response.json({ message: 'Not found' }, { status: 404 })
+      )
+      assert.strictEqual(
+        await codeOf(deletePublishedPost(deps(), n.userId, published.id)),
+        'linkedin_unavailable'
+      )
+      const [kept] = await database
+        .select()
+        .from(schema.linkedinPublicationsTable)
+        .where(eq(schema.linkedinPublicationsTable.id, published.id))
+      assert.strictEqual(kept!.deletedAt, null)
+
+      const deleted = await deletePublishedPost(deps(), n.userId, published.id)
+      assert.ok(deleted.deletedAt, 'a 404 counts as deleted')
+    })
+
+    it('deleting the post from the app keeps its publication as the record', async () => {
+      const o = await newUser('o', 'google')
+      await connect(o.userId, 'MEMBER_O')
+      const draft = await newPost(o.accountId)
+      const published = await publishNow(o.userId, draft)
+
+      await database
+        .delete(schema.postDraftsTable)
+        .where(eq(schema.postDraftsTable.id, draft))
+      const [record] = await database
+        .select()
+        .from(schema.linkedinPublicationsTable)
+        .where(eq(schema.linkedinPublicationsTable.id, published.id))
+      assert.ok(record, 'the publication outlives the post')
+      assert.strictEqual(record!.draftId, null)
+      assert.strictEqual(record!.status, 'published')
+      assert.strictEqual(record!.linkedinPostUrn, published.linkedinPostUrn)
+    })
   })
 
   describe('auto-publishing', () => {

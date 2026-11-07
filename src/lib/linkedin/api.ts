@@ -3,7 +3,8 @@ import type { PublicationErrorCode } from './status'
 
 /**
  * The LinkedIn REST calls publishing makes: upload an image, create the post,
- * add the first comment. Each failure says whether it is safe to try again.
+ * add the first comment, and delete a post. Each failure says whether it is
+ * safe to try again.
  *
  * Creating a post is not idempotent, and member tokens cannot read posts back
  * (r_member_social is restricted), so a request that may have reached
@@ -41,13 +42,18 @@ export class PostImageError extends Error {
   }
 }
 
-/** What a request sends. Only the image is safe to send twice: it publishes nothing. */
-type Sending = 'post' | 'image' | 'comment'
+/**
+ * What a request sends. The image and a deletion are safe to send twice:
+ * neither publishes anything.
+ */
+type Sending = 'post' | 'image' | 'comment' | 'delete'
 const NOUNS: Record<Sending, string> = {
   post: 'the post',
   image: 'the image',
-  comment: 'the comment'
+  comment: 'the comment',
+  delete: 'the deletion'
 }
+const REPEATABLE = new Set<Sending>(['image', 'delete'])
 
 export type ApiContext = {
   accessToken: string
@@ -73,7 +79,7 @@ const NOT_SENT_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'])
 function networkError(err: unknown, what: Sending): LinkedInApiError {
   const code = (err as { cause?: { code?: string } })?.cause?.code
   const notSent = code !== undefined && NOT_SENT_CODES.has(code)
-  if (notSent || what === 'image') {
+  if (notSent || REPEATABLE.has(what)) {
     return new LinkedInApiError(
       'LinkedIn could not be reached. It will be tried again.',
       'linkedin_unavailable'
@@ -127,7 +133,11 @@ async function httpError(
     )
   }
   // 503: not processed. 409: LinkedIn's "write conflict, retry the request".
-  if (status === 503 || status === 409 || (status >= 500 && what === 'image')) {
+  if (
+    status === 503 ||
+    status === 409 ||
+    (status >= 500 && REPEATABLE.has(what))
+  ) {
     return new LinkedInApiError(
       'LinkedIn is unavailable right now. It will be tried again.',
       'linkedin_unavailable',
@@ -301,6 +311,40 @@ export async function addComment(
     'comment'
   )
   return res.headers.get('x-restli-id')
+}
+
+/**
+ * Deletes one of the author's posts, with its comments. A post LinkedIn no
+ * longer has (404, 410) counts as deleted. Safe to repeat, so nothing here is
+ * `unknown_outcome`; but nothing retries it by itself either, so the messages
+ * ask the user to try again.
+ */
+export async function deletePost(
+  ctx: ApiContext,
+  postUrn: string
+): Promise<void> {
+  try {
+    await send(
+      ctx,
+      `${API_BASE}/posts/${encodeURIComponent(postUrn)}`,
+      {
+        method: 'DELETE',
+        headers: { ...headers(ctx), 'X-RestLi-Method': 'DELETE' }
+      },
+      'delete'
+    )
+  } catch (err) {
+    if (!(err instanceof LinkedInApiError)) throw err
+    if (err.status === 404 || err.status === 410) return
+    if (err.code === 'rate_limited' || err.code === 'linkedin_unavailable') {
+      throw new LinkedInApiError(
+        'LinkedIn could not delete the post just now. Try again in a moment.',
+        err.code,
+        err.status
+      )
+    }
+    throw err
+  }
 }
 
 /** Where a published post can be opened. */

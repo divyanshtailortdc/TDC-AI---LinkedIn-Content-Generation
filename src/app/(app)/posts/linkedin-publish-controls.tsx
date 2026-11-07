@@ -14,12 +14,14 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  Trash2,
   X
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useEffectEvent, useId, useState } from 'react'
 import {
   cancelPostPublication,
+  deletePostFromLinkedIn,
   getPostPublication,
   publishPostNow,
   schedulePostPublication
@@ -77,7 +79,7 @@ export function LinkedInPublishControls({
   // The open dialog. "unknown-…": the last attempt may have reached LinkedIn;
   // "It's not there" goes on to publish now, or to schedule.
   const [dialog, setDialog] = useState<
-    null | 'publish' | 'unknown-publish' | 'unknown-schedule'
+    null | 'publish' | 'unknown-publish' | 'unknown-schedule' | 'delete'
   >(null)
   const [scheduling, setScheduling] = useState(false)
   const [scheduleAt, setScheduleAt] = useState('')
@@ -215,36 +217,114 @@ export function LinkedInPublishControls({
       () => ({ title: 'Scheduled publishing cancelled' })
     )
 
-  if (publication?.status === 'published') {
+  const deleteFromLinkedIn = (id: string) =>
+    run(
+      () => deletePostFromLinkedIn(id),
+      () => ({
+        title: 'Deleted from LinkedIn',
+        message: 'The post stays here, and cannot be published again.'
+      })
+    )
+
+  // Not set up, not connected or expired: the header's LinkedIn link handles
+  // that, so there is nothing to offer here but the publication's state.
+  const canPublish = linkedIn?.status === 'connected' && linkedIn.configured
+
+  // Deleted from LinkedIn: still the record of it, and it stays published so
+  // it is not published again.
+  if (publication?.status === 'published' && publication.deletedAt) {
     return (
-      <span className="inline-flex flex-wrap items-center gap-2 text-[12px]">
-        <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Published on LinkedIn
-          {mounted && publication.publishedAt && (
-            <span className="text-muted font-normal">
-              {' '}
-              {formatDateTime(publication.publishedAt)}
-            </span>
-          )}
+      <span className="inline-flex flex-col items-start gap-0.5 text-[12px]">
+        <span className="text-muted inline-flex gap-1 font-semibold">
+          <Trash2 className="h-3.5 w-3.5 shrink-0" />
+          Deleted from LinkedIn
         </span>
-        {publication.postUrl && (
-          <a
-            href={publication.postUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-linkedin-text inline-flex items-center gap-1 font-medium hover:underline"
-          >
-            View post
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-        {publication.commentError && (
-          <span className="text-muted" title={publication.commentError}>
-            · First comment not added
+        {mounted && (
+          <span className="text-muted self-end">
+            {formatDateTime(publication.deletedAt)}
           </span>
         )}
       </span>
+    )
+  }
+
+  if (publication?.status === 'published') {
+    // The post's link, then Delete, after the date.
+    const links = [
+      publication.postUrl && (
+        <a
+          key="view"
+          href={publication.postUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-linkedin-text inline-flex items-center gap-1 font-medium hover:underline"
+        >
+          View post
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      ),
+      canPublish && (
+        <button
+          key="delete"
+          type="button"
+          disabled={busy}
+          onClick={() => setDialog('delete')}
+          className="text-muted inline-flex cursor-pointer items-center gap-1 hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
+        >
+          <Trash2 className="h-3 w-3" />
+          Delete
+        </button>
+      )
+    ].filter(Boolean)
+    return (
+      <>
+        {/* Two rows: what happened, then when, the link to it and Delete. */}
+        <span className="inline-flex flex-col items-start gap-0.5 text-[12px]">
+          <span className="inline-flex gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            Published on LinkedIn
+          </span>
+          {((mounted && publication.publishedAt) || links.length > 0) && (
+            // Right-aligned under the first row.
+            <span className="inline-flex items-center gap-1.5 self-end">
+              {mounted && publication.publishedAt && (
+                <span className="text-muted">
+                  {formatDateTime(publication.publishedAt)}
+                  {links.length > 0 && ' ·'}
+                </span>
+              )}
+              {links.flatMap((link, i) =>
+                i === 0
+                  ? [link]
+                  : [
+                      <span key={`dot-${i}`} className="text-muted">
+                        ·
+                      </span>,
+                      link
+                    ]
+              )}
+            </span>
+          )}
+        </span>
+
+        {dialog === 'delete' && (
+          <ConfirmDialog
+            title="Delete it from LinkedIn?"
+            description={
+              <>
+                The post is removed from LinkedIn for good, with its first
+                comment, reactions and comments. It stays here, and cannot be
+                published again.
+              </>
+            }
+            confirmLabel="Delete from LinkedIn"
+            pendingLabel="Deleting…"
+            pending={busy}
+            onCancel={() => setDialog(null)}
+            onConfirm={() => void deleteFromLinkedIn(publication.id)}
+          />
+        )}
+      </>
     )
   }
 
@@ -309,9 +389,7 @@ export function LinkedInPublishControls({
 
   // No publication yet, or the last one failed or was cancelled.
   const lastFailed = publication?.status === 'failed'
-  // Not set up, not connected or expired: the header's LinkedIn link handles
-  // that, so there is nothing to offer here but the last failure.
-  const canPublish = linkedIn?.status === 'connected' && linkedIn.configured
+  // Without canPublish there is nothing to offer here but the last failure.
   if (!lastFailed && !canPublish) return null
   return (
     <>

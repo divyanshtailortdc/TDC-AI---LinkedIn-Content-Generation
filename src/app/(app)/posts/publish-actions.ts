@@ -6,6 +6,7 @@ import { publishDeps } from '@/lib/linkedin/config'
 import {
   cancelPublication,
   claimPublication,
+  deletePublishedPost,
   executePublication,
   getPublication,
   latestPublicationOf,
@@ -148,6 +149,29 @@ export async function cancelPostPublication(
     return failure(
       err,
       'The publication could not be cancelled. Please try again.'
+    )
+  }
+}
+
+/**
+ * Deletes the user's published post from LinkedIn. The post stays in the app,
+ * and its publication stays as the record (it cannot be published again).
+ */
+export async function deletePostFromLinkedIn(
+  publicationId: string
+): Promise<Result> {
+  const user = await requireUser()
+  try {
+    if (!isUuid(publicationId))
+      return { success: false, error: 'Publication not found.' }
+    const deps = publishDeps()
+    if (!deps) return { success: false, error: NOT_SET_UP }
+    const row = await deletePublishedPost(deps, user.id, publicationId)
+    return { success: true, publication: toPublicationSummary(row) }
+  } catch (err) {
+    return failure(
+      err,
+      'The post could not be deleted from LinkedIn. Please try again.'
     )
   }
 }

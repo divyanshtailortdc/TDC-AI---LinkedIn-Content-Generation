@@ -33,6 +33,7 @@ import {
   addComment,
   type ApiContext,
   createPost,
+  deletePost,
   LinkedInApiError,
   PostImageError,
   postUrl,
@@ -332,6 +333,85 @@ export async function getPublication(
 }
 
 /**
+ * Deletes a published post from LinkedIn, as the user who published it and
+ * through the LinkedIn member it was published as. The row stays 'published'
+ * with deletedAt set: it is the record of the post, and still the live
+ * publication that stops it being published again. One already deleted is
+ * returned as it is. Throws PublishRequestError for a refusal, and for
+ * LinkedIn's errors.
+ */
+export async function deletePublishedPost(
+  deps: PublishDeps,
+  userId: string,
+  publicationId: string
+): Promise<LinkedinPublication> {
+  const { database } = deps
+  const publication = await getPublication(database, userId, publicationId)
+  if (
+    !publication ||
+    publication.status !== 'published' ||
+    !publication.linkedinPostUrn
+  ) {
+    throw new PublishRequestError(
+      'There is no published post to delete.',
+      'not_found'
+    )
+  }
+  if (publication.deletedAt) return publication
+
+  try {
+    const connection = await getConnection(database, userId)
+    assertCanPublish(connection)
+    // Only its author can delete it, and LinkedIn's 404 for anyone else
+    // would read as "already deleted".
+    if (
+      publication.authorUrn &&
+      publication.authorUrn !== personUrn(connection.memberId)
+    ) {
+      throw new PublishRequestError(
+        'This post was published from a different LinkedIn account. Connect that account to delete it.',
+        'missing_permission'
+      )
+    }
+    const ctx: ApiContext = {
+      accessToken: await usableAccessToken(
+        database,
+        deps.config,
+        connection,
+        deps.fetchFn,
+        nowOf(deps)
+      ),
+      apiVersion: deps.config.apiVersion,
+      fetchFn: deps.fetchFn
+    }
+    try {
+      await deletePost(ctx, publication.linkedinPostUrn)
+    } catch (err) {
+      // LinkedIn refused the token itself (usableAccessToken expires the rest).
+      if (err instanceof LinkedInApiError && err.code === 'reauth_required') {
+        await markExpired(database, connection, err.message, nowOf(deps)).catch(
+          () => {}
+        )
+      }
+      throw err
+    }
+  } catch (err) {
+    if (err instanceof ConnectionError || err instanceof LinkedInApiError) {
+      throw new PublishRequestError(err.message, err.code)
+    }
+    throw err
+  }
+
+  const now = nowOf(deps)
+  const [row] = await database
+    .update(linkedinPublicationsTable)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(eq(linkedinPublicationsTable.id, publication.id))
+    .returning()
+  return row ?? { ...publication, deletedAt: now, updatedAt: now }
+}
+
+/**
  * Moves one due row from scheduled to publishing, or returns null when
  * another worker got there first, it was cancelled, or it is not due.
  */
@@ -542,11 +622,10 @@ const heldClaim = (publication: LinkedinPublication) =>
  */
 async function prepare(deps: PublishDeps, publication: LinkedinPublication) {
   const { database } = deps
-  const draft = await findOwnedDraft(
-    database,
-    publication.userId,
-    publication.draftId
-  )
+  // No draftId: the post was deleted from the app.
+  const draft = publication.draftId
+    ? await findOwnedDraft(database, publication.userId, publication.draftId)
+    : null
   if (!draft) {
     throw new PublishRequestError('The post no longer exists.', 'not_approved')
   }
@@ -565,6 +644,7 @@ async function prepare(deps: PublishDeps, publication: LinkedinPublication) {
     fetchFn: deps.fetchFn
   }
   return {
+    draftId: draft.id,
     text,
     comment: draft.firstComment?.trim() || null,
     connection,
@@ -584,14 +664,12 @@ export async function executePublication(
   const { database } = deps
   let postRequested = false
   try {
-    const { text, comment, connection, ctx, authorUrn } = await prepare(
-      deps,
-      publication
-    )
+    const { draftId, text, comment, connection, ctx, authorUrn } =
+      await prepare(deps, publication)
     try {
       const image = await (
         deps.loadImage ?? (id => loadPostImage(database, id))
-      )(publication.draftId)
+      )(draftId)
       const imageUrn = image ? await uploadImage(ctx, authorUrn, image) : null
 
       // From here on the post may exist on LinkedIn whatever happens next; the
@@ -629,6 +707,7 @@ export async function executePublication(
       // post's URN is the only proof it exists, and a retry would duplicate it.
       const metadata = publication.metadata as PublicationMetadata
       return await recordPublished(deps, publication, {
+        draftId,
         postUrn,
         zone: zoneOf({
           timezone: metadata.timezone ?? connection.autoPublishTimezone
@@ -721,6 +800,8 @@ async function recordPublished(
   deps: PublishDeps,
   publication: LinkedinPublication,
   result: {
+    /** The post it is a publication of. */
+    draftId: string
     postUrn: string
     /** The zone of the day the post is marked posted on. */
     zone: string
@@ -771,11 +852,11 @@ async function recordPublished(
           plannedFor: sql`coalesce(${postDraftsTable.plannedFor}, ${localDayKey(publishedAt, result.zone)}::date)`,
           updatedAt: publishedAt
         })
-        .where(eq(postDraftsTable.id, publication.draftId))
+        .where(eq(postDraftsTable.id, result.draftId))
     )
   } catch (err) {
     console.error(
-      `Could not mark post ${publication.draftId} as posted after publishing it:`,
+      `Could not mark post ${result.draftId} as posted after publishing it:`,
       err
     )
   }
@@ -1034,6 +1115,8 @@ export type PublicationSummary = {
   scheduledAt: string
   nextAttemptAt: string
   publishedAt: string | null
+  /** When the user deleted the post from LinkedIn; it is still 'published'. */
+  deletedAt: string | null
   postUrl: string | null
   error: string | null
   errorCode: PublicationErrorCode | null
@@ -1051,6 +1134,7 @@ export function toPublicationSummary(
     scheduledAt: row.scheduledAt.toISOString(),
     nextAttemptAt: row.nextAttemptAt.toISOString(),
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
     postUrl: row.linkedinPostUrn ? postUrl(row.linkedinPostUrn) : null,
     error: row.error,
     errorCode: row.errorCode,
@@ -1078,7 +1162,9 @@ export async function latestPublications(
       linkedinPublicationsTable.draftId,
       desc(linkedinPublicationsTable.createdAt)
     )
-  for (const row of rows) latest.set(row.draftId, toPublicationSummary(row))
+  for (const row of rows) {
+    if (row.draftId) latest.set(row.draftId, toPublicationSummary(row))
+  }
   return latest
 }
 

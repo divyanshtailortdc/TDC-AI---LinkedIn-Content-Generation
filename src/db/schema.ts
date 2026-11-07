@@ -647,6 +647,9 @@ export const postDraftsTable = pgTable('post_drafts', {
   // either of which sets postedAt.
   plannedFor: date('planned_for', { mode: 'string' }),
   postedAt: commonFieldDefs.date('posted_at'),
+  // Set when the reviewer hides it: out of the Posts queue (shown under the
+  // Hidden filter) until it is shown again. Nothing else changes.
+  hiddenAt: commonFieldDefs.date('hidden_at'),
   ...commonFieldDefs.dates
 },
   table => [
@@ -1276,9 +1279,11 @@ export const linkedinPublicationsTable = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => authUsersTable.id, { onDelete: 'cascade' }),
-    draftId: uuid('draft_id')
-      .notNull()
-      .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+    // Null once the post is deleted from the app: the row stays as the record
+    // of what was published (and where), but no longer belongs to a post.
+    draftId: uuid('draft_id').references(() => postDraftsTable.id, {
+      onDelete: 'set null'
+    }),
     // The connection used, set when it is published; kept for history.
     connectionId: uuid('connection_id').references(
       () => linkedinConnectionsTable.id,
@@ -1304,6 +1309,11 @@ export const linkedinPublicationsTable = pgTable(
     /** The post's id from LinkedIn's x-restli-id header. */
     linkedinPostUrn: text('linkedin_post_urn'),
     publishedAt: commonFieldDefs.date('published_at'),
+    /**
+     * When the user deleted the post from LinkedIn. The row stays 'published',
+     * so the one-live-publication index still stops it going out again.
+     */
+    deletedAt: commonFieldDefs.date('deleted_at'),
     error: text('error'),
     errorCode: varchar('error_code', { length: 40 }).$type<PublicationErrorCode>(),
     // The image and first comment, and how they went.

@@ -44,6 +44,7 @@ export async function loadPostsPage(
     charCount: postDraftsTable.charCount,
     status: postDraftsTable.status,
     postedAt: postDraftsTable.postedAt,
+    hiddenAt: postDraftsTable.hiddenAt,
     lintFindings: postDraftsTable.lintFindings,
     createdAt: postDraftsTable.createdAt,
     accountName: accountsTable.name,
@@ -228,6 +229,7 @@ export async function loadPostsPage(
       mediaFailure: media ? null : (mediaFailureByDraft.get(draft.id) ?? null),
       lintFindings: (draft.lintFindings as any[]) || [],
       postedAt: draft.postedAt?.toISOString() ?? null,
+      hiddenAt: draft.hiddenAt?.toISOString() ?? null,
       publication: publications.get(draft.id) ?? null
     }
   })

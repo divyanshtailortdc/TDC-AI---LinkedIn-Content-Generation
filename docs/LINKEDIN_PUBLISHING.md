@@ -94,6 +94,12 @@ executePublication   checks everything again, then:
 
 A published post also gets `post_drafts.posted_at` (and a planned day if it had none), so the Schedule page shows it as Posted. Rejecting a post, or marking it posted on Schedule, cancels its scheduled publication; a post published (or being published) through the API cannot be rejected, and Schedule refuses "Not posted yet" for it. The text sent is exactly what Copy produces (`linkedInPostText`: the hook in Unicode bold, then body, call to action and hashtags), with LinkedIn's reserved characters escaped and hashtags kept as hashtags. Posts longer than 3,000 characters are refused before calling LinkedIn. WebP images are converted to PNG, since LinkedIn takes JPG, PNG and GIF.
 
+### Deleting
+
+- **Delete from LinkedIn** (beside "View post", while connected): asks for confirmation, then sends `DELETE /rest/posts/{urn}` with the same connection. Only the member the post went out as can delete it; after a reconnect as another member it is refused before calling LinkedIn. A 404 or 410 counts as already deleted. The publication sets `deleted_at` but stays `published`, so the one-live-publication index still keeps the post from going out again, and the post stays in the app as Posted.
+- **Delete** on Posts deletes the post from the app for good. Its scheduled publication is cancelled, and the delete is refused while it is being published. For a published post the dialog can also delete it from LinkedIn first; if that fails, nothing is deleted. Its publications are not deleted: `linkedin_publications.draft_id` is `ON DELETE SET NULL`, so they stay as the record of what was published and where.
+- **Hide** on Posts (`post_drafts.hidden_at`) only takes the post out of the review queue, under the Hidden filter. A scheduled publication still goes out.
+
 ## Duplicates, retries and failures
 
 Creating a LinkedIn post is not idempotent, and a member token cannot read posts back (`r_member_social` is restricted), so a request that might have reached LinkedIn can never be verified afterwards. The rules:

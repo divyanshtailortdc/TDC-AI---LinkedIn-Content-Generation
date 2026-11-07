@@ -1,5 +1,6 @@
 'use client'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { LinkedInPreview } from '@/components/linkedin-preview'
 import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
@@ -45,6 +46,8 @@ import {
   Download,
   Edit2,
   ExternalLink,
+  Eye,
+  EyeOff,
   FileCheck,
   FileText,
   Image as ImageIcon,
@@ -85,17 +88,20 @@ import {
 import { createPortal } from 'react-dom'
 import {
   approveDraft,
+  deleteDraft,
   loadMorePosts,
   regeneratePostMediaAction,
   rejectDraft,
   removePostMediaAction,
   saveImageSettings,
+  setDraftHidden,
   updateDraft,
   updatePostMediaAction
 } from './actions'
 import { initialsOf } from '@/lib/initials'
 import type { PublicationSummary } from '@/lib/linkedin/publishing'
 import { LinkedInPublishControls } from './linkedin-publish-controls'
+import { getPostPublication } from './publish-actions'
 import {
   currentMediaJob,
   startMediaJob,
@@ -170,6 +176,8 @@ export interface PostDetail {
   lintFindings: LintFinding[]
   /** When it was marked posted (by hand on Schedule, or by publishing), as ISO. */
   postedAt?: string | null
+  /** When it was hidden from the queue, as ISO; it shows only under Hidden. */
+  hiddenAt?: string | null
   /** The latest attempt to publish it to LinkedIn, if any. */
   publication?: PublicationSummary | null
 }
@@ -237,14 +245,20 @@ const IMAGE_TYPE_OPTIONS = [
   }))
 ]
 
-type StatusFilter = 'all' | 'awaiting_review' | 'approved' | 'rejected'
+type StatusFilter =
+  | 'all'
+  | 'awaiting_review'
+  | 'approved'
+  | 'rejected'
+  | 'hidden'
 type SortOrder = 'newest' | 'oldest'
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
   all: 'All statuses',
   awaiting_review: 'Awaiting review',
   approved: 'Approved',
-  rejected: 'Rejected'
+  rejected: 'Rejected',
+  hidden: 'Hidden'
 }
 
 const DAY_MS = 86_400_000
@@ -275,7 +289,8 @@ function inDateRange(value: Date | string, from: string, to: string): boolean {
 
 /**
  * The queue as shown: posts already narrowed by everything but status, with
- * the status filter applied, in the chosen order.
+ * the status filter applied, in the chosen order. Hidden posts show only
+ * under Hidden, whatever their status.
  */
 function queueOf(
   scoped: PostDetail[],
@@ -285,7 +300,13 @@ function queueOf(
   keep: string | null = null
 ): PostDetail[] {
   return scoped
-    .filter(p => status === 'all' || p.status === status || p.id === keep)
+    .filter(
+      p =>
+        p.id === keep ||
+        (status === 'hidden'
+          ? Boolean(p.hiddenAt)
+          : !p.hiddenAt && (status === 'all' || p.status === status))
+    )
     .sort((a, b) => {
       const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
       return sort === 'newest' ? diff : -diff
@@ -296,7 +317,8 @@ const STATUS_FILTERS: StatusFilter[] = [
   'all',
   'awaiting_review',
   'approved',
-  'rejected'
+  'rejected',
+  'hidden'
 ]
 const DAY_PARAM = /^\d{4}-\d{2}-\d{2}$/
 
@@ -488,16 +510,17 @@ export function PostsClientInner({
     })
   }, [posts, filterRunId, dateFrom, dateTo, deferredQuery])
 
-  const statusCounts = useMemo(
-    () => ({
-      all: scopedPosts.length,
-      awaiting_review: scopedPosts.filter(p => p.status === 'awaiting_review')
-        .length,
-      approved: scopedPosts.filter(p => p.status === 'approved').length,
-      rejected: scopedPosts.filter(p => p.status === 'rejected').length
-    }),
-    [scopedPosts]
-  )
+  const statusCounts = useMemo(() => {
+    // Hidden posts count only under Hidden, as queueOf shows them.
+    const shown = scopedPosts.filter(p => !p.hiddenAt)
+    return {
+      all: shown.length,
+      awaiting_review: shown.filter(p => p.status === 'awaiting_review').length,
+      approved: shown.filter(p => p.status === 'approved').length,
+      rejected: shown.filter(p => p.status === 'rejected').length,
+      hidden: scopedPosts.length - shown.length
+    }
+  }, [scopedPosts])
 
   // The post just approved or rejected stays open, and in the queue, even
   // when its new status no longer matches the filter, until the reviewer
@@ -588,6 +611,12 @@ export function PostsClientInner({
   const [customImageUrl, setCustomImageUrl] = useState('')
   const [showPostRejection, setShowPostRejection] = useState(false)
   const [postRejectionReason, setPostRejectionReason] = useState('')
+  // The Delete dialog, and its "also delete it from LinkedIn" choice.
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [alsoDeleteFromLinkedIn, setAlsoDeleteFromLinkedIn] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  // Posts deleted here, taken off the server's total.
+  const [deletedCount, setDeletedCount] = useState(0)
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isImageZoomOpen, setIsImageZoomOpen] = useState(false)
   // A post's image bytes are loaded on demand; see the loader below.
@@ -1616,6 +1645,113 @@ export function PostsClientInner({
     }
   }
 
+  /** The post to open once `id` leaves the queue: the next one, or else the one before. */
+  const neighbourOf = (id: string) => {
+    const i = filteredPosts.findIndex(p => p.id === id)
+    return (filteredPosts[i + 1] ?? filteredPosts[i - 1])?.id ?? ''
+  }
+
+  /**
+   * Hiding takes the post out of the queue, and showing it again takes it out
+   * of Hidden: either way it leaves the list on screen, so the next one opens.
+   */
+  const handleToggleHidden = async () => {
+    if (!activePost) return
+    const id = activePost.id
+    const hide = !activePost.hiddenAt
+    if (
+      !confirmDiscardEdits(
+        hide ? 'Hiding this post' : 'Putting this post back in the queue'
+      )
+    ) {
+      return
+    }
+    const next = neighbourOf(id)
+    setIsSaving(true)
+    try {
+      markDataChanged()
+      const res = await setDraftHidden(id, hide)
+      if (!res.success) throw new Error(res.error)
+      setPosts(list =>
+        list.map(p => (p.id === id ? { ...p, hiddenAt: res.hiddenAt } : p))
+      )
+      setKeptPostId(kept => (kept === id ? null : kept))
+      setSelectedPostId(next)
+      showToast({
+        type: 'success',
+        title: hide ? 'Post hidden' : 'Post back in the queue',
+        message: hide ? 'Find it with the Hidden button by the search.' : undefined
+      })
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: hide ? 'Post not hidden' : 'Post not put back',
+        message: err?.message || 'Failed to update the post'
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Published and still on LinkedIn: the Delete dialog offers to remove it there too.
+  const canDeleteFromLinkedIn =
+    activePost?.publication?.status === 'published' &&
+    !activePost.publication.deletedAt
+
+  const openDeleteDialog = () => {
+    if (!confirmDiscardEdits('Deleting this post')) return
+    setAlsoDeleteFromLinkedIn(false)
+    setShowDeleteDialog(true)
+  }
+
+  const handleDelete = async () => {
+    if (!activePost) return
+    const id = activePost.id
+    const alsoFromLinkedIn = canDeleteFromLinkedIn && alsoDeleteFromLinkedIn
+    const next = neighbourOf(id)
+    setIsDeleting(true)
+    try {
+      markDataChanged()
+      const res = await deleteDraft(id, { alsoFromLinkedIn })
+      if (!res.success) throw new Error(res.error)
+      // Older posts load from after the cursor post, which must still exist:
+      // the post loaded just before it takes its place.
+      if (nextCursor === id) {
+        setNextCursor(posts[posts.findIndex(p => p.id === id) - 1]?.id ?? null)
+      }
+      setPosts(list => list.filter(p => p.id !== id))
+      setDeletedCount(n => n + 1)
+      setKeptPostId(kept => (kept === id ? null : kept))
+      setSelectedPostId(next)
+      setShowDeleteDialog(false)
+      showToast({
+        type: 'success',
+        title: 'Post deleted',
+        message: res.deletedFromLinkedIn
+          ? 'It was deleted from LinkedIn too.'
+          : undefined
+      })
+    } catch (err: any) {
+      // The dialog stays open, so the LinkedIn choice can be changed.
+      showToast({
+        type: 'error',
+        title: 'Post not deleted',
+        message: err?.message || 'Failed to delete the post'
+      })
+      // It may have left LinkedIn before the rest failed.
+      if (alsoFromLinkedIn) {
+        const publication = await getPostPublication(id).catch(() => null)
+        if (publication) {
+          setPosts(list =>
+            list.map(p => (p.id === id ? { ...p, publication } : p))
+          )
+        }
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   // Decision shortcuts, alongside J/K navigation. Declared after the handlers
   // they call; like J/K, an Effect Event, so the listener is added once.
   const onDecisionKeyDown = useEffectEvent((event: KeyboardEvent) => {
@@ -1751,6 +1887,31 @@ export function PostsClientInner({
           )
         }
       />
+
+      {/* Hidden posts in one click (the Hidden status filter); again to go
+          back to the queue. */}
+      <button
+        type="button"
+        onClick={() =>
+          writeParams(
+            { status: statusFilter === 'hidden' ? null : 'hidden' },
+            'push'
+          )
+        }
+        aria-pressed={statusFilter === 'hidden'}
+        title={
+          statusFilter === 'hidden' ? 'Back to the queue' : 'View hidden posts'
+        }
+        className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          statusFilter === 'hidden'
+            ? 'border-accent bg-accent/10 text-accent'
+            : 'border-border bg-surface text-foreground hover:bg-surface-hover'
+        }`}
+      >
+        <EyeOff className="h-3.5 w-3.5" />
+        Hidden
+        <span className="tabular-nums opacity-70">{statusCounts.hidden}</span>
+      </button>
     </div>
   )
 
@@ -1796,9 +1957,48 @@ export function PostsClientInner({
                 ? 'Rejected'
                 : 'Awaiting review'}
           </span>
+          {activePost.hiddenAt && (
+            <span className="border-border bg-surface-hover text-muted rounded-full border px-2.5 py-0.5 text-[11px] font-semibold">
+              Hidden
+            </span>
+          )}
         </div>
 
         <div className="order-last flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => void handleToggleHidden()}
+            aria-label={activePost.hiddenAt ? 'Put back in the queue' : 'Hide post'}
+            title={
+              activePost.hiddenAt
+                ? 'Put back in the queue'
+                : 'Hide from the queue (the Hidden button shows it again)'
+            }
+            className="border-border text-muted hover:bg-surface-hover hover:text-foreground flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {activePost.hiddenAt ? (
+              <Eye className="h-4 w-4" />
+            ) : (
+              <EyeOff className="h-4 w-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            // The server refuses too: it may be on LinkedIn any moment.
+            disabled={isSaving || activePost.publication?.status === 'publishing'}
+            onClick={openDeleteDialog}
+            aria-label="Delete post"
+            title={
+              activePost.publication?.status === 'publishing'
+                ? 'It is being published to LinkedIn right now'
+                : 'Delete post'
+            }
+            className="border-border text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-rose-400"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+          <span aria-hidden className="bg-border mx-1 h-5 w-px" />
           <button
             type="button"
             disabled={currentIndex <= 0}
@@ -1974,6 +2174,40 @@ export function PostsClientInner({
         }
       />
 
+      {showDeleteDialog && activePost && (
+        <ConfirmDialog
+          title="Delete this post?"
+          description={
+            <>
+              It is removed from the app for good, with its image and
+              alternates. This cannot be undone.
+              {activePost.publication?.status === 'scheduled' &&
+                ' Its scheduled LinkedIn publishing is cancelled.'}
+              {canDeleteFromLinkedIn && (
+                <label className="text-foreground mt-3 flex cursor-pointer items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={alsoDeleteFromLinkedIn}
+                    disabled={isDeleting}
+                    onChange={e => setAlsoDeleteFromLinkedIn(e.target.checked)}
+                    className="mt-1 accent-rose-600"
+                  />
+                  <span>
+                    Also delete it from LinkedIn, with its reactions and
+                    comments. Otherwise it stays on LinkedIn.
+                  </span>
+                </label>
+              )}
+            </>
+          }
+          confirmLabel="Delete post"
+          pendingLabel="Deleting…"
+          pending={isDeleting}
+          onCancel={() => setShowDeleteDialog(false)}
+          onConfirm={() => void handleDelete()}
+        />
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* QUEUE RAIL — replaces a strip of "Post #1…#90" pills that carried no
             information about the posts they pointed at. */}
@@ -2134,7 +2368,8 @@ export function PostsClientInner({
             {nextCursor && queuePageInfo.page === queuePageInfo.pageCount && (
               <div className="flex flex-col items-center gap-2 px-2 pt-4 pb-2 text-center">
                 <p className="text-muted text-[11px] leading-relaxed">
-                  Showing the newest {posts.length} of {totalCount} posts. Search
+                  Showing the newest {posts.length} of{' '}
+                  {totalCount - deletedCount} posts. Search
                   and filters cover the posts loaded so far.
                 </p>
                 <button
@@ -3451,9 +3686,7 @@ function PostFiltersMenu({
                   onChange={e => set({ status: e.target.value as StatusFilter })}
                   className={filterFieldClass}
                 >
-                  {(
-                    ['all', 'awaiting_review', 'approved', 'rejected'] as StatusFilter[]
-                  ).map(status => (
+                  {STATUS_FILTERS.map(status => (
                     <option key={status} value={status}>
                       {STATUS_LABELS[status]} ({statusCounts[status]})
                     </option>
