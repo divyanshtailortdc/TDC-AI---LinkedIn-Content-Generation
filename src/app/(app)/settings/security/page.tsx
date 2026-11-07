@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { PasskeysSection } from './passkeys-section'
 
 export const metadata: Metadata = {
-  title: 'Security · TDC LinkedIn Content Engine'
+  title: 'Security · TDC Content Engine'
 }
 
 export default async function SecuritySettingsPage() {

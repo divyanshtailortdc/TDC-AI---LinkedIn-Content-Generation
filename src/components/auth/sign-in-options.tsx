@@ -58,7 +58,7 @@ export function SignInOptions({
   next: string
   /** The social sign-ins that are configured, in display order. */
   providers: SocialProvider[]
-  /** From `?error=`, e.g. a Google or LinkedIn sign-in that failed. */
+  /** From `?error=`, e.g. a social sign-in that failed. */
   initialError?: string
 }) {
   const [error, setError] = useState<string | null>(initialError ?? null)

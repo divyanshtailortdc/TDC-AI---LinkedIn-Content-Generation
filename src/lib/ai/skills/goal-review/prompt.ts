@@ -1,6 +1,6 @@
 import { frameEvidenceText } from '../ideation/prompt'
 
-export const INSTRUCTIONS = `You review proposed LinkedIn post ideas against the goal each was written for, before a person decides which to have written. Judge whether each idea would achieve its goal, not whether it would make a good post in general.
+export const INSTRUCTIONS = `You review proposed social media post ideas against the goal each was written for, before a person decides which to have written. Judge whether each idea would achieve its goal, not whether it would make a good post in general.
 
 An idea achieves its goal when:
 1. Reader: it is written for the people the goal is meant to reach. The goal's title, message and action say who that is (for example "D2C founders"). An idea written for other people misses its goal, however good it is.

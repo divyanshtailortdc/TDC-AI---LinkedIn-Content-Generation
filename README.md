@@ -1,12 +1,12 @@
-# TDC AI — LinkedIn Content Generation
+# TDC AI — Content Generation
 
-A clean, modular starter foundation for the TDC AI LinkedIn Content Generation platform.
+A clean, modular starter foundation for the TDC AI Content Generation platform.
 
 ---
 
 ## 📌 Project Overview
 
-**TDC AI — LinkedIn Content Generation** is designed to streamline thought leadership and professional content creation on LinkedIn. 
+**TDC AI — Content Generation** is designed to streamline thought leadership and professional content creation for social media platforms. Each post is written for one platform (LinkedIn today); limits, formatting and wording come from the platform registry in `src/lib/platforms`, so adding Instagram, Facebook, X or another platform means adding its spec there (and, to publish through its API, a provider under `src/lib/publishing`).
 
 This repository contains the foundation setup including:
 - Next.js (App Router) + TypeScript
@@ -78,9 +78,9 @@ cp .env.example .env
 
 Use `.env`, not `.env.local`: the dashboard points to `.env`, and Next.js lets a key in `.env.local` (even an empty one) override the same key in `.env`.
 
-Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; Google and LinkedIn sign-in (the only ways to create an account) are configured there too; passkeys need no setup. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup, the rules every new Server Action follows, and how to assign existing identities to their owners.
+Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; the social sign-in providers (Google, LinkedIn; the only ways to create an account) are configured there too; passkeys need no setup. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup, the rules every new Server Action follows, and how to assign existing identities to their owners.
 
-Publishing approved posts to LinkedIn (Publish now, Schedule, auto-publishing) is a separate, optional connection with its own LinkedIn app. See [docs/LINKEDIN_PUBLISHING.md](docs/LINKEDIN_PUBLISHING.md).
+Publishing approved posts through a platform's API (Publish now, Schedule, auto-publishing) is a separate, optional connection under Settings → Integrations, with its own app per platform. See [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ### 2. Run the Development Server
 

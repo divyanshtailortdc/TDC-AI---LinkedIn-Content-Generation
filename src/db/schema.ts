@@ -44,7 +44,8 @@ import {
   type PublicationErrorCode,
   type PublicationStatus,
   type PublicationTrigger
-} from '../lib/linkedin/status'
+} from '../lib/publishing/status'
+import { DEFAULT_PLATFORM_ID, type PlatformId } from '../lib/platforms'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -606,6 +607,13 @@ export const postDraftsTable = pgTable('post_drafts', {
   offeringId: uuid('offering_id').references(() => offeringsTable.id, {
     onDelete: 'set null'
   }),
+  // Where the post goes out (src/lib/platforms): its limits, formatting and
+  // preview follow from it. Posts written before platforms existed belong to
+  // the default platform.
+  platform: varchar('platform', { length: 30 })
+    .$type<PlatformId>()
+    .default(DEFAULT_PLATFORM_ID)
+    .notNull(),
   hook: text('hook').notNull(),
   body: text('body').notNull(),
   // The AI's output as generated. `hook` and `body` are edited in place during
@@ -642,9 +650,9 @@ export const postDraftsTable = pgTable('post_drafts', {
   editedBody: text('edited_body'),
   approvedAt: commonFieldDefs.date('approved_at'),
   // The day the reviewer plans to publish it, set on the Schedule page.
-  // The reviewer posts it on LinkedIn and marks it posted, or publishes it
-  // through the API (linkedin_publications; auto-publishing uses this day),
-  // either of which sets postedAt.
+  // The reviewer posts it on its platform and marks it posted, or publishes
+  // it through the platform's API (publications; auto-publishing uses this
+  // day), either of which sets postedAt.
   plannedFor: date('planned_for', { mode: 'string' }),
   postedAt: commonFieldDefs.date('posted_at'),
   // Set when the reviewer hides it: out of the Posts queue (shown under the
@@ -1212,14 +1220,16 @@ export const intelMentionsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// 24. LinkedIn Connections (1:1 with auth user) — authorization to publish
+// 24. Platform Connections (1:1 with auth user) — authorization to publish
 // ---------------------------------------------------------------------------
 
-// The LinkedIn member a user allowed the app to publish as. Separate from
-// sign-in: signing in with LinkedIn (auth_accounts) never creates one, and a
-// user who signs in with Google can have one. Tokens are encrypted
-// (src/lib/linkedin/token-crypto.ts) and never leave the server.
-export const linkedinConnectionsTable = pgTable(
+// The platform account a user allowed the app to publish as (docs/PUBLISHING.md).
+// Separate from sign-in: signing in with a social provider (auth_accounts)
+// never creates one, and a user who signs in with Google can have one. Tokens
+// are encrypted (src/lib/publishing/token-crypto.ts) and never leave the
+// server. The table keeps its original name, linkedin_connections, from
+// before the app wrote for more than one platform.
+export const platformConnectionsTable = pgTable(
   'linkedin_connections',
   {
     id: commonFieldDefs.id(),
@@ -1228,14 +1238,14 @@ export const linkedinConnectionsTable = pgTable(
       .notNull()
       .unique()
       .references(() => authUsersTable.id, { onDelete: 'cascade' }),
-    /** The OpenID `sub`: the member's id, as in urn:li:person:{memberId}. */
+    /** The account's id on the platform (for OpenID providers, the `sub`). */
     memberId: text('member_id').notNull(),
     name: text('name'),
     pictureUrl: text('picture_url'),
     // Encrypted; null once disconnected.
     accessToken: text('access_token'),
     accessTokenExpiresAt: commonFieldDefs.date('access_token_expires_at'),
-    // Only for apps LinkedIn has granted programmatic refresh; usually null.
+    // Only for apps the platform has granted programmatic refresh; usually null.
     refreshToken: text('refresh_token'),
     refreshTokenExpiresAt: commonFieldDefs.date('refresh_token_expires_at'),
     scopes: jsonb('scopes').$type<string[]>().default([]).notNull(),
@@ -1268,10 +1278,11 @@ export const linkedinConnectionsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// 25. LinkedIn Publications (1:N with PostDraft) — each attempt to publish
+// 25. Publications (1:N with PostDraft) — each attempt to publish
 // ---------------------------------------------------------------------------
 
-export const linkedinPublicationsTable = pgTable(
+// Keeps its original name, linkedin_publications (see platform connections).
+export const publicationsTable = pgTable(
   'linkedin_publications',
   {
     id: commonFieldDefs.id(),
@@ -1286,10 +1297,10 @@ export const linkedinPublicationsTable = pgTable(
     }),
     // The connection used, set when it is published; kept for history.
     connectionId: uuid('connection_id').references(
-      () => linkedinConnectionsTable.id,
+      () => platformConnectionsTable.id,
       { onDelete: 'set null' }
     ),
-    /** urn:li:person:… it was published as. */
+    /** The platform's id for the account it was published as. */
     authorUrn: text('author_urn'),
     trigger: varchar('trigger', { length: 20 })
       .$type<PublicationTrigger>()
@@ -1306,11 +1317,11 @@ export const linkedinPublicationsTable = pgTable(
     maxAttempts: integer('max_attempts').default(3).notNull(),
     /** Set when claimed; a stale lock means the process died mid-publish. */
     lockedAt: commonFieldDefs.date('locked_at'),
-    /** The post's id from LinkedIn's x-restli-id header. */
-    linkedinPostUrn: text('linkedin_post_urn'),
+    /** The platform's id for the published post. */
+    externalPostId: text('linkedin_post_urn'),
     publishedAt: commonFieldDefs.date('published_at'),
     /**
-     * When the user deleted the post from LinkedIn. The row stays 'published',
+     * When the user deleted the post from the platform. The row stays 'published',
      * so the one-live-publication index still stops it going out again.
      */
     deletedAt: commonFieldDefs.date('deleted_at'),
@@ -1462,5 +1473,5 @@ export type NewMailMessage = typeof mailMessagesTable.$inferInsert
 export type IntelArticle = typeof intelArticlesTable.$inferSelect
 export type IntelMention = typeof intelMentionsTable.$inferSelect
 
-export type LinkedinConnection = typeof linkedinConnectionsTable.$inferSelect
-export type LinkedinPublication = typeof linkedinPublicationsTable.$inferSelect
+export type PlatformConnection = typeof platformConnectionsTable.$inferSelect
+export type Publication = typeof publicationsTable.$inferSelect

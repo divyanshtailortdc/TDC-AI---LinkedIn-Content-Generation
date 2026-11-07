@@ -63,7 +63,7 @@ export function CreateIdentity() {
       <SetupFrame
         stepIndex={0}
         title="Create Your Identity"
-        description="Tell us about yourself or your business to generate relevant LinkedIn content."
+        description="Tell us about yourself or your business to generate relevant social media content."
         identity={
           <Link
             href="/"

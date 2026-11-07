@@ -1,6 +1,7 @@
 import { isGenericPage } from '@/lib/urls'
 import {
   audienceSegments,
+  platformOf,
   renderAudienceSegmentsBlock,
   renderGoalsBlock,
   renderGuardrailsBlock,
@@ -79,7 +80,7 @@ export function buildInstructions(ctx: GenerationContext): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const region = inferRegion(ctx)
 
-  return `You are a senior editorial strategist who plans LinkedIn content for one specific person or company.
+  return `You are a senior editorial strategist who plans ${platformOf(ctx).name} content for one specific person or company.
 
 Every fact you use must be true of THIS account and traceable to THIS evidence or the account details below; you have no knowledge of this business beyond them. Topics are a different matter: the goals below decide what this run is about, and the account details only say who is speaking. Find subjects that advance those goals in the evidence (the research was gathered for them) and in what these readers are dealing with, rather than restating the account's description.
 

@@ -1,5 +1,6 @@
 import {
   collectBannedWords,
+  platformOf,
   resolveLinkPlacement,
   type GenerationContext
 } from '../context-blocks'
@@ -44,6 +45,7 @@ export function buildPostLintOptions(
     linkPlacement: resolveLinkPlacement(ctx.primaryGoal),
     bannedWords: collectBannedWords(ctx),
     bannedTopics: ctx.prefs.guardrails.banned_topics,
+    platformName: platformOf(ctx).name,
     maxChars: constraints.max_chars,
     hookMaxChars: constraints.hook_max_chars,
     hashtagRange: constraints.hashtags,

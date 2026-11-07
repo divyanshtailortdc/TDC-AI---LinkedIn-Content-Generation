@@ -1,3 +1,5 @@
+import { getPlatform, type PlatformSpec } from '@/lib/platforms'
+
 /**
  * The text of a post as it is published: hook, body and call to action, each
  * on its own paragraph. One definition for the draft, the quality checks and
@@ -34,7 +36,7 @@ function boldLetters(text: string): string {
   })
 }
 
-// Links, email addresses and hashtags, which LinkedIn only recognises when
+// Links, email addresses and hashtags, which plain-text platforms only recognise when
 // they are pasted exactly as written.
 const KEPT_PATTERN =
   /\b(?:https?:\/\/|www\.)[^\s<>]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?<![\p{L}\p{N}_&])#(?=[\p{N}_]*\p{L})[\p{L}\p{N}\p{M}_]+/giu
@@ -84,18 +86,18 @@ function keepSpans(text: string) {
 }
 
 /**
- * LinkedIn strips formatting on paste, so bold has to live in the characters
- * themselves. Letters and digits become their Unicode bold forms; everything
- * else (punctuation, emoji, accented letters) has none and is kept as is.
- * Links, email addresses and hashtags stay plain, or LinkedIn would not
- * recognise them.
+ * Plain-text platforms strip formatting on paste, so bold has to live in the
+ * characters themselves. Letters and digits become their Unicode bold forms;
+ * everything else (punctuation, emoji, accented letters) has none and is kept
+ * as is. Links, email addresses and hashtags stay plain, or the platform would
+ * not recognise them.
  */
 export function toUnicodeBold(text: string): string {
   const { text: held, restore } = keepSpans(text)
   return restore(boldLetters(held))
 }
 
-/** A link as LinkedIn can show it: the address itself, after its text. */
+/** A link as a plain-text platform can show it: the address itself, after its text. */
 function linkText(label: string, href: string): string {
   const url = href.trim().replace(/^mailto:/i, '')
   // A relative link or an anchor leads nowhere outside the page it was on.
@@ -202,7 +204,7 @@ function htmlToText(text: string): string {
   )
 }
 
-/** Markdown emphasis, code and strikethrough within one line, as LinkedIn can show it. */
+/** Markdown emphasis, code and strikethrough within one line, as plain text can show it. */
 function inlineMarkdown(line: string, hold: (span: string) => string): string {
   return (
     line
@@ -227,7 +229,7 @@ function inlineMarkdown(line: string, hold: (span: string) => string): string {
   )
 }
 
-/** Markdown as LinkedIn can show it: headings and bold in Unicode bold, `*` lists as bullets. */
+/** Markdown as plain text can show it: headings and bold in Unicode bold, `*` lists as bullets. */
 function markdownToText(text: string): string {
   const withLinks = text
     // An image cannot go in post text; the post's own image is attached apart.
@@ -263,16 +265,21 @@ function markdownToText(text: string): string {
 
 /**
  * One part of a post (hook, body, call to action or comment) as it pastes into
- * LinkedIn's composer, which keeps only plain text and line breaks. Markdown
- * and HTML become what they show; spaces LinkedIn would drop are dropped here,
- * leaving at most one blank line between paragraphs. Emoji, hashtags, links,
- * bullet characters and Unicode-styled letters are kept exactly.
+ * the platform's composer. A plain-text platform (PlatformSpec.plainTextOnly)
+ * keeps only plain text and line breaks, so Markdown and HTML become what they
+ * show. Either way, spaces the composer would drop are dropped here, leaving
+ * at most one blank line between paragraphs. Emoji, hashtags, links, bullet
+ * characters and Unicode-styled letters are kept exactly.
  */
-export function toLinkedInText(text: string | null | undefined): string {
+export function toPlatformText(
+  text: string | null | undefined,
+  platform: PlatformSpec = getPlatform()
+): string {
   if (!text) return ''
-  const plain = decodeEntities(
-    markdownToText(htmlToText(text.replace(/\r\n?|[\u2028\u2029]/g, '\n')))
-  )
+  const lines = text.replace(/\r\n?|[\u2028\u2029]/g, '\n')
+  const plain = platform.plainTextOnly
+    ? decodeEntities(markdownToText(htmlToText(lines)))
+    : lines
   return plain
     .split('\n')
     .map(line => line.replace(/[ \t\f\v]+/g, ' ').replace(/^ | $/g, ''))
@@ -282,10 +289,10 @@ export function toLinkedInText(text: string | null | undefined): string {
 }
 
 /**
- * Hashtags as LinkedIn links them: one word each, with no spaces or
+ * Hashtags as feeds link them: one word each, with no spaces or
  * punctuation (a tag stops at the first), each tag once.
  */
-export function linkedInHashtags(tags: string[] | null | undefined): string[] {
+export function formatHashtags(tags: string[] | null | undefined): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const raw of tags || []) {
@@ -299,21 +306,25 @@ export function linkedInHashtags(tags: string[] | null | undefined): string[] {
 
 /**
  * The post exactly as Copy puts it on the clipboard and the preview shows it:
- * the hook in Unicode bold (the only bold that survives pasting into
- * LinkedIn), then body, call to action and hashtags, a blank line apart.
- * The first comment is copied on its own.
+ * the hook (in Unicode bold where that is the only bold that survives pasting
+ * into the platform), then body, call to action and hashtags, a blank line
+ * apart. The first comment is copied on its own.
  */
-export function linkedInPostText(post: {
-  hook: string
-  body: string
-  cta?: string | null
-  hashtags?: string[] | null
-}): string {
+export function platformPostText(
+  post: {
+    hook: string
+    body: string
+    cta?: string | null
+    hashtags?: string[] | null
+  },
+  platform: PlatformSpec = getPlatform()
+): string {
+  const hook = toPlatformText(post.hook, platform)
   return [
-    toUnicodeBold(toLinkedInText(post.hook)),
-    toLinkedInText(post.body),
-    toLinkedInText(post.cta),
-    linkedInHashtags(post.hashtags).join(' ')
+    platform.unicodeBoldHook ? toUnicodeBold(hook) : hook,
+    toPlatformText(post.body, platform),
+    toPlatformText(post.cta, platform),
+    formatHashtags(post.hashtags).join(' ')
   ]
     .filter(Boolean)
     .join('\n\n')

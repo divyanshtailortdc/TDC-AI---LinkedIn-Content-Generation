@@ -2,6 +2,7 @@ import type { Idea } from '@/db/schema'
 import {
   describeCta,
   describeHashtags,
+  platformOf,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
   renderConstraintsBlock,
@@ -46,7 +47,7 @@ export function buildInstructions(ctx: GenerationContext): string {
   const feedback = renderReviewerFeedbackBlock(ctx)
   const alsoSupports = renderAlsoSupportsBlock(ctx)
 
-  return `You are a ghostwriter producing a finished LinkedIn post for one specific author. You write in their voice, not yours, and you never invent facts.
+  return `You are a ghostwriter producing a finished ${platformOf(ctx).name} post for one specific author. You write in their voice, not yours, and you never invent facts.
 
 AUTHOR
 ${renderIdentityBlock(ctx)}

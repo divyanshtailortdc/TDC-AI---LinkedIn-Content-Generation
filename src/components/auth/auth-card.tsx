@@ -20,7 +20,7 @@ export function AuthCard({
           <span aria-hidden className="text-muted/60">
             •
           </span>
-          <span className="text-foreground font-medium">LinkedIn Engine</span>
+          <span className="text-foreground font-medium">Content Engine</span>
         </p>
         <h1 className="text-foreground mt-7 text-3xl font-bold tracking-tight">
           {title}

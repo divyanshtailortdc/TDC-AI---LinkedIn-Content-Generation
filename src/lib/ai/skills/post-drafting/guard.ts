@@ -20,7 +20,7 @@ export function isCompleteDraft(
 
 /**
  * The hook is shown above the body, so a body that opens by repeating it
- * reads twice in the preview and is pasted twice into LinkedIn. Models do
+ * reads twice in the preview and is pasted twice into the platform. Models do
  * this often, so the repeat is cut off here. Spacing and case are ignored
  * when comparing; a body that would be left empty is kept as it is.
  */

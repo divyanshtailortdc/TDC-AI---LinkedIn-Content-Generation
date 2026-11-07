@@ -30,20 +30,30 @@ export const env = createEnv({
       .string()
       .min(32, 'BETTER_AUTH_SECRET must be at least 32 characters')
       .optional(),
-    /** The URL people open the app at; Google/LinkedIn redirects and passkeys use it. */
+    /** The URL people open the app at; social sign-in redirects and passkeys use it. */
     BETTER_AUTH_URL: z.url().optional(),
+    // Social sign-in providers (src/lib/auth-providers.ts): each is on when
+    // both its id and secret are set.
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     LINKEDIN_CLIENT_ID: z.string().optional(),
     LINKEDIN_CLIENT_SECRET: z.string().optional(),
-    // Publishing to LinkedIn (docs/LINKEDIN_PUBLISHING.md): its own OAuth
-    // flow, separate from sign-in. Best a separate LinkedIn app: LinkedIn
-    // invalidates a member's earlier tokens when the same app is authorized
-    // with different scopes, so sharing the sign-in app makes every LinkedIn
-    // sign-in disconnect publishing. Unset, publishing is off.
+    /** 32 bytes, base64: encrypts publishing tokens at rest. openssl rand -base64 32 */
+    TOKEN_ENCRYPTION_KEY: z
+      .string()
+      .refine(
+        key => Buffer.from(key, 'base64').length === 32,
+        'TOKEN_ENCRYPTION_KEY must be 32 bytes, base64 (openssl rand -base64 32)'
+      )
+      .optional(),
+    // Publishing through the LinkedIn provider (docs/PUBLISHING.md): its own
+    // OAuth flow, separate from sign-in. Best a separate LinkedIn app:
+    // LinkedIn invalidates a member's earlier tokens when the same app is
+    // authorized with different scopes, so sharing the sign-in app makes
+    // every LinkedIn sign-in disconnect publishing. Unset, publishing is off.
     LINKEDIN_PUBLISH_CLIENT_ID: z.string().optional(),
     LINKEDIN_PUBLISH_CLIENT_SECRET: z.string().optional(),
-    /** Defaults to {BETTER_AUTH_URL}/api/linkedin/callback; an HTTPS tunnel URL in development. */
+    /** Defaults to {BETTER_AUTH_URL}/api/integrations/linkedin/callback; an HTTPS tunnel URL in development. */
     LINKEDIN_PUBLISH_REDIRECT_URI: z.url().optional(),
     /** Space-separated; only scopes the LinkedIn app has been granted. */
     LINKEDIN_PUBLISH_SCOPES: z.string().default('openid profile w_member_social'),
@@ -52,14 +62,6 @@ export const env = createEnv({
       .string()
       .regex(/^\d{6}(\.\d{2})?$/, 'LINKEDIN_API_VERSION must be YYYYMM')
       .default('202610'),
-    /** 32 bytes, base64: encrypts LinkedIn tokens at rest. openssl rand -base64 32 */
-    LINKEDIN_TOKEN_ENCRYPTION_KEY: z
-      .string()
-      .refine(
-        key => Buffer.from(key, 'base64').length === 32,
-        'LINKEDIN_TOKEN_ENCRYPTION_KEY must be 32 bytes, base64 (openssl rand -base64 32)'
-      )
-      .optional(),
     // Inbox: our own mail server (mailserver/README.md). Every address at
     // INBOUND_EMAIL_DOMAIN (inbox.tdcai.com in production) delivers into one
     // IMAP mailbox the app reads. Unset, the inbox is off. Production refuses
@@ -123,7 +125,10 @@ export const env = createEnv({
     LINKEDIN_PUBLISH_REDIRECT_URI: process.env.LINKEDIN_PUBLISH_REDIRECT_URI,
     LINKEDIN_PUBLISH_SCOPES: process.env.LINKEDIN_PUBLISH_SCOPES,
     LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
-    LINKEDIN_TOKEN_ENCRYPTION_KEY: process.env.LINKEDIN_TOKEN_ENCRYPTION_KEY,
+    // LINKEDIN_TOKEN_ENCRYPTION_KEY is its old name, still read so existing
+    // deployments keep decrypting their tokens.
+    TOKEN_ENCRYPTION_KEY:
+      process.env.TOKEN_ENCRYPTION_KEY || process.env.LINKEDIN_TOKEN_ENCRYPTION_KEY,
     INBOUND_EMAIL_DOMAIN: process.env.INBOUND_EMAIL_DOMAIN,
     MAIL_IMAP_HOST: process.env.MAIL_IMAP_HOST,
     MAIL_IMAP_PORT: process.env.MAIL_IMAP_PORT,

@@ -21,7 +21,7 @@ COPY . .
 COPY .env.example .env
 
 # Inlined into the client bundle at build time, so pass the public URL:
-#   docker build --build-arg NEXT_PUBLIC_APP_URL=https://linkedin.example.com .
+#   docker build --build-arg NEXT_PUBLIC_APP_URL=https://app.example.com .
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 

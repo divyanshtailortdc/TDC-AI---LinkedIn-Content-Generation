@@ -30,7 +30,7 @@ export interface LoadedFonts {
 }
 
 const BUNDLED_DIR = join(process.cwd(), 'src/lib/media/canvas/fonts')
-const CACHE_DIR = join(tmpdir(), 'linkedin-canvas-fonts')
+const CACHE_DIR = join(tmpdir(), 'content-canvas-fonts')
 const FETCH_TIMEOUT_MS = 10_000
 
 let bundled: Promise<SatoriFont[]> | null = null

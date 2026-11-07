@@ -12,7 +12,7 @@ import { addressCandidates, localPartError } from './local-part'
 /**
  * Each workspace's inbound address; named after
  * the person who owns the workspace (the name and email they sign in with),
- * never after the LinkedIn identity it writes as, so editing that identity
+ * never after the identity it writes as, so editing that identity
  * leaves the address alone. They can choose another on the Inbox page.
  *
  * Only the part before the @ is stored; the domain is INBOUND_EMAIL_DOMAIN.

@@ -14,22 +14,42 @@ import {
   authVerificationsTable
 } from '~/db/schema'
 import { env } from '~/env'
+import { SOCIAL_PROVIDER_IDS, type SocialProvider } from './auth-providers'
 import { ADMIN_ROLES, parseAdminUserIds, USER_ROLE } from './roles'
 
-const APP_NAME = 'TDC LinkedIn Content Engine'
+const APP_NAME = 'TDC Content Engine'
 
-const isGoogleSignInEnabled = Boolean(
-  env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-)
-const isLinkedInSignInEnabled = Boolean(
-  env.LINKEDIN_CLIENT_ID && env.LINKEDIN_CLIENT_SECRET
-)
+/** Each social provider's credentials; a provider is offered when both are set. */
+const SOCIAL_CREDENTIALS: Record<
+  SocialProvider,
+  { clientId?: string; clientSecret?: string }
+> = {
+  linkedin: {
+    clientId: env.LINKEDIN_CLIENT_ID,
+    clientSecret: env.LINKEDIN_CLIENT_SECRET
+  },
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET
+  }
+}
 
 /** The social sign-ins with credentials set, in the order the buttons show. */
-export const socialSignInProviders = [
-  ...(isLinkedInSignInEnabled ? (['linkedin'] as const) : []),
-  ...(isGoogleSignInEnabled ? (['google'] as const) : [])
-]
+export const socialSignInProviders: SocialProvider[] =
+  SOCIAL_PROVIDER_IDS.filter(
+    id => SOCIAL_CREDENTIALS[id].clientId && SOCIAL_CREDENTIALS[id].clientSecret
+  )
+
+/** A provider's credentials, when it is offered. */
+const credentialsOf = (id: SocialProvider) =>
+  socialSignInProviders.includes(id)
+    ? {
+        clientId: SOCIAL_CREDENTIALS[id].clientId!,
+        clientSecret: SOCIAL_CREDENTIALS[id].clientSecret!
+      }
+    : null
+const googleCredentials = credentialsOf('google')
+const linkedinCredentials = credentialsOf('linkedin')
 
 export const adminUserIds = parseAdminUserIds(env.ADMIN_USER_IDS)
 
@@ -48,7 +68,7 @@ export const auth = betterAuth({
 
   database: drizzleAdapter(db, {
     provider: 'pg',
-    // auth_* tables: `accounts` is the LinkedIn identity table.
+    // auth_* tables: `accounts` is the content identity table.
     schema: {
       user: authUsersTable,
       session: authSessionsTable,
@@ -72,32 +92,24 @@ export const auth = betterAuth({
     cookieCache: { enabled: true, maxAge: 60 }
   },
 
+  // Sign-in only (src/lib/auth-providers.ts); unrelated to the identities in
+  // `accounts` and to publishing connections.
   socialProviders: {
-    ...(isGoogleSignInEnabled && {
-      google: {
-        clientId: env.GOOGLE_CLIENT_ID!,
-        clientSecret: env.GOOGLE_CLIENT_SECRET!,
-        prompt: 'select_account' as const
-      }
+    ...(googleCredentials && {
+      google: { ...googleCredentials, prompt: 'select_account' as const }
     }),
     // "Sign In with LinkedIn using OpenID Connect" (profile, email, openid).
-    // Unrelated to the LinkedIn identities in `accounts`.
-    ...(isLinkedInSignInEnabled && {
-      linkedin: {
-        clientId: env.LINKEDIN_CLIENT_ID!,
-        clientSecret: env.LINKEDIN_CLIENT_SECRET!
-      }
-    })
+    ...(linkedinCredentials && { linkedin: linkedinCredentials })
   },
 
   account: {
     accountLinking: {
-      // A Google or LinkedIn sign-in links to the existing user with the same
+      // A social sign-in links to the existing user with the same
       // email, even one whose email was never confirmed (left from the old
       // password sign-up, or made by an admin). Safe now that there are no
       // passwords: nobody can have registered the address first and kept a
       // way in. The provider must still report the email as verified, as
-      // neither is a trusted provider.
+      // none is a trusted provider.
       requireLocalEmailVerified: false
     }
   },

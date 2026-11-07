@@ -36,6 +36,7 @@ import { buildPostLintOptions } from './post-lint'
 import {
   collectBannedWords,
   loadIdeaContext,
+  platformOf,
   recentCtasOf,
   resolveLinkPlacement
 } from '../context'
@@ -389,6 +390,7 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
         id: draftId,
         accountId: ctx.account.id,
         ideaId,
+        platform: platformOf(ctx).id,
         hook: draft.hook,
         body: draft.body,
         originalHook: draft.hook,

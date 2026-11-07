@@ -14,7 +14,7 @@ import { loadInboxPage, parseInboxQuery } from './inbox-data'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Inbox · TDC LinkedIn Content Engine'
+  title: 'Inbox · TDC Content Engine'
 }
 
 export default async function InboxPage({

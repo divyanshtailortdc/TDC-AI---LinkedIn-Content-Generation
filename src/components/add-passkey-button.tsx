@@ -35,7 +35,7 @@ function browserName() {
 
 /**
  * Adds a passkey to the signed-in user, so they can sign in with it next time
- * instead of Google or LinkedIn. Shows the outcome as a toast.
+ * instead of a social account. Shows the outcome as a toast.
  *
  * One passkey per account: `hasPasskey` turns true once the user has one, and
  * the add buttons are disabled until it is deleted. Only the UI holds to this;

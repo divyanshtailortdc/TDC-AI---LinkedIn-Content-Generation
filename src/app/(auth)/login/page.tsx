@@ -8,7 +8,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 
 export const metadata: Metadata = {
-  title: 'Sign in · TDC LinkedIn Content Engine'
+  title: 'Sign in · TDC Content Engine'
 }
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
@@ -33,7 +33,7 @@ export default async function LoginPage({
   return (
     <AuthCard
       title="Welcome back"
-      description="Sign in to access your LinkedIn Content Engine workspace"
+      description="Sign in to access your Content Engine workspace"
     >
       <SignInOptions
         next={next}

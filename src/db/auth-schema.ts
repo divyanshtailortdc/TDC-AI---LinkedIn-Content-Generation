@@ -12,7 +12,7 @@ import {
 // Better Auth tables (better-auth 1.6.11 core schema + admin plugin fields,
 // and the passkey plugin's table)
 //
-// Prefixed with auth_ because `accounts` is already the LinkedIn identity
+// Prefixed with auth_ because `accounts` is already the content identity
 // table. src/lib/auth.ts maps Better Auth's user/session/account/verification/
 // passkey models onto these tables; the property names below are the field names
 // Better Auth expects, so they must not be renamed.

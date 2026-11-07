@@ -38,7 +38,7 @@ export default async function DashboardPage() {
   if (!account) {
     return (
       <div className="flex h-[calc(100vh-4rem)] flex-col">
-        <PageHeader title="Dashboard" description="Your LinkedIn content generation workspace" />
+        <PageHeader title="Dashboard" description="Your content generation workspace" />
         <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
           <div className="mx-auto max-w-5xl space-y-6">
             <CapabilityPanel capabilities={capabilities} />
@@ -77,7 +77,7 @@ export default async function DashboardPage() {
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Dashboard"
-        description="Your LinkedIn content generation workspace"
+        description="Your content generation workspace"
       />
 
       <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
@@ -163,7 +163,7 @@ function EmptyState() {
         <Users className="h-7 w-7 text-muted" />
       </div>
       <h2 className="mb-2 text-lg font-semibold tracking-tight text-foreground">
-        Set up your LinkedIn identity
+        Set up your content identity
       </h2>
       <p className="mb-8 max-w-sm text-center text-sm leading-relaxed text-muted">
         Your identity is who the content is written for — yourself, your company, or a product —

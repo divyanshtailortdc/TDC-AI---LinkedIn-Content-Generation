@@ -13,7 +13,7 @@ import type { CanvasPalette } from './palette'
  * Pure, so the layout rules are testable without rendering.
  */
 
-/** LinkedIn's 1.91:1 feed ratio at ~1.7x 1200x627, so it stays sharp after recompression. */
+/** The 1.91:1 feed ratio at ~1.7x 1200x627, so it stays sharp after recompression. */
 export const CANVAS_SIZE = { width: 2048, height: 1072 } as const
 
 /** The right-hand side: a square the full height of the image, 52% of its width. */

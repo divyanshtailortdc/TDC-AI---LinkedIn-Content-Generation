@@ -10,11 +10,11 @@ import {
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
-import { linkedInPublishConfig } from '@/lib/linkedin/config'
+import { publishingConfig } from '@/lib/publishing/config'
 import {
   latestPublications,
   type PublicationSummary
-} from '@/lib/linkedin/publishing'
+} from '@/lib/publishing/engine'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
 import { and, count, desc, eq, inArray, type SQL } from 'drizzle-orm'
@@ -35,6 +35,7 @@ export async function loadPostsPage(
   const columns = {
     id: postDraftsTable.id,
     accountId: postDraftsTable.accountId,
+    platform: postDraftsTable.platform,
     hook: postDraftsTable.hook,
     originalHook: postDraftsTable.originalHook,
     body: postDraftsTable.body,
@@ -148,9 +149,9 @@ export async function loadPostsPage(
           )
           .orderBy(desc(postMediaTable.createdAt))
       : Promise.resolve([]),
-    // These posts are already the identity's; their LinkedIn publications.
+    // These posts are already the identity's; their publications.
     // Skipped when publishing is not set up, so Posts does not depend on its tables.
-    linkedInPublishConfig()
+    publishingConfig()
       ? latestPublications(db, draftIds)
       : Promise.resolve(new Map<string, PublicationSummary>())
   ])
@@ -186,6 +187,7 @@ export async function loadPostsPage(
       accountId: draft.accountId,
       accountName: draft.accountName || 'Unknown Identity',
       accountHeadline: draft.accountHeadline,
+      platform: draft.platform,
       hook: draft.hook,
       originalHook: draft.originalHook,
       body: draft.body,

@@ -1,7 +1,7 @@
 import type { ReviewImageInput } from './schema'
 
 export const INSTRUCTIONS =
-  'You check AI-generated images before they are published with a LinkedIn post. You read every letter exactly as it is drawn and report problems plainly. Never assume text is correct because it was intended: image models misspell words and invent lettering.'
+  'You check AI-generated images before they are published with a social media post. You read every letter exactly as it is drawn and report problems plainly. Never assume text is correct because it was intended: image models misspell words and invent lettering.'
 
 export function buildPrompt(
   input: Omit<ReviewImageInput, 'image' | 'mediaType' | 'abortSignal'>
@@ -17,7 +17,7 @@ The second attached image is a reference the reviewer chose. The first image was
           : ''
       } Check only the first image against the rules; the reference is for comparison.`
     : ''
-  return `Check the ${input.reference ? 'first ' : ''}attached image, generated for the LinkedIn post below.
+  return `Check the ${input.reference ? 'first ' : ''}attached image, generated for the social media post below.
 
 THE POST
 """

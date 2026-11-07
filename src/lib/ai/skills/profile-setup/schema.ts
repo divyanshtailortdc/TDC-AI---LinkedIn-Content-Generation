@@ -484,7 +484,7 @@ export const AnalysisGuidanceSchema = z.object({
   formality: z.number().int().min(1).max(5).optional(),
   emojiPolicy: VoiceAnalysisSchema.shape.emojiPolicy.optional(),
   objectiveType: z.enum(GOAL_OBJECTIVES).optional(),
-  /** What the user wants LinkedIn to achieve, in their words. */
+  /** What the user wants their content to achieve, in their words. */
   goal: optionalText(1000),
   callToAction: optionalText(300),
   ctaUrl: optionalUrlInput,

@@ -125,8 +125,8 @@ export interface CanvasSize {
 }
 
 /**
- * The shapes a blueprint is drawn at: LinkedIn's three feed shapes, at about
- * 1.5x LinkedIn's own sizes and in multiples of 16 for the image models.
+ * The shapes a blueprint is drawn at: the three common feed shapes, at about
+ * 1.5x the feeds' own sizes and in multiples of 16 for the image models.
  */
 export const BLUEPRINT_SIZES: readonly CanvasSize[] = [
   CANVAS_SIZE, // 1.91:1

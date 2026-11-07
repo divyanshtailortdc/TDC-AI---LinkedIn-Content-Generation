@@ -1,13 +1,17 @@
 'use client'
 
-import { LinkedInMark } from '@/components/auth/linkedin-mark'
+import { LinkedInMark } from '@/components/platform-mark'
 import { Button, type ButtonProps } from '@/components/button'
 import { authClient } from '@/lib/auth-client'
 import { authErrorMessage } from '@/lib/auth-errors'
+import {
+  SOCIAL_PROVIDER_LABELS,
+  type SocialProvider
+} from '@/lib/auth-providers'
 import { loginPathFor } from '@/lib/safe-redirect'
 import { useState, type ReactElement } from 'react'
 
-export type SocialProvider = 'google' | 'linkedin'
+export type { SocialProvider }
 
 /** Google's "G" mark, as Google's sign-in guidelines ask for. */
 function GoogleMark() {
@@ -33,25 +37,24 @@ function GoogleMark() {
   )
 }
 
+/** How each provider's button looks: its mark, and its own colours where its guidelines ask. */
 const PROVIDERS = {
-  google: { label: 'Google', variant: 'secondary', Mark: GoogleMark },
-  // White on LinkedIn blue, as LinkedIn's own sign-in button.
+  google: { variant: 'secondary', Mark: GoogleMark },
+  // White on the brand blue, as LinkedIn's own sign-in button.
   linkedin: {
-    label: 'LinkedIn',
-    variant: 'linkedin',
+    variant: 'platform',
     Mark: () => <LinkedInMark className="h-5 w-5" />
   }
 } satisfies Record<
   SocialProvider,
   {
-    label: string
     variant: ButtonProps['variant']
     Mark: () => ReactElement
   }
 >
 
 /**
- * Starts sign-in with Google or LinkedIn. The provider sends the browser back
+ * Starts sign-in with a social provider. The provider sends the browser back
  * to `next` afterwards (already checked to be a path in this app), or to
  * /login with `?error=`.
  */
@@ -65,7 +68,8 @@ export function SocialSignInButton({
   onError: (message: string) => void
 }) {
   const [pending, setPending] = useState(false)
-  const { label, variant, Mark } = PROVIDERS[provider]
+  const { variant, Mark } = PROVIDERS[provider]
+  const label = SOCIAL_PROVIDER_LABELS[provider]
 
   const signIn = async () => {
     setPending(true)

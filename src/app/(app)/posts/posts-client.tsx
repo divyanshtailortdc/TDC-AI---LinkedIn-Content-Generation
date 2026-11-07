@@ -1,14 +1,15 @@
 'use client'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { LinkedInPreview } from '@/components/linkedin-preview'
+import { PostPreview } from '@/components/post-preview'
 import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import type { IdentitySummary } from '@/lib/identity'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { linkedInPostText, toLinkedInText } from '@/lib/post-text'
+import { getPlatform, type PlatformId } from '@/lib/platforms'
+import { platformPostText, toPlatformText } from '@/lib/post-text'
 import {
   IMAGE_PROMPT_MAX_WORDS,
   IMAGE_TYPE_CHOICES,
@@ -99,8 +100,8 @@ import {
   updatePostMediaAction
 } from './actions'
 import { initialsOf } from '@/lib/initials'
-import type { PublicationSummary } from '@/lib/linkedin/publishing'
-import { LinkedInPublishControls } from './linkedin-publish-controls'
+import type { PublicationSummary } from '@/lib/publishing/engine'
+import { PublishControls } from './publish-controls'
 import { getPostPublication } from './publish-actions'
 import {
   currentMediaJob,
@@ -127,6 +128,8 @@ const ImageLightbox = dynamic(
 export interface PostDetail {
   id: string
   accountId: string
+  /** Where it goes out (src/lib/platforms). */
+  platform: PlatformId
   accountName: string
   accountHeadline?: string | null
   runId?: string | null
@@ -178,7 +181,7 @@ export interface PostDetail {
   postedAt?: string | null
   /** When it was hidden from the queue, as ISO; it shows only under Hidden. */
   hiddenAt?: string | null
-  /** The latest attempt to publish it to LinkedIn, if any. */
+  /** The latest attempt to publish it to its platform, if any. */
   publication?: PublicationSummary | null
 }
 
@@ -197,7 +200,7 @@ export interface BrandSummary {
 
 const LINT_RULE_LABELS: Record<string, string> = {
   char_limit: 'Character limit',
-  hook_fold: 'LinkedIn hook & fold',
+  hook_fold: 'Hook & fold',
   no_markdown_leakage: 'Plain text formatting',
   link_placement: 'Link placement strategy',
   banned_words: 'Tone & banned language',
@@ -207,7 +210,7 @@ const LINT_RULE_LABELS: Record<string, string> = {
   unsupported_figures: 'Figures backed by evidence',
   generic_cta: 'Call to action fits the post',
   CHAR_LIMIT: 'Character limit',
-  HOOK_FOLD: 'LinkedIn hook & fold',
+  HOOK_FOLD: 'Hook & fold',
   NO_MARKDOWN_LEAKAGE: 'Plain text formatting',
   LINK_PLACEMENT: 'Link placement strategy',
   BANNED_WORDS: 'Tone & banned language',
@@ -569,7 +572,9 @@ export function PostsClientInner({
   // cannot leave a post on screen that is no longer in the list.
   const activePost =
     filteredPosts.find(p => p.id === selectedPostId) || filteredPosts[0]
-  // Published on LinkedIn (or going out now): it can no longer be rejected,
+  // Where the open post goes out: its preview, copy and wording follow it.
+  const activePlatform = getPlatform(activePost?.platform)
+  // Published on its platform (or going out now): it can no longer be rejected,
   // matching rejectDraft on the server.
   const activePublished =
     activePost?.publication?.status === 'published' ||
@@ -611,9 +616,9 @@ export function PostsClientInner({
   const [customImageUrl, setCustomImageUrl] = useState('')
   const [showPostRejection, setShowPostRejection] = useState(false)
   const [postRejectionReason, setPostRejectionReason] = useState('')
-  // The Delete dialog, and its "also delete it from LinkedIn" choice.
+  // The Delete dialog, and its "also delete it from the platform" choice.
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [alsoDeleteFromLinkedIn, setAlsoDeleteFromLinkedIn] = useState(false)
+  const [alsoDeleteFromPlatform, setAlsoDeleteFromPlatform] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   // Posts deleted here, taken off the server's total.
   const [deletedCount, setDeletedCount] = useState(0)
@@ -743,7 +748,7 @@ export function PostsClientInner({
   // preview is hidden while the editor is open). Showing unsaved edits there
   // meant copying or approving one text while another was stored.
   // Copy, like Approve, takes the saved comment, in the form the preview shows.
-  const copyableComment = toLinkedInText(activePost?.firstComment)
+  const copyableComment = toPlatformText(activePost?.firstComment, activePlatform)
 
   // Asks before unsaved edits are thrown away. True when it is fine to go on.
   const confirmDiscardEdits = (what: string) =>
@@ -1156,7 +1161,7 @@ export function PostsClientInner({
         ? imageUrl.slice(imageUrl.indexOf('/') + 1, imageUrl.indexOf(';')) ||
           'png'
         : 'png'
-    const fileName = `linkedin-visual-v${activePost?.media?.version || 1}.${extension}`
+    const fileName = `${activePlatform.id}-visual-v${activePost?.media?.version || 1}.${extension}`
 
     let objectUrl: string | null = null
     try {
@@ -1413,7 +1418,9 @@ export function PostsClientInner({
     // is what is approved. Edits not saved yet are not part of either. It is
     // the text the preview shows, with the hook in Unicode bold; the first
     // comment has its own button, since it is pasted after publishing.
-    const success = await copyTextToClipboard(linkedInPostText(activePost))
+    const success = await copyTextToClipboard(
+      platformPostText(activePost, activePlatform)
+    )
     if (success) {
       setCopiedPost(true)
       showToast({
@@ -1421,7 +1428,7 @@ export function PostsClientInner({
         title: 'Post Copied!',
         message: hasUnsavedEdits
           ? 'Copied the saved post. Your unsaved edits are not included; save them to copy them.'
-          : 'Post copied with a bold hook, ready to paste into LinkedIn.'
+          : `Post copied${activePlatform.unicodeBoldHook ? ' with a bold hook' : ''}, ready to paste into ${activePlatform.name}.`
       })
       setTimeout(() => setCopiedPost(false), 2500)
     } else {
@@ -1523,7 +1530,7 @@ export function PostsClientInner({
           type: 'success',
           title: 'Image Copied!',
           message:
-            'Image copied to clipboard! You can paste (Ctrl+V) directly into LinkedIn.'
+            `Image copied to clipboard! You can paste (Ctrl+V) directly into ${activePlatform.name}.`
         })
         setTimeout(() => setCopiedImage(false), 2500)
         return
@@ -1693,26 +1700,26 @@ export function PostsClientInner({
     }
   }
 
-  // Published and still on LinkedIn: the Delete dialog offers to remove it there too.
-  const canDeleteFromLinkedIn =
+  // Published and still on its platform: the Delete dialog offers to remove it there too.
+  const canDeleteFromPlatform =
     activePost?.publication?.status === 'published' &&
     !activePost.publication.deletedAt
 
   const openDeleteDialog = () => {
     if (!confirmDiscardEdits('Deleting this post')) return
-    setAlsoDeleteFromLinkedIn(false)
+    setAlsoDeleteFromPlatform(false)
     setShowDeleteDialog(true)
   }
 
   const handleDelete = async () => {
     if (!activePost) return
     const id = activePost.id
-    const alsoFromLinkedIn = canDeleteFromLinkedIn && alsoDeleteFromLinkedIn
+    const alsoFromPlatform = canDeleteFromPlatform && alsoDeleteFromPlatform
     const next = neighbourOf(id)
     setIsDeleting(true)
     try {
       markDataChanged()
-      const res = await deleteDraft(id, { alsoFromLinkedIn })
+      const res = await deleteDraft(id, { alsoFromPlatform })
       if (!res.success) throw new Error(res.error)
       // Older posts load from after the cursor post, which must still exist:
       // the post loaded just before it takes its place.
@@ -1727,19 +1734,19 @@ export function PostsClientInner({
       showToast({
         type: 'success',
         title: 'Post deleted',
-        message: res.deletedFromLinkedIn
-          ? 'It was deleted from LinkedIn too.'
+        message: res.deletedFromPlatform
+          ? `It was deleted from ${activePlatform.name} too.`
           : undefined
       })
     } catch (err: any) {
-      // The dialog stays open, so the LinkedIn choice can be changed.
+      // The dialog stays open, so the platform choice can be changed.
       showToast({
         type: 'error',
         title: 'Post not deleted',
         message: err?.message || 'Failed to delete the post'
       })
-      // It may have left LinkedIn before the rest failed.
-      if (alsoFromLinkedIn) {
+      // It may have left the platform before the rest failed.
+      if (alsoFromPlatform) {
         const publication = await getPostPublication(id).catch(() => null)
         if (publication) {
           setPosts(list =>
@@ -1985,13 +1992,13 @@ export function PostsClientInner({
           </button>
           <button
             type="button"
-            // The server refuses too: it may be on LinkedIn any moment.
+            // The server refuses too: it may be on its platform any moment.
             disabled={isSaving || activePost.publication?.status === 'publishing'}
             onClick={openDeleteDialog}
             aria-label="Delete post"
             title={
               activePost.publication?.status === 'publishing'
-                ? 'It is being published to LinkedIn right now'
+                ? `It is being published to ${activePlatform.name} right now`
                 : 'Delete post'
             }
             className="border-border text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-rose-400"
@@ -2156,9 +2163,9 @@ export function PostsClientInner({
         bottomContent={reviewBar}
         actions={
           // Publishing the open post, in the header beside the theme button
-          // (Publish now and Schedule need LinkedIn set up and connected).
+          // (Publish now and Schedule need its platform set up and connected).
           activePost?.status === 'approved' ? (
-            <LinkedInPublishControls
+            <PublishControls
               key={activePost.id}
               postId={activePost.id}
               postedAt={activePost.postedAt ?? null}
@@ -2182,19 +2189,20 @@ export function PostsClientInner({
               It is removed from the app for good, with its image and
               alternates. This cannot be undone.
               {activePost.publication?.status === 'scheduled' &&
-                ' Its scheduled LinkedIn publishing is cancelled.'}
-              {canDeleteFromLinkedIn && (
+                ` Its scheduled ${activePlatform.name} publishing is cancelled.`}
+              {canDeleteFromPlatform && (
                 <label className="text-foreground mt-3 flex cursor-pointer items-start gap-2">
                   <input
                     type="checkbox"
-                    checked={alsoDeleteFromLinkedIn}
+                    checked={alsoDeleteFromPlatform}
                     disabled={isDeleting}
-                    onChange={e => setAlsoDeleteFromLinkedIn(e.target.checked)}
+                    onChange={e => setAlsoDeleteFromPlatform(e.target.checked)}
                     className="mt-1 accent-rose-600"
                   />
                   <span>
-                    Also delete it from LinkedIn, with its reactions and
-                    comments. Otherwise it stays on LinkedIn.
+                    Also delete it from {activePlatform.name}, with its
+                    reactions and comments. Otherwise it stays on{' '}
+                    {activePlatform.name}.
                   </span>
                 </label>
               )}
@@ -2453,15 +2461,15 @@ export function PostsClientInner({
             </div>
           ) : (
             <>
-              {/* TWO-COLUMN REVIEW WORKSPACE (Left: LinkedIn Preview; Right: Compact Review Panel) */}
+              {/* TWO-COLUMN REVIEW WORKSPACE (Left: Feed Preview; Right: Compact Review Panel) */}
               <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
                 {/* ============================================================ */}
-                {/* LEFT COLUMN: PRIMARY VISUAL AREA (LinkedIn Feed Preview)     */}
+                {/* LEFT COLUMN: PRIMARY VISUAL AREA (Platform Feed Preview)     */}
                 {/* ============================================================ */}
                 <div className="space-y-4 lg:col-span-7">
                   <div className="flex items-center justify-between px-1">
                     <span className="text-muted text-xs font-semibold tracking-wider uppercase">
-                      LinkedIn Feed Appearance
+                      {activePlatform.name} Feed Appearance
                     </span>
                     <div className="flex items-center gap-4">
                       <button
@@ -2502,8 +2510,9 @@ export function PostsClientInner({
                   />
                   {!isEditing && (
                     <div className="flex w-full justify-center">
-                      <LinkedInPreview
+                      <PostPreview
                         key={activePost.id}
+                        platform={activePlatform}
                         authorName={activePost.accountName}
                         authorHeadline={activePost.accountHeadline}
                         authorInitials={authorInitials}
@@ -2513,7 +2522,6 @@ export function PostsClientInner({
                         hashtags={activePost.hashtags}
                         mediaUrl={activePost.media?.imageUrl}
                         mediaAltText={activePost.media?.altText}
-                        foldCharLimit={200}
                         onMediaClick={
                           activePost.media?.imageUrl
                             ? () => setIsImageZoomOpen(true)
@@ -3351,7 +3359,7 @@ export function PostsClientInner({
                       <div className="divide-border/60 border-border/40 divide-y border-t p-4 pt-0 text-xs">
                         {lintFindings.length === 0 ? (
                           <p className="text-muted py-2 text-xs">
-                            All standard LinkedIn checks verified.
+                            All standard {activePlatform.name} checks verified.
                           </p>
                         ) : (
                           lintFindings.map((finding, idx) => (

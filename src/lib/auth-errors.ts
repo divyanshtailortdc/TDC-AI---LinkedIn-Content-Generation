@@ -1,6 +1,6 @@
 /**
  * Friendly messages for Better Auth errors: the `code` of a failed authClient
- * call, or the `?error=` a Google or LinkedIn sign-in redirects back with. Unknown codes
+ * call, or the `?error=` a social sign-in redirects back with. Unknown codes
  * get the caller's fallback, never the raw server text.
  */
 const MESSAGES: Record<string, string> = {
@@ -15,11 +15,11 @@ const MESSAGES: Record<string, string> = {
   SESSION_NOT_FRESH:
     'For your security, sign out and sign in again before adding a passkey.',
   PASSKEY_NOT_FOUND:
-    'That passkey is not registered here. Sign in with Google or LinkedIn, then add it again.',
+    'That passkey is not registered here. Sign in another way, then add it again.',
   AUTHENTICATION_FAILED:
-    'Passkey sign-in failed. Please try again or use Google or LinkedIn.',
+    'Passkey sign-in failed. Please try again or use another sign-in option.',
   CHALLENGE_NOT_FOUND: 'The passkey request expired. Please try again.',
-  // Google and LinkedIn sign-in (snake_case, from the OAuth callback).
+  // Social sign-in (snake_case, from the OAuth callback).
   email_not_found:
     'The provider did not share an email address for this account.',
   // The provider has not verified the email, so it is not joined to the

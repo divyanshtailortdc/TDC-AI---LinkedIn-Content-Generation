@@ -1,3 +1,4 @@
+import { getPlatform } from '@/lib/platforms'
 import {
   extractNumbers,
   mentionsFigure
@@ -35,6 +36,8 @@ export interface LintOptions {
   linkPlacement?: 'first_comment' | 'body' | null
   bannedWords?: string[] | null
   bannedTopics?: string[] | null
+  /** The post's platform, named in messages; the default platform when absent. */
+  platformName?: string
   maxChars?: number
   hookMaxChars?: number
   /** From the voice's hashtag policy; null or absent skips the check. */
@@ -111,8 +114,10 @@ function wholeTermPattern(term: string): RegExp {
 
 export function runLinter(opts: LintOptions): LintFinding[] {
   const findings: LintFinding[] = []
-  const maxChars = opts.maxChars ?? 3000
-  const hookMaxChars = opts.hookMaxChars ?? 200
+  const platform = getPlatform()
+  const platformName = opts.platformName ?? platform.name
+  const maxChars = opts.maxChars ?? platform.limits.maxChars
+  const hookMaxChars = opts.hookMaxChars ?? platform.limits.hookMaxChars
   const hook = (opts.hook || '').trim()
   const fullText = `${opts.hook}\n\n${opts.body}${opts.cta ? `\n\n${opts.cta}` : ''}`.trim()
   const charCount = fullText.length
@@ -169,7 +174,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
     })
   }
 
-  // 3. Markdown — LinkedIn renders none of it
+  // 3. Markdown — plain-text platforms render none of it
   const markdownPatterns = [
     { pattern: /\*\*[^*]+\*\*/, name: 'bold (**text**)' },
     { pattern: /__[^_]+__/, name: 'underline (__text__)' },
@@ -187,7 +192,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
       ? {
           rule: 'no_markdown_leakage',
           severity: 'error',
-          message: `LinkedIn shows markdown as literal characters. Found: ${detectedMarkdown.join(', ')}.`,
+          message: `${platformName} shows markdown as literal characters. Found: ${detectedMarkdown.join(', ')}.`,
           passed: false
         }
       : {
@@ -349,7 +354,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
     findings.push({
       rule: 'engagement_bait',
       severity: 'error',
-      message: 'Engagement bait detected. LinkedIn penalises posts that ask for interactions this way.',
+      message: `Engagement bait detected. ${platformName} penalises posts that ask for interactions this way.`,
       passed: false
     })
   }

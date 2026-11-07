@@ -311,7 +311,7 @@ function ProTipCard() {
       </h3>
       <p className="text-muted mt-1.5 text-xs leading-relaxed">
         The more specific you are with your Target Audience, the higher
-        engagement your generated posts will achieve on LinkedIn.
+        engagement your generated posts will achieve on social media.
       </p>
     </section>
   )

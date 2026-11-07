@@ -22,7 +22,7 @@ import type { AnalysisInput } from './draft-store'
 
 const EXAMPLE_DESCRIPTION = `I'm Priya Rao, founder of Ledgerly, a bookkeeping and month-end close service for direct-to-consumer brands in India. We work with founders doing ₹5–50 Cr in revenue who are tired of waiting three weeks for their numbers.
 
-I want LinkedIn to position me as the person D2C founders trust on finance operations, and to bring in discovery calls. I write best when I explain how things actually work behind the scenes, plainly, without hype.`
+I want my posts to position me as the person D2C founders trust on finance operations, and to bring in discovery calls. I write best when I explain how things actually work behind the scenes, plainly, without hype.`
 
 const inputClass =
   'w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
@@ -214,7 +214,7 @@ export function AnalyzeForm({
         <div className={assistant ? '' : 'flex min-h-0 flex-1 flex-col'}>
           {assistant ? (
             <label htmlFor="ai-description" className="sr-only">
-              Your LinkedIn bio, company description or website content
+              Your social media bio, company description or website content
             </label>
           ) : (
             <div className="mb-1 flex items-center justify-between gap-2">
@@ -247,8 +247,8 @@ export function AnalyzeForm({
             }}
             placeholder={
               assistant
-                ? 'Paste your LinkedIn bio, company description, or website content...'
-                : 'Paste anything about you or your company: who you are, what you offer, who you want to reach and what LinkedIn should do for you.'
+                ? 'Paste your social media bio, company description, or website content...'
+                : 'Paste anything about you or your company: who you are, what you offer, who you want to reach and what your content should do for you.'
             }
             className={`${inputClass} ${
               assistant

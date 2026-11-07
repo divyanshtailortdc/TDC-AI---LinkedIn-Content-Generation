@@ -4,12 +4,13 @@ import { db } from '@/db'
 import {
   goalsTable,
   ideasTable,
-  linkedinPublicationsTable,
+  publicationsTable,
   postDraftsTable,
   schedulesTable
 } from '@/db/schema'
 import { monthGridRange, type Month } from '@/lib/calendar'
-import { linkedInPublishConfig } from '@/lib/linkedin/config'
+import type { PlatformId } from '@/lib/platforms'
+import { publishingConfig } from '@/lib/publishing/config'
 import { nextSlot } from '@/lib/schedule-time'
 import {
   and,
@@ -31,13 +32,15 @@ export type NextRun = { at: string; weekday: number; zone: string }
 /** A post as the Schedule page shows it. */
 export type PlannedPost = {
   id: string
+  /** Where it goes out (src/lib/platforms). */
+  platform: PlatformId
   hook: string
   status: string
   /** YYYY-MM-DD, or null when not planned yet. */
   plannedFor: string | null
   postedAt: Date | null
-  /** Published (or being published) through the LinkedIn API: it stays posted. */
-  publishedOnLinkedIn: boolean
+  /** Published (or being published) through the platform's API: it stays posted. */
+  publishedFromApp: boolean
   goalTitle: string | null
   createdAt: Date
 }
@@ -45,7 +48,7 @@ export type PlannedPost = {
 /** Not planned yet, newest first; the list stops here. */
 const UNSCHEDULED_LIMIT = 50
 
-/** Posts still headed for LinkedIn: in review or approved, not yet posted. */
+/** Posts still headed for their platform: in review or approved, not yet posted. */
 const unpostedStatuses = inArray(postDraftsTable.status, [
   'awaiting_review',
   'approved'
@@ -56,30 +59,31 @@ const unpostedStatuses = inArray(postDraftsTable.status, [
  * refuses "not posted" by. Plain false when publishing is not set up, so the
  * page does not depend on its table.
  */
-function publishedOnLinkedIn(linkedIn: boolean) {
-  if (!linkedIn) return sql<boolean>`false`
+function publishedFromApp(publishingOn: boolean) {
+  if (!publishingOn) return sql<boolean>`false`
   return exists(
     db
-      .select({ id: linkedinPublicationsTable.id })
-      .from(linkedinPublicationsTable)
+      .select({ id: publicationsTable.id })
+      .from(publicationsTable)
       .where(
         and(
-          eq(linkedinPublicationsTable.draftId, postDraftsTable.id),
-          inArray(linkedinPublicationsTable.status, ['publishing', 'published'])
+          eq(publicationsTable.draftId, postDraftsTable.id),
+          inArray(publicationsTable.status, ['publishing', 'published'])
         )
       )
   ).mapWith(Boolean)
 }
 
-function selectPosts(where: SQL | undefined, linkedIn: boolean) {
+function selectPosts(where: SQL | undefined, publishingOn: boolean) {
   return db
     .select({
       id: postDraftsTable.id,
+      platform: postDraftsTable.platform,
       hook: postDraftsTable.hook,
       status: postDraftsTable.status,
       plannedFor: postDraftsTable.plannedFor,
       postedAt: postDraftsTable.postedAt,
-      publishedOnLinkedIn: publishedOnLinkedIn(linkedIn),
+      publishedFromApp: publishedFromApp(publishingOn),
       // The goal as titled now; once deleted, as it was when the idea was made.
       goalTitle: sql<
         string | null
@@ -111,7 +115,7 @@ function nextRunOf(
 export async function loadSchedulePage(accountId: string, month: Month) {
   const { from, to } = monthGridRange(month)
   const ofAccount = eq(postDraftsTable.accountId, accountId)
-  const linkedIn = linkedInPublishConfig() !== null
+  const publishingOn = publishingConfig() !== null
 
   const [planned, unscheduled, [unscheduledTotal], schedule, goals] =
     await Promise.all([
@@ -121,7 +125,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
           ne(postDraftsTable.status, 'rejected'),
           between(postDraftsTable.plannedFor, from, to)
         ),
-        linkedIn
+        publishingOn
       ).orderBy(postDraftsTable.plannedFor, postDraftsTable.createdAt),
       selectPosts(
         and(
@@ -130,7 +134,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
           isNull(postDraftsTable.plannedFor),
           isNull(postDraftsTable.postedAt)
         ),
-        linkedIn
+        publishingOn
       )
         .orderBy(desc(postDraftsTable.createdAt), desc(postDraftsTable.id))
         .limit(UNSCHEDULED_LIMIT),

@@ -1,6 +1,6 @@
 import { MAX_SUGGESTIONS } from './schema'
 
-export const INSTRUCTIONS = `You suggest goals for a LinkedIn content engine. A goal steers what a series of posts argues: one belief to move in the reader (the key message) and one action for readers to take.
+export const INSTRUCTIONS = `You suggest goals for a social media content engine. A goal steers what a series of posts argues: one belief to move in the reader (the key message) and one action for readers to take.
 
 Rules:
 1. Build every goal on something in the profile: an offering or the audience. Never invent facts, numbers, customers or links.

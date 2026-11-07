@@ -541,7 +541,7 @@ export function AdvancedAnalyzeDialog({
               </div>
               <div>
                 <Label htmlFor="adv-goal">
-                  What should LinkedIn do for you?
+                  What should your content do for you?
                 </Label>
                 <textarea
                   id="adv-goal"

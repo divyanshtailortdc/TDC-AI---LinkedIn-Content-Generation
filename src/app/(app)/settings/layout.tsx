@@ -11,7 +11,7 @@ export default function SettingsLayout({
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Settings"
-        description="Your account, how you sign in, LinkedIn publishing, and the app's colours."
+        description="Your account, how you sign in, publishing integrations, and the app's colours."
         bottomContent={<SettingsTabs />}
       />
       <div className="flex-1 overflow-y-auto p-4">

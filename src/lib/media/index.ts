@@ -238,14 +238,14 @@ export async function searchStockImage(
 }
 
 /**
- * Every prompt-driven image is produced at one fixed size: LinkedIn's 1.91:1
- * feed ratio (1200x627), at ~1.7x that resolution so it stays HD when LinkedIn
+ * Every prompt-driven image is produced at one fixed size: the 1.91:1 feed
+ * ratio (1200x627), at ~1.7x that resolution so it stays HD when the platform
  * recompresses it.
  *
  * Both dimensions are multiples of 16, which the flux models require — a
  * request like 2400x1256 is silently rounded to 2400x1248 and loses the ratio.
  */
-export const LINKEDIN_IMAGE = { width: 2048, height: 1072 } as const
+export const FEED_IMAGE = { width: 2048, height: 1072 } as const
 
 /**
  * Concrete pixel sizes per configured aspect ratio.
@@ -267,13 +267,13 @@ export function sizeForAspectRatio(aspectRatio?: '1:1' | '16:9' | '4:5'): {
   return ASPECT_SIZES[aspectRatio || '16:9']
 }
 
-export function isLinkedInImageSize(dimensions: {
+export function isFeedImageSize(dimensions: {
   width: number
   height: number
 }): boolean {
   return (
-    dimensions.width === LINKEDIN_IMAGE.width &&
-    dimensions.height === LINKEDIN_IMAGE.height
+    dimensions.width === FEED_IMAGE.width &&
+    dimensions.height === FEED_IMAGE.height
   )
 }
 
@@ -1180,7 +1180,7 @@ export async function generateCustomImage(
       s => s.width === editSize.width && s.height === editSize.height
     )
       ? editSize
-      : LINKEDIN_IMAGE
+      : FEED_IMAGE
 
   let finalPrompt =
     workflow === 'edit' ? buildEditPrompt(prompt, target) : prompt

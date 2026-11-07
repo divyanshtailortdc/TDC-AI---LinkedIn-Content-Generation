@@ -26,7 +26,7 @@ Authentication is [Better Auth](https://www.better-auth.com) 1.6.11 with three w
 | Ownership lookups (`findOwnedAccount`, `findOwnedRun`, `findOwnedIdea`) | `src/lib/ownership.ts` |
 | Guards for Server Actions (`requireOwnedAccount`, `requireOwnedRun`, `requireOwnedIdea`) | `src/lib/account-guard.ts` |
 | Early redirect for visitors with no session cookie | `src/proxy.ts` |
-| Sign-in page, and its Google, LinkedIn and passkey buttons | `src/app/(auth)/login`, `src/components/auth/` |
+| Sign-in page, and its social (`src/lib/auth-providers.ts`) and passkey buttons | `src/app/(auth)/login`, `src/components/auth/` |
 | "Add a passkey" (sidebar account menu, `useAddPasskey()`) | `src/components/add-passkey-button.tsx`, `src/components/user-menu.tsx` |
 | Settings → Security → Passkeys (list, rename, delete) | `src/app/(app)/settings/security/` |
 | Tables | `src/db/auth-schema.ts`, migrations `0014_auth_and_identity_owners.sql`, `0015_auth_passkeys.sql` and `0016_one_identity_per_user.sql` |
@@ -57,7 +57,7 @@ Add these to `.env` (documented in `.env.example`):
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Yes (production refuses to start without it) | At least 32 characters: `openssl rand -base64 32`. Changing it signs everyone out. |
-| `BETTER_AUTH_URL` | Yes | The URL people open the app at, e.g. `https://linkedin.example.com`. Google and LinkedIn redirect back to it and passkeys are bound to its host name. Defaults to `NEXT_PUBLIC_APP_URL`. |
+| `BETTER_AUTH_URL` | Yes | The URL people open the app at, e.g. `https://app.example.com`. Google and LinkedIn redirect back to it and passkeys are bound to its host name. Defaults to `NEXT_PUBLIC_APP_URL`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | At least one provider | Each button shows only when both of its values are set. Google and LinkedIn are the only ways to create an account; with neither, only existing passkeys can sign in. |
 | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | At least one provider | See above. |
 | `ADMIN_USER_IDS` | No | Comma-separated `auth_users.id` values that are always admins. See [Administrators](#administrators). |
@@ -79,7 +79,7 @@ It is safe on existing data: existing handles were globally unique, and every ex
 ### Google sign-in
 
 1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type **Web application**.
-2. Under **Authorized JavaScript origins**, add `BETTER_AUTH_URL` (e.g. `https://linkedin.example.com`, or `http://localhost:3000` for development).
+2. Under **Authorized JavaScript origins**, add `BETTER_AUTH_URL` (e.g. `https://app.example.com`, or `http://localhost:3000` for development).
 3. Under **Authorized redirect URIs**, add exactly `{BETTER_AUTH_URL}/api/auth/callback/google`.
 4. Configure the OAuth consent screen. The default scopes (`openid`, `email`, `profile`) are all that is used.
 5. Put the client id and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
@@ -93,7 +93,7 @@ Sign-in always shows Google's account picker (`prompt: 'select_account'`).
 3. Under **Auth → OAuth 2.0 settings**, add the redirect URL `{BETTER_AUTH_URL}/api/auth/callback/linkedin` (e.g. `http://localhost:3000/api/auth/callback/linkedin` for development).
 4. Put the **Client ID** and **Primary Client Secret** in `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`.
 
-LinkedIn sign-in only identifies the user. It is unrelated to the LinkedIn identities (`accounts`) the app writes posts for, and grants no access to post on LinkedIn. Publishing is a separate connection the user makes in Settings → LinkedIn, with its own LinkedIn app and tables; it never reads `auth_accounts`. See [LINKEDIN_PUBLISHING.md](LINKEDIN_PUBLISHING.md).
+LinkedIn sign-in only identifies the user. It is unrelated to the content identities (`accounts`) the app writes posts for, and grants no access to post on LinkedIn. Publishing is a separate connection the user makes in Settings → Integrations, with its own app per platform and its own tables; it never reads `auth_accounts`. See [PUBLISHING.md](PUBLISHING.md).
 
 ## Rules for new code
 

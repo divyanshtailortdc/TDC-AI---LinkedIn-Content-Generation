@@ -28,7 +28,7 @@ export function PasskeySignInButton({
       onError(
         authErrorMessage(
           error,
-          'Passkey sign-in failed. Please try again or use Google or LinkedIn.'
+          'Passkey sign-in failed. Please try again or use another sign-in option.'
         )
       )
       return
@@ -48,7 +48,7 @@ export function PasskeySignInButton({
       {!pending && (
         <KeyRound
           aria-hidden
-          className="text-linkedin-text h-[18px] w-[18px]"
+          className="text-platform-text h-[18px] w-[18px]"
         />
       )}
       Sign in with a passkey

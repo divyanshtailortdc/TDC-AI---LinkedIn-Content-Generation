@@ -15,9 +15,9 @@
   --color-accent-hover: var(--accent-hover);
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
-  --color-linkedin: var(--linkedin);
-  --color-linkedin-hover: var(--linkedin-hover);
-  --color-linkedin-text: var(--linkedin-text);
+  --color-platform: var(--platform);
+  --color-platform-hover: var(--platform-hover);
+  --color-platform-text: var(--platform-text);
   --color-auth-hero: var(--auth-hero);
   --color-auth-hero-glow: var(--auth-hero-glow);
   --font-sans: var(--font-geist-sans);
@@ -38,11 +38,12 @@
   /* The logo's teal; -strong is the shade used for text on a pale teal fill. */
   --brand: #159bb2;
   --brand-strong: #0a5f6f;
-  /* LinkedIn blue: the LinkedIn button, and blue text and accents on the
+  /* The publishing platform's colour (LinkedIn blue today): publish and
+     connect buttons, the feed preview, and blue text and accents on the
      sign-in page. -text is the shade readable on the page background. */
-  --linkedin: #0a66c2;
-  --linkedin-hover: #004182;
-  --linkedin-text: #0a66c2;
+  --platform: #0a66c2;
+  --platform-hover: #004182;
+  --platform-text: #0a66c2;
   /* The sign-in page's left panel, and the soft glow over it. */
   --auth-hero: #f4f8fd;
   --auth-hero-glow: #e2edfa;
@@ -61,9 +62,9 @@
   --accent-hover: #e4e4e7;
   --brand: #22b5cd;
   --brand-strong: #5ad0e3;
-  --linkedin: #0a66c2;
-  --linkedin-hover: #1a7ad8;
-  --linkedin-text: #70b5f9;
+  --platform: #0a66c2;
+  --platform-hover: #1a7ad8;
+  --platform-text: #70b5f9;
   --auth-hero: #0c111a;
   --auth-hero-glow: #10233c;
 }
@@ -82,9 +83,9 @@
     --accent-hover: #e4e4e7;
     --brand: #22b5cd;
     --brand-strong: #5ad0e3;
-    --linkedin: #0a66c2;
-    --linkedin-hover: #1a7ad8;
-    --linkedin-text: #70b5f9;
+    --platform: #0a66c2;
+    --platform-hover: #1a7ad8;
+    --platform-text: #70b5f9;
     --auth-hero: #0c111a;
     --auth-hero-glow: #10233c;
   }

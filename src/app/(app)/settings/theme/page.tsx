@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { ThemePrefsForm } from './theme-prefs-form'
 
 export const metadata: Metadata = {
-  title: 'Theme · TDC LinkedIn Content Engine'
+  title: 'Theme · TDC Content Engine'
 }
 
 export default async function ThemeSettingsPage() {

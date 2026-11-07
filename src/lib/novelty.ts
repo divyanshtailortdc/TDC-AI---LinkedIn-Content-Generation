@@ -1,5 +1,5 @@
 /**
- * Novelty Guard for LinkedIn Content Generation
+ * Novelty Guard for Content Generation
  *
  * Deterministic, zero-LLM-cost similarity checks:
  * 1. 3-gram shingles with Jaccard similarity (reject if similarity > 0.35)

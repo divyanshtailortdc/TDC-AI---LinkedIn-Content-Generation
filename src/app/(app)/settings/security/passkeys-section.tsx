@@ -240,7 +240,7 @@ function PasskeyRow({
             <>
               You won&apos;t be able to sign in with{' '}
               <span className="text-foreground font-medium">{name}</span>{' '}
-              anymore. Google and LinkedIn sign-in still work.
+              anymore. Your other sign-in options still work.
             </>
           }
           confirmLabel="Yes, delete"
@@ -285,8 +285,8 @@ export function PasskeysSection() {
             Passkeys
           </h2>
           <p className="text-muted mt-1 text-xs leading-relaxed">
-            Sign in with your fingerprint, face or screen lock instead of Google
-            or LinkedIn.
+            Sign in with your fingerprint, face or screen lock instead of a
+            social account.
             {hasPasskey &&
               ' You can have one passkey; delete it to add a different one.'}
           </p>
@@ -336,7 +336,7 @@ export function PasskeysSection() {
               No passkeys yet
             </p>
             <p className="text-muted mt-1 text-xs">
-              Add one to sign in on this device without Google or LinkedIn.
+              Add one to sign in on this device without a social account.
             </p>
           </div>
         ) : (

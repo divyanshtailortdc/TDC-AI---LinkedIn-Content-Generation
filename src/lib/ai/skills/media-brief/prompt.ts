@@ -7,7 +7,7 @@ import {
 } from './schema'
 
 export const INSTRUCTIONS =
-  "You are an art director for high-performing B2B LinkedIn content. You create visually diverse, stunning branded canvas graphics. Every post must feel fresh and unique in a user's LinkedIn feed rather than repeating the same layout template. You choose the ideal layout format (split_left, split_right, top_bottom, or centered_hero) and visual form to express the post's core message with crisp typographical hierarchy, brand colours, and clean vector diagrams."
+  "You are an art director for high-performing B2B social media content. You create visually diverse, stunning branded canvas graphics. Every post must feel fresh and unique in a user's feed rather than repeating the same layout template. You choose the ideal layout format (split_left, split_right, top_bottom, or centered_hero) and visual form to express the post's core message with crisp typographical hierarchy, brand colours, and clean vector diagrams."
 
 const section = (title: string, body: string | null | undefined) =>
   body?.trim() ? `${title}\n${body.trim()}\n\n` : ''
@@ -124,7 +124,7 @@ The reviewer asked for this change: "${input.current.change.trim()}"
 Apply only that change and return everything else exactly as it is, word for word. Keep illustrationPrompt identical unless the change is about the illustration itself: an unchanged prompt reuses the illustration already drawn.`
     : ''
 
-  return `Design the image that will accompany this LinkedIn post.
+  return `Design the image that will accompany this social media post.
 
 THE POST
 """
@@ -156,7 +156,7 @@ ${section('THE ARGUMENT', input.thesis)}${section(
 Choose one layout that best fits the post's structure to ensure diverse aesthetics across the feed:
 - top_bottom: Headline, tagline and logo across the top; a wide horizontal stage across the bottom. RECOMMENDED for multi-step sequences ("flow" with 3-5 steps laid out horizontally with arrows), 3-4 side-by-side cards, or wide comparisons. This breaks feed monotony and creates an expansive, modern visual.
 - centered_hero: An elevated central manifesto/brief card with the headline, subheadline, and 2-3 key takeaway cards inside. BEST for opinion posts, bold thesis statements, event/conference announcements, or punchy single-claim posts.
-- split_right: Visual on the left, text column on the right. Inverts the traditional split to provide alternating rhythm in the LinkedIn feed.
+- split_right: Visual on the left, text column on the right. Inverts the traditional split to provide alternating rhythm in the feed.
 - split_left (default): Left: the brand logo, then the tagline, the headline with its highlighted words in the accent colour, the subheadline, and the website at the bottom. Right: the visual, on a light background with a subtle dot or grid pattern.
 
 FEED DIVERSITY RULE:

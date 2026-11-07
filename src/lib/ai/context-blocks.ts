@@ -13,6 +13,7 @@ import type {
   VoiceConfig
 } from '@/db/schema'
 import type { ResolvedBrandTheme } from '@/lib/brand/theme'
+import { getPlatform, type PlatformSpec } from '@/lib/platforms'
 import { parseHashtagPolicy, type HashtagRange } from './hashtags'
 
 export { parseHashtagPolicy }
@@ -54,15 +55,29 @@ export function resolveLinkPlacement(goal: Goal | null | undefined): LinkPlaceme
   return goal?.linkStrategy === 'body' ? 'body' : 'first_comment'
 }
 
-/** Limits LinkedIn imposes, plus the length and alternate hooks every draft gets. */
-export const FIXED_POST_LIMITS = {
-  target_chars: 1300,
-  /** LinkedIn's hard cap on a post. */
-  max_chars: 3000,
-  /** Roughly where LinkedIn folds a post behind "...see more". */
-  hook_max_chars: 200,
-  variants_per_post: 2
+/** The limits a post's platform imposes, plus the alternate hooks every draft gets. */
+export type PostLimits = {
+  /** The length a draft aims for. */
+  target_chars: number
+  /** The platform's hard cap on a post. */
+  max_chars: number
+  /** Roughly where the platform folds a post behind its "see more". */
+  hook_max_chars: number
+  variants_per_post: number
 }
+
+export function postLimitsFor(platform: PlatformSpec): PostLimits {
+  return {
+    target_chars: platform.limits.targetChars,
+    max_chars: platform.limits.maxChars,
+    hook_max_chars: platform.limits.hookMaxChars,
+    variants_per_post: 2
+  }
+}
+
+/** The platform a context writes for; absent means the default platform. */
+export const platformOf = (ctx: { platform?: PlatformSpec }): PlatformSpec =>
+  ctx.platform ?? getPlatform()
 
 export const DEFAULT_GUARDRAILS: Guardrails = {
   banned_topics: [],
@@ -76,7 +91,7 @@ const DEFAULT_EMOJI_LEVEL: EmojiLevel = 'bullets_only'
 const DEFAULT_HASHTAG_POLICY = '0-3, end of post'
 
 export type ResolvedPostConstraints = PostConstraints &
-  typeof FIXED_POST_LIMITS & {
+  PostLimits & {
     /** From the voice config, so tone and formatting have one source. */
     emoji_level: EmojiLevel
     hashtag_policy: string
@@ -156,6 +171,12 @@ export interface GenerationContext {
   history: ReviewHistory
   /** How generated images look. Absent means the defaults (nothing saved). */
   brand?: ResolvedBrandTheme
+  /**
+   * The platform the posts are written for: its limits are in
+   * prefs.constraints. Absent means the default platform (read it through
+   * platformOf).
+   */
+  platform?: PlatformSpec
 }
 
 /**
@@ -189,7 +210,8 @@ function toEmojiLevel(policy: string | null | undefined): EmojiLevel {
  */
 export function resolvePreferences(
   row: (typeof preferencesTable.$inferSelect) | undefined | null,
-  voice?: VoiceConfig | null
+  voice?: VoiceConfig | null,
+  platform: PlatformSpec = getPlatform()
 ): ResolvedPreferences {
   const hashtagPolicy = voice?.hashtagPolicy?.trim() || DEFAULT_HASHTAG_POLICY
 
@@ -198,7 +220,7 @@ export function resolvePreferences(
     research: RESEARCH_SETTINGS,
     constraints: {
       ...merge(DEFAULT_POST_CONSTRAINTS, row?.postConstraints),
-      ...FIXED_POST_LIMITS,
+      ...postLimitsFor(platform),
       emoji_level: toEmojiLevel(voice?.emojiPolicy),
       hashtag_policy: hashtagPolicy,
       hashtags: parseHashtagPolicy(hashtagPolicy)
@@ -603,6 +625,7 @@ export function renderGuardrailsBlock(ctx: GenerationContext): string {
 
 export function renderConstraintsBlock(ctx: GenerationContext): string {
   const c = ctx.prefs.constraints
+  const platform = platformOf(ctx)
   const emoji =
     c.emoji_level === 'none'
       ? 'Use no emoji at all.'
@@ -611,18 +634,25 @@ export function renderConstraintsBlock(ctx: GenerationContext): string {
         : 'Emoji only as list markers, never mid-sentence.'
 
   return [
-    `Hook: at most ${c.hook_max_chars} characters — this is the "...see more" fold. Never break mid-word or mid-sentence.`,
+    `Hook: at most ${c.hook_max_chars} characters — this is the "${platform.foldLabel}" fold. Never break mid-word or mid-sentence.`,
     `Total length: aim for about ${c.target_chars} characters, hard maximum ${c.max_chars}.`,
     `Hashtags: ${describeHashtags(c)}.`,
     emoji,
     resolveLinkPlacement(ctx.primaryGoal) === 'first_comment'
-      ? 'Any external link goes in firstComment, never in the body — LinkedIn suppresses reach on body links.'
+      ? `Any external link goes in firstComment, never in the body${
+          platform.bodyLinksCostReach
+            ? ` — ${platform.name} suppresses reach on body links`
+            : ''
+        }.`
       : 'External links may appear in the body.',
     c.cta_required
       ? 'Close with a call to action.'
       : 'A call to action is optional; do not force one.',
-    'LinkedIn renders plain text only. No markdown: no **bold**, no ## headings, no [text](url), no backtick code fences.'
-  ].join('\n')
+    platform.plainTextOnly &&
+      `${platform.name} renders plain text only. No markdown: no **bold**, no ## headings, no [text](url), no backtick code fences.`
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { isUuid } from '@/lib/ids'
-import { publishDeps } from '@/lib/linkedin/config'
+import { publishDeps } from '@/lib/publishing/config'
 import {
   cancelPublication,
   claimPublication,
@@ -14,12 +14,13 @@ import {
   requestPublication,
   toPublicationSummary,
   type PublicationSummary
-} from '@/lib/linkedin/publishing'
+} from '@/lib/publishing/engine'
 import { isValidTimeZone } from '@/lib/schedule-time'
 import { requireUser } from '@/lib/session'
+import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
 
 /**
- * Publishing an approved post to the signed-in user's own LinkedIn. Only a
+ * Publishing an approved post to the signed-in user's own platform account. Only a
  * post id comes from the browser: the owner and the connection are always the
  * signed-in user's, and every rule is checked again on the server.
  *
@@ -43,7 +44,7 @@ type PublishOptions = {
   timezone?: string
 }
 
-const NOT_SET_UP = 'Publishing to LinkedIn is not set up on this server.'
+const NOT_SET_UP = `Publishing to ${PUBLISHING_PLATFORM.name} is not set up on this server.`
 
 /** The browser's zone, if it is a real one; otherwise the server decides. */
 const zoneOf = (options: PublishOptions) =>
@@ -59,7 +60,7 @@ function failure(err: unknown, fallback: string): Result {
 
 /**
  * Publishes now, in this request. When the last attempt may already have
- * reached LinkedIn, it is refused with `confirm_unknown_outcome` until the
+ * reached the platform, it is refused with `confirm_unknown_outcome` until the
  * user confirms they checked their profile (see requestPublication).
  */
 export async function publishPostNow(
@@ -154,10 +155,10 @@ export async function cancelPostPublication(
 }
 
 /**
- * Deletes the user's published post from LinkedIn. The post stays in the app,
+ * Deletes the user's published post from the platform. The post stays in the app,
  * and its publication stays as the record (it cannot be published again).
  */
-export async function deletePostFromLinkedIn(
+export async function deletePostFromPlatform(
   publicationId: string
 ): Promise<Result> {
   const user = await requireUser()
@@ -171,7 +172,7 @@ export async function deletePostFromLinkedIn(
   } catch (err) {
     return failure(
       err,
-      'The post could not be deleted from LinkedIn. Please try again.'
+      `The post could not be deleted from ${PUBLISHING_PLATFORM.name}. Please try again.`
     )
   }
 }

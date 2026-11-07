@@ -102,7 +102,7 @@ export default async function IdentityPage() {
         </section>
       )}
 
-      {/* Edit LinkedIn Identity & Core Identity */}
+      {/* Edit Content Identity & Core Identity */}
       {/* The form seeds its fields into local useState, which only runs on
               mount, so it remounts whenever the saved profile changes (for
               example AI suggestions applied in review). */}

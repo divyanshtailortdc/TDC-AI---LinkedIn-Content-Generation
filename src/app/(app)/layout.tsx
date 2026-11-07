@@ -1,4 +1,4 @@
-import { LinkedInStatusProvider } from '@/components/linkedin-header-button'
+import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { MobileNavProvider } from '@/components/mobile-nav'
 import { RefreshOnBack } from '@/components/refresh-on-back'
 import { Sidebar } from '@/components/sidebar'
@@ -6,8 +6,9 @@ import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
 import { accountsTable, ideasTable } from '@/db/schema'
 import { getIdentity } from '@/lib/identity'
-import { linkedInPublishConfig } from '@/lib/linkedin/config'
-import { getCurrentConnection } from '@/lib/linkedin/current-connection'
+import { publishingConfig } from '@/lib/publishing/config'
+import { getCurrentConnection } from '@/lib/publishing/current-connection'
+import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
 import { ownedByUser } from '@/lib/ownership'
 import { requireUser } from '@/lib/session'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
@@ -24,8 +25,8 @@ export default async function AppLayout({
   // Everything under this layout is signed-in only. The proxy already sent
   // visitors without a session cookie to /login; this is the real check.
   const user = await requireUser()
-  const publishingConfigured = linkedInPublishConfig() !== null
-  const [identity, [{ pending = 0 } = {}], cookieStore, linkedIn] =
+  const publishingConfigured = publishingConfig() !== null
+  const [identity, [{ pending = 0 } = {}], cookieStore, connection] =
     await Promise.all([
       getIdentity(),
       // The badge on Ideas: what the identity still has to approve. Found
@@ -37,8 +38,8 @@ export default async function AppLayout({
         .innerJoin(accountsTable, eq(accountsTable.id, ideasTable.accountId))
         .where(and(ownedByUser(user.id), eq(ideasTable.status, 'proposed'))),
       cookies(),
-      // For the header's LinkedIn button; never a token (and shared with
-      // Settings → LinkedIn). Skipped when publishing is not set up, so the
+      // For the header's publishing button; never a token (and shared with
+      // Settings → Integrations). Skipped when publishing is not set up, so the
       // app does not depend on its tables.
       publishingConfigured ? getCurrentConnection(user.id) : null
     ])
@@ -47,11 +48,12 @@ export default async function AppLayout({
 
   return (
     <MobileNavProvider>
-      <LinkedInStatusProvider
+      <PublishingStatusProvider
         value={{
+          platform: PUBLISHING_PLATFORM,
           configured: publishingConfigured,
-          status: linkedIn?.status ?? null,
-          name: linkedIn?.name ?? null
+          status: connection?.status ?? null,
+          name: connection?.name ?? null
         }}
       >
         <div className="flex h-full min-h-screen">
@@ -66,7 +68,7 @@ export default async function AppLayout({
           </main>
           <ToastContainer />
         </div>
-      </LinkedInStatusProvider>
+      </PublishingStatusProvider>
     </MobileNavProvider>
   )
 }

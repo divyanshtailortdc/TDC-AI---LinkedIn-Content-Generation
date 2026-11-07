@@ -15,6 +15,7 @@ import {
   type Idea
 } from '@/db/schema'
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
+import { getPlatform } from '@/lib/platforms'
 import { isOldNews } from '~/lib/intel/settings'
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import {
@@ -130,8 +131,14 @@ async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
  */
 export async function loadGenerationContext(
   accountId: string,
-  options?: { goalIds?: string[]; lintOnly?: boolean }
+  options?: {
+    goalIds?: string[]
+    lintOnly?: boolean
+    /** The platform the posts are for (a post's own); the default when absent. */
+    platform?: string | null
+  }
 ): Promise<GenerationContext> {
+  const platform = getPlatform(options?.platform)
   const full = !options?.lintOnly
   const [
     account,
@@ -202,9 +209,10 @@ export async function loadGenerationContext(
     selectedGoals,
     primaryGoal: selectedGoals[0] ?? null,
     preferencesId: preferences?.id ?? null,
-    prefs: resolvePreferences(preferences, voice),
+    prefs: resolvePreferences(preferences, voice, platform),
     history,
-    brand
+    brand,
+    platform
   }
 }
 
@@ -214,11 +222,12 @@ export async function loadGenerationContext(
  */
 export async function loadIdeaContext(
   idea: Pick<Idea, 'id' | 'accountId' | 'goalId' | 'goalIds' | 'goalSnapshot'>,
-  options?: { lintOnly?: boolean }
+  options?: { lintOnly?: boolean; platform?: string | null }
 ): Promise<GenerationContext> {
   const ctx = await loadGenerationContext(idea.accountId, {
     goalIds: idea.goalIds?.length ? idea.goalIds : idea.goalId ? [idea.goalId] : [],
-    lintOnly: options?.lintOnly
+    lintOnly: options?.lintOnly,
+    platform: options?.platform
   })
   return withIdeaGoal(ctx, idea)
 }

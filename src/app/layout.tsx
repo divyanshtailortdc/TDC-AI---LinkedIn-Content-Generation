@@ -20,8 +20,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'TDC LinkedIn Content Engine',
-  description: 'AI-powered LinkedIn post generation with human-in-the-loop approval'
+  title: 'TDC Content Engine',
+  description: 'AI-powered social media content generation with human-in-the-loop approval'
 }
 
 export default async function RootLayout({

@@ -31,6 +31,8 @@ import { mediaPlanMetadata, priorVisualsOf } from './plan-record'
 export async function loadMediaInputs(draft: {
   accountId: string
   ideaId: string | null
+  /** The post's platform (src/lib/platforms); the default when absent. */
+  platform?: string | null
 }) {
   const idea = draft.ideaId
     ? ((await db.query.ideasTable.findFirst({
@@ -38,8 +40,11 @@ export async function loadMediaInputs(draft: {
       })) ?? null)
     : null
   const ctx = idea
-    ? await loadIdeaContext(idea)
-    : await loadGenerationContext(draft.accountId, { goalIds: [] })
+    ? await loadIdeaContext(idea, { platform: draft.platform })
+    : await loadGenerationContext(draft.accountId, {
+        goalIds: [],
+        platform: draft.platform
+      })
   return {
     idea,
     context: buildMediaBriefContext(ctx, idea),

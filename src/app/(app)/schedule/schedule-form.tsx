@@ -311,7 +311,7 @@ export function ScheduleForm({
             Starts a run on the days you pick, for the goals you choose for each
             day. It only writes ideas, which wait on Ideas for your review; you
             decide which become posts. To plan the day a post goes out, use the
-            calendar above. Nothing is published to LinkedIn.
+            calendar above. Nothing is published to any platform.
           </p>
 
           {/* Status */}

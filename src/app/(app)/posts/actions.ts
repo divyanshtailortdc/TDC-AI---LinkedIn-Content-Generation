@@ -16,15 +16,16 @@ import {
 } from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
-import { linkedInPublishConfig, publishDeps } from '@/lib/linkedin/config'
+import { publishingConfig, publishDeps } from '@/lib/publishing/config'
+import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
 import {
   cancelPendingPublications,
   hasLivePublication
-} from '@/lib/linkedin/publication-queries'
+} from '@/lib/publishing/publication-queries'
 import {
   deletePublishedPost,
   latestPublicationOf
-} from '@/lib/linkedin/publishing'
+} from '@/lib/publishing/engine'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
 import { postCharCount } from '@/lib/post-text'
@@ -103,10 +104,14 @@ export async function updateDraft(
       // Checked against the post's own goal, as when it was drafted. Only
       // what the checks read is loaded: a save is not a generation.
       const ctx = idea
-        ? await loadIdeaContext(idea, { lintOnly: true })
+        ? await loadIdeaContext(idea, {
+            lintOnly: true,
+            platform: existing.platform
+          })
         : await loadGenerationContext(existing.accountId, {
             goalIds: [],
-            lintOnly: true
+            lintOnly: true,
+            platform: existing.platform
           })
       const citations = idea
         ? (idea.supportingEvidence?.length ?? 0)
@@ -201,13 +206,13 @@ export async function rejectDraft(draftId: string, reason?: string) {
     if (!draft) throw new Error('Draft not found')
 
     // Only when publishing is set up, like the rest of the app.
-    const linkedIn = linkedInPublishConfig() !== null
+    const publishingOn = publishingConfig() !== null
 
     // Together, so a failed feedback insert cannot leave the post rejected
     // while the client is told the rejection failed.
     await db.transaction(async tx => {
-      if (linkedIn) {
-        // A rejected post must not stay queued for LinkedIn. Cancelled first:
+      if (publishingOn) {
+        // A rejected post must not stay queued to publish. Cancelled first:
         // that locks the queued rows, so a worker claiming one now either
         // already moved it (and it is caught below) or finds it cancelled.
         await cancelPendingPublications(
@@ -218,11 +223,11 @@ export async function rejectDraft(draftId: string, reason?: string) {
             code: 'not_approved'
           }
         )
-        // A post that is out on LinkedIn (or going out now) cannot be
+        // A post that is out on its platform (or going out now) cannot be
         // rejected; throwing rolls the cancellation back too.
         if (await hasLivePublication(tx, draftId)) {
           throw new Error(
-            'This post is published on LinkedIn and cannot be rejected.'
+            `This post is published on ${PUBLISHING_PLATFORM.name} and cannot be rejected.`
           )
         }
       }
@@ -291,13 +296,13 @@ export async function setDraftHidden(draftId: string, hidden: boolean) {
 /**
  * Deletes a post from the app for good, with its alternates, sources and
  * images. A scheduled publication is called off, and one going out right now
- * stops the delete. Its LinkedIn publications stay, without the post, as the
- * record of what was published. With `alsoFromLinkedIn` a published post is
- * deleted from LinkedIn first, and if that fails the post is kept.
+ * stops the delete. Its publications stay, without the post, as the
+ * record of what was published. With `alsoFromPlatform` a published post is
+ * deleted from the platform first, and if that fails the post is kept.
  */
 export async function deleteDraft(
   draftId: string,
-  options: { alsoFromLinkedIn?: boolean } = {}
+  options: { alsoFromPlatform?: boolean } = {}
 ) {
   const user = await requireUser()
   try {
@@ -314,23 +319,25 @@ export async function deleteDraft(
       .limit(1)
     if (!draft) throw new Error('Draft not found')
 
-    let deletedFromLinkedIn = false
-    if (options.alsoFromLinkedIn) {
+    let deletedFromPlatform = false
+    if (options.alsoFromPlatform) {
       const deps = publishDeps()
       if (!deps) {
-        throw new Error('Publishing to LinkedIn is not set up on this server.')
+        throw new Error(
+          `Publishing to ${PUBLISHING_PLATFORM.name} is not set up on this server.`
+        )
       }
       const latest = await latestPublicationOf(db, user.id, draftId)
       if (latest?.status === 'published' && !latest.deletedAt) {
         await deletePublishedPost(deps, user.id, latest.id)
-        deletedFromLinkedIn = true
+        deletedFromPlatform = true
       }
     }
 
     // Only when publishing is set up, like the rest of the app.
-    const linkedIn = linkedInPublishConfig() !== null
+    const publishingOn = publishingConfig() !== null
     await db.transaction(async tx => {
-      if (linkedIn) {
+      if (publishingOn) {
         // Called off first, as in rejectDraft, so a worker claiming one now
         // either already moved it (caught below) or finds it cancelled. One
         // in flight whose post was not sent yet is stopped too.
@@ -345,7 +352,7 @@ export async function deleteDraft(
         )
         if (await hasLivePublication(tx, draftId, ['publishing'])) {
           throw new Error(
-            'This post is being published to LinkedIn right now. Try again in a moment.'
+            `This post is being published to ${PUBLISHING_PLATFORM.name} right now. Try again in a moment.`
           )
         }
       }
@@ -355,7 +362,7 @@ export async function deleteDraft(
     // The rows went with the post; its images in storage go now.
     await deleteDraftImages(draftId)
 
-    return { success: true as const, deletedFromLinkedIn }
+    return { success: true as const, deletedFromPlatform }
   } catch (err: any) {
     return {
       success: false as const,

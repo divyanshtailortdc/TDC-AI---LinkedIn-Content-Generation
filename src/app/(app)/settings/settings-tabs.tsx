@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/cn'
 import {
-  LINKEDIN_SETTINGS_PATH,
+  INTEGRATIONS_SETTINGS_PATH,
   SECURITY_SETTINGS_PATH,
   THEME_SETTINGS_PATH
 } from '@/lib/settings-path'
@@ -12,7 +12,7 @@ import { usePathname } from 'next/navigation'
 
 const TABS = [
   { href: SECURITY_SETTINGS_PATH, label: 'Security', icon: ShieldCheck },
-  { href: LINKEDIN_SETTINGS_PATH, label: 'LinkedIn', icon: Send },
+  { href: INTEGRATIONS_SETTINGS_PATH, label: 'Integrations', icon: Send },
   { href: THEME_SETTINGS_PATH, label: 'Theme', icon: Paintbrush }
 ]
 

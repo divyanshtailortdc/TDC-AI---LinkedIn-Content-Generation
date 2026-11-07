@@ -6,7 +6,7 @@ const VARIANTS = {
   primary: 'bg-accent text-background hover:bg-accent-hover',
   secondary:
     'border border-border bg-surface text-foreground hover:bg-surface-hover',
-  linkedin: 'bg-linkedin text-white shadow-sm hover:bg-linkedin-hover'
+  platform: 'bg-platform text-white shadow-sm hover:bg-platform-hover'
 } as const
 
 const SIZES = {

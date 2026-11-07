@@ -130,7 +130,7 @@ export const IdeaItemSchema = z.object({
     .default({ mode: 'none' }),
   noveltyNote: z
     .string()
-    .describe('What makes this angle fresh compared to common LinkedIn takes'),
+    .describe('What makes this angle fresh compared to common takes in the feed'),
   estimatedStrength: z.number().int().min(1).max(100).default(85),
   groundingScore: z.number().int().min(0).max(100).default(85),
   originalityScore: z.number().int().min(0).max(100).default(85),

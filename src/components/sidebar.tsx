@@ -452,7 +452,7 @@ export function Sidebar({
                 className="hidden h-8 w-auto self-start dark:block"
               />
               <p className="text-muted pl-1 text-[11px] leading-none font-medium tracking-[0.14em] uppercase">
-                LinkedIn Content Engine
+                Content Engine
               </p>
             </>
           )}

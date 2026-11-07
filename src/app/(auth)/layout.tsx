@@ -1,5 +1,6 @@
 import { AuthLogo } from '@/components/auth/auth-logo'
-import { LinkedInMark } from '@/components/auth/linkedin-mark'
+import { PlatformMark } from '@/components/platform-mark'
+import { DEFAULT_PLATFORM_ID } from '@/lib/platforms'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BadgeCheck, Check, LifeBuoy, TrendingUp } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -13,7 +14,7 @@ const LINKS = {
   status: '#'
 }
 
-/** A sample LinkedIn post, showing the kind of content the engine writes. */
+/** A sample post, showing the kind of content the engine writes. */
 function SamplePost() {
   return (
     <figure className="border-border bg-surface rounded-2xl border p-7 shadow-[0_8px_30px_-12px_rgb(15_40_80/0.12)]">
@@ -27,7 +28,7 @@ function SamplePost() {
               TDC Commerce Advisory
               <BadgeCheck
                 aria-label="Verified"
-                className="fill-linkedin-text text-surface h-5 w-5"
+                className="fill-platform-text text-surface h-5 w-5"
               />
             </p>
             <p className="text-muted text-sm">
@@ -35,8 +36,8 @@ function SamplePost() {
             </p>
           </div>
         </div>
-        <span className="bg-linkedin/10 text-linkedin-text flex h-8 w-8 items-center justify-center rounded-md">
-          <LinkedInMark className="h-4 w-4" />
+        <span className="bg-platform/10 text-platform-text flex h-8 w-8 items-center justify-center rounded-md">
+          <PlatformMark platform={DEFAULT_PLATFORM_ID} className="h-4 w-4" />
         </span>
       </div>
 
@@ -90,8 +91,8 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           <span aria-hidden className="text-border text-lg">
             /
           </span>
-          <span className="text-linkedin-text truncate text-[15px] font-medium">
-            LinkedIn Content Engine
+          <span className="text-platform-text truncate text-[15px] font-medium">
+            Content Engine
           </span>
         </div>
         <div className="flex items-center gap-4">
@@ -120,7 +121,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
 
           <div className="relative w-full max-w-208 px-12 py-16 xl:px-18">
             <p className="border-border bg-surface inline-flex items-center gap-2.5 rounded-full border px-4 py-1.5 text-sm shadow-sm">
-              <span className="bg-linkedin-text h-2 w-2 rounded-full" />
+              <span className="bg-platform-text h-2 w-2 rounded-full" />
               <span className="text-foreground font-medium">
                 Executive Creator Suite
               </span>
@@ -129,7 +130,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             </p>
 
             <h2 className="text-foreground mt-8 text-5xl leading-[1.05] font-bold tracking-tight">
-              Elevate your voice on LinkedIn with executive precision.
+              Elevate your voice on social media with executive precision.
             </h2>
             <p className="text-muted mt-6 max-w-180 text-lg leading-relaxed">
               Transform strategic ideas, industry perspectives, and commerce
@@ -142,10 +143,10 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             </div>
 
             <ul className="text-muted mt-9 flex flex-wrap gap-x-7 gap-y-2 text-[15px]">
-              {['Direct LinkedIn API Sync', 'Enterprise Passkey Ready'].map(
+              {['Direct Platform API Sync', 'Enterprise Passkey Ready'].map(
                 item => (
                   <li key={item} className="flex items-center gap-2">
-                    <Check aria-hidden className="text-linkedin-text h-4 w-4" />
+                    <Check aria-hidden className="text-platform-text h-4 w-4" />
                     {item}
                   </li>
                 )
@@ -163,7 +164,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <footer className="border-border bg-surface/80 text-muted flex shrink-0 flex-col gap-4 border-t px-6 py-6 text-[15px] sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
           <span className="text-foreground/80">
-            &copy; {new Date().getFullYear()} LinkedIn Content Engine.
+            &copy; {new Date().getFullYear()} Content Engine.
           </span>
           <span aria-hidden className="text-muted/60">
             •
