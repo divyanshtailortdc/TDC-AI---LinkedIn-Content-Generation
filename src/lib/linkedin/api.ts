@@ -127,11 +127,7 @@ async function httpError(
     )
   }
   // 503: not processed. 409: LinkedIn's "write conflict, retry the request".
-  if (
-    status === 503 ||
-    status === 409 ||
-    (status >= 500 && what === 'image')
-  ) {
+  if (status === 503 || status === 409 || (status >= 500 && what === 'image')) {
     return new LinkedInApiError(
       'LinkedIn is unavailable right now. It will be tried again.',
       'linkedin_unavailable',

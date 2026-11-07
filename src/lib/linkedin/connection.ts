@@ -230,7 +230,7 @@ export async function usableAccessToken(
   assertCanPublish(connection)
   const { accessToken } = connection
   const expire = async (message: string) => {
-    await markExpired(database, { id: connection.id, accessToken }, message, now)
+    await markExpired(database, connection, message, now)
     return new ConnectionError(message, 'reauth_required')
   }
   const decrypt = (value: string) =>

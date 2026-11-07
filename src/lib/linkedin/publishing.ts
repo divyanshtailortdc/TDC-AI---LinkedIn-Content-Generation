@@ -71,7 +71,9 @@ import type {
  *   claim*               scheduled → publishing, a conditional update: only
  *                        one worker (or request) wins a row.
  *   executePublication   checks everything again, then uploads the image and
- *                        creates the post; records the post's URN at once.
+ *                        creates the post, unless the claim was lost meanwhile
+ *                        (a cancel, a disconnect); records the post's URN at
+ *                        once.
  *
  * Duplicates: creating a post is not idempotent and member tokens cannot read
  * posts back, so once the create request may have reached LinkedIn the row is
@@ -383,7 +385,9 @@ async function downloadImage(
     signal: AbortSignal.timeout(20_000)
   }).catch(err => {
     throw err instanceof UnsafeUrlError
-      ? new PostImageError(`The post's image link cannot be used: ${err.message}.`)
+      ? new PostImageError(
+          `The post's image link cannot be used: ${err.message}.`
+        )
       : err
   })
   if (!res.ok) {
@@ -508,7 +512,9 @@ function describeFailure(
   }
   return {
     code: 'internal',
-    message: attemptsLeft ? `${NOTHING_SENT} It will be tried again.` : NOTHING_SENT,
+    message: attemptsLeft
+      ? `${NOTHING_SENT} It will be tried again.`
+      : NOTHING_SENT,
     retryable: true
   }
 }
@@ -604,10 +610,12 @@ export async function executePublication(
         .where(heldClaim(publication))
         .returning({ id: linkedinPublicationsTable.id })
       if (!marked) {
-        return (
-          (await getPublication(database, publication.userId, publication.id)) ??
-          publication
+        const row = await getPublication(
+          database,
+          publication.userId,
+          publication.id
         )
+        return row ?? publication
       }
       postRequested = true
 

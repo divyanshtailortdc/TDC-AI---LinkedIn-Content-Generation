@@ -15,7 +15,7 @@ export const COMMENTARY_MAX_LENGTH = 3000
 // A hashtag as LinkedIn and the copy text treat one (see post-text.ts).
 const HASHTAG = /(?<![\p{L}\p{N}_&])#(?=[\p{N}_]*\p{L})([\p{L}\p{N}\p{M}_]+)/gu
 
-const escapeLittleText =(text: string) => text.replace(RESERVED, '\\$&')
+const escapeLittleText = (text: string) => text.replace(RESERVED, '\\$&')
 
 export function toLittleText(text: string): string {
   let out = ''
