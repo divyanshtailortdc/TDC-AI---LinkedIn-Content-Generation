@@ -15,6 +15,11 @@ import {
   type BackgroundPattern
 } from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
+import { linkedInPublishConfig } from '@/lib/linkedin/config'
+import {
+  cancelPendingPublications,
+  hasLivePublication
+} from '@/lib/linkedin/publication-queries'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
 import { postCharCount } from '@/lib/post-text'
@@ -190,9 +195,33 @@ export async function rejectDraft(draftId: string, reason?: string) {
 
     if (!draft) throw new Error('Draft not found')
 
+    // Only when publishing is set up, like the rest of the app.
+    const linkedIn = linkedInPublishConfig() !== null
+
     // Together, so a failed feedback insert cannot leave the post rejected
     // while the client is told the rejection failed.
     await db.transaction(async tx => {
+      if (linkedIn) {
+        // A rejected post must not stay queued for LinkedIn. Cancelled first:
+        // that locks the queued rows, so a worker claiming one now either
+        // already moved it (and it is caught below) or finds it cancelled.
+        await cancelPendingPublications(
+          tx,
+          { draftId },
+          {
+            message: 'Cancelled because the post was rejected.',
+            code: 'not_approved'
+          }
+        )
+        // A post that is out on LinkedIn (or going out now) cannot be
+        // rejected; throwing rolls the cancellation back too.
+        if (await hasLivePublication(tx, draftId)) {
+          throw new Error(
+            'This post is published on LinkedIn and cannot be rejected.'
+          )
+        }
+      }
+
       await tx
         .update(postDraftsTable)
         .set({

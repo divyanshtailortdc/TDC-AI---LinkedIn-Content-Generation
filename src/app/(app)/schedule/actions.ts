@@ -6,6 +6,11 @@ import { requireOwnedAccount } from '@/lib/account-guard'
 import { isIsoDay } from '@/lib/calendar'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
+import { linkedInPublishConfig } from '@/lib/linkedin/config'
+import {
+  cancelPendingPublications,
+  hasLivePublication
+} from '@/lib/linkedin/publication-queries'
 import {
   checkSchedulePayload,
   type SchedulePayload
@@ -102,7 +107,8 @@ function revalidatePlanning() {
 
 /**
  * Plans the day a post should go out, or clears it with null. Only a date:
- * nothing is published automatically.
+ * nothing is published unless the user turned on auto-publishing
+ * (Settings → LinkedIn), which publishes approved posts on their day.
  */
 export async function planPost(draftId: string, day: string | null) {
   await requireUser()
@@ -129,7 +135,8 @@ export async function planPost(draftId: string, day: string | null) {
 /**
  * Records that the reviewer published an approved post on LinkedIn, or undoes
  * that. A post with no planned day is placed on `day` (the reviewer's today),
- * so the calendar shows when it went out.
+ * so the calendar shows when it went out. Marking it posted cancels its
+ * queued publication; a post published through the API stays posted.
  */
 export async function setPostPosted(
   draftId: string,
@@ -141,30 +148,51 @@ export async function setPostPosted(
     if (!isUuid(draftId)) throw new Error('Post not found')
     if (!isIsoDay(day)) throw new Error('Pick a valid date.')
     const accountId = await requireIdentityId()
+    // Publications are only looked at when publishing is set up.
+    const linkedIn = linkedInPublishConfig() !== null
 
-    const [updated] = await db
-      .update(postDraftsTable)
-      .set(
-        posted
-          ? {
-              postedAt: new Date(),
-              plannedFor: sql`coalesce(${postDraftsTable.plannedFor}, ${day}::date)`,
-              updatedAt: new Date()
-            }
-          : { postedAt: null, updatedAt: new Date() }
-      )
-      .where(
-        and(
-          eq(postDraftsTable.id, draftId),
-          eq(postDraftsTable.accountId, accountId),
-          // Only an approved post is ready to go out.
-          eq(postDraftsTable.status, 'approved')
+    // One transaction, so a refusal below also undoes the update.
+    await db.transaction(async tx => {
+      const [updated] = await tx
+        .update(postDraftsTable)
+        .set(
+          posted
+            ? {
+                postedAt: new Date(),
+                plannedFor: sql`coalesce(${postDraftsTable.plannedFor}, ${day}::date)`,
+                updatedAt: new Date()
+              }
+            : { postedAt: null, updatedAt: new Date() }
         )
-      )
-      .returning({ id: postDraftsTable.id })
-    if (!updated) {
-      throw new Error('Only an approved post can be marked as posted.')
-    }
+        .where(
+          and(
+            eq(postDraftsTable.id, draftId),
+            eq(postDraftsTable.accountId, accountId),
+            // Only an approved post is ready to go out.
+            eq(postDraftsTable.status, 'approved')
+          )
+        )
+        .returning({ id: postDraftsTable.id })
+      if (!updated) {
+        throw new Error('Only an approved post can be marked as posted.')
+      }
+      if (!linkedIn) return
+
+      if (posted) {
+        // Posted by hand: a queued publication would post it a second time.
+        await cancelPendingPublications(
+          tx,
+          { draftId },
+          {
+            message: 'Cancelled because the post was marked as posted.',
+            code: 'already_posted'
+          }
+        )
+      } else if (await hasLivePublication(tx, draftId)) {
+        // Out on LinkedIn (or going out now): un-marking it would be untrue.
+        throw new Error('This post was published on LinkedIn; it stays posted.')
+      }
+    })
 
     revalidatePlanning()
     return { success: true }

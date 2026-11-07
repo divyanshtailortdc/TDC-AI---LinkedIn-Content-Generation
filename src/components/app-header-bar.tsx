@@ -1,3 +1,4 @@
+import { LinkedInHeaderButton } from '@/components/linkedin-header-button'
 import { MobileNavButton } from '@/components/mobile-nav'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { ReactNode } from 'react'
@@ -20,9 +21,9 @@ export function AppHeaderBar({
 }: {
   children: ReactNode
   /**
-   * The page's own buttons. They sit to the left of the theme button, which
-   * the bar always draws itself as the last item at the right end, so it is in
-   * the same place on every route.
+   * The page's own buttons. They sit to the left of the LinkedIn and theme
+   * buttons, which the bar always draws itself as the last items at the right
+   * end, so they are in the same place on every route.
    */
   actions?: ReactNode
   /**
@@ -44,6 +45,7 @@ export function AppHeaderBar({
         {children}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {actions}
+          <LinkedInHeaderButton />
           <ThemeToggle />
         </div>
       </div>

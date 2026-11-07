@@ -65,7 +65,7 @@ type ZonedParts = {
 }
 
 /** The wall-clock date and time `date` shows in `zone`. */
-function zonedParts(date: Date, zone: string): ZonedParts {
+export function zonedParts(date: Date, zone: string): ZonedParts {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: zone,
     hourCycle: 'h23',
@@ -96,7 +96,7 @@ function zoneOffsetMs(instant: Date, zone: string): number {
 }
 
 /** The instant that is `minutes` after midnight on `day` of `zone`'s calendar. */
-function instantOf(
+export function instantOf(
   day: Pick<ZonedParts, 'year' | 'month' | 'day'>,
   minutes: number,
   zone: string
@@ -126,7 +126,7 @@ export function zoneOf(schedule: Pick<DueCheck, 'timezone'>): string {
 }
 
 /** `date`'s calendar day in `zone`, as YYYY-MM-DD. */
-function localDayKey(date: Date, zone: string): string {
+export function localDayKey(date: Date, zone: string): string {
   const p = zonedParts(date, zone)
   return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`
 }

@@ -35,6 +35,16 @@ import {
   type ExtractionStatus,
   type StoryUse
 } from '../lib/intel/status'
+import {
+  CONNECTION_STATUSES,
+  LIVE_PUBLICATION_STATUSES,
+  PUBLICATION_STATUSES,
+  PUBLICATION_TRIGGERS,
+  type ConnectionStatus,
+  type PublicationErrorCode,
+  type PublicationStatus,
+  type PublicationTrigger
+} from '../lib/linkedin/status'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -632,8 +642,9 @@ export const postDraftsTable = pgTable('post_drafts', {
   editedBody: text('edited_body'),
   approvedAt: commonFieldDefs.date('approved_at'),
   // The day the reviewer plans to publish it, set on the Schedule page.
-  // Nothing is published automatically: the reviewer posts it on LinkedIn
-  // and then marks it posted, which sets postedAt.
+  // The reviewer posts it on LinkedIn and marks it posted, or publishes it
+  // through the API (linkedin_publications; auto-publishing uses this day),
+  // either of which sets postedAt.
   plannedFor: date('planned_for', { mode: 'string' }),
   postedAt: commonFieldDefs.date('posted_at'),
   ...commonFieldDefs.dates
@@ -1198,6 +1209,147 @@ export const intelMentionsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 24. LinkedIn Connections (1:1 with auth user) — authorization to publish
+// ---------------------------------------------------------------------------
+
+// The LinkedIn member a user allowed the app to publish as. Separate from
+// sign-in: signing in with LinkedIn (auth_accounts) never creates one, and a
+// user who signs in with Google can have one. Tokens are encrypted
+// (src/lib/linkedin/token-crypto.ts) and never leave the server.
+export const linkedinConnectionsTable = pgTable(
+  'linkedin_connections',
+  {
+    id: commonFieldDefs.id(),
+    // One per user: reconnecting updates this row in place.
+    userId: uuid('user_id')
+      .notNull()
+      .unique()
+      .references(() => authUsersTable.id, { onDelete: 'cascade' }),
+    /** The OpenID `sub`: the member's id, as in urn:li:person:{memberId}. */
+    memberId: text('member_id').notNull(),
+    name: text('name'),
+    pictureUrl: text('picture_url'),
+    // Encrypted; null once disconnected.
+    accessToken: text('access_token'),
+    accessTokenExpiresAt: commonFieldDefs.date('access_token_expires_at'),
+    // Only for apps LinkedIn has granted programmatic refresh; usually null.
+    refreshToken: text('refresh_token'),
+    refreshTokenExpiresAt: commonFieldDefs.date('refresh_token_expires_at'),
+    scopes: jsonb('scopes').$type<string[]>().default([]).notNull(),
+    status: varchar('status', { length: 20 })
+      .$type<ConnectionStatus>()
+      .default('connected')
+      .notNull(),
+    connectedAt: commonFieldDefs.date('connected_at').notNull().defaultNow(),
+    lastError: text('last_error'),
+    // Auto-publishing: approved posts planned for a day go out that day at
+    // this time, in this zone. Off until the user turns it on; turning it on
+    // records when, so posts planned for earlier slots are never swept up.
+    autoPublish: boolean('auto_publish').default(false).notNull(),
+    autoPublishTime: varchar('auto_publish_time', { length: 5 })
+      .default('09:00')
+      .notNull(),
+    autoPublishTimezone: varchar('auto_publish_timezone', { length: 64 }),
+    autoPublishEnabledAt: commonFieldDefs.date('auto_publish_enabled_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    check(
+      'linkedin_connections_status_check',
+      sql`${table.status} in (${sqlList(CONNECTION_STATUSES)})`
+    ),
+    index('linkedin_connections_auto_publish_idx')
+      .on(table.autoPublish)
+      .where(sql`${table.autoPublish}`)
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// 25. LinkedIn Publications (1:N with PostDraft) — each attempt to publish
+// ---------------------------------------------------------------------------
+
+export const linkedinPublicationsTable = pgTable(
+  'linkedin_publications',
+  {
+    id: commonFieldDefs.id(),
+    // Who asked; the post must be their identity's and the connection theirs.
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => authUsersTable.id, { onDelete: 'cascade' }),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+    // The connection used, set when it is published; kept for history.
+    connectionId: uuid('connection_id').references(
+      () => linkedinConnectionsTable.id,
+      { onDelete: 'set null' }
+    ),
+    /** urn:li:person:… it was published as. */
+    authorUrn: text('author_urn'),
+    trigger: varchar('trigger', { length: 20 })
+      .$type<PublicationTrigger>()
+      .notNull(),
+    status: varchar('status', { length: 20 })
+      .$type<PublicationStatus>()
+      .default('scheduled')
+      .notNull(),
+    /** When the user wants it out (now, for Publish now). */
+    scheduledAt: commonFieldDefs.date('scheduled_at').notNull(),
+    /** When a worker may next pick it up: scheduledAt, then each retry. */
+    nextAttemptAt: commonFieldDefs.date('next_attempt_at').notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    maxAttempts: integer('max_attempts').default(3).notNull(),
+    /** Set when claimed; a stale lock means the process died mid-publish. */
+    lockedAt: commonFieldDefs.date('locked_at'),
+    /** The post's id from LinkedIn's x-restli-id header. */
+    linkedinPostUrn: text('linkedin_post_urn'),
+    publishedAt: commonFieldDefs.date('published_at'),
+    error: text('error'),
+    errorCode: varchar('error_code', { length: 40 }).$type<PublicationErrorCode>(),
+    // The image and first comment, and how they went.
+    metadata: jsonb('metadata')
+      .$type<{
+        /** Set just before the create request: from then the post may exist. */
+        postRequestedAt?: string
+        imageUrn?: string
+        commentUrn?: string
+        commentError?: string
+        httpStatus?: number
+      }>()
+      .default({})
+      .notNull(),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    check(
+      'linkedin_publications_status_check',
+      sql`${table.status} in (${sqlList(PUBLICATION_STATUSES)})`
+    ),
+    check(
+      'linkedin_publications_trigger_check',
+      sql`${table.trigger} in (${sqlList(PUBLICATION_TRIGGERS)})`
+    ),
+    // A post can be waiting, in flight or published once: what stops a
+    // second click, tab or worker from publishing it twice.
+    uniqueIndex('linkedin_publications_one_live_per_draft_uq')
+      .on(table.draftId)
+      .where(
+        sql.raw(`status in (${LIVE_PUBLICATION_STATUSES.map(s => `'${s}'`).join(', ')})`)
+      ),
+    index('linkedin_publications_due_idx').on(table.status, table.nextAttemptAt),
+    index('linkedin_publications_user_created_idx').on(
+      table.userId,
+      table.createdAt
+    ),
+    // The latest publication of each post, for Posts and Schedule.
+    index('linkedin_publications_draft_created_idx').on(
+      table.draftId,
+      table.createdAt
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -1299,3 +1451,6 @@ export type NewMailMessage = typeof mailMessagesTable.$inferInsert
 
 export type IntelArticle = typeof intelArticlesTable.$inferSelect
 export type IntelMention = typeof intelMentionsTable.$inferSelect
+
+export type LinkedinConnection = typeof linkedinConnectionsTable.$inferSelect
+export type LinkedinPublication = typeof linkedinPublicationsTable.$inferSelect

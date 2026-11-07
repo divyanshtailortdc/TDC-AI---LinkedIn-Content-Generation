@@ -93,7 +93,7 @@ Sign-in always shows Google's account picker (`prompt: 'select_account'`).
 3. Under **Auth → OAuth 2.0 settings**, add the redirect URL `{BETTER_AUTH_URL}/api/auth/callback/linkedin` (e.g. `http://localhost:3000/api/auth/callback/linkedin` for development).
 4. Put the **Client ID** and **Primary Client Secret** in `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`.
 
-LinkedIn sign-in only identifies the user. It is unrelated to the LinkedIn identities (`accounts`) the app writes posts for, and grants no access to post on LinkedIn.
+LinkedIn sign-in only identifies the user. It is unrelated to the LinkedIn identities (`accounts`) the app writes posts for, and grants no access to post on LinkedIn. Publishing is a separate connection the user makes in Settings → LinkedIn, with its own LinkedIn app and tables; it never reads `auth_accounts`. See [LINKEDIN_PUBLISHING.md](LINKEDIN_PUBLISHING.md).
 
 ## Rules for new code
 

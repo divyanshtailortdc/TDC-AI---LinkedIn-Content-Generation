@@ -1,6 +1,7 @@
 'use server'
 
 import { db } from '@/db'
+import { isUniqueViolation } from '@/lib/db-errors'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
 import { deriveHeadline, IdentityProfileSchema } from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
@@ -55,10 +56,6 @@ function profileFromFormData(formData: FormData) {
     websiteUrl: field('websiteUrl') || undefined
   }
 }
-
-/** Postgres unique_violation: here, the user already owns an identity. */
-const isUniqueViolation = (err: any) =>
-  err?.code === '23505' || err?.cause?.code === '23505'
 
 /**
  * Creates the signed-in user's identity. Each user has one: when it already

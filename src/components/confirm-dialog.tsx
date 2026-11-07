@@ -31,12 +31,18 @@ export function ConfirmDialog({
   const titleId = useId()
   const descriptionId = useId()
 
+  // Modal, so the page behind must not act on its keys (on /posts, A approves
+  // and J/K change post). As in ImageLightbox: listening on window in the
+  // capture phase runs before every other keydown listener, and stopping the
+  // event there keeps it from them. Nothing is prevented, so Tab, Enter and
+  // Space still work on the dialog's buttons.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      e.stopPropagation()
       if (e.key === 'Escape' && !pending) onCancel()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [pending, onCancel])
 
   // Portalled to <body>: the sidebar is translated on small screens, which

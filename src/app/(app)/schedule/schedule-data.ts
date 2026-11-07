@@ -4,10 +4,12 @@ import { db } from '@/db'
 import {
   goalsTable,
   ideasTable,
+  linkedinPublicationsTable,
   postDraftsTable,
   schedulesTable
 } from '@/db/schema'
 import { monthGridRange, type Month } from '@/lib/calendar'
+import { linkedInPublishConfig } from '@/lib/linkedin/config'
 import { nextSlot } from '@/lib/schedule-time'
 import {
   and,
@@ -15,6 +17,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   inArray,
   isNull,
   ne,
@@ -33,6 +36,8 @@ export type PlannedPost = {
   /** YYYY-MM-DD, or null when not planned yet. */
   plannedFor: string | null
   postedAt: Date | null
+  /** Published (or being published) through the LinkedIn API: it stays posted. */
+  publishedOnLinkedIn: boolean
   goalTitle: string | null
   createdAt: Date
 }
@@ -46,7 +51,27 @@ const unpostedStatuses = inArray(postDraftsTable.status, [
   'approved'
 ])
 
-function selectPosts(where: SQL | undefined) {
+/**
+ * Whether the post has a publication in flight or out, the rule setPostPosted
+ * refuses "not posted" by. Plain false when publishing is not set up, so the
+ * page does not depend on its table.
+ */
+function publishedOnLinkedIn(linkedIn: boolean) {
+  if (!linkedIn) return sql<boolean>`false`
+  return exists(
+    db
+      .select({ id: linkedinPublicationsTable.id })
+      .from(linkedinPublicationsTable)
+      .where(
+        and(
+          eq(linkedinPublicationsTable.draftId, postDraftsTable.id),
+          inArray(linkedinPublicationsTable.status, ['publishing', 'published'])
+        )
+      )
+  ).mapWith(Boolean)
+}
+
+function selectPosts(where: SQL | undefined, linkedIn: boolean) {
   return db
     .select({
       id: postDraftsTable.id,
@@ -54,6 +79,7 @@ function selectPosts(where: SQL | undefined) {
       status: postDraftsTable.status,
       plannedFor: postDraftsTable.plannedFor,
       postedAt: postDraftsTable.postedAt,
+      publishedOnLinkedIn: publishedOnLinkedIn(linkedIn),
       // The goal as titled now; once deleted, as it was when the idea was made.
       goalTitle: sql<
         string | null
@@ -85,6 +111,7 @@ function nextRunOf(
 export async function loadSchedulePage(accountId: string, month: Month) {
   const { from, to } = monthGridRange(month)
   const ofAccount = eq(postDraftsTable.accountId, accountId)
+  const linkedIn = linkedInPublishConfig() !== null
 
   const [planned, unscheduled, [unscheduledTotal], schedule, goals] =
     await Promise.all([
@@ -93,7 +120,8 @@ export async function loadSchedulePage(accountId: string, month: Month) {
           ofAccount,
           ne(postDraftsTable.status, 'rejected'),
           between(postDraftsTable.plannedFor, from, to)
-        )
+        ),
+        linkedIn
       ).orderBy(postDraftsTable.plannedFor, postDraftsTable.createdAt),
       selectPosts(
         and(
@@ -101,7 +129,8 @@ export async function loadSchedulePage(accountId: string, month: Month) {
           unpostedStatuses,
           isNull(postDraftsTable.plannedFor),
           isNull(postDraftsTable.postedAt)
-        )
+        ),
+        linkedIn
       )
         .orderBy(desc(postDraftsTable.createdAt), desc(postDraftsTable.id))
         .limit(UNSCHEDULED_LIMIT),

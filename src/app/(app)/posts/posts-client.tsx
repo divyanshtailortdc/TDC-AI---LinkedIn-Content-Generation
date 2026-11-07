@@ -94,6 +94,8 @@ import {
   updatePostMediaAction
 } from './actions'
 import { initialsOf } from '@/lib/initials'
+import type { PublicationSummary } from '@/lib/linkedin/publishing'
+import { LinkedInPublishControls } from './linkedin-publish-controls'
 import {
   currentMediaJob,
   startMediaJob,
@@ -166,6 +168,10 @@ export interface PostDetail {
   /** Why drafting could not make this post's image, when it tried and failed. */
   mediaFailure?: string | null
   lintFindings: LintFinding[]
+  /** When it was marked posted (by hand on Schedule, or by publishing), as ISO. */
+  postedAt?: string | null
+  /** The latest attempt to publish it to LinkedIn, if any. */
+  publication?: PublicationSummary | null
 }
 
 /** What every generated image gets from the Brand Theme. */
@@ -274,10 +280,12 @@ function inDateRange(value: Date | string, from: string, to: string): boolean {
 function queueOf(
   scoped: PostDetail[],
   status: StatusFilter,
-  sort: SortOrder
+  sort: SortOrder,
+  /** A post kept in the queue whatever its status: the one just acted on. */
+  keep: string | null = null
 ): PostDetail[] {
   return scoped
-    .filter(p => status === 'all' || p.status === status)
+    .filter(p => status === 'all' || p.status === status || p.id === keep)
     .sort((a, b) => {
       const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
       return sort === 'newest' ? diff : -diff
@@ -491,9 +499,13 @@ export function PostsClientInner({
     [scopedPosts]
   )
 
+  // The post just approved or rejected stays open, and in the queue, even
+  // when its new status no longer matches the filter, until the reviewer
+  // opens another post or changes a filter.
+  const [keptPostId, setKeptPostId] = useState<string | null>(null)
   const filteredPosts = useMemo(
-    () => queueOf(scopedPosts, statusFilter, sortOrder),
-    [scopedPosts, statusFilter, sortOrder]
+    () => queueOf(scopedPosts, statusFilter, sortOrder, keptPostId),
+    [scopedPosts, statusFilter, sortOrder, keptPostId]
   )
 
   const hasActiveFilters =
@@ -526,6 +538,7 @@ export function PostsClientInner({
   const [shownFilterKey, setShownFilterKey] = useState(filterKey)
   if (filterKey !== shownFilterKey) {
     setShownFilterKey(filterKey)
+    setKeptPostId(null)
     setSelectedPostId(filteredPosts[0]?.id ?? '')
   }
 
@@ -533,6 +546,11 @@ export function PostsClientInner({
   // cannot leave a post on screen that is no longer in the list.
   const activePost =
     filteredPosts.find(p => p.id === selectedPostId) || filteredPosts[0]
+  // Published on LinkedIn (or going out now): it can no longer be rejected,
+  // matching rejectDraft on the server.
+  const activePublished =
+    activePost?.publication?.status === 'published' ||
+    activePost?.publication?.status === 'publishing'
   const [isEditing, setIsEditing] = useState(false)
   // The edit buffer lives in PostTextEditor, so a keystroke there re-renders
   // the editor alone. The page only hears whether it holds unsaved edits, and
@@ -815,6 +833,7 @@ export function PostsClientInner({
     if (post.id !== activePost?.id && !confirmDiscardEdits('Opening another post')) {
       return
     }
+    if (post.id !== keptPostId) setKeptPostId(null)
     setSelectedPostId(post.id)
   }
 
@@ -1505,18 +1524,29 @@ export function PostsClientInner({
   }
 
   /**
-   * A status change refreshes the queue: it is filtered again, so a post that
-   * no longer matches the status filter leaves the list, and the first post in
-   * it opens.
+   * A status change keeps the post open: it stays in the queue under its new
+   * status (see keptPostId), so the reviewer is not moved to another post.
+   * Rejecting also cancels its scheduled publication (rejectDraft does that on
+   * the server), so it shows here as cancelled too.
    */
   const refreshQueueAfterStatusChange = (id: string, status: string) => {
-    const withStatus = (list: PostDetail[]) =>
-      list.map(p => (p.id === id ? { ...p, status } : p))
-    setPosts(withStatus)
-    // The scope ignores status, so the post stays in it under its new status.
-    const first = queueOf(withStatus(scopedPosts), statusFilter, sortOrder)[0]
-    if (first) handleSelectPost(first)
-    else setSelectedPostId('')
+    setPosts(list =>
+      list.map(p => {
+        if (p.id !== id) return p
+        const publication =
+          status === 'rejected' && p.publication?.status === 'scheduled'
+            ? {
+                ...p.publication,
+                status: 'cancelled' as const,
+                error: 'Cancelled because the post was rejected.',
+                errorCode: 'not_approved' as const
+              }
+            : p.publication
+        return { ...p, status, publication }
+      })
+    )
+    setKeptPostId(id)
+    setSelectedPostId(id)
   }
 
   const handleApprove = async () => {
@@ -1539,8 +1569,7 @@ export function PostsClientInner({
       refreshQueueAfterStatusChange(approvedId, 'approved')
       showToast({
         type: 'success',
-        title: 'Post approved',
-        message: 'Opened the first post in the queue.'
+        title: 'Post approved'
       })
     } catch (err: any) {
       showToast({
@@ -1559,7 +1588,7 @@ export function PostsClientInner({
   }
 
   const handleReject = async (reason?: string) => {
-    if (!activePost) return
+    if (!activePost || activePublished) return
     if (!confirmDiscardEdits('Rejecting this post')) return
     const rejectedId = activePost.id
 
@@ -1610,7 +1639,7 @@ export function PostsClientInner({
     } else if (key === 'r') {
       // A rejected post has no Reject button; R would reject it again and
       // store a second feedback row.
-      if (activePost.status === 'rejected') return
+      if (activePost.status === 'rejected' || activePublished) return
       event.preventDefault()
       setShowPostRejection(true)
     } else if (key === 'c') {
@@ -1874,13 +1903,15 @@ export function PostsClientInner({
                   No first comment
                 </span>
               )}
-              <button
-                type="button"
-                onClick={() => setShowPostRejection(true)}
-                className="text-muted h-8 cursor-pointer px-2 text-[11px] hover:text-rose-600 dark:hover:text-rose-400"
-              >
-                Reject instead
-              </button>
+              {!activePublished && (
+                <button
+                  type="button"
+                  onClick={() => setShowPostRejection(true)}
+                  className="text-muted h-8 cursor-pointer px-2 text-[11px] hover:text-rose-600 dark:hover:text-rose-400"
+                >
+                  Reject instead
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -1923,6 +1954,24 @@ export function PostsClientInner({
         title="Post Review & Approval"
         description={`Reviewing drafts for ${identity.name} · @${identity.handle}`}
         bottomContent={reviewBar}
+        actions={
+          // Publishing the open post, in the header beside the theme button
+          // (Publish now and Schedule need LinkedIn set up and connected).
+          activePost?.status === 'approved' ? (
+            <LinkedInPublishControls
+              key={activePost.id}
+              postId={activePost.id}
+              postedAt={activePost.postedAt ?? null}
+              publication={activePost.publication}
+              onChange={publication => {
+                const id = activePost.id
+                setPosts(prev =>
+                  prev.map(p => (p.id === id ? { ...p, publication } : p))
+                )
+              }}
+            />
+          ) : undefined
+        }
       />
 
       <div className="flex flex-1 overflow-hidden">

@@ -10,6 +10,11 @@ import {
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
+import { linkedInPublishConfig } from '@/lib/linkedin/config'
+import {
+  latestPublications,
+  type PublicationSummary
+} from '@/lib/linkedin/publishing'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
 import { and, count, desc, eq, inArray, type SQL } from 'drizzle-orm'
@@ -38,6 +43,7 @@ export async function loadPostsPage(
     hashtags: postDraftsTable.hashtags,
     charCount: postDraftsTable.charCount,
     status: postDraftsTable.status,
+    postedAt: postDraftsTable.postedAt,
     lintFindings: postDraftsTable.lintFindings,
     createdAt: postDraftsTable.createdAt,
     accountName: accountsTable.name,
@@ -82,7 +88,7 @@ export async function loadPostsPage(
   )
   const draftIds = draftsRaw.map((d) => d.id)
 
-  const [allVariants, allCitationCounts, allMedia, failedMedia] = await Promise.all([
+  const [allVariants, allCitationCounts, allMedia, failedMedia, publications] = await Promise.all([
     draftIds.length > 0
       ? db
           .select()
@@ -140,7 +146,12 @@ export async function loadPostsPage(
             )
           )
           .orderBy(desc(postMediaTable.createdAt))
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    // These posts are already the identity's; their LinkedIn publications.
+    // Skipped when publishing is not set up, so Posts does not depend on its tables.
+    linkedInPublishConfig()
+      ? latestPublications(db, draftIds)
+      : Promise.resolve(new Map<string, PublicationSummary>())
   ])
 
   // Grouped once, so each post looks its own up instead of scanning every row.
@@ -215,7 +226,9 @@ export async function loadPostsPage(
           }
         : null,
       mediaFailure: media ? null : (mediaFailureByDraft.get(draft.id) ?? null),
-      lintFindings: (draft.lintFindings as any[]) || []
+      lintFindings: (draft.lintFindings as any[]) || [],
+      postedAt: draft.postedAt?.toISOString() ?? null,
+      publication: publications.get(draft.id) ?? null
     }
   })
 

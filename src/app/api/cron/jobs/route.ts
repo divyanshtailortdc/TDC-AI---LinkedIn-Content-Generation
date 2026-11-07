@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { after } from 'next/server'
 import { env } from '~/env'
 import { recoverAbandonedDrafting } from '~/jobs/drafting-queue'
+import { runLinkedInPublishing } from '~/jobs/linkedin-publishing'
 import { runMailExtraction } from '~/jobs/mail-extraction'
 import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
@@ -13,7 +14,8 @@ import { recoverInterruptedRuns } from '~/lib/ai/run-lifecycle'
  * One pass of the job timers, for hosts where they do not run (Vercel; see
  * runsJobTimers): fails runs whose process died, starts the runs of due
  * schedules, runs queued runs, resumes abandoned drafting, syncs the inbox
- * when it is due and extracts what arrived. Call it every few minutes from a scheduler with
+ * when it is due and extracts what arrived, and publishes LinkedIn posts that
+ * are due (as late as this is called). Call it every few minutes from a scheduler with
  * `Authorization: Bearer <CRON_SECRET>`; Vercel Cron sends that header itself.
  * A schedule's slot stays due for two hours, so a late call still starts it.
  */
@@ -43,7 +45,8 @@ export async function GET(request: Request) {
       recoverAbandonedDrafting().catch(err =>
         console.error('Drafting recovery error:', err)
       ),
-      runInboxSync().then(runMailExtraction)
+      runInboxSync().then(runMailExtraction),
+      runLinkedInPublishing()
     ])
   )
 

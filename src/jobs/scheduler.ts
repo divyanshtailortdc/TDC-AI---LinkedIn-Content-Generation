@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { goalsTable, schedulesTable } from '@/db/schema'
 import { dueSlot, WEEKDAY_NAMES } from '@/lib/schedule-time'
 import { and, desc, eq } from 'drizzle-orm'
+import { runLinkedInPublishing } from './linkedin-publishing'
 import { runMailExtraction } from './mail-extraction'
 import { runInboxSync } from './mail-sync'
 import { enqueueRun } from './queue'
@@ -156,7 +157,16 @@ export function startScheduler() {
     },
     { missedExecutionTolerance: 60_000 }
   )
+
+  // Every minute: posts scheduled (or auto-published) to LinkedIn that are due.
+  cron.schedule(
+    '* * * * *',
+    () => {
+      void runLinkedInPublishing()
+    },
+    { missedExecutionTolerance: 60_000 }
+  )
   console.info(
-    'Scheduler started: checking schedules every 5 minutes and the inbox every minute.'
+    'Scheduler started: checking schedules every 5 minutes, and the inbox and LinkedIn publishing every minute.'
   )
 }

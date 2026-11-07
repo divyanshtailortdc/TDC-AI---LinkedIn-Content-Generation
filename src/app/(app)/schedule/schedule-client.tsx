@@ -182,7 +182,7 @@ export function ScheduleClient({
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Schedule"
-        description="Plan the day each post goes out. You publish on LinkedIn yourself; nothing is posted automatically."
+        description="Plan the day each post goes out. Publish approved posts from Posts, or turn on auto-publishing in Settings → LinkedIn to publish them on their planned day."
       />
 
       <div className="relative flex-1 overflow-y-auto p-4 sm:p-6">
@@ -659,6 +659,12 @@ function PostDialog({
               Approve this post on Posts before it goes out.
             </p>
           )}
+          {status === 'posted' && post.publishedOnLinkedIn && (
+            <p className="text-muted flex items-start gap-1.5 text-xs">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Published on LinkedIn from this app, so it stays posted.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -689,7 +695,7 @@ function PostDialog({
               Mark as posted
             </button>
           )}
-          {status === 'posted' && (
+          {status === 'posted' && !post.publishedOnLinkedIn && (
             <button
               type="button"
               onClick={() => onPosted(false)}

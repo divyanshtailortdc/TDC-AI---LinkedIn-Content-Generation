@@ -80,6 +80,8 @@ Use `.env`, not `.env.local`: the dashboard points to `.env`, and Next.js lets a
 
 Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; Google and LinkedIn sign-in (the only ways to create an account) are configured there too; passkeys need no setup. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup, the rules every new Server Action follows, and how to assign existing identities to their owners.
 
+Publishing approved posts to LinkedIn (Publish now, Schedule, auto-publishing) is a separate, optional connection with its own LinkedIn app. See [docs/LINKEDIN_PUBLISHING.md](docs/LINKEDIN_PUBLISHING.md).
+
 ### 2. Run the Development Server
 
 ```bash

@@ -36,6 +36,30 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     LINKEDIN_CLIENT_ID: z.string().optional(),
     LINKEDIN_CLIENT_SECRET: z.string().optional(),
+    // Publishing to LinkedIn (docs/LINKEDIN_PUBLISHING.md): its own OAuth
+    // flow, separate from sign-in. Best a separate LinkedIn app: LinkedIn
+    // invalidates a member's earlier tokens when the same app is authorized
+    // with different scopes, so sharing the sign-in app makes every LinkedIn
+    // sign-in disconnect publishing. Unset, publishing is off.
+    LINKEDIN_PUBLISH_CLIENT_ID: z.string().optional(),
+    LINKEDIN_PUBLISH_CLIENT_SECRET: z.string().optional(),
+    /** Defaults to {BETTER_AUTH_URL}/api/linkedin/callback; an HTTPS tunnel URL in development. */
+    LINKEDIN_PUBLISH_REDIRECT_URI: z.url().optional(),
+    /** Space-separated; only scopes the LinkedIn app has been granted. */
+    LINKEDIN_PUBLISH_SCOPES: z.string().default('openid profile w_member_social'),
+    /** The LinkedIn-Version header (YYYYMM). Each version is supported for about a year. */
+    LINKEDIN_API_VERSION: z
+      .string()
+      .regex(/^\d{6}(\.\d{2})?$/, 'LINKEDIN_API_VERSION must be YYYYMM')
+      .default('202610'),
+    /** 32 bytes, base64: encrypts LinkedIn tokens at rest. openssl rand -base64 32 */
+    LINKEDIN_TOKEN_ENCRYPTION_KEY: z
+      .string()
+      .refine(
+        key => Buffer.from(key, 'base64').length === 32,
+        'LINKEDIN_TOKEN_ENCRYPTION_KEY must be 32 bytes, base64 (openssl rand -base64 32)'
+      )
+      .optional(),
     // Inbox: our own mail server (mailserver/README.md). Every address at
     // INBOUND_EMAIL_DOMAIN (inbox.tdcai.com in production) delivers into one
     // IMAP mailbox the app reads. Unset, the inbox is off. Production refuses
@@ -94,6 +118,12 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
+    LINKEDIN_PUBLISH_CLIENT_ID: process.env.LINKEDIN_PUBLISH_CLIENT_ID,
+    LINKEDIN_PUBLISH_CLIENT_SECRET: process.env.LINKEDIN_PUBLISH_CLIENT_SECRET,
+    LINKEDIN_PUBLISH_REDIRECT_URI: process.env.LINKEDIN_PUBLISH_REDIRECT_URI,
+    LINKEDIN_PUBLISH_SCOPES: process.env.LINKEDIN_PUBLISH_SCOPES,
+    LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
+    LINKEDIN_TOKEN_ENCRYPTION_KEY: process.env.LINKEDIN_TOKEN_ENCRYPTION_KEY,
     INBOUND_EMAIL_DOMAIN: process.env.INBOUND_EMAIL_DOMAIN,
     MAIL_IMAP_HOST: process.env.MAIL_IMAP_HOST,
     MAIL_IMAP_PORT: process.env.MAIL_IMAP_PORT,

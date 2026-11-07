@@ -174,7 +174,9 @@ export async function loadImageDataUrl(value: string): Promise<string> {
   if (!isStoredImage(value)) return value
   const key = storedImageKey(value)
   const object = await client().send(
-    new GetObjectCommand({ Bucket: requireBucket(), Key: key })
+    new GetObjectCommand({ Bucket: requireBucket(), Key: key }),
+    // Covers reading the body too: a stalled read must not hold up a publish.
+    { abortSignal: AbortSignal.timeout(30_000) }
   )
   if (!object.Body) throw new Error(`Stored image ${key} is empty`)
   const bytes = Buffer.from(await object.Body.transformToByteArray())

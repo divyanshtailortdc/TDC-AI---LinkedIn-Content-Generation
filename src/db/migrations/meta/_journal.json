@@ -253,6 +253,13 @@
       "when": 1793855264967,
       "tag": "0035_idea_goal_fit_and_story_use",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793859147537,
+      "tag": "0036_linkedin_publishing",
+      "breakpoints": true
     }
   ]
 }
