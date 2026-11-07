@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import {
   createPost,
   LinkedInApiError,
+  PostImageError,
   uploadImage
 } from '../src/lib/linkedin/api'
 import { toLittleText } from '../src/lib/linkedin/commentary'
@@ -295,11 +296,12 @@ describe('LinkedIn API errors say whether a retry is safe', () => {
   })
 
   it('429 and 503 are retried: LinkedIn made nothing', async () => {
-    for (const status of [429, 503]) {
-      const err = await failureOf(status)
-      assert.strictEqual(err.retryable, true, String(status))
-      assert.strictEqual(err.ambiguous, false, String(status))
-    }
+    const e429 = await failureOf(429)
+    assert.strictEqual(e429.code, 'rate_limited')
+    assert.strictEqual(e429.retryable, true)
+    const e503 = await failureOf(503)
+    assert.strictEqual(e503.code, 'linkedin_unavailable')
+    assert.strictEqual(e503.retryable, true)
   })
 
   it('500, 502 and 504 on the post may have published it: never retried', async () => {
@@ -307,7 +309,7 @@ describe('LinkedIn API errors say whether a retry is safe', () => {
       const err = await failureOf(status)
       assert.strictEqual(err.code, 'unknown_outcome', String(status))
       assert.strictEqual(err.retryable, false, String(status))
-      assert.strictEqual(err.ambiguous, true, String(status))
+      assert.match(err.message, /the post may still have gone through/)
     }
   })
 
@@ -350,7 +352,41 @@ describe('LinkedIn API errors say whether a retry is safe', () => {
       () => assert.fail('expected a failure'),
       e => e
     )
+    assert.strictEqual(err.code, 'linkedin_unavailable')
     assert.strictEqual(err.retryable, true)
-    assert.strictEqual(err.ambiguous, false)
+  })
+
+  it('an image LinkedIn rejects names the image, not the post', async () => {
+    const err: LinkedInApiError = await uploadImage(
+      ctx(422),
+      'urn:li:person:1',
+      { bytes: Buffer.from('x'), mediaType: 'image/png' }
+    ).then(
+      () => assert.fail('expected a failure'),
+      e => e
+    )
+    assert.strictEqual(err.code, 'rejected_by_linkedin')
+    assert.match(err.message, /^LinkedIn rejected the image: /)
+  })
+
+  it('an image that cannot be converted is refused before anything is sent', async () => {
+    let sent = false
+    const err = await uploadImage(
+      {
+        accessToken: 'AT',
+        apiVersion: '202610',
+        fetchFn: (async () => {
+          sent = true
+          return new Response(null, { status: 201 })
+        }) as unknown as typeof fetch
+      },
+      'urn:li:person:1',
+      { bytes: Buffer.from('not an image'), mediaType: 'image/webp' }
+    ).then(
+      () => assert.fail('expected a failure'),
+      e => e
+    )
+    assert.ok(err instanceof PostImageError, String(err))
+    assert.strictEqual(sent, false)
   })
 })
