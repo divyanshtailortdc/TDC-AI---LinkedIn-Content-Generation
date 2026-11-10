@@ -10,6 +10,12 @@ import { requireOwnedAccount } from '@/lib/account-guard'
 import { IDENTITY_PATH } from '@/lib/identity'
 import { requireUser } from '@/lib/session'
 import {
+  cleanChannelSettings,
+  cleanFormats,
+  type ChannelSettings,
+  type FormatId
+} from '@/lib/formats'
+import {
   AccountIdSchema,
   parseSetupPayload,
   PreferencesPayloadSchema
@@ -27,6 +33,11 @@ export type PreferencesPayload = {
   ideasPerRun: number
   post_constraints: PostConstraints
   guardrails: Guardrails
+  /** The formats drafted and what was said about each platform; absent keeps them. */
+  channels?: {
+    enabledFormats: string[]
+    settings: ChannelSettings
+  }
 }
 
 const MIN_IDEAS_PER_RUN = 3
@@ -43,6 +54,15 @@ function validate(payload: PreferencesPayload) {
       `Ideas per run must be between ${MIN_IDEAS_PER_RUN} and ${MAX_IDEAS_PER_RUN}.`
     )
   }
+}
+
+/** Known formats only; refused when none are left. */
+function checkedFormats(values: string[]): FormatId[] {
+  const formats = cleanFormats(values)
+  if (formats.length === 0) {
+    throw new Error('Turn on at least one platform to write posts for.')
+  }
+  return formats
 }
 
 export async function savePreferences(
@@ -71,6 +91,12 @@ export async function savePreferences(
         ),
       compliance_notes: payload.guardrails.compliance_notes.trim()
     },
+    ...(payload.channels
+      ? {
+          enabledFormats: checkedFormats(payload.channels.enabledFormats),
+          channelSettings: cleanChannelSettings(payload.channels.settings)
+        }
+      : {}),
     updatedAt: new Date()
   }
 

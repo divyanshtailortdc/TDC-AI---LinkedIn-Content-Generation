@@ -4,6 +4,7 @@ import { getIdentity, toIdentitySummary } from '@/lib/identity'
 import { parsePage } from '@/lib/pagination'
 import { NoIdentity } from '@/components/no-identity'
 import { parseStatusFilter } from './status-filter'
+import { loadChannels } from '@/lib/channels'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,11 +21,14 @@ export default async function IdeasPage({
 
   const params = await searchParams
   const status = parseStatusFilter(params.status)
-  const { ideas, pageInfo, statusCounts, proposedIds, approvedIds } =
-    await loadIdeasPage(identity.id, {
-      status,
-      page: parsePage(params.page)
-    })
+  const [{ ideas, pageInfo, statusCounts, proposedIds, approvedIds }, channels] =
+    await Promise.all([
+      loadIdeasPage(identity.id, {
+        status,
+        page: parsePage(params.page)
+      }),
+      loadChannels(identity.id)
+    ])
 
   return (
     <IdeasClient
@@ -35,6 +39,7 @@ export default async function IdeasPage({
       proposedIds={proposedIds}
       approvedIds={approvedIds}
       identity={toIdentitySummary(identity)}
+      enabledFormats={channels.enabledFormats}
     />
   )
 }

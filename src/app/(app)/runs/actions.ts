@@ -10,6 +10,7 @@ import {
 import { goalIdsOfRun } from '@/lib/ai/pipeline/ideation-run'
 import { recoverInterruptedRuns, stopActiveRun } from '@/lib/ai/run-lifecycle'
 import { IDENTITY_PATH, requireIdentityId } from '@/lib/identity'
+import { isPlatformId } from '@/lib/formats'
 import { isUuid } from '@/lib/ids'
 import { findOwnedRun, ownedByUser } from '@/lib/ownership'
 import { PAGE_SIZE } from '@/lib/pagination'
@@ -26,7 +27,7 @@ import { revalidatePath } from 'next/cache'
  * taken from the client) serving the goals picked for it. Refused while the
  * identity already has a run in progress.
  */
-export async function triggerNewRun(goalIds: string[]) {
+export async function triggerNewRun(goalIds: string[], channel?: string | null) {
   await requireUser()
   try {
     const accountId = await requireIdentityId()
@@ -34,11 +35,15 @@ export async function triggerNewRun(goalIds: string[]) {
     if (!Array.isArray(goalIds) || !goalIds.every(isUuid)) {
       throw new Error('Goal not found.')
     }
+    if (channel != null && !isPlatformId(channel)) {
+      throw new Error('Choose a platform this identity posts on.')
+    }
 
     const { run } = await enqueueRun({
       accountId,
       goalIds,
-      trigger: 'manual'
+      trigger: 'manual',
+      channel: channel ?? null
     })
 
     if (!run) {
@@ -116,7 +121,7 @@ export async function reanalyzeRun(runId: string) {
     const source = owned
       ? await db.query.runsTable.findFirst({
           where: eq(runsTable.id, owned.id),
-          columns: { goalIds: true, goalId: true }
+          columns: { goalIds: true, goalId: true, channel: true }
         })
       : undefined
     if (!owned || !source) throw new Error('Run not found')
@@ -124,7 +129,9 @@ export async function reanalyzeRun(runId: string) {
     const { run } = await enqueueRun({
       accountId: owned.accountId,
       goalIds: goalIdsOfRun(source),
-      trigger: 'manual'
+      trigger: 'manual',
+      // The same platform as the run it repeats.
+      channel: isPlatformId(source.channel) ? source.channel : null
     })
     if (!run) {
       throw new Error('Failed to create run record')

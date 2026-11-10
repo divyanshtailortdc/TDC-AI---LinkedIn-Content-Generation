@@ -1,3 +1,13 @@
+import {
+  DEFAULT_FORMAT,
+  FORMATS,
+  formatsOfPlatform,
+  isPlatformId,
+  PLATFORMS,
+  platformsOf,
+  type FormatId,
+  type PlatformId
+} from '@/lib/formats'
 import { isGenericPage } from '@/lib/urls'
 import {
   audienceSegments,
@@ -75,12 +85,82 @@ export function renderCorpusForPrompt(
   return `<evidence>\n${items}\n</evidence>`
 }
 
+/**
+ * The platforms a run plans for. Null (the default, and every run of an
+ * identity that drafts only LinkedIn) leaves the prompt as it always was.
+ */
+export interface IdeationChannels {
+  /** The one platform this run's ideas are for; null for every enabled one. */
+  target: PlatformId | null
+  /** The formats ideas may name, in registry order. */
+  formats: FormatId[]
+}
+
+/**
+ * The channel plan for a run: the run's own platform, or every enabled format
+ * when there is more than one. LinkedIn alone needs no plan.
+ */
+export function ideationChannels(
+  enabled: FormatId[],
+  runChannel: string | null | undefined
+): IdeationChannels | null {
+  if (isPlatformId(runChannel)) {
+    const own = enabled.filter(f => FORMATS[f].platform === runChannel)
+    const formats = own.length > 0 ? own : formatsOfPlatform(runChannel)
+    if (formats.length === 1 && formats[0] === DEFAULT_FORMAT) return null
+    return { target: runChannel, formats }
+  }
+  return enabled.length > 1 ? { target: null, formats: enabled } : null
+}
+
+function strategistLine(
+  ctx: GenerationContext,
+  channels: IdeationChannels | null
+): string {
+  if (!channels) {
+    return `You are a senior editorial strategist who plans ${platformOf(ctx).name} content for one specific person or company.`
+  }
+  if (channels.target) {
+    return `You are a senior editorial strategist who plans ${PLATFORMS[channels.target].label} content for one specific person or company.`
+  }
+  const labels = platformsOf(channels.formats).map(p => PLATFORMS[p].label)
+  return `You are a senior editorial strategist who plans social media content for one specific person or company, across ${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}.`
+}
+
+/** What works on the run's platforms, and how ideas should name their formats. */
+function renderChannelsBlock(channels: IdeationChannels | null): string {
+  if (!channels) return ''
+  if (channels.target) {
+    const platform = PLATFORMS[channels.target]
+    return `
+WHAT WORKS ON ${platform.label.toUpperCase()}
+${platform.ideationProfile}
+Propose ideas that are native to ${platform.label}: ones that would make a strong ${platform.label} post, not a LinkedIn post moved over. The facts and the goals stay the same.
+`
+  }
+  const lines = platformsOf(channels.formats).map(p => {
+    const formats = channels.formats
+      .filter(f => FORMATS[f].platform === p)
+      .map(f => `${f} (${FORMATS[f].label})`)
+      .join(', ')
+    return `- ${PLATFORMS[p].label} [${formats}]: ${PLATFORMS[p].ideationProfile}`
+  })
+  return `
+THE PLATFORMS THIS ACCOUNT POSTS ON: not every idea fits every platform
+${lines.join('\n')}
+Name in each idea's formats only the formats it would make a strong post in; an idea that suits one platform is fine. Across the run, give every platform at least one idea that suits it.
+`
+}
+
 /** Who the ideas are for and the rules they must follow; the same all run. */
-export function buildInstructions(ctx: GenerationContext): string {
+export function buildInstructions(
+  ctx: GenerationContext,
+  channels: IdeationChannels | null = null
+): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const region = inferRegion(ctx)
 
-  return `You are a senior editorial strategist who plans ${platformOf(ctx).name} content for one specific person or company.
+  return `${strategistLine(ctx, channels)}
 
 Every fact you use must be true of THIS account and traceable to THIS evidence or the account details below; you have no knowledge of this business beyond them. Topics are a different matter: the goals below decide what this run is about, and the account details only say who is speaking. Find subjects that advance those goals in the evidence (the research was gathered for them) and in what these readers are dealing with, rather than restating the account's description.
 
@@ -96,7 +176,7 @@ ${
     ? `${region.name}. Every idea must hold in this market: never present another market's launches, prices, availability, rules or figures as if they applied here, and say which market a piece of evidence describes when it is not this one.`
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
-
+${renderChannelsBlock(channels)}
 THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject. An idea achieves its goal only when all three hold:
 1. Reader: it is written for the people the goal is meant to reach.
 2. Message: its argument lands the goal's message, so a reader who agrees with it has come round to that message, not just to its topic.
@@ -131,8 +211,19 @@ export function buildPrompt(input: {
   hookMaxChars: number
   /** Today, for judging which evidence is recent; defaults to now. */
   today?: Date
+  /** The run's platforms, as for buildInstructions. */
+  channels?: IdeationChannels | null
 }): string {
   const { corpus, candidateCount } = input
+  const channels = input.channels ?? null
+  const target = channels?.target ? PLATFORMS[channels.target] : null
+  const hookLine =
+    target && target.id !== 'linkedin'
+      ? `- hookConcept: the idea for the opening line on ${target.label}, what stops someone scrolling. A concept, not final copy.`
+      : `- hookConcept: the idea for the first ${input.hookMaxChars} characters, before the fold. A concept, not final copy.`
+  const formatsLine = channels
+    ? `\n- formats: the format ids it would make a strong post in, best first, from: ${channels.formats.map(f => `${f} (${FORMATS[f].label})`).join(', ')}`
+    : ''
   const today = (input.today ?? new Date()).toISOString().slice(0, 10)
   const anglesList = Object.entries(PERSPECTIVE_ANGLE_GUIDE)
     .map(([angle, guide]) => `- ${angle}: ${guide}`)
@@ -159,9 +250,9 @@ For each idea provide:
 - goalRefs: the label of the goal assigned to this idea first, then any other goal its argument also moves, e.g. ["G1"] or ["G2", "G1"]
 - readers: who exactly this idea is for, in a few plain words: the people its goal is meant to reach
 - audienceRef: the label of the reader group those readers belong to, e.g. "A2", or "none" when no group listed is them
-- format: the post format that fits best
+- format: the post format that fits best${formatsLine}
 - whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"
-- hookConcept: the idea for the first ${input.hookMaxChars} characters, before the fold. A concept, not final copy.
+${hookLine}
 - coreArgument: the "so what", in full
 - audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message and giving them a reason to take its desired action
 - supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.

@@ -7,6 +7,7 @@ import {
   postVariantsTable,
   postCitationsTable,
   postMediaTable,
+  postRevisionsTable,
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
@@ -30,7 +31,12 @@ const RUN_POSTS_LIMIT = 500
  */
 export async function loadPostsPage(
   accountId: string,
-  options: { cursorId?: string | null; runId?: string | null } = {}
+  options: {
+    cursorId?: string | null
+    runId?: string | null
+    /** Exactly these posts (this account's), e.g. one just written. */
+    ids?: string[]
+  } = {}
 ): Promise<{ posts: PostDetail[]; nextCursor: string | null }> {
   const columns = {
     id: postDraftsTable.id,
@@ -48,6 +54,9 @@ export async function loadPostsPage(
     hiddenAt: postDraftsTable.hiddenAt,
     lintFindings: postDraftsTable.lintFindings,
     createdAt: postDraftsTable.createdAt,
+    formatId: postDraftsTable.formatId,
+    payload: postDraftsTable.payload,
+    ideaId: postDraftsTable.ideaId,
     accountName: accountsTable.name,
     accountHeadline: accountsTable.headline,
     runId: ideasTable.runId
@@ -63,7 +72,9 @@ export async function loadPostsPage(
       .limit(limit)
 
   const [pageRows, runRows] = await Promise.all([
-    select(
+    options.ids
+      ? select(inArray(postDraftsTable.id, options.ids), options.ids.length)
+      : select(
       options.cursorId
         ? olderThan(
             postDraftsTable,
@@ -73,7 +84,7 @@ export async function loadPostsPage(
           )
         : undefined,
       LOAD_BATCH_SIZE + 1
-    ),
+      ),
     // A run's posts are always included, however far back they are, so a run
     // opens complete. The newest page is loaded too, so leaving the run's view
     // (Clear filters) shows every post, not just that run's.
@@ -82,7 +93,9 @@ export async function loadPostsPage(
       : Promise.resolve([])
   ])
 
-  const { items: page, nextCursor } = pageOf(pageRows)
+  const { items: page, nextCursor } = options.ids
+    ? { items: pageRows, nextCursor: null }
+    : pageOf(pageRows)
   const onPage = new Set(page.map(row => row.id))
   const draftsRaw = [...page, ...runRows.filter(row => !onPage.has(row.id))].sort(
     (a, b) =>
@@ -90,7 +103,18 @@ export async function loadPostsPage(
   )
   const draftIds = draftsRaw.map((d) => d.id)
 
-  const [allVariants, allCitationCounts, allMedia, failedMedia, publications] = await Promise.all([
+  const ideaIds = Array.from(
+    new Set(draftsRaw.map(d => d.ideaId).filter((id): id is string => Boolean(id)))
+  )
+  const [
+    allVariants,
+    allCitationCounts,
+    allMedia,
+    failedMedia,
+    publications,
+    ideaFormatRows,
+    revisionCounts
+  ] = await Promise.all([
     draftIds.length > 0
       ? db
           .select()
@@ -153,8 +177,30 @@ export async function loadPostsPage(
     // Skipped when publishing is not set up, so Posts does not depend on its tables.
     publishingConfig()
       ? latestPublications(db, draftIds)
-      : Promise.resolve(new Map<string, PublicationSummary>())
+      : Promise.resolve(new Map<string, PublicationSummary>()),
+    // Which formats each idea already has, so the review screen offers only
+    // the missing ones under "Add a version".
+    ideaIds.length > 0
+      ? db
+          .select({ ideaId: postDraftsTable.ideaId, formatId: postDraftsTable.formatId })
+          .from(postDraftsTable)
+          .where(inArray(postDraftsTable.ideaId, ideaIds))
+      : Promise.resolve([]),
+    // How many earlier versions each post has, for its Earlier versions list.
+    draftIds.length > 0
+      ? db
+          .select({ draftId: postRevisionsTable.draftId, count: count() })
+          .from(postRevisionsTable)
+          .where(inArray(postRevisionsTable.draftId, draftIds))
+          .groupBy(postRevisionsTable.draftId)
+      : Promise.resolve([])
   ])
+  const versionsByDraft = new Map(revisionCounts.map(r => [r.draftId, r.count]))
+  const formatsByIdea = new Map<string, string[]>()
+  for (const row of ideaFormatRows) {
+    if (!row.ideaId) continue
+    formatsByIdea.set(row.ideaId, [...(formatsByIdea.get(row.ideaId) ?? []), row.formatId])
+  }
 
   // Grouped once, so each post looks its own up instead of scanning every row.
   const variantsByDraft = new Map<string, typeof allVariants>()
@@ -198,6 +244,11 @@ export async function loadPostsPage(
       status: draft.status,
       createdAt: draft.createdAt,
       runId: draft.runId,
+      formatId: draft.formatId,
+      payload: (draft.payload as Record<string, unknown> | null) ?? null,
+      ideaId: draft.ideaId,
+      ideaFormats: draft.ideaId ? (formatsByIdea.get(draft.ideaId) ?? []) : [],
+      versionCount: versionsByDraft.get(draft.id) ?? 0,
       variants,
       citationCount: citationCountByDraft.get(draft.id) ?? 0,
       media: media

@@ -339,6 +339,8 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
     sourceIds: [],
     risks: [],
     status: 'approved',
+    targetFormats: ['linkedin.post'],
+    formatFit: [],
     createdAt: now,
     updatedAt: now,
     ...overrides

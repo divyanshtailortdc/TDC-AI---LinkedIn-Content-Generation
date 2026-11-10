@@ -2,6 +2,18 @@
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PostPreview } from '@/components/post-preview'
+import { FormatBadge } from '@/components/format-chips'
+import { VariantPreview, previewTitle } from '@/components/variant-preview'
+import {
+  copyText,
+  FORMATS,
+  formatOf,
+  PLATFORMS,
+  videoScriptOf,
+  type FormatId
+} from '@/lib/formats'
+import { AddVersionMenu } from './add-version-menu'
+import { RegenerateControl, VersionHistory } from './post-versions'
 import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
@@ -102,6 +114,7 @@ import {
 import { initialsOf } from '@/lib/initials'
 import type { PublicationSummary } from '@/lib/publishing/engine'
 import { PublishControls } from './publish-controls'
+import { canPublishTo } from '@/lib/publishing/platform'
 import { getPostPublication } from './publish-actions'
 import {
   currentMediaJob,
@@ -143,6 +156,15 @@ export interface PostDetail {
   charCount: number
   status: string
   createdAt: Date | string
+  /** The platform format (src/lib/formats); posts from before formats are LinkedIn. */
+  formatId?: string
+  /** Format-specific structure, e.g. an Instagram caption's visual idea. */
+  payload?: Record<string, unknown> | null
+  ideaId?: string | null
+  /** Every format the post's idea already has, this one included. */
+  ideaFormats?: string[]
+  /** How many earlier versions of its text are kept. */
+  versionCount?: number
   variants: Array<{ id: string; variantType: string; content: string }>
   /** How many sources the draft cites, for the queue badge. */
   citationCount: number
@@ -219,7 +241,15 @@ const LINT_RULE_LABELS: Record<string, string> = {
   CITATIONS_COVERAGE: 'Citation grounding coverage'
 }
 
-function getHumanRuleLabel(rule: string): string {
+function getHumanRuleLabel(rule: string, formatId?: string | null): string {
+  // The fold label names LinkedIn; other platforms have their own fold.
+  if (rule.toLowerCase() === 'hook_fold' && formatOf(formatId) !== 'linkedin.post') {
+    return 'Hook & fold'
+  }
+  if (rule === 'thread_length') return 'Thread length'
+  if (rule === 'script_length') return 'Script length'
+  if (rule === 'caption_missing') return 'Caption'
+  if (rule === 'video_title') return 'Video title'
   if (LINT_RULE_LABELS[rule]) return LINT_RULE_LABELS[rule]
   return rule
     .toLowerCase()
@@ -419,8 +449,11 @@ export function PostsClientInner({
   initialNextCursor,
   totalCount,
   identity,
-  brand
+  brand,
+  enabledFormats = ['linkedin.post']
 }: {
+  /** The formats the identity has turned on, for "Add a version". */
+  enabledFormats?: FormatId[]
   initialPosts: PostDetail[]
   /** Where the next page starts; null when every post is already loaded. */
   initialNextCursor: string | null
@@ -471,6 +504,14 @@ export function PostsClientInner({
   // Typed into on every keystroke, so it is local state that is copied into
   // the URL (replace, not push: each letter is not a Back step).
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') ?? '')
+  // One platform's posts only; null shows every format.
+  const [formatFilter, setFormatFilter] = useState<FormatId | null>(null)
+  // The formats the loaded posts are in, for the filter chips and badges.
+  const postFormats = useMemo(
+    () => Array.from(new Set(posts.map(p => formatOf(p.formatId)))),
+    [posts]
+  )
+  const showFormats = postFormats.length > 1 || enabledFormats.length > 1
   // The box shows each letter at once; the queue is filtered against this
   // copy, which React catches up in the background, so typing never waits on
   // the list.
@@ -497,6 +538,7 @@ export function PostsClientInner({
     const query = deferredQuery.trim().toLowerCase()
     return posts.filter(p => {
       if (filterRunId && p.runId !== filterRunId) return false
+      if (formatFilter && formatOf(p.formatId) !== formatFilter) return false
 
       if (!inDateRange(p.createdAt, dateFrom, dateTo)) return false
 
@@ -511,7 +553,7 @@ export function PostsClientInner({
 
       return true
     })
-  }, [posts, filterRunId, dateFrom, dateTo, deferredQuery])
+  }, [posts, filterRunId, formatFilter, dateFrom, dateTo, deferredQuery])
 
   const statusCounts = useMemo(() => {
     // Hidden posts count only under Hidden, as queueOf shows them.
@@ -1316,7 +1358,9 @@ export function PostsClientInner({
                 ...p,
                 hook: newHook,
                 charCount: res.charCount ?? p.charCount,
-                lintFindings: res.lintFindings ?? p.lintFindings
+                lintFindings: res.lintFindings ?? p.lintFindings,
+                // The text it replaced is now an earlier version.
+                versionCount: (p.versionCount ?? 0) + (res.versionSaved ? 1 : 0)
               }
             : p
         )
@@ -1334,6 +1378,17 @@ export function PostsClientInner({
     }
   }
 
+  // A new version of a post's text (regenerate, restore). Its image is
+  // unchanged, so the one already loaded is kept.
+  const replacePostText = (updated: PostDetail) =>
+    setPosts(prev =>
+      prev.map(p =>
+        p.id === updated.id
+          ? { ...updated, media: p.media, mediaFailure: p.mediaFailure }
+          : p
+      )
+    )
+
   const handleSaveEdits = async (draft: PostDraft) => {
     if (!activePost) return
     setIsSaving(true)
@@ -1342,7 +1397,9 @@ export function PostsClientInner({
       const res = await updateDraft(activePost.id, {
         hook: draft.hook,
         body: draft.body,
-        firstComment: draft.firstComment
+        firstComment: draft.firstComment,
+        ...(draft.caption !== undefined ? { caption: draft.caption } : {}),
+        ...(draft.title !== undefined ? { title: draft.title } : {})
       })
       if (!res.success) throw new Error(res.error)
       setPosts(prev =>
@@ -1353,9 +1410,20 @@ export function PostsClientInner({
                 hook: draft.hook,
                 body: draft.body,
                 firstComment: draft.firstComment,
+                ...(draft.caption !== undefined || draft.title !== undefined
+                  ? {
+                      payload: {
+                        ...(p.payload ?? {}),
+                        ...(draft.caption !== undefined ? { caption: draft.caption } : {}),
+                        ...(draft.title !== undefined ? { title: draft.title } : {})
+                      }
+                    }
+                  : {}),
                 // From the save: counted and checked on the text as stored.
                 charCount: res.charCount ?? p.charCount,
-                lintFindings: res.lintFindings ?? p.lintFindings
+                lintFindings: res.lintFindings ?? p.lintFindings,
+                // The text it replaced is now an earlier version.
+                versionCount: (p.versionCount ?? 0) + (res.versionSaved ? 1 : 0)
               }
             : p
         )
@@ -1418,8 +1486,13 @@ export function PostsClientInner({
     // is what is approved. Edits not saved yet are not part of either. It is
     // the text the preview shows, with the hook in Unicode bold; the first
     // comment has its own button, since it is pasted after publishing.
+    const format = formatOf(activePost.formatId)
+    // LinkedIn copies as its platform formats it (a bold hook); every other
+    // format as plain text in its own shape.
     const success = await copyTextToClipboard(
-      platformPostText(activePost, activePlatform)
+      format === 'linkedin.post'
+        ? platformPostText(activePost, activePlatform)
+        : copyText(format, activePost)
     )
     if (success) {
       setCopiedPost(true)
@@ -1428,7 +1501,13 @@ export function PostsClientInner({
         title: 'Post Copied!',
         message: hasUnsavedEdits
           ? 'Copied the saved post. Your unsaved edits are not included; save them to copy them.'
-          : `Post copied${activePlatform.unicodeBoldHook ? ' with a bold hook' : ''}, ready to paste into ${activePlatform.name}.`
+          : format === 'linkedin.post'
+            ? `Post copied${activePlatform.unicodeBoldHook ? ' with a bold hook' : ''}, ready to paste into ${activePlatform.name}.`
+            : FORMATS[format].structure === 'thread'
+              ? 'Thread copied. Paste each post, separated by the "---" lines, in order.'
+              : FORMATS[format].structure === 'script'
+                ? 'Script and caption copied.'
+                : `Copied, ready to paste into ${PLATFORMS[FORMATS[format].platform].label}.`
       })
       setTimeout(() => setCopiedPost(false), 2500)
     } else {
@@ -2125,6 +2204,24 @@ export function PostsClientInner({
           <div className="flex shrink-0 items-center gap-3">
            
             <div className="flex items-center gap-2">
+              <AddVersionMenu
+                key={activePost.id}
+                post={activePost}
+                enabledFormats={enabledFormats}
+                disabled={isSaving}
+                onAdded={added => {
+                  setPosts(prev => [
+                    added,
+                    // Its siblings now have one more format between them.
+                    ...prev.map(p =>
+                      p.ideaId && p.ideaId === added.ideaId
+                        ? { ...p, ideaFormats: added.ideaFormats }
+                        : p
+                    )
+                  ])
+                  setSelectedPostId(added.id)
+                }}
+              />
               {activePost.status !== 'rejected' && (
                 <button
                   type="button"
@@ -2164,7 +2261,9 @@ export function PostsClientInner({
         actions={
           // Publishing the open post, in the header beside the theme button
           // (Publish now and Schedule need its platform set up and connected).
-          activePost?.status === 'approved' ? (
+          // Only for platforms the app can publish to: an X or Instagram
+          // version is copied out by hand.
+          activePost?.status === 'approved' && canPublishTo(activePost.platform) ? (
             <PublishControls
               key={activePost.id}
               postId={activePost.id}
@@ -2242,6 +2341,29 @@ export function PostsClientInner({
               )}
             </div>
             {filterControls}
+            {postFormats.length > 1 && (
+              <div
+                role="group"
+                aria-label="Show posts for one platform"
+                className="mt-2 flex flex-wrap gap-1"
+              >
+                {[null, ...postFormats].map(option => (
+                  <button
+                    key={option ?? 'all'}
+                    type="button"
+                    aria-pressed={formatFilter === option}
+                    onClick={() => setFormatFilter(option)}
+                    className={`h-6 cursor-pointer rounded-full border px-2.5 text-[11px] font-medium transition-colors ${
+                      formatFilter === option
+                        ? 'border-accent/40 bg-accent/10 text-foreground'
+                        : 'border-border text-muted hover:text-foreground'
+                    }`}
+                  >
+                    {option ? FORMATS[option].label : 'All formats'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div ref={queueListRef} className="flex-1 overflow-y-auto px-2 pb-3">
@@ -2307,6 +2429,7 @@ export function PostsClientInner({
                       )}
 
                       <div className="mb-1.5 flex items-center gap-2">
+                        {showFormats && <FormatBadge formatId={post.formatId} />}
                         <span
                           className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${status.text}`}
                         >
@@ -2339,7 +2462,9 @@ export function PostsClientInner({
 
                       <div className="text-muted mt-2 flex items-center gap-1.5 text-[10px]">
                         <span className="tabular-nums">
-                          {post.charCount.toLocaleString()} chars
+                          {FORMATS[formatOf(post.formatId)].structure === 'script'
+                            ? `~${videoScriptOf(post).seconds}s video`
+                            : `${post.charCount.toLocaleString()} chars`}
                         </span>
                         {post.media && (
                           <span className="bg-surface-hover inline-flex items-center gap-1 rounded-md px-1.5 py-0.5">
@@ -2469,7 +2594,9 @@ export function PostsClientInner({
                 <div className="space-y-4 lg:col-span-7">
                   <div className="flex items-center justify-between px-1">
                     <span className="text-muted text-xs font-semibold tracking-wider uppercase">
-                      {activePlatform.name} Feed Appearance
+                      {formatOf(activePost.formatId) === 'linkedin.post'
+                        ? `${activePlatform.name} Feed Appearance`
+                        : previewTitle(activePost.formatId)}
                     </span>
                     <div className="flex items-center gap-4">
                       <button
@@ -2484,6 +2611,12 @@ export function PostsClientInner({
                         )}
                         <span>{copiedPost ? 'Copied' : 'Copy text'}</span>
                       </button>
+                      <RegenerateControl
+                        key={activePost.id}
+                        post={activePost}
+                        disabled={isEditing || isSaving}
+                        onDone={replacePostText}
+                      />
                       <button
                         type="button"
                         onClick={() => setIsEditing(!isEditing)}
@@ -2499,7 +2632,8 @@ export function PostsClientInner({
 
                   {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
                   <PostTextEditor
-                    key={activePost.id}
+                    // A new version (regenerate, restore) starts the editor afresh.
+                    key={`${activePost.id}-${activePost.versionCount ?? 0}`}
                     ref={editorRef}
                     post={activePost}
                     open={isEditing}
@@ -2508,7 +2642,30 @@ export function PostsClientInner({
                     onSave={handleSaveEdits}
                     onClose={() => setIsEditing(false)}
                   />
-                  {!isEditing && (
+                  {!isEditing && formatOf(activePost.formatId) !== 'linkedin.post' && (
+                    <div className="flex w-full justify-center">
+                      <VariantPreview
+                        key={activePost.id}
+                        formatId={formatOf(activePost.formatId)}
+                        authorName={activePost.accountName}
+                        authorInitials={authorInitials}
+                        hook={activePost.hook || ''}
+                        body={activePost.body || ''}
+                        cta={activePost.cta}
+                        hashtags={activePost.hashtags}
+                        firstComment={activePost.firstComment}
+                        payload={activePost.payload}
+                        mediaUrl={activePost.media?.imageUrl}
+                        mediaAltText={activePost.media?.altText}
+                        onMediaClick={
+                          activePost.media?.imageUrl
+                            ? () => setIsImageZoomOpen(true)
+                            : undefined
+                        }
+                      />
+                    </div>
+                  )}
+                  {!isEditing && formatOf(activePost.formatId) === 'linkedin.post' && (
                     <div className="flex w-full justify-center">
                       <PostPreview
                         key={activePost.id}
@@ -2536,6 +2693,14 @@ export function PostsClientInner({
                         firstCommentCopied={copiedComment}
                       />
                     </div>
+                  )}
+                  {!isEditing && (
+                    <VersionHistory
+                      key={activePost.id}
+                      post={activePost}
+                      disabled={isSaving}
+                      onRestored={replacePostText}
+                    />
                   )}
                 </div>
 
@@ -3359,7 +3524,11 @@ export function PostsClientInner({
                       <div className="divide-border/60 border-border/40 divide-y border-t p-4 pt-0 text-xs">
                         {lintFindings.length === 0 ? (
                           <p className="text-muted py-2 text-xs">
-                            All standard {activePlatform.name} checks verified.
+                            All standard{' '}
+                            {formatOf(activePost.formatId) === 'linkedin.post'
+                              ? activePlatform.name
+                              : PLATFORMS[FORMATS[formatOf(activePost.formatId)].platform].label}{' '}
+                            checks verified.
                           </p>
                         ) : (
                           lintFindings.map((finding, idx) => (
@@ -3376,7 +3545,7 @@ export function PostsClientInner({
                               )}
                               <div className="min-w-0 flex-1">
                                 <span className="text-foreground block text-xs font-medium">
-                                  {getHumanRuleLabel(finding.rule)}
+                                  {getHumanRuleLabel(finding.rule, activePost.formatId)}
                                 </span>
                                 <p className="text-muted mt-0.5 text-[11px]">
                                   {finding.message}
@@ -3406,6 +3575,9 @@ interface PostDraft {
   hook: string
   body: string
   firstComment: string
+  /** A video's caption and (YouTube) title; absent for other formats. */
+  caption?: string
+  title?: string
 }
 
 /** What the page reads and sets in the editor's buffer from outside it. */
@@ -3443,20 +3615,48 @@ function PostTextEditor({
   const savedHook = post.hook || ''
   const savedBody = post.body || ''
   const savedComment = post.firstComment || ''
+  const formatId = formatOf(post.formatId)
+  const spec = FORMATS[formatId]
+  const isVideo = spec.structure === 'script'
+  const hasTitle = isVideo && spec.platform === 'youtube'
+  const savedCaption =
+    typeof post.payload?.caption === 'string' ? post.payload.caption : ''
+  const savedTitle =
+    typeof post.payload?.title === 'string' ? post.payload.title : ''
   const [hook, setHook] = useState(savedHook)
   const [body, setBody] = useState(savedBody)
   const [firstComment, setFirstComment] = useState(savedComment)
+  const [caption, setCaption] = useState(savedCaption)
+  const [title, setTitle] = useState(savedTitle)
+  const current: PostDraft = {
+    hook,
+    body,
+    firstComment,
+    ...(isVideo ? { caption } : {}),
+    ...(hasTitle ? { title } : {})
+  }
 
   useImperativeHandle(
     ref,
-    () => ({ draft: { hook, body, firstComment }, setHook }),
-    [hook, body, firstComment]
+    () => ({ draft: current, setHook }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hook, body, firstComment, caption, title]
   )
 
   // The page only re-renders when this flips, not on every keystroke. Also
   // flips without typing: a save or hook swap changes the saved post.
   const dirty =
-    hook !== savedHook || body !== savedBody || firstComment !== savedComment
+    hook !== savedHook ||
+    body !== savedBody ||
+    firstComment !== savedComment ||
+    (isVideo && caption !== savedCaption) ||
+    (hasTitle && title !== savedTitle)
+  const labels =
+    spec.structure === 'script'
+      ? { hook: 'Opening line (spoken)', body: 'Rest of the script, one shot per paragraph' }
+      : spec.structure === 'thread'
+        ? { hook: 'First post', body: 'Other posts, separated by a line with ---' }
+        : { hook: 'Opening Hook', body: 'Body' }
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
@@ -3465,6 +3665,8 @@ function PostTextEditor({
     setHook(savedHook)
     setBody(savedBody)
     setFirstComment(savedComment)
+    setCaption(savedCaption)
+    setTitle(savedTitle)
     onClose()
   }
 
@@ -3477,12 +3679,14 @@ function PostTextEditor({
           Edit Draft Copy
         </span>
         <span className="text-muted font-mono text-xs">
-          Hook: {hook.length} chars (fold ~200)
+          {spec.limits.foldChars
+            ? `Hook: ${hook.length} chars (fold ~${spec.limits.foldChars})`
+            : `Hook: ${hook.length} chars`}
         </span>
       </div>
       <div>
         <label className="text-muted mb-1 block text-xs font-medium">
-          Opening Hook
+          {labels.hook}
         </label>
         <textarea
           value={hook}
@@ -3493,7 +3697,7 @@ function PostTextEditor({
       </div>
       <div>
         <label className="text-muted mb-1 block text-xs font-medium">
-          Body
+          {labels.body}
         </label>
         <textarea
           value={body}
@@ -3504,7 +3708,7 @@ function PostTextEditor({
       </div>
       <div>
         <label className="text-muted mb-1 block text-xs font-medium">
-          First Comment
+          {spec.commentLabel}
         </label>
         <textarea
           value={firstComment}
@@ -3513,6 +3717,32 @@ function PostTextEditor({
           className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
         />
       </div>
+      {hasTitle && (
+        <div>
+          <label className="text-muted mb-1 block text-xs font-medium">
+            Title ({title.length}/100)
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+          />
+        </div>
+      )}
+      {isVideo && (
+        <div>
+          <label className="text-muted mb-1 block text-xs font-medium">
+            Caption posted with the video
+          </label>
+          <textarea
+            value={caption}
+            onChange={e => setCaption(e.target.value)}
+            rows={3}
+            className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+          />
+        </div>
+      )}
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
@@ -3523,7 +3753,7 @@ function PostTextEditor({
         </button>
         <button
           type="button"
-          onClick={() => onSave({ hook, body, firstComment })}
+          onClick={() => onSave(current)}
           disabled={saving}
           className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
         >
@@ -3803,13 +4033,15 @@ export function PostsClient({
   initialNextCursor,
   totalCount,
   identity,
-  brand
+  brand,
+  enabledFormats
 }: {
   initialPosts: PostDetail[]
   initialNextCursor: string | null
   totalCount: number
   identity: IdentitySummary
   brand: BrandSummary
+  enabledFormats?: FormatId[]
 }) {
   return (
     <Suspense
@@ -3828,6 +4060,7 @@ export function PostsClient({
         totalCount={totalCount}
         identity={identity}
         brand={brand}
+        enabledFormats={enabledFormats}
       />
     </Suspense>
   )

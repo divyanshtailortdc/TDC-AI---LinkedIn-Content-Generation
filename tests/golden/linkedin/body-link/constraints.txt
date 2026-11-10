@@ -1,0 +1,7 @@
+Hook: at most 200 characters — this is the "…see more" fold. Never break mid-word or mid-sentence.
+Total length: aim for about 1300 characters, hard maximum 3000.
+Hashtags: exactly 2, at the end.
+Emoji are welcome where they add warmth.
+External links may appear in the body.
+Close with a call to action.
+LinkedIn renders plain text only. No markdown: no **bold**, no ## headings, no [text](url), no backtick code fences.

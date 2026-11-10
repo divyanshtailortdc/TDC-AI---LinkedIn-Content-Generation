@@ -13,9 +13,32 @@ export function LinkedInMark({ className }: { className: string }) {
   )
 }
 
-/** Each platform's mark (src/lib/platforms); a new platform adds its own here. */
-const MARKS: Record<PlatformId, (props: { className: string }) => ReactElement> = {
+/**
+ * Each platform's mark (src/lib/platforms); a new platform adds its own here.
+ * One without a mark yet shows its initial.
+ */
+const MARKS: Partial<
+  Record<PlatformId, (props: { className: string }) => ReactElement>
+> = {
   linkedin: LinkedInMark
+}
+
+function InitialMark({ platform, className }: { platform: PlatformId; className: string }) {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className={className}>
+      <rect width="24" height="24" rx="5" fill="currentColor" opacity="0.15" />
+      <text
+        x="12"
+        y="16.5"
+        textAnchor="middle"
+        fontSize="13"
+        fontWeight="700"
+        fill="currentColor"
+      >
+        {platform.charAt(0).toUpperCase()}
+      </text>
+    </svg>
+  )
 }
 
 /** A platform's mark, in the current text colour. */
@@ -27,5 +50,9 @@ export function PlatformMark({
   className: string
 }) {
   const Mark = MARKS[platform]
-  return <Mark className={className} />
+  return Mark ? (
+    <Mark className={className} />
+  ) : (
+    <InitialMark platform={platform} className={className} />
+  )
 }

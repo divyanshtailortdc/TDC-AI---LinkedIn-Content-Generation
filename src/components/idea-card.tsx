@@ -31,6 +31,8 @@ export interface IdeaCardData {
   originalityScore?: number | null
   /** Grounding problems found during validation. Shown before approval. */
   risks?: string[] | null
+  /** The formats ideation judged it suits, when its run offered several. */
+  formatFit?: string[] | null
 }
 
 interface IdeaCardProps {

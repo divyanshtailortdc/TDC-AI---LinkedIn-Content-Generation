@@ -104,7 +104,14 @@ function isQuotaError(error: unknown): boolean {
 
 export async function runSkill<S extends z.ZodType>(opts: {
   stage: AIStage
-  instructions: string
+  /**
+   * One block, or several sent in order. Several blocks each get their own
+   * cache breakpoint, so calls that share only the first block (drafting two
+   * ideas for one author) still reuse it, and calls that share all of them
+   * (two formats of one idea) reuse everything. At most three: the API takes
+   * four breakpoints per request.
+   */
+  instructions: string | string[]
   /**
    * Marks the instructions as a cacheable prefix. Worth it when the same
    * instructions are sent several times in a row, as drafting does per run.
@@ -130,20 +137,23 @@ export async function runSkill<S extends z.ZodType>(opts: {
   }
 
   const modelUsed = `${handle.providerName} (${handle.modelId})`
+  const blocks = (
+    Array.isArray(opts.instructions) ? opts.instructions : [opts.instructions]
+  ).slice(0, 3)
 
   try {
     const result = await generateText({
       model: handle.model,
       providerOptions: handle.providerOptions,
       instructions: opts.cacheInstructions
-        ? [
-            {
-              role: 'system',
-              content: opts.instructions,
-              providerOptions: EPHEMERAL_CACHE
-            }
-          ]
-        : opts.instructions,
+        ? blocks.map(content => ({
+            role: 'system' as const,
+            content,
+            providerOptions: EPHEMERAL_CACHE
+          }))
+        : blocks.length === 1
+          ? blocks[0]!
+          : blocks.map(content => ({ role: 'system' as const, content })),
       prompt: opts.images?.length
         ? [
             {

@@ -140,7 +140,10 @@ export const IdeaItemSchema = z.object({
   goalFitNote: z.string().optional(),
   unsupportedClaims: z.array(z.string()).default([]),
   sourceIds: z.array(z.string()).default([]),
-  risks: z.array(z.string()).default([])
+  risks: z.array(z.string()).default([]),
+  // The enabled formats (src/lib/formats) the idea suits, when the run offered
+  // more than one; checked against that list before it is saved.
+  formatFit: z.array(z.string()).optional()
 })
 
 export type GeneratedIdeaItem = z.infer<typeof IdeaItemSchema>
@@ -214,6 +217,25 @@ export type IdeaGenerationItem = z.infer<typeof IdeaGenerationItemSchema>
 export const IdeaGenerationBatchSchema = z.object({
   ideas: z
     .array(IdeaGenerationItemSchema)
+    .min(1)
+    .describe('List of generated post ideas')
+})
+
+/**
+ * The same, for a run that offers several formats: each idea also names the
+ * ones it suits. A run with one format uses the schema above, unchanged.
+ */
+export const IdeaGenerationWithFormatsItemSchema = IdeaGenerationItemSchema.extend({
+  formats: z
+    .array(z.string())
+    .describe(
+      'The format ids from the list given that this idea would make a strong post in, best first.'
+    )
+})
+
+export const IdeaGenerationWithFormatsBatchSchema = z.object({
+  ideas: z
+    .array(IdeaGenerationWithFormatsItemSchema)
     .min(1)
     .describe('List of generated post ideas')
 })

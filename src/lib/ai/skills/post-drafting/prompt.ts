@@ -14,6 +14,7 @@ import {
   resolveLinkPlacement,
   type GenerationContext
 } from '../../context-blocks'
+import { TRUTH_RULES } from '../shared/truth-rules'
 import type { DraftGenerationResult } from './schema'
 
 /** The exemplars that teach rhythm better than any slider can. */
@@ -66,11 +67,7 @@ ${renderConstraintsBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 TRUTH RULES
-- Use only the evidence supplied with the idea and the author's own details above. If a number is not in either, do not write a number.
-- Never claim first-hand experience ("I keep seeing", "clients tell me", "in my experience") unless the evidence or the author's details above state it.
-- Evidence from a web page is someone else's work. When you rely on it, name its source by title, put it in your own words (never lift a sentence), and never write "one recent post", "studies show" or "experts say".
-- Write "most", "everyone", "always" or "never" only when the evidence measures it. Otherwise use "many", "often" or "in some teams".
-- Write plain text. Real line breaks, no markdown of any kind.
+${TRUTH_RULES}
 
 HOW IT SHOULD READ
 - Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
@@ -136,6 +133,38 @@ Produce:
 5. hashtags — ${describeHashtags(constraints)}, without the # symbol
 6. alternateHooks — ${Math.max(2, Math.min(constraints.variants_per_post, 3))} genuinely different openings
 7. selfScores — honest 1-10 ratings`
+}
+
+/**
+ * The same brief, plus the post as it stands and what the reviewer wants
+ * changed. Without an instruction the reviewer just wants another take.
+ */
+export function buildRegeneratePrompt(
+  ctx: GenerationContext,
+  idea: Idea,
+  current: { hook: string; body: string; cta?: string | null },
+  instruction: string | null
+): string {
+  return `${buildPrompt(ctx, idea)}
+
+The reviewer asked for a new version of this post.${
+    instruction
+      ? ' Keep what works and change what they ask for.'
+      : ' Write a genuinely different take: a different opening and a different example, with the same argument and evidence.'
+  }
+
+CURRENT VERSION
+Hook: ${current.hook}
+Body:
+${current.body}
+CTA: ${current.cta || ''}${
+    instruction
+      ? `
+
+WHAT THE REVIEWER WANTS CHANGED — follow it, within the truth rules:
+${instruction}`
+      : ''
+  }`
 }
 
 /** The same brief, plus the previous draft and the checks it failed. */

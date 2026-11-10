@@ -191,6 +191,9 @@ export const samplePostsTable = pgTable('sample_posts', {
   performedWell: boolean('performed_well').default(false).notNull(),
   engagementNote: text('engagement_note'),
   isActive: boolean('is_active').default(true).notNull(),
+  // The platform this post was written for (src/lib/formats); a [X] or
+  // [Instagram] tag on a pasted sample sets it.
+  platform: varchar('platform', { length: 20 }).default('linkedin').notNull(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
     .notNull()
     .defaultNow()
@@ -380,6 +383,16 @@ export const preferencesTable = pgTable('preferences', {
   ideasPerRun: integer('ideas_per_run').default(5).notNull(),
   postConstraints: jsonb('post_constraints').$type<PostConstraints | null>(),
   guardrails: jsonb('guardrails').$type<Guardrails | null>(),
+  // The formats this identity drafts (src/lib/formats), and per platform who
+  // follows it there and how it sounds; see resolveChannels.
+  enabledFormats: jsonb('enabled_formats')
+    .$type<string[]>()
+    .default(['linkedin.post'])
+    .notNull(),
+  channelSettings: jsonb('channel_settings')
+    .$type<Record<string, { audience?: string; tone?: string }>>()
+    .default({})
+    .notNull(),
   ...commonFieldDefs.dates
 })
 
@@ -409,6 +422,9 @@ export const runsTable = pgTable(
     ),
     workflow: varchar('workflow', { length: 30 }).default('standard').notNull(),
     trigger: varchar('trigger', { length: 20 }).default('manual').notNull(),
+    // The one platform this run's ideas are for (src/lib/formats); null for
+    // every platform the identity posts on.
+    channel: varchar('channel', { length: 20 }),
     status: varchar('status', { length: 30 }).default('queued').notNull(),
     currentStep: integer('current_step').default(0).notNull(),
     totalSteps: integer('total_steps').default(3).notNull(),
@@ -584,6 +600,16 @@ export const ideasTable = pgTable('ideas', {
   sourceIds: jsonb('source_ids').$type<string[]>().default([]),
   risks: jsonb('risks').$type<string[]>().default([]),
   status: varchar('status', { length: 20 }).default('proposed').notNull(),
+  // The formats (src/lib/formats) drafting writes this idea up in: chosen in
+  // "Create posts", or set by its run. Ideas from before formats draft
+  // LinkedIn only.
+  targetFormats: jsonb('target_formats')
+    .$type<string[]>()
+    .default(['linkedin.post'])
+    .notNull(),
+  // The enabled formats ideation judged this idea suits; empty when the run
+  // had only one format to choose from.
+  formatFit: jsonb('format_fit').$type<string[]>().default([]).notNull(),
   ...commonFieldDefs.dates
 },
   table => [
@@ -658,12 +684,33 @@ export const postDraftsTable = pgTable('post_drafts', {
   // Set when the reviewer hides it: out of the Posts queue (shown under the
   // Hidden filter) until it is shown again. Nothing else changes.
   hiddenAt: commonFieldDefs.date('hidden_at'),
+  // Which platform format this post is (src/lib/formats). Not `format`, which
+  // holds the editorial style (thought_leadership). Rows from before formats
+  // are LinkedIn posts.
+  formatId: varchar('format_id', { length: 40 })
+    .default('linkedin.post')
+    .notNull(),
+  // The registry version of that format's rules the post was written under.
+  formatVersion: integer('format_version').default(1).notNull(),
+  // Format-specific structure the text columns cannot hold, e.g. an
+  // Instagram caption's visual idea.
+  payload: jsonb('payload').$type<Record<string, unknown> | null>(),
+  // The post this one was rewritten from, when it was derived from a sibling.
+  sourceDraftId: uuid('source_draft_id'),
   ...commonFieldDefs.dates
 },
   table => [
     index('post_drafts_account_created_idx').on(table.accountId, table.createdAt),
     index('post_drafts_idea_idx').on(table.ideaId),
-    index('post_drafts_account_planned_idx').on(table.accountId, table.plannedFor)
+    index('post_drafts_account_planned_idx').on(table.accountId, table.plannedFor),
+    // One post per idea and format. LinkedIn posts are left out: drafting
+    // claims the idea before writing them (drafting-claim.ts), and rows from
+    // before that claim existed can hold two LinkedIn posts of one idea.
+    uniqueIndex('post_drafts_idea_format_uq')
+      .on(table.ideaId, table.formatId)
+      .where(
+        sql`${table.ideaId} is not null and ${table.formatId} <> 'linkedin.post'`
+      )
   ]
 )
 
@@ -682,6 +729,42 @@ export const postVariantsTable = pgTable('post_variants', {
 },
   table => [
     index('post_variants_draft_idx').on(table.draftId)
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// 12b. Post Revisions (1:N with PostDraft) — earlier versions of a post's text
+// ---------------------------------------------------------------------------
+
+/**
+ * A version of a post's text that was replaced, kept so it can be restored:
+ * saved just before an edit, a regenerate or a restore overwrites it. The
+ * post row always holds the current version.
+ */
+export const postRevisionsTable = pgTable(
+  'post_revisions',
+  {
+    id: commonFieldDefs.id(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+    // 1, 2, 3… per post, oldest first.
+    number: integer('number').notNull(),
+    // What replaced it: 'user_edit' | 'regenerate' | 'restore'.
+    replacedBy: varchar('replaced_by', { length: 20 }).notNull(),
+    // What the reviewer asked for when regenerating, if anything.
+    instruction: text('instruction'),
+    hook: text('hook').notNull(),
+    body: text('body').notNull(),
+    cta: text('cta'),
+    firstComment: text('first_comment'),
+    hashtags: jsonb('hashtags').$type<string[]>().default([]),
+    payload: jsonb('payload').$type<Record<string, unknown> | null>(),
+    charCount: integer('char_count').default(0).notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    uniqueIndex('post_revisions_draft_number_uq').on(table.draftId, table.number)
   ]
 )
 
@@ -1388,6 +1471,7 @@ export const researchFindings = researchFindingsTable
 export const ideas = ideasTable
 export const postDrafts = postDraftsTable
 export const postVariants = postVariantsTable
+export const postRevisions = postRevisionsTable
 export const postCitations = postCitationsTable
 export const postMedia = postMediaTable
 export const schedules = schedulesTable
@@ -1447,6 +1531,9 @@ export type Draft = PostDraft
 
 export type PostVariant = typeof postVariantsTable.$inferSelect
 export type NewPostVariant = typeof postVariantsTable.$inferInsert
+
+export type PostRevision = typeof postRevisionsTable.$inferSelect
+export type NewPostRevision = typeof postRevisionsTable.$inferInsert
 
 export type PostCitation = typeof postCitationsTable.$inferSelect
 export type NewPostCitation = typeof postCitationsTable.$inferInsert

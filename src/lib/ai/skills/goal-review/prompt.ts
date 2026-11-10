@@ -1,5 +1,15 @@
 import { frameEvidenceText } from '../ideation/prompt'
 
+/**
+ * The review's instructions for a run whose ideas are for one platform
+ * ("Instagram"); without one, the general instructions, unchanged.
+ */
+export function instructionsFor(platform?: string | null): string {
+  return platform
+    ? INSTRUCTIONS.replace('social media post ideas', `${platform} post ideas`)
+    : INSTRUCTIONS
+}
+
 export const INSTRUCTIONS = `You review proposed social media post ideas against the goal each was written for, before a person decides which to have written. Judge whether each idea would achieve its goal, not whether it would make a good post in general.
 
 An idea achieves its goal when:

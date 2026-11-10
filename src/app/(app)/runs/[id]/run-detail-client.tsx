@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { FormatMenu, formatsForRequest, type FormatChoice } from '@/components/format-menu'
+import type { FormatId } from '@/lib/formats'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -52,6 +54,8 @@ interface RunDetailProps {
   initialFindings: any[]
   initialIdeas: any[]
   account: any
+  /** The formats the identity drafts; with two or more, "Create posts" asks which. */
+  enabledFormats?: FormatId[]
 }
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
@@ -171,9 +175,11 @@ export function RunDetailClient({
   initialSteps,
   initialFindings,
   initialIdeas,
-  account
+  account,
+  enabledFormats = ['linkedin.post']
 }: RunDetailProps) {
   const router = useRouter()
+  const [formatChoice, setFormatChoice] = useState<FormatChoice>('suited')
   const [run, setRun] = useState(initialRun)
   const [steps, setSteps] = useState(initialSteps)
   const [findings, setFindings] = useState(initialFindings)
@@ -444,7 +450,11 @@ export function RunDetailClient({
     }
 
     try {
-      const res = await draftSelectedIdeas({ runId: run.id, ideaIds: approvedIds })
+      const res = await draftSelectedIdeas({
+        runId: run.id,
+        ideaIds: approvedIds,
+        formats: formatsForRequest(formatChoice)
+      })
       if (!res.success) {
         await fail(res.error || 'Drafting failed. Please try again.')
         return
@@ -608,6 +618,12 @@ export function RunDetailClient({
                   <span>Approve {selectedProposed}</span>
                 </button>
               )}
+              <FormatMenu
+                enabled={enabledFormats}
+                value={formatChoice}
+                onChange={setFormatChoice}
+                disabled={isBusy}
+              />
               <button
                 type="button"
                 onClick={() => void handleDraftSelected(selection)}

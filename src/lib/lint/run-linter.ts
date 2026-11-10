@@ -39,7 +39,40 @@ export interface LintOptions {
   /** The post's platform, named in messages; the default platform when absent. */
   platformName?: string
   maxChars?: number
-  hookMaxChars?: number
+  /** Where the feed folds the post; null when the platform has no fold. */
+  hookMaxChars?: number | null
+  /** How the platform counts length; `String.length` (LinkedIn's count) when absent. */
+  countChars?: ((text: string) => number) | null
+  /**
+   * The texts `maxChars` applies to, one per post: the post with its hashtags,
+   * or each post of a thread. Absent: hook, body and call to action together,
+   * as LinkedIn counts them.
+   */
+  limitTexts?: string[] | null
+  /** How many posts a thread must have; absent for a single post. */
+  partRange?: { min: number; max: number } | null
+  /** What `limitTexts` are called in messages: "Post" unless a video's "Caption". */
+  limitLabel?: string | null
+  /** A video: its spoken length, caption and (YouTube) title. */
+  video?: {
+    seconds: number
+    targetSeconds: number
+    maxSeconds: number
+    caption: string
+    /** Null or absent: the platform takes no title. */
+    title?: string | null
+    titleMax?: number
+  } | null
+  /**
+   * What a link in the post does on this platform and where it belongs
+   * instead. Absent: LinkedIn's rule, where a body link costs reach unless
+   * the goal puts links in the body.
+   */
+  linkRule?: {
+    inBody: 'ok' | 'reach_penalty' | 'not_clickable'
+    /** "the first comment", "a reply", "the bio". */
+    fallbackLabel: string
+  } | null
   /** From the voice's hashtag policy; null or absent skips the check. */
   hashtagRange?: { min: number; max: number } | null
   emojiLevel?: 'none' | 'bullets_only' | 'liberal' | null
@@ -117,55 +150,165 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   const platform = getPlatform()
   const platformName = opts.platformName ?? platform.name
   const maxChars = opts.maxChars ?? platform.limits.maxChars
-  const hookMaxChars = opts.hookMaxChars ?? platform.limits.hookMaxChars
+  // Null: the platform has no fold, so there is no fold check.
+  const hookMaxChars =
+    opts.hookMaxChars === null ? null : (opts.hookMaxChars ?? platform.limits.hookMaxChars)
+  const count = opts.countChars ?? ((text: string) => text.length)
   const hook = (opts.hook || '').trim()
   const fullText = `${opts.hook}\n\n${opts.body}${opts.cta ? `\n\n${opts.cta}` : ''}`.trim()
-  const charCount = fullText.length
-  const hookLength = hook.length
+  const hookLength = count(hook)
+  // "Close to the limit" is the last 200 characters of a long post, the last
+  // tenth of a short one.
+  const nearLimit = maxChars - Math.min(200, Math.round(maxChars * 0.1))
 
-  // 1. Total length
-  if (charCount > maxChars) {
-    findings.push({
-      rule: 'char_limit',
-      severity: 'error',
-      message: `Post is ${charCount} characters, over the ${maxChars} character limit. Trim ${charCount - maxChars}.`,
-      passed: false
-    })
-  } else if (charCount > maxChars - 200) {
-    findings.push({
-      rule: 'char_limit',
-      severity: 'warning',
-      message: `Post is ${charCount} characters, close to the ${maxChars} limit.`,
-      passed: true
-    })
+  // 1. Total length: of the post, or of each post in a thread.
+  const limited = opts.limitTexts?.length ? opts.limitTexts : [fullText]
+  const what = opts.limitLabel || 'Post'
+  if (limited.length === 1 && !opts.partRange) {
+    const charCount = count(limited[0]!)
+    if (charCount > maxChars) {
+      findings.push({
+        rule: 'char_limit',
+        severity: 'error',
+        message: `${what} is ${charCount} characters, over the ${maxChars} character limit. Trim ${charCount - maxChars}.`,
+        passed: false
+      })
+    } else if (charCount > nearLimit) {
+      findings.push({
+        rule: 'char_limit',
+        severity: 'warning',
+        message: `${what} is ${charCount} characters, close to the ${maxChars} limit.`,
+        passed: true
+      })
+    } else {
+      findings.push({
+        rule: 'char_limit',
+        severity: 'info',
+        message: `Character count: ${charCount} / ${maxChars}`,
+        passed: true
+      })
+    }
   } else {
-    findings.push({
-      rule: 'char_limit',
-      severity: 'info',
-      message: `Character count: ${charCount} / ${maxChars}`,
-      passed: true
-    })
+    const counts = limited.map(count)
+    const over = counts
+      .map((n, i) => ({ n, post: i + 1 }))
+      .filter(({ n }) => n > maxChars)
+    findings.push(
+      over.length > 0
+        ? {
+            rule: 'char_limit',
+            severity: 'error',
+            message: over
+              .map(({ n, post }) => `Post ${post} of the thread is ${n} characters, over the ${maxChars} limit. Trim ${n - maxChars}.`)
+              .join(' '),
+            passed: false
+          }
+        : {
+            rule: 'char_limit',
+            severity: 'info',
+            message: `Every post in the thread fits the ${maxChars} character limit (longest ${Math.max(0, ...counts)}).`,
+            passed: true
+          }
+    )
+    if (opts.partRange) {
+      const { min, max } = opts.partRange
+      findings.push(
+        limited.length < min || limited.length > max
+          ? {
+              rule: 'thread_length',
+              severity: 'warning',
+              message: `The thread has ${limited.length} post${limited.length === 1 ? '' : 's'}; aim for ${min} to ${max}.`,
+              passed: false
+            }
+          : {
+              rule: 'thread_length',
+              severity: 'info',
+              message: `The thread has ${limited.length} posts.`,
+              passed: true
+            }
+      )
+    }
   }
 
-  // 2. The fold
-  if (hookLength > hookMaxChars) {
-    findings.push({
-      rule: 'hook_fold',
-      severity: 'warning',
-      message: `Hook is ${hookLength} characters, past the ${hookMaxChars} character fold. The tail will sit behind "…see more".`,
-      passed: false
-    })
-  } else {
-    findings.push({
-      rule: 'hook_fold',
-      severity: 'info',
-      message: `Hook fits the ${hookMaxChars} character fold (${hookLength}).`,
-      passed: true
-    })
+  // 1b. A video: how long it takes to say, its caption and its title.
+  if (opts.video) {
+    const v = opts.video
+    findings.push(
+      v.seconds > v.maxSeconds
+        ? {
+            rule: 'script_length',
+            severity: 'error',
+            message: `The script takes about ${v.seconds} seconds to say, over the ${v.maxSeconds} second limit. Cut about ${v.seconds - v.maxSeconds} seconds.`,
+            passed: false
+          }
+        : v.seconds > Math.round(v.targetSeconds * 1.5)
+          ? {
+              rule: 'script_length',
+              severity: 'warning',
+              message: `The script takes about ${v.seconds} seconds to say; aim for about ${v.targetSeconds}.`,
+              passed: false
+            }
+          : {
+              rule: 'script_length',
+              severity: 'info',
+              message: `The script takes about ${v.seconds} seconds to say.`,
+              passed: true
+            }
+    )
+    if (!v.caption.trim()) {
+      findings.push({
+        rule: 'caption_missing',
+        severity: 'warning',
+        message: 'There is no caption to post with the video.',
+        passed: false
+      })
+    }
+    if (v.title != null) {
+      const titleMax = v.titleMax ?? 100
+      if (!v.title.trim()) {
+        findings.push({
+          rule: 'video_title',
+          severity: 'warning',
+          message: 'The video has no title.',
+          passed: false
+        })
+      } else if (v.title.length > titleMax) {
+        findings.push({
+          rule: 'video_title',
+          severity: 'error',
+          message: `The title is ${v.title.length} characters, over the ${titleMax} limit.`,
+          passed: false
+        })
+      }
+    }
+  }
+
+  // 2. The fold, on platforms that have one.
+  if (hookMaxChars !== null) {
+    if (hookLength > hookMaxChars) {
+      findings.push({
+        rule: 'hook_fold',
+        severity: 'warning',
+        message: `Hook is ${hookLength} characters, past the ${hookMaxChars} character fold. The tail will sit behind "…see more".`,
+        passed: false
+      })
+    } else {
+      findings.push({
+        rule: 'hook_fold',
+        severity: 'info',
+        message: `Hook fits the ${hookMaxChars} character fold (${hookLength}).`,
+        passed: true
+      })
+    }
   }
 
   // 2b. A hook cut mid-word reads as a mistake in the feed.
-  if (hookLength > 0 && hookLength <= hookMaxChars && /[A-Za-z0-9,]$/.test(hook)) {
+  if (
+    hookMaxChars !== null &&
+    hookLength > 0 &&
+    hookLength <= hookMaxChars &&
+    /[A-Za-z0-9,]$/.test(hook)
+  ) {
     findings.push({
       rule: 'hook_completeness',
       severity: 'info',
@@ -204,22 +347,43 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   )
 
   // 4. Link placement
-  const urlsInBody = fullText.match(/https?:\/\/[^\s]+/gi) || []
+  const urlPattern = /https?:\/\/[^\s]+/gi
+  // Other formats also check the text their limit covers (a video's caption).
+  const urlsInBody = opts.limitTexts?.length
+    ? Array.from(
+        new Set([
+          ...(fullText.match(urlPattern) || []),
+          ...(opts.limitTexts.join('\n').match(urlPattern) || [])
+        ])
+      )
+    : fullText.match(urlPattern) || []
   const strategy = opts.linkPlacement || 'first_comment'
+  const linkRule = opts.linkRule
+  const shownUrls = urlsInBody.slice(0, 3).join(', ')
   findings.push(
-    strategy === 'first_comment' && urlsInBody.length > 0
+    linkRule?.inBody === 'not_clickable' && urlsInBody.length > 0
       ? {
           rule: 'link_placement',
           severity: 'warning',
-          message: `External links in the body reduce reach: ${urlsInBody.slice(0, 3).join(', ')}. Move them to the first comment.`,
+          message: `Links are not clickable in a ${platformName} post: ${shownUrls}. Point readers to ${linkRule.fallbackLabel} instead.`,
           passed: false
         }
-      : {
-          rule: 'link_placement',
-          severity: 'info',
-          message: 'Link placement matches the configured strategy.',
-          passed: true
-        }
+      : linkRule?.inBody !== 'ok' &&
+          linkRule?.inBody !== 'not_clickable' &&
+          strategy === 'first_comment' &&
+          urlsInBody.length > 0
+        ? {
+            rule: 'link_placement',
+            severity: 'warning',
+            message: `External links in the body reduce reach: ${shownUrls}. Move them to ${linkRule?.fallbackLabel ?? 'the first comment'}.`,
+            passed: false
+          }
+        : {
+            rule: 'link_placement',
+            severity: 'info',
+            message: 'Link placement matches the configured strategy.',
+            passed: true
+          }
   )
 
   // 5. Banned words

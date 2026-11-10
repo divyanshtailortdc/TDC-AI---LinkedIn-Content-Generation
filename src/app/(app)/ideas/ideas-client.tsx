@@ -15,6 +15,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Sparkles, ArrowRight, Check, CheckCheck, SquareCheck, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
+import { FormatMenu, formatsForRequest, type FormatChoice } from '@/components/format-menu'
+import type { FormatId } from '@/lib/formats'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
@@ -68,8 +70,11 @@ export function IdeasClient({
   statusCounts,
   proposedIds,
   approvedIds,
-  identity
+  identity,
+  enabledFormats = ['linkedin.post']
 }: {
+  /** The formats the identity drafts; with two or more, "Create posts" asks which. */
+  enabledFormats?: FormatId[]
   /** One page of the ideas the status filter shows; pageInfo says which. */
   initialIdeas: ClientIdeaData[]
   pageInfo: PageInfo
@@ -83,6 +88,7 @@ export function IdeasClient({
 }) {
   const router = useRouter()
   const pathname = usePathname()
+  const [formatChoice, setFormatChoice] = useState<FormatChoice>('suited')
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
   // The server sends a new page after every action here (each revalidates
   // /ideas) and on each page or filter change. It replaces the local copy,
@@ -309,7 +315,10 @@ export function IdeasClient({
     setIdeas((prev) => prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'drafting' } : i)))
 
     try {
-      const res = await draftSelectedIdeas({ ideaIds: targetIds })
+      const res = await draftSelectedIdeas({
+        ideaIds: targetIds,
+        formats: formatsForRequest(formatChoice)
+      })
       if (res.success) {
         setTicked((prev) => prev.filter((id) => !targetIds.includes(id)))
         if (res.note) {
@@ -511,6 +520,12 @@ export function IdeasClient({
                 </button>
               )}
 
+              <FormatMenu
+                enabled={enabledFormats}
+                value={formatChoice}
+                onChange={setFormatChoice}
+                disabled={isActionBusy}
+              />
               {selectedProposed.length === 0 ? (
                 <button
                   type="button"

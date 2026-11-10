@@ -1,0 +1,86 @@
+[
+  {
+    "rule": "char_limit",
+    "severity": "info",
+    "message": "Character count: 336 / 3000",
+    "passed": true
+  },
+  {
+    "rule": "hook_fold",
+    "severity": "info",
+    "message": "Hook fits the 200 character fold (172).",
+    "passed": true
+  },
+  {
+    "rule": "hook_completeness",
+    "severity": "info",
+    "message": "Hook does not end on sentence punctuation; check it reads as a complete thought at the fold.",
+    "passed": true
+  },
+  {
+    "rule": "no_markdown_leakage",
+    "severity": "error",
+    "message": "LinkedIn shows markdown as literal characters. Found: bold (**text**), heading (# Heading), bullet (- item).",
+    "passed": false
+  },
+  {
+    "rule": "link_placement",
+    "severity": "warning",
+    "message": "External links in the body reduce reach: https://northwind.example/audit. Move them to the first comment.",
+    "passed": false
+  },
+  {
+    "rule": "banned_words",
+    "severity": "info",
+    "message": "No banned wording detected.",
+    "passed": true
+  },
+  {
+    "rule": "hashtag_count",
+    "severity": "warning",
+    "message": "5 hashtags present, but the voice asks for 0–3.",
+    "passed": false
+  },
+  {
+    "rule": "emoji_policy",
+    "severity": "info",
+    "message": "Emoji use matches the configured policy.",
+    "passed": true
+  },
+  {
+    "rule": "generic_cta",
+    "severity": "warning",
+    "message": "\"Thoughts?\" would close any post. Ask for something that follows from this one.",
+    "passed": false
+  },
+  {
+    "rule": "engagement_bait",
+    "severity": "error",
+    "message": "Engagement bait detected. LinkedIn penalises posts that ask for interactions this way.",
+    "passed": false
+  },
+  {
+    "rule": "grounded_citations",
+    "severity": "warning",
+    "message": "Numeric claims present (45%) with 0 citations; preferences ask for at least 1.",
+    "passed": false
+  },
+  {
+    "rule": "unsupported_figures",
+    "severity": "error",
+    "message": "\"45%\" does not appear in this post's evidence or the author's details. Remove it or use a figure from the evidence.",
+    "passed": false
+  },
+  {
+    "rule": "excessive_caps",
+    "severity": "warning",
+    "message": "All-caps words detected (NEED, KNOW, THIS, NOW). Reads as shouting.",
+    "passed": false
+  },
+  {
+    "rule": "vague_attribution",
+    "severity": "warning",
+    "message": "\"studies show\" names no source. Name who said it, or leave the claim out.",
+    "passed": false
+  }
+]

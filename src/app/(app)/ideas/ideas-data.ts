@@ -63,6 +63,7 @@ export async function loadIdeasPage(
             sourceIds: ideasTable.sourceIds,
             risks: ideasTable.risks,
             status: ideasTable.status,
+            formatFit: ideasTable.formatFit,
             createdAt: ideasTable.createdAt,
             // Which run made the idea, so ideas from different runs (and from
             // before the identity was renamed) can be told apart.

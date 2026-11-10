@@ -2,6 +2,7 @@
 
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { cn } from '@/lib/cn'
+import { FormatChips } from '@/components/format-chips'
 import {
   AlertTriangle,
   ArrowRight,
@@ -47,6 +48,8 @@ export interface RunIdeaCardData {
   /** How well it achieves its goal, and why (the goal review). */
   goalFitScore?: number | null
   goalFitNote?: string | null
+  /** The formats ideation judged it suits, when its run offered several. */
+  formatFit?: string[] | null
   status: string
 }
 
@@ -384,6 +387,11 @@ export function RunIdeaCard({
             >
               {summary}
             </p>
+          )}
+          {(idea.formatFit?.length ?? 0) > 0 && (
+            <div className="mt-2">
+              <FormatChips formats={idea.formatFit} />
+            </div>
           )}
 
           {showDetails && (

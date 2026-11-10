@@ -11,6 +11,7 @@ import {
 import { ideaGoalTitles, RESEARCH_SETTINGS } from '@/lib/ai/context'
 import { defaultModel } from '@/lib/models'
 import { and, asc, desc, eq } from 'drizzle-orm'
+import type { PlatformId } from '@/lib/formats'
 import { checkRunGoals } from './run-goals'
 import { insertRunUnlessActive } from './run-guard'
 
@@ -22,6 +23,11 @@ export interface EnqueueRunOptions {
    */
   goalIds: string[]
   trigger?: 'manual' | 'schedule'
+  /**
+   * The one platform the run's ideas are for (src/lib/formats); absent for
+   * every platform the identity posts on. Scheduled runs plan for all of them.
+   */
+  channel?: PlatformId | null
 }
 
 /**
@@ -66,6 +72,7 @@ export async function enqueueRun(opts: EnqueueRunOptions) {
     // Recorded up front: the database default is a leftover placeholder.
     model: defaultModel,
     trigger: opts.trigger || 'manual',
+    channel: opts.channel ?? null,
     status: 'queued',
     currentStep: 0,
     totalSteps: 3,

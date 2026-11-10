@@ -16,8 +16,9 @@ import {
 } from '@/db/schema'
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform } from '@/lib/platforms'
+import { DEFAULT_FORMAT } from '@/lib/formats'
 import { isOldNews } from '~/lib/intel/settings'
-import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import {
   EMPTY_HISTORY,
   resolvePreferences,
@@ -58,23 +59,45 @@ export async function loadBrandTheme(accountId: string): Promise<ResolvedBrandTh
   return resolveBrandTheme(row)
 }
 
-/** Enough to spot a repeat or a pattern in rejections without bloating prompts. */
-const HISTORY_LIMITS = { drafts: 30, ideas: 40, rejectionReasons: 8 }
+/**
+ * Enough to spot a repeat or a pattern in rejections without bloating prompts.
+ * `otherDrafts` covers every non-LinkedIn format together; each format reads
+ * its own from it (forFormat).
+ */
+const HISTORY_LIMITS = { drafts: 30, otherDrafts: 90, ideas: 40, rejectionReasons: 8 }
 
 async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
-  const [drafts, ideas, feedback] = await Promise.all([
+  const draftColumns = {
+    hook: postDraftsTable.hook,
+    originalHook: postDraftsTable.originalHook,
+    body: postDraftsTable.body,
+    cta: postDraftsTable.cta,
+    status: postDraftsTable.status
+  }
+  const [drafts, otherDrafts, ideas, feedback] = await Promise.all([
+    // LinkedIn posts only, exactly as before other formats existed.
     db
-      .select({
-        hook: postDraftsTable.hook,
-        originalHook: postDraftsTable.originalHook,
-        body: postDraftsTable.body,
-        cta: postDraftsTable.cta,
-        status: postDraftsTable.status
-      })
+      .select(draftColumns)
       .from(postDraftsTable)
-      .where(eq(postDraftsTable.accountId, accountId))
+      .where(
+        and(
+          eq(postDraftsTable.accountId, accountId),
+          eq(postDraftsTable.formatId, DEFAULT_FORMAT)
+        )
+      )
       .orderBy(desc(postDraftsTable.createdAt))
       .limit(HISTORY_LIMITS.drafts),
+    db
+      .select({ ...draftColumns, formatId: postDraftsTable.formatId })
+      .from(postDraftsTable)
+      .where(
+        and(
+          eq(postDraftsTable.accountId, accountId),
+          ne(postDraftsTable.formatId, DEFAULT_FORMAT)
+        )
+      )
+      .orderBy(desc(postDraftsTable.createdAt))
+      .limit(HISTORY_LIMITS.otherDrafts),
     db
       .select({
         title: ideasTable.title,
@@ -105,6 +128,7 @@ async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
 
   return {
     drafts,
+    otherDrafts,
     ideas: ideas.map(i => ({
       title: i.title || i.hook,
       hookConcept: i.hookConcept || i.hook,

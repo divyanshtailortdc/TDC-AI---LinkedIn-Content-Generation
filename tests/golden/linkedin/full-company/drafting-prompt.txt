@@ -1,0 +1,31 @@
+Write the post for this approved idea.
+
+This author's latest posts opened with the lines below. Open differently, and do not reuse their phrasing or signature lines:
+- Your freight bill is wrong.
+- Duplicate invoices cost more than fuel.
+
+Title: Duplicate charges hide in plain sight
+Thesis: Most overbilling is duplicates, not rates
+Angle: Audit the boring fees first
+Why now: Peak season raises volume
+Hook concept (turn this into real copy, do not copy it verbatim): One in twenty invoices bills you twice
+Core argument: Rate negotiation gets attention; duplicates get missed
+Reader takeaway: For Logistics managers: check duplicates before rates
+
+EVIDENCE YOU MAY USE (nothing outside this):
+[1] Duplicate billing affects 1 in 20 invoices
+    Quote: "roughly one in twenty invoices contained a duplicate charge"
+    Source: Freight Billing Report 2026
+    URL: https://research.example/report
+[2] Recovered 3.2% of spend for a retailer
+
+Produce:
+1. hook — at most 200 characters, a complete thought that survives the fold
+2. body — the rest of the post after the hook; do not repeat the hook. Plain text; hook and body together about 1300 characters
+3. cta — required. Steer the reader toward: Book a free audit call. Name it only when this post's argument leads to it; otherwise ask a question the reader can answer from their own work. Never use the same sentence as an earlier post. It is an ask, not a summary of the post. Never a generic "Thoughts?", "Agree?" or "What do you think?". Offer nothing the goal does not name: no call, demo, audit, download, template or DM offer beyond the action above. Recent posts already ended with these asks, so do not repeat their wording or shape:
+- "How do you check invoices today?"
+- "Which fee surprises you most?"
+4. firstComment — place any link here (use https://northwind.example/audit)
+5. hashtags — between 0 and 3, at the end, without the # symbol
+6. alternateHooks — 2 genuinely different openings
+7. selfScores — honest 1-10 ratings

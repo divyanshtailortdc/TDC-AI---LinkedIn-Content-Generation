@@ -47,7 +47,20 @@ export const PreferencesPayloadSchema = z.object({
       .array(text(300, 'Banned topic'))
       .max(100, 'Use at most 100 banned topics.'),
     compliance_notes: text(5000, 'Compliance notes')
-  })
+  }),
+  // Older forms (and AI setup) send no channels; saving then keeps them.
+  channels: z
+    .object({
+      enabledFormats: z.array(z.string().max(40)).max(20),
+      settings: z.record(
+        z.string().max(20),
+        z.object({
+          audience: text(2000, 'Who follows you there').optional(),
+          tone: text(2000, 'How you sound there').optional()
+        })
+      )
+    })
+    .optional()
 })
 
 export const KnowledgeDocumentSchema = z.object({

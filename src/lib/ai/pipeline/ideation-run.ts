@@ -47,7 +47,13 @@ import {
 } from '../run-lifecycle'
 import { SkillError } from '../run-skill'
 import { applyGoalReviews, reviewGoalFit } from '../skills/goal-review'
-import { generateIdeas, type GeneratedIdeaItem } from '../skills/ideation'
+import {
+  generateIdeas,
+  ideationChannels,
+  type GeneratedIdeaItem
+} from '../skills/ideation'
+import { channelAudience } from '../channel-context'
+import { cleanFormats, initialTargetFormats, PLATFORMS } from '@/lib/formats'
 import { buildGroundingCorpus } from './grounding-corpus'
 
 /**
@@ -247,9 +253,21 @@ async function researchAndIdeate(
   signal: AbortSignal
 ): Promise<ResearchIdeateResult> {
   const runId = run.id
-  const ctx = await loadGenerationContext(run.accountId, {
+  const baseCtx = await loadGenerationContext(run.accountId, {
     goalIds: goalIdsOfRun(run)
   })
+  // The platforms this run plans for: its own, or every format the identity
+  // drafts. Null for an identity on LinkedIn alone, whose runs are unchanged.
+  const enabledFormats = baseCtx.prefs.channels.enabledFormats
+  const channels = ideationChannels(enabledFormats, run.channel)
+  // A run for one platform writes for the people who follow the identity
+  // there, when it has said who they are.
+  const targetAudience = channels?.target
+    ? channelAudience(baseCtx, channels.target)
+    : null
+  const ctx = targetAudience
+    ? { ...baseCtx, audiences: [targetAudience, ...baseCtx.audiences] }
+    : baseCtx
   // A goal deleted after the run was queued drops out; with none left there
   // is nothing to write toward. The caller fails the run with this message.
   if (ctx.selectedGoals.length === 0) {
@@ -434,7 +452,14 @@ async function researchAndIdeate(
     []
   let goalReviewed = 0
   const reviewAgainstGoals = async (ideas: GeneratedIdeaItem[]) => {
-    const review = await reviewGoalFit(ctx, ideas, signal)
+    const review = await reviewGoalFit(
+      ctx,
+      ideas,
+      signal,
+      channels?.target && channels.target !== 'linkedin'
+        ? PLATFORMS[channels.target].label
+        : null
+    )
     ideationUsage = addUsage(ideationUsage, review.usage)
     goalReviewed += review.reviews.filter(Boolean).length
     const { kept, missed } = applyGoalReviews(ideas, review.reviews)
@@ -450,7 +475,8 @@ async function researchAndIdeate(
       history: renderIdeationHistoryBlock(ctx, runId),
       candidateCount,
       assignedGoals,
-      abortSignal: signal
+      abortSignal: signal,
+      channels
     })
     ideationUsage = ideation.usage
     candidates = ideation.candidates
@@ -510,7 +536,8 @@ async function researchAndIdeate(
           .join('\n\n'),
         candidateCount: retryCount,
         assignedGoals: spreadGoals(missing, retryCount),
-        abortSignal: signal
+        abortSignal: signal,
+        channels
       })
       ideationUsage = addUsage(ideationUsage, retry.usage)
       candidates = [...candidates, ...retry.candidates]
@@ -671,7 +698,13 @@ async function researchAndIdeate(
         unsupportedClaims: idea.unsupportedClaims || [],
         sourceIds: idea.sourceIds || [],
         risks: idea.risks || [],
-        status: 'proposed'
+        status: 'proposed',
+        formatFit: idea.formatFit ?? [],
+        targetFormats: initialTargetFormats({
+          enabled: enabledFormats,
+          fit: cleanFormats(idea.formatFit),
+          channel: channels?.target ?? null
+        })
         }
       })
     )

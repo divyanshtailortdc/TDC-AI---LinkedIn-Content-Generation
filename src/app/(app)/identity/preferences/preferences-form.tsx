@@ -11,7 +11,17 @@ import {
   preferencesSuggestionValues,
   type PreferencesValues
 } from '@/lib/settings-merge'
-import { FileText, ShieldAlert } from 'lucide-react'
+import {
+  FORMAT_IDS,
+  FORMATS,
+  PLATFORM_IDS,
+  PLATFORMS,
+  platformsOf,
+  type ChannelSettings,
+  type FormatId,
+  type PlatformId
+} from '@/lib/formats'
+import { FileText, Share2, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { savePreferences, type PreferencesPayload } from './actions'
 
@@ -78,6 +88,34 @@ export function PreferencesForm({
   const [complianceNotes, setComplianceNotes] = useState(
     initial.guardrails.compliance_notes
   )
+  const initialChannels = initial.channels ?? {
+    enabledFormats: ['linkedin.post'],
+    settings: {}
+  }
+  const [enabledFormats, setEnabledFormats] = useState<string[]>(
+    initialChannels.enabledFormats
+  )
+  const [channelSettings, setChannelSettings] = useState<ChannelSettings>(
+    initialChannels.settings
+  )
+  const toggleFormat = (id: FormatId, on: boolean) =>
+    setEnabledFormats(current =>
+      on ? [...current, id] : current.filter(f => f !== id)
+    )
+  const setNote = (
+    platform: PlatformId,
+    field: 'audience' | 'tone',
+    value: string
+  ) =>
+    setChannelSettings(current => ({
+      ...current,
+      [platform]: { ...current[platform], [field]: value }
+    }))
+  // The platforms with a format turned on, other than LinkedIn, which takes
+  // its audience and tone from the profile and voice.
+  const notePlatforms = platformsOf(
+    FORMAT_IDS.filter(f => enabledFormats.includes(f))
+  ).filter(p => p !== 'linkedin')
 
   const [error, setError] = useState<string | null>(null)
 
@@ -109,7 +147,8 @@ export function PreferencesForm({
         guardrails: {
           banned_topics: splitList(bannedTopicsInput),
           compliance_notes: complianceNotes
-        }
+        },
+        channels: { enabledFormats, settings: channelSettings }
       })
       showToast({
         type: 'success',
@@ -137,6 +176,8 @@ export function PreferencesForm({
     setConstraints(initial.post_constraints)
     setBannedTopicsInput(initial.guardrails.banned_topics.join(', '))
     setComplianceNotes(initial.guardrails.compliance_notes)
+    setEnabledFormats(initialChannels.enabledFormats)
+    setChannelSettings(initialChannels.settings)
     setError(null)
   }
   // Settings the AI filled in are unsaved changes, so they keep the form open.
@@ -200,7 +241,98 @@ export function PreferencesForm({
         </div>
       </Section>
 
-      {/* 2. Guardrails */}
+      {/* 2. Platforms */}
+      <Section
+        icon={Share2}
+        title="Platforms"
+        description="The formats posts are written in. Each idea is written separately for every platform you pick when you create posts."
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {PLATFORM_IDS.map(platform => (
+            <fieldset
+              key={platform}
+              className="border-border min-w-0 rounded-lg border p-3"
+            >
+              <legend className="text-foreground px-1 text-xs font-semibold">
+                {PLATFORMS[platform].label}
+              </legend>
+              <div className="space-y-1.5">
+                {FORMAT_IDS.filter(f => FORMATS[f].platform === platform).map(
+                  id => (
+                    <label
+                      key={id}
+                      className="flex cursor-pointer items-center gap-2.5 text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        id={`format-${id}`}
+                        checked={enabledFormats.includes(id)}
+                        onChange={e => toggleFormat(id, e.target.checked)}
+                        className="accent-accent"
+                      />
+                      <span className="text-foreground font-medium">
+                        {FORMATS[id].label}
+                      </span>
+                      <span className="text-muted">
+                        {FORMATS[id].limits.seconds
+                          ? `script for a ~${FORMATS[id].limits.seconds.target}s video`
+                          : `up to ${FORMATS[id].limits.maxChars.toLocaleString()} characters${FORMATS[id].structure === 'thread' ? ' a post' : ''}`}
+                      </span>
+                    </label>
+                  )
+                )}
+              </div>
+            </fieldset>
+          ))}
+        </div>
+        {enabledFormats.length === 0 && (
+          <p className="text-xs text-rose-600 dark:text-rose-400">
+            Turn on at least one format.
+          </p>
+        )}
+
+        {notePlatforms.map(platform => {
+          const label = PLATFORMS[platform].label
+          return (
+            <div key={platform} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <label
+                  htmlFor={`audience-${platform}`}
+                  className="text-foreground mb-1 block text-xs font-medium"
+                >
+                  Who follows you on {label} (optional)
+                </label>
+                <textarea
+                  id={`audience-${platform}`}
+                  autoComplete="off"
+                  value={channelSettings[platform]?.audience ?? ''}
+                  onChange={e => setNote(platform, 'audience', e.target.value)}
+                  placeholder={`e.g. Customers and local followers, not the partners on LinkedIn`}
+                  className={`${inputClass} h-20 resize-none leading-relaxed`}
+                />
+              </div>
+              <div className="min-w-0">
+                <label
+                  htmlFor={`tone-${platform}`}
+                  className="text-foreground mb-1 block text-xs font-medium"
+                >
+                  How you sound on {label} (optional)
+                </label>
+                <textarea
+                  id={`tone-${platform}`}
+                  autoComplete="off"
+                  value={channelSettings[platform]?.tone ?? ''}
+                  onChange={e => setNote(platform, 'tone', e.target.value)}
+                  placeholder="e.g. Lighter, more personal, first names, the odd emoji"
+                  className={`${inputClass} h-20 resize-none leading-relaxed`}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </Section>
+
+      {/* 3. Guardrails */}
       <Section icon={ShieldAlert} title="Things to Avoid">
         <div>
           <label className="text-foreground mb-1 block text-xs font-medium">

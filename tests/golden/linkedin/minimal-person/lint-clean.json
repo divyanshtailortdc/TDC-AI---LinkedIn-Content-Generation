@@ -1,0 +1,50 @@
+[
+  {
+    "rule": "char_limit",
+    "severity": "info",
+    "message": "Character count: 176 / 3000",
+    "passed": true
+  },
+  {
+    "rule": "hook_fold",
+    "severity": "info",
+    "message": "Hook fits the 200 character fold (47).",
+    "passed": true
+  },
+  {
+    "rule": "no_markdown_leakage",
+    "severity": "info",
+    "message": "No markdown syntax detected.",
+    "passed": true
+  },
+  {
+    "rule": "link_placement",
+    "severity": "info",
+    "message": "Link placement matches the configured strategy.",
+    "passed": true
+  },
+  {
+    "rule": "banned_words",
+    "severity": "info",
+    "message": "No banned wording detected.",
+    "passed": true
+  },
+  {
+    "rule": "hashtag_count",
+    "severity": "info",
+    "message": "Hashtag count matches the voice (2).",
+    "passed": true
+  },
+  {
+    "rule": "emoji_policy",
+    "severity": "info",
+    "message": "Emoji use matches the configured policy.",
+    "passed": true
+  },
+  {
+    "rule": "unsupported_figures",
+    "severity": "info",
+    "message": "Every figure appears in the evidence or the author's details.",
+    "passed": true
+  }
+]

@@ -6,7 +6,10 @@ import { goalsTable, preferencesTable } from '@/db/schema'
 import { resolvePreferences } from '@/lib/ai/context'
 import { desc, eq } from 'drizzle-orm'
 
-/** The identity's goals, newest first, and its ideas per run, for a run picker. */
+/**
+ * The identity's goals, newest first, its ideas per run and the platforms it
+ * posts on, for a run picker.
+ */
 export async function loadRunPicker(accountId: string): Promise<RunPickerData> {
   const [goals, [preferences]] = await Promise.all([
     db
@@ -25,5 +28,10 @@ export async function loadRunPicker(accountId: string): Promise<RunPickerData> {
       .from(preferencesTable)
       .where(eq(preferencesTable.accountId, accountId))
   ])
-  return { goals, ideasPerRun: resolvePreferences(preferences).ideasPerRun }
+  const prefs = resolvePreferences(preferences)
+  return {
+    goals,
+    ideasPerRun: prefs.ideasPerRun,
+    platforms: prefs.channels.platforms
+  }
 }

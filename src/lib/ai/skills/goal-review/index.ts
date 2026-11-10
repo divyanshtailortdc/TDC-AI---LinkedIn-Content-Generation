@@ -5,7 +5,7 @@ import { runSkill, SkillError } from '../../run-skill'
 import { EMPTY_USAGE, type CallUsage } from '../../usage'
 import type { GeneratedIdeaItem } from '../ideation/schema'
 import { readGoalReviews } from './guard'
-import { buildPrompt, INSTRUCTIONS } from './prompt'
+import { buildPrompt, instructionsFor } from './prompt'
 import { GoalReviewSchema, type GoalReview } from './schema'
 
 export { applyGoalReviews, MIN_GOAL_FIT } from './guard'
@@ -22,14 +22,16 @@ const REVIEW_TIMEOUT_MS = 90_000
 export async function reviewGoalFit(
   ctx: GenerationContext,
   ideas: GeneratedIdeaItem[],
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  /** The platform a run's ideas are for, when it planned for one other than LinkedIn. */
+  platform?: string | null
 ): Promise<{ reviews: Array<GoalReview | null>; usage: CallUsage }> {
   if (ideas.length === 0) return { reviews: [], usage: EMPTY_USAGE }
   const goalIds = ctx.selectedGoals.map(goal => goal.id)
   try {
     const { output, usage } = await runSkill({
       stage: 'goal_review',
-      instructions: INSTRUCTIONS,
+      instructions: instructionsFor(platform),
       prompt: buildPrompt({
         account: [ctx.account.name, ctx.account.headline]
           .filter(Boolean)

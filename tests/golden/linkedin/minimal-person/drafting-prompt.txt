@@ -1,0 +1,21 @@
+Write the post for this approved idea.
+
+Title: Design reviews that ship
+Thesis: 
+Angle: 
+Why now: 
+Hook concept (turn this into real copy, do not copy it verbatim): Hook concept
+Core argument: 
+Reader takeaway: 
+
+EVIDENCE YOU MAY USE (nothing outside this):
+No external evidence was gathered. Write from reasoning alone and state no statistics.
+
+Produce:
+1. hook — at most 200 characters, a complete thought that survives the fold
+2. body — the rest of the post after the hook; do not repeat the hook. Plain text; hook and body together about 1300 characters
+3. cta — optional; leave it empty when no ask follows naturally from the post. Ask for something this reader can do or answer from their own work, and that follows from this post's argument. It is an ask, not a summary of the post. Never a generic "Thoughts?", "Agree?" or "What do you think?". Offer nothing the goal does not name: no call, demo, audit, download, template or DM offer.
+4. firstComment — place any link here
+5. hashtags — between 0 and 3, at the end, without the # symbol
+6. alternateHooks — 2 genuinely different openings
+7. selfScores — honest 1-10 ratings

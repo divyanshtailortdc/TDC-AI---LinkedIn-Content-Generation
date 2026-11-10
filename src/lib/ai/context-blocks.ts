@@ -14,6 +14,7 @@ import type {
 } from '@/db/schema'
 import type { ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform, type PlatformSpec } from '@/lib/platforms'
+import { resolveChannels, type ResolvedChannels } from '@/lib/formats'
 import { parseHashtagPolicy, type HashtagRange } from './hashtags'
 
 export { parseHashtagPolicy }
@@ -108,6 +109,17 @@ export interface ResolvedPreferences {
   research: typeof RESEARCH_SETTINGS
   constraints: ResolvedPostConstraints
   guardrails: Guardrails
+  /** The formats this identity drafts and what it said about each platform. */
+  channels: ResolvedChannels
+}
+
+export interface HistoryDraft {
+  hook: string
+  originalHook: string
+  body: string
+  /** The closing ask, so the next post can ask something different. */
+  cta?: string | null
+  status: string
 }
 
 /**
@@ -115,15 +127,17 @@ export interface ResolvedPreferences {
  * not repeat earlier work or ignore a rejection.
  */
 export interface ReviewHistory {
-  /** `originalHook` is what the model wrote; `hook` is the reviewer's version. */
-  drafts: Array<{
-    hook: string
-    originalHook: string
-    body: string
-    /** The closing ask, so the next post can ask something different. */
-    cta?: string | null
-    status: string
-  }>
+  /**
+   * LinkedIn posts only: what LinkedIn drafting and ideation have always read.
+   * `originalHook` is what the model wrote; `hook` is the reviewer's version.
+   */
+  drafts: HistoryDraft[]
+  /**
+   * Posts in every other format, newest first, each tagged with its format;
+   * forFormat (./channel-context) gives a format its own. Kept apart so a
+   * LinkedIn post is never compared with its own X version.
+   */
+  otherDrafts?: Array<HistoryDraft & { formatId: string }>
   ideas: Array<{
     title: string
     hookConcept: string
@@ -208,8 +222,16 @@ function toEmojiLevel(policy: string | null | undefined): EmojiLevel {
  * pipeline sees. Emoji and hashtags come from `voice`; without it they fall
  * back to the defaults a new voice config starts with.
  */
+type PreferencesRow = typeof preferencesTable.$inferSelect
+
 export function resolvePreferences(
-  row: (typeof preferencesTable.$inferSelect) | undefined | null,
+  // The channel columns are optional so a row read before they existed (or
+  // built by a caller that does not care about channels) still resolves.
+  row:
+    | (Omit<PreferencesRow, 'enabledFormats' | 'channelSettings'> &
+        Partial<Pick<PreferencesRow, 'enabledFormats' | 'channelSettings'>>)
+    | undefined
+    | null,
   voice?: VoiceConfig | null,
   platform: PlatformSpec = getPlatform()
 ): ResolvedPreferences {
@@ -225,7 +247,8 @@ export function resolvePreferences(
       hashtag_policy: hashtagPolicy,
       hashtags: parseHashtagPolicy(hashtagPolicy)
     },
-    guardrails: merge(DEFAULT_GUARDRAILS, row?.guardrails)
+    guardrails: merge(DEFAULT_GUARDRAILS, row?.guardrails),
+    channels: resolveChannels(row)
   }
 }
 

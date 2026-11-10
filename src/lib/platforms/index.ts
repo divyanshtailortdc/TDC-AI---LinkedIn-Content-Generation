@@ -9,7 +9,15 @@
  * src/lib/publishing (docs/PUBLISHING.md).
  */
 
-export const PLATFORM_IDS = ['linkedin'] as const
+export const PLATFORM_IDS = [
+  'linkedin',
+  'x',
+  'threads',
+  'facebook',
+  'instagram',
+  'tiktok',
+  'youtube'
+] as const
 export type PlatformId = (typeof PLATFORM_IDS)[number]
 
 export type PlatformSpec = {
@@ -54,6 +62,65 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
     plainTextOnly: true,
     bodyLinksCostReach: true,
     unicodeBoldHook: true
+  },
+  // The platforms below are written for in several formats each (a post, a
+  // thread, a video script; src/lib/formats), whose own limits drafting and
+  // the checks use. These are the platform's defaults, for code that only
+  // knows a post's platform. None of them is published through an API yet
+  // (src/lib/publishing/platform.ts).
+  x: {
+    id: 'x',
+    name: 'X',
+    limits: { targetChars: 220, maxChars: 280, hookMaxChars: 280, commentFoldChars: 280 },
+    foldLabel: 'Show more',
+    plainTextOnly: true,
+    bodyLinksCostReach: true,
+    unicodeBoldHook: false
+  },
+  threads: {
+    id: 'threads',
+    name: 'Threads',
+    limits: { targetChars: 320, maxChars: 500, hookMaxChars: 500, commentFoldChars: 500 },
+    foldLabel: 'more',
+    plainTextOnly: true,
+    bodyLinksCostReach: false,
+    unicodeBoldHook: false
+  },
+  facebook: {
+    id: 'facebook',
+    name: 'Facebook',
+    limits: { targetChars: 600, maxChars: 2000, hookMaxChars: 2000, commentFoldChars: 200 },
+    foldLabel: 'See more',
+    plainTextOnly: true,
+    bodyLinksCostReach: false,
+    unicodeBoldHook: false
+  },
+  instagram: {
+    id: 'instagram',
+    name: 'Instagram',
+    limits: { targetChars: 800, maxChars: 2200, hookMaxChars: 125, commentFoldChars: 125 },
+    foldLabel: 'more',
+    plainTextOnly: true,
+    bodyLinksCostReach: false,
+    unicodeBoldHook: false
+  },
+  tiktok: {
+    id: 'tiktok',
+    name: 'TikTok',
+    limits: { targetChars: 150, maxChars: 2200, hookMaxChars: 2200, commentFoldChars: 150 },
+    foldLabel: 'more',
+    plainTextOnly: true,
+    bodyLinksCostReach: false,
+    unicodeBoldHook: false
+  },
+  youtube: {
+    id: 'youtube',
+    name: 'YouTube',
+    limits: { targetChars: 300, maxChars: 5000, hookMaxChars: 5000, commentFoldChars: 200 },
+    foldLabel: 'more',
+    plainTextOnly: true,
+    bodyLinksCostReach: false,
+    unicodeBoldHook: false
   }
 }
 

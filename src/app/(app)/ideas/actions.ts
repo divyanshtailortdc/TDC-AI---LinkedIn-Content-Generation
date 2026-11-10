@@ -2,6 +2,8 @@
 
 import { db } from '@/db'
 import { feedbackTable, ideasTable } from '@/db/schema'
+import { loadChannels } from '@/lib/channels'
+import { cleanFormats, type FormatId } from '@/lib/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
@@ -18,6 +20,19 @@ import {
   settleRunAfterDrafting,
   settleRunAfterIdeaDecision
 } from '~/lib/ai/pipeline/drafting-run'
+
+/**
+ * The formats picked in "Create posts", limited to the ones this identity has
+ * turned on; refused when none are left.
+ */
+async function chosenFormats(accountId: string, raw: unknown): Promise<FormatId[]> {
+  const { enabledFormats: enabled } = await loadChannels(accountId)
+  const formats = cleanFormats(raw).filter(f => enabled.includes(f))
+  if (formats.length === 0) {
+    throw new Error('Choose at least one platform to write these posts for.')
+  }
+  return formats
+}
 
 // These actions mutate a specific idea/run identified by its own id. The id
 // comes from the client, so it is first looked up under the signed-in user's
@@ -151,6 +166,11 @@ export async function editIdea(
 export async function draftSelectedIdeas(options: {
   ideaIds: string[]
   runId?: string
+  /**
+   * The formats to write each idea in. Absent: each idea's own (what its run
+   * chose, or LinkedIn). Only formats the identity has turned on are used.
+   */
+  formats?: string[]
 }) {
   const user = await requireUser()
   try {
@@ -168,6 +188,22 @@ export async function draftSelectedIdeas(options: {
     const runId = options.runId
       ? (await requireOwnedRun(user.id, options.runId)).id
       : null
+
+    if (options.formats !== undefined) {
+      const formats = await chosenFormats(accountId, options.formats)
+      // Set before the claim, so the drafting queue reads them. Ideas not yet
+      // approved keep theirs: they are skipped below and not drafted.
+      await db
+        .update(ideasTable)
+        .set({ targetFormats: formats, updatedAt: new Date() })
+        .where(
+          and(
+            inArray(ideasTable.id, ideaIds),
+            eq(ideasTable.accountId, accountId),
+            eq(ideasTable.status, 'approved')
+          )
+        )
+    }
 
     const outcome = await claimDraftSelection(
       db,

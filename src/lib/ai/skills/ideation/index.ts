@@ -9,10 +9,21 @@ import {
   validateIdea,
   type GroundingCorpus
 } from './guard'
-import { buildInstructions, buildPrompt, PROMPT_EVIDENCE_LIMIT } from './prompt'
-import { IdeaGenerationBatchSchema, type GeneratedIdeaItem } from './schema'
+import {
+  buildInstructions,
+  buildPrompt,
+  PROMPT_EVIDENCE_LIMIT,
+  type IdeationChannels
+} from './prompt'
+import {
+  IdeaGenerationBatchSchema,
+  IdeaGenerationWithFormatsBatchSchema,
+  type GeneratedIdeaItem
+} from './schema'
+import { cleanFormats } from '@/lib/formats'
 
 export type { GroundingCorpus } from './guard'
+export { ideationChannels, type IdeationChannels } from './prompt'
 export type { GeneratedIdeaItem } from './schema'
 
 /**
@@ -39,6 +50,8 @@ export async function generateIdeas(input: {
   assignedGoals: string[]
   /** The run's deadline. */
   abortSignal?: AbortSignal
+  /** The platforms the run plans for; null for LinkedIn alone. */
+  channels?: IdeationChannels | null
 }): Promise<{
   /** Everything the model proposed, before the grounding check. */
   candidates: GeneratedIdeaItem[]
@@ -49,17 +62,22 @@ export async function generateIdeas(input: {
   usage: CallUsage
   modelId: string
 }> {
+  const channels = input.channels ?? null
   const { output, usage, modelId } = await runSkill({
     stage: 'ideation',
-    instructions: buildInstructions(input.ctx),
+    instructions: buildInstructions(input.ctx, channels),
     prompt: buildPrompt({
       corpus: input.corpus,
       history: input.history,
       candidateCount: input.candidateCount,
       assignedGoals: input.assignedGoals,
-      hookMaxChars: input.ctx.prefs.constraints.hook_max_chars
+      hookMaxChars: input.ctx.prefs.constraints.hook_max_chars,
+      channels
     }),
-    schema: IdeaGenerationBatchSchema,
+    // A run with one format asks for exactly what it always did.
+    schema: channels
+      ? IdeaGenerationWithFormatsBatchSchema
+      : IdeaGenerationBatchSchema,
     timeoutMs: IDEATION_TIMEOUT_MS,
     maxRetries: 1,
     abortSignal: input.abortSignal
@@ -73,9 +91,13 @@ export async function generateIdeas(input: {
   )
   const audiences = audienceSegments(input.ctx).map(s => s.label)
   const goals = input.ctx.selectedGoals.map(g => g.id)
-  const candidates = (output?.ideas || []).map(generated =>
-    resolveGeneratedIdea(generated, shownEvidence, audiences, goals)
-  )
+  const candidates = (output?.ideas || []).map(generated => {
+    const idea = resolveGeneratedIdea(generated, shownEvidence, audiences, goals)
+    if (!channels) return idea
+    // Only formats this run offered, so an invented id is dropped.
+    const named = cleanFormats((generated as { formats?: unknown }).formats)
+    return { ...idea, formatFit: named.filter(f => channels.formats.includes(f)) }
+  })
 
   const fit = {
     goals,

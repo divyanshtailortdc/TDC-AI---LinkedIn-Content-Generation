@@ -29,7 +29,11 @@ export default async function PreferencesPage() {
             post_constraints: {
               cta_required: prefs.constraints.cta_required
             },
-            guardrails: prefs.guardrails
+            guardrails: prefs.guardrails,
+            channels: {
+              enabledFormats: prefs.channels.enabledFormats,
+              settings: prefs.channels.settings
+            }
           }}
         />
       </StepFields>

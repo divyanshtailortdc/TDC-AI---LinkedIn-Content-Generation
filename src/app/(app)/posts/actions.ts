@@ -4,8 +4,6 @@ import { db } from '@/db'
 import {
   brandThemesTable,
   feedbackTable,
-  ideasTable,
-  postCitationsTable,
   postDraftsTable,
   postMediaTable
 } from '@/db/schema'
@@ -28,14 +26,19 @@ import {
 } from '@/lib/publishing/engine'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
-import { postCharCount } from '@/lib/post-text'
+import { FORMATS, formatOf, isFormatId } from '@/lib/formats'
+import { loadChannels } from '@/lib/channels'
 import { requireUser } from '@/lib/session'
-import { and, count, eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
-import { buildPostLintOptions } from '~/lib/ai/pipeline/post-lint'
-import { runLinter } from '~/lib/lint/run-linter'
+import { recheckPostText } from '~/lib/ai/pipeline/post-recheck'
+import { listRevisions, lockPost, saveRevision } from '@/lib/post-revisions'
+import {
+  draftAdditionalFormat,
+  regenerateDraft,
+  restoreRevision
+} from '~/lib/ai/pipeline/drafting-run'
 import { validateImageUrl } from '~/lib/media/image-input'
 import { deleteDraftImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
@@ -65,6 +68,9 @@ export async function updateDraft(
     hook?: string
     body?: string
     firstComment?: string
+    /** A video's caption and (YouTube) title. */
+    caption?: string
+    title?: string
   }
 ) {
   await requireUser()
@@ -87,78 +93,198 @@ export async function updateDraft(
         ? payload.firstComment
         : existing.firstComment
 
-    // The count and the quality checks describe the text as it now stands. Left
-    // as they were, they kept judging the version the AI wrote.
-    const charCount = postCharCount({
+    // A video keeps its caption and title beside its shots.
+    const newPayload =
+      typeof payload.caption === 'string' || typeof payload.title === 'string'
+        ? {
+            ...(existing.payload ?? {}),
+            ...(typeof payload.caption === 'string'
+              ? { caption: payload.caption.slice(0, 5000) }
+              : {}),
+            ...(typeof payload.title === 'string'
+              ? { title: payload.title.slice(0, 200) }
+              : {})
+          }
+        : (existing.payload ?? null)
+
+    const { charCount, lintFindings } = await recheckPostText(existing, {
       hook: newHook,
       body: newBody,
-      cta: existing.cta
+      cta: existing.cta,
+      firstComment: newFirstComment,
+      hashtags: existing.hashtags,
+      payload: newPayload
     })
-    let lintFindings = existing.lintFindings ?? []
-    try {
-      const idea = existing.ideaId
-        ? await db.query.ideasTable.findFirst({
-            where: eq(ideasTable.id, existing.ideaId)
-          })
-        : null
-      // Checked against the post's own goal, as when it was drafted. Only
-      // what the checks read is loaded: a save is not a generation.
-      const ctx = idea
-        ? await loadIdeaContext(idea, {
-            lintOnly: true,
-            platform: existing.platform
-          })
-        : await loadGenerationContext(existing.accountId, {
-            goalIds: [],
-            lintOnly: true,
-            platform: existing.platform
-          })
-      const citations = idea
-        ? (idea.supportingEvidence?.length ?? 0)
-        : ((
-            await db
-              .select({ total: count() })
-              .from(postCitationsTable)
-              .where(eq(postCitationsTable.draftId, draftId))
-          )[0]?.total ?? 0)
-      lintFindings = runLinter(
-        buildPostLintOptions(
-          ctx,
-          idea ?? null,
-          {
-            hook: newHook,
-            body: newBody,
-            cta: existing.cta,
-            firstComment: newFirstComment,
-            hashtags: existing.hashtags
-          },
-          citations
-        )
-      )
-    } catch (err) {
-      // The text is still saved; the earlier checks are kept rather than lost.
-      console.error(
-        `Could not re-run the quality checks on draft ${draftId}:`,
-        err
+
+    // The version this edit replaces is kept, so it can be restored.
+    const versionSaved = await db.transaction(async tx => {
+      const current = await lockPost(tx, draftId)
+      if (!current) throw new Error('Draft not found')
+      const saved = await saveRevision(tx, current, 'user_edit', {
+        next: {
+          hook: newHook,
+          body: newBody,
+          firstComment: newFirstComment,
+          payload: newPayload
+        }
+      })
+      await tx
+        .update(postDraftsTable)
+        .set({
+          hook: newHook,
+          body: newBody,
+          firstComment: newFirstComment,
+          payload: newPayload,
+          charCount,
+          lintFindings,
+          editedBody: newBody,
+          updatedAt: new Date()
+        })
+        .where(eq(postDraftsTable.id, draftId))
+      return saved
+    })
+
+    return { success: true, charCount, lintFindings, versionSaved }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to update draft' }
+  }
+}
+
+/**
+ * Writes another platform's version of a post's idea ("Add a version" on the
+ * review screen) and returns it, ready to show. Takes about as long as
+ * drafting one post; only formats the identity has turned on are offered.
+ */
+export async function addPostVersion(draftId: string, formatId: string) {
+  await requireUser()
+  try {
+    if (!z.string().uuid().safeParse(draftId).success || !isFormatId(formatId)) {
+      throw new Error('Choose a platform to write a version for.')
+    }
+    const accountId = await requireIdentityId()
+    const source = await db.query.postDraftsTable.findFirst({
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, accountId)
+      ),
+      columns: { ideaId: true }
+    })
+    if (!source) throw new Error('Draft not found')
+    if (!source.ideaId) {
+      throw new Error('This post has no idea behind it to write another version from.')
+    }
+
+    if (!(await loadChannels(accountId)).enabledFormats.includes(formatId)) {
+      throw new Error(
+        `Turn on ${FORMATS[formatId].label}s under Identity → Preferences first.`
       )
     }
 
-    await db
-      .update(postDraftsTable)
-      .set({
-        hook: newHook,
-        body: newBody,
-        firstComment: newFirstComment,
-        charCount,
-        lintFindings,
-        editedBody: newBody,
-        updatedAt: new Date()
-      })
-      .where(eq(postDraftsTable.id, draftId))
-
-    return { success: true, charCount, lintFindings }
+    const { draftId: newId } = await draftAdditionalFormat(
+      accountId,
+      source.ideaId,
+      formatId
+    )
+    const { posts } = await loadPostsPage(accountId, { ids: [newId] })
+    revalidatePath('/posts')
+    return { success: true as const, post: posts[0] ?? null }
   } catch (err: any) {
-    return { success: false, error: err.message || 'Failed to update draft' }
+    return {
+      success: false as const,
+      error: err.message || 'The new version could not be written.'
+    }
+  }
+}
+
+const MAX_INSTRUCTION_CHARS = 1000
+
+/**
+ * Writes a new version of a post, with what the reviewer wants changed, and
+ * returns it. The version it replaces is kept under Earlier versions.
+ */
+export async function regeneratePost(draftId: string, instruction?: string | null) {
+  await requireUser()
+  try {
+    if (!z.string().uuid().safeParse(draftId).success) {
+      throw new Error('Draft not found')
+    }
+    const wanted = typeof instruction === 'string' ? instruction.trim() : ''
+    if (wanted.length > MAX_INSTRUCTION_CHARS) {
+      throw new Error(
+        `Keep the instruction under ${MAX_INSTRUCTION_CHARS} characters.`
+      )
+    }
+    const accountId = await requireIdentityId()
+    await regenerateDraft(accountId, draftId, wanted || null)
+    const { posts } = await loadPostsPage(accountId, { ids: [draftId] })
+    revalidatePath('/posts')
+    return { success: true as const, post: posts[0] ?? null }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'The new version could not be written.'
+    }
+  }
+}
+
+/** A post's earlier versions, newest first, for its Earlier versions list. */
+export async function loadPostVersions(draftId: string) {
+  await requireUser()
+  try {
+    if (!z.string().uuid().safeParse(draftId).success) {
+      throw new Error('Draft not found')
+    }
+    const accountId = await requireIdentityId()
+    const owned = await db.query.postDraftsTable.findFirst({
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, accountId)
+      ),
+      columns: { id: true }
+    })
+    if (!owned) throw new Error('Draft not found')
+    const rows = await listRevisions(db, draftId)
+    return {
+      success: true as const,
+      versions: rows.map(r => ({
+        id: r.id,
+        number: r.number,
+        replacedBy: r.replacedBy,
+        instruction: r.instruction,
+        hook: r.hook,
+        body: r.body,
+        charCount: r.charCount,
+        createdAt: r.createdAt
+      }))
+    }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'Could not load earlier versions.'
+    }
+  }
+}
+
+/** Puts an earlier version back and returns the post as it now stands. */
+export async function restorePostVersion(draftId: string, revisionId: string) {
+  await requireUser()
+  try {
+    if (
+      !z.string().uuid().safeParse(draftId).success ||
+      !z.string().uuid().safeParse(revisionId).success
+    ) {
+      throw new Error('That version no longer exists.')
+    }
+    const accountId = await requireIdentityId()
+    await restoreRevision(accountId, draftId, revisionId)
+    const { posts } = await loadPostsPage(accountId, { ids: [draftId] })
+    revalidatePath('/posts')
+    return { success: true as const, post: posts[0] ?? null }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'The version could not be restored.'
+    }
   }
 }
 
@@ -246,7 +372,9 @@ export async function rejectDraft(draftId: string, reason?: string) {
           draftId: draft.id,
           verdict: 'rejected',
           reasonText: reason,
-          reasonTags: ['draft_rejected'],
+          // The format, so a complaint about an X post's length can later be
+          // kept to X posts.
+          reasonTags: ['draft_rejected', `format:${formatOf(draft.formatId)}`],
           originalBody: draft.body
         })
       }

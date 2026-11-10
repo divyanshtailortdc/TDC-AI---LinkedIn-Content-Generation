@@ -1,0 +1,21 @@
+Write the post for this approved idea.
+
+Title: Profit is not cash
+Thesis: Agencies run out of cash while profitable
+Angle: An angle
+Why now: Why now
+Hook concept (turn this into real copy, do not copy it verbatim): Profitable and broke
+Core argument: Core argument
+Reader takeaway: Takeaway
+
+EVIDENCE YOU MAY USE (nothing outside this):
+No external evidence was gathered. Write from reasoning alone and state no statistics.
+
+Produce:
+1. hook — at most 200 characters, a complete thought that survives the fold
+2. body — the rest of the post after the hook; do not repeat the hook. Plain text; hook and body together about 1300 characters; include this link once, near the call to action: https://ledgerly.example/webinar
+3. cta — required. Steer the reader toward: Register for the webinar. Name it only when this post's argument leads to it; otherwise ask a question the reader can answer from their own work. Never use the same sentence as an earlier post. It is an ask, not a summary of the post. Never a generic "Thoughts?", "Agree?" or "What do you think?". Offer nothing the goal does not name: no call, demo, audit, download, template or DM offer beyond the action above.
+4. firstComment — optional supporting note
+5. hashtags — exactly 2, at the end, without the # symbol
+6. alternateHooks — 2 genuinely different openings
+7. selfScores — honest 1-10 ratings

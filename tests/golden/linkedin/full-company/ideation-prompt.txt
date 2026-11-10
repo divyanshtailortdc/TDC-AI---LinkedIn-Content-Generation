@@ -1,0 +1,62 @@
+TODAY'S DATE: 2026-10-01
+
+EVIDENCE AVAILABLE THIS RUN
+<evidence>
+[E1] Roughly one in twenty invoices contained a duplicate charge
+    Quote: "roughly one in twenty invoices contained a duplicate charge"
+    Source: Freight Billing Report 2026
+    URL: https://research.example/report
+    Published: 2026-09-20 (recent)
+    Origin: a web page, third-party text that has not been verified
+[E2] Accessorial fees rose in 2025
+    Source: Freight News
+    URL: https://news.example/ (a homepage or index: general background on the brand, not the source of any specific story)
+    Origin: a newsletter the account receives, or the article it links to: third-party text that has not been verified
+</evidence>
+
+ALREADY COVERED FOR THIS ACCOUNT (drafted or awaiting review) — do not repeat these angles:
+- Your freight bill is wrong.
+- Duplicate invoices cost more than fuel.
+
+IDEAS THE REVIEWER REJECTED — do not propose these again, and steer away from what they have in common:
+- Old idea
+
+WHAT THE REVIEWER SAID WHEN REJECTING EARLIER WORK — apply it:
+- "Too salesy"
+
+ANALYTICAL LENSES — give each idea a different one:
+- contrarian_take: Challenge something the audience currently accepts, with evidence.
+- common_misconception: Name a belief that is widespread in this field and wrong.
+- practitioner_lesson: A lesson only someone who has actually done the work would know.
+- decision_framework: How to decide between options the reader is weighing right now.
+- tradeoff_analysis: Make an unavoidable tradeoff explicit instead of pretending it away.
+- trend_interpretation: What a current, evidenced development actually means for the reader.
+- failure_postmortem: Why a common approach breaks down, and the mechanism behind it.
+- first_principles: Rebuild the reasoning from the ground up and land somewhere non-obvious.
+- comparison: Compare two approaches on criteria the reader has not considered.
+- prediction: A specific, falsifiable claim about where this is heading, and why.
+- process_breakdown: The concrete steps behind a result people usually describe vaguely.
+- belief_shift: Aim directly at the audience's stated belief and move it.
+
+Produce exactly 3 distinct post ideas.
+
+Assign goals in this distribution (one per idea, in order): G1 | G1 | G1
+
+For each idea provide:
+- title: a specific, non-generic working title
+- thesis: the defensible proposition in one or two sentences
+- perspectiveAngle: the lens from the list above (each idea must use a different one)
+- angle: the distinctive point of view in a phrase
+- goalRefs: the label of the goal assigned to this idea first, then any other goal its argument also moves, e.g. ["G1"] or ["G2", "G1"]
+- readers: who exactly this idea is for, in a few plain words: the people its goal is meant to reach
+- audienceRef: the label of the reader group those readers belong to, e.g. "A2", or "none" when no group listed is them
+- format: the post format that fits best
+- whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"
+- hookConcept: the idea for the first 200 characters, before the fold. A concept, not final copy.
+- coreArgument: the "so what", in full
+- audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message and giving them a reason to take its desired action
+- supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
+- mediaBrief: one sentence of visual direction for the image
+- noveltyNote: why this is not the generic take on the subject
+- risks: anything that could make this land badly
+- estimatedStrength: your honest 1-100 assessment

@@ -4,6 +4,7 @@ import { triggerNewRun } from '@/app/(app)/runs/actions'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { ideaTarget } from '@/lib/ai/idea-selection'
 import { cn } from '@/lib/cn'
+import { PLATFORMS, type PlatformId } from '@/lib/formats'
 import {
   AlertCircle,
   ArrowRight,
@@ -28,6 +29,8 @@ export type RunGoalOption = {
 export type RunPickerData = {
   goals: RunGoalOption[]
   ideasPerRun: number
+  /** The platforms the identity posts on; a run can plan for one of them. */
+  platforms?: PlatformId[]
 }
 
 /**
@@ -96,6 +99,9 @@ function PickerDialog({
   )
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const platforms = picker.platforms ?? []
+  // Null plans for every platform the identity posts on.
+  const [channel, setChannel] = useState<PlatformId | null>(null)
 
   const selectedGoals = active.filter(g => selected.includes(g.id))
 
@@ -119,7 +125,7 @@ function PickerDialog({
     try {
       // In the order the goals are listed, so G1 is the first one shown.
       const goalIds = active.map(g => g.id).filter(id => selected.includes(id))
-      const res = await triggerNewRun(goalIds)
+      const res = await triggerNewRun(goalIds, channel)
       if (res.success && res.runId) {
         // The action no longer revalidates; Back still shows the new run.
         markDataChanged()
@@ -287,6 +293,39 @@ function PickerDialog({
         </div>
 
         <div className="border-border space-y-3 border-t px-6 py-4">
+          {platforms.length > 1 && active.length > 0 && (
+            <fieldset className="min-w-0">
+              <legend className="text-foreground mb-1.5 text-xs font-medium">
+                Ideas for
+              </legend>
+              <div className="flex flex-wrap gap-1.5">
+                {[null, ...platforms].map(option => {
+                  const on = channel === option
+                  return (
+                    <button
+                      key={option ?? 'all'}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setChannel(option)}
+                      className={cn(
+                        'h-7 rounded-full border px-3 text-xs font-medium transition-colors',
+                        on
+                          ? 'border-brand/50 bg-brand/10 text-foreground'
+                          : 'border-border text-muted hover:text-foreground'
+                      )}
+                    >
+                      {option ? PLATFORMS[option].label : 'All my platforms'}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-muted mt-1.5 text-[11px] leading-relaxed">
+                {channel
+                  ? `Ideas made for ${PLATFORMS[channel].label} and what works there.`
+                  : 'Each idea is marked with the platforms it suits.'}
+              </p>
+            </fieldset>
+          )}
           {active.length > 0 && (
             <p className="text-muted text-[11px] leading-relaxed">
               {describeRunSize(picker.ideasPerRun, selected.length)}

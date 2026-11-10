@@ -5,6 +5,7 @@ import { NoIdentity } from '@/components/no-identity'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { brandColors, displayWebsite } from '~/lib/brand/theme'
 import { z } from 'zod'
+import { loadChannels } from '@/lib/channels'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,10 +27,11 @@ export default async function PostsPage({
     ? (rawRunId as string)
     : null
 
-  const [{ posts, nextCursor }, total, brand] = await Promise.all([
+  const [{ posts, nextCursor }, total, brand, channels] = await Promise.all([
     loadPostsPage(identity.id, { runId }),
     countPosts(identity.id),
-    loadBrandTheme(identity.id)
+    loadBrandTheme(identity.id),
+    loadChannels(identity.id)
   ])
 
   // Keying on the run forces a remount when it changes, so this client
@@ -42,6 +44,7 @@ export default async function PostsPage({
       initialNextCursor={nextCursor}
       totalCount={total}
       identity={toIdentitySummary(identity)}
+      enabledFormats={channels.enabledFormats}
       brand={{
         hasLogo: brand.hasLogo,
         colors: brandColors(brand).map(c => c.hex),

@@ -5,6 +5,7 @@ import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { requireUser } from '@/lib/session'
 import { notFound } from 'next/navigation'
 import { getRunDetails } from '~/jobs/queue'
+import { loadChannels } from '@/lib/channels'
 import { RunDetailClient } from './run-detail-client'
 
 export const dynamic = 'force-dynamic'
@@ -21,9 +22,10 @@ export default async function SingleRunPage({ params }: RunPageProps) {
   if (!owned) notFound()
 
   // Everything else at once: the ownership check gave the account.
-  let [details, account] = await Promise.all([
+  let [details, account, channels] = await Promise.all([
     getRunDetails(owned.id, owned.accountId),
-    findOwnedAccount(db, user.id, owned.accountId)
+    findOwnedAccount(db, user.id, owned.accountId),
+    loadChannels(owned.accountId)
   ])
 
   // A run interrupted by a restart reads as failed, not as still in
@@ -54,6 +56,7 @@ export default async function SingleRunPage({ params }: RunPageProps) {
       initialFindings={findings}
       initialIdeas={ideas}
       account={account}
+      enabledFormats={channels.enabledFormats}
     />
   )
 }

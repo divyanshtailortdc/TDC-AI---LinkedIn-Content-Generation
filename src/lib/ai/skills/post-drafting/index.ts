@@ -5,10 +5,28 @@ import type { GenerationContext } from '../../context'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
 import { isCompleteDraft, withoutRepeatedHook } from './guard'
-import { buildInstructions, buildPrompt, buildRevisionPrompt } from './prompt'
+import {
+  buildInstructions,
+  buildPrompt,
+  buildRegeneratePrompt,
+  buildRevisionPrompt
+} from './prompt'
 import { DraftGenerationSchema, type DraftGenerationResult } from './schema'
 
 export type { DraftGenerationResult } from './schema'
+
+/** What a regenerate starts from: the post as it stands, and what to change. */
+export interface RegenerateRequest {
+  current: {
+    hook: string
+    body: string
+    cta?: string | null
+    /** A video's shots and caption, so its new version is written from them. */
+    payload?: Record<string, unknown> | null
+  }
+  /** The reviewer's words; null for "just another take". */
+  instruction: string | null
+}
 
 /**
  * A bound on one drafting call, retries included, so a call that never
@@ -27,7 +45,9 @@ const DRAFTING_TIMEOUT_MS = 120_000
  */
 export async function writeDraft(
   input: { ctx: GenerationContext; idea: Idea },
-  revise?: { previous: DraftGenerationResult; failedChecks: string[] }
+  revise?: { previous: DraftGenerationResult; failedChecks: string[] },
+  /** A new version of an existing post, with what the reviewer wants changed. */
+  regenerate?: RegenerateRequest
 ): Promise<{
   draft: DraftGenerationResult
   usage: CallUsage
@@ -45,7 +65,14 @@ export async function writeDraft(
           revise.previous,
           revise.failedChecks
         )
-      : buildPrompt(input.ctx, input.idea),
+      : regenerate
+        ? buildRegeneratePrompt(
+            input.ctx,
+            input.idea,
+            regenerate.current,
+            regenerate.instruction
+          )
+        : buildPrompt(input.ctx, input.idea),
     schema: DraftGenerationSchema,
     timeoutMs: DRAFTING_TIMEOUT_MS,
     maxRetries: 1

@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '~/db'
 import { samplePostsTable, voiceConfigsTable } from '~/db/schema'
+import { samplePlatform } from '@/lib/formats'
 import { analyzeVoiceSamples } from '~/lib/ai/skills/voice-analysis'
 import { AccountIdSchema } from '~/lib/setup-payloads'
 import { hasVoiceChoice, NO_VOICE_CHOICE_MESSAGE } from '~/lib/voice-choice'
@@ -74,16 +75,20 @@ async function replaceSamplePosts(accountId: string, rawSamplesText?: string) {
       /\[(performed\s*well|top\s*post|high\s*performing|viral)\]|⭐/i.test(
         rawPost
       )
-    const cleanContent = rawPost
-      .replace(
-        /\[(performed\s*well|top\s*post|high\s*performing|viral)\]|⭐/gi,
-        ''
-      )
-      .trim()
+    // A [X] or [Instagram] tag says which platform the post was written for.
+    const { platform, content: cleanContent } = samplePlatform(
+      rawPost
+        .replace(
+          /\[(performed\s*well|top\s*post|high\s*performing|viral)\]|⭐/gi,
+          ''
+        )
+        .trim()
+    )
 
     await db.insert(samplePostsTable).values({
       accountId,
       content: cleanContent,
+      platform,
       performedWell: isHighPerformer || i === 0, // Flag explicitly tagged or first post
       isActive: true
     })

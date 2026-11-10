@@ -274,6 +274,13 @@
       "when": 1794026455602,
       "tag": "0038_platform_per_post",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794030186179,
+      "tag": "0039_multi_platform_formats",
+      "breakpoints": true
     }
   ]
 }
