@@ -16,11 +16,23 @@ export function buildPrompt(input: {
   profile: string
   existingGoals: string[]
   allowedUrls: string[]
+  /** The objective types this identity uses; absent leaves the choice open. */
+  objectives?: string[]
+  /** A creator's goals are about their following, not about business. */
+  creator?: boolean
 }): string {
   return `<profile>
 ${input.profile}
 </profile>
-
+${
+  input.creator
+    ? `
+This is a creator posting for a following (their niche is in the profile), not a business. Their goals are about that following: growing it, entertaining it, building a community, or promoting something they make or do. No lead generation, recruiting or thought leadership.
+`
+    : ''
+}${input.objectives ? `
+Objective types to choose from: ${input.objectives.join(', ')}
+` : ''}
 Existing goals: ${input.existingGoals.length > 0 ? input.existingGoals.join('; ') : 'none'}
 
 Allowed links: ${input.allowedUrls.length > 0 ? input.allowedUrls.join(', ') : 'none, so leave targetUrl empty'}`

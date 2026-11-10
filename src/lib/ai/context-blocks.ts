@@ -14,6 +14,7 @@ import type {
 } from '@/db/schema'
 import type { ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform, type PlatformSpec } from '@/lib/platforms'
+import { isCreatorAccount } from '@/lib/identity-profile'
 import { resolveChannels, type ResolvedChannels } from '@/lib/formats'
 import { parseHashtagPolicy, type HashtagRange } from './hashtags'
 
@@ -263,21 +264,28 @@ const list = (values?: string[] | null) =>
 const multiline = (text: string, indent: string) =>
   text.replace(/\r\n?/g, '\n').trim().replace(/\n+/g, `\n${indent}`)
 
+/** A creator posting for a following, not a professional or a business. */
+export const isCreator = (ctx: Pick<GenerationContext, 'account'>) =>
+  isCreatorAccount(ctx.account)
+
 export function renderIdentityBlock(ctx: GenerationContext): string {
   const a = ctx.account
+  const creator = isCreator(ctx)
   const lines = [
     `Name: ${a.name}`,
-    `Type: ${a.accountType}`,
+    creator
+      ? 'Type: creator (posts for a following, for fun or as a hobby; not a business)'
+      : `Type: ${a.accountType}`,
     `Headline: ${a.headline}`
   ]
-  if (a.company) lines.push(`Company: ${a.company}`)
-  if (a.industry) lines.push(`Industry: ${a.industry}`)
-  if (a.bio) lines.push(`Bio: ${a.bio}`)
+  if (a.company && !creator) lines.push(`Company: ${a.company}`)
+  if (a.industry) lines.push(`${creator ? 'Niche' : 'Industry'}: ${a.industry}`)
+  if (a.bio) lines.push(`${creator ? 'About them' : 'Bio'}: ${a.bio}`)
   if (a.websiteUrl) lines.push(`Website: ${a.websiteUrl}`)
-  if (a.linkedinUrl) lines.push(`LinkedIn: ${a.linkedinUrl}`)
+  if (a.linkedinUrl) lines.push(`${creator ? 'Main profile' : 'LinkedIn'}: ${a.linkedinUrl}`)
 
   if (ctx.offerings.length > 0) {
-    lines.push('', 'What they offer:')
+    lines.push('', creator ? 'What they promote:' : 'What they offer:')
     for (const o of ctx.offerings) {
       const parts = [`- ${o.name} (${o.type})`]
       if (o.tagline) parts.push(`  Tagline: ${o.tagline}`)
@@ -760,10 +768,17 @@ export function renderReviewerFeedbackBlock(ctx: GenerationContext): string {
 export function renderMediaContext(ctx: GenerationContext): string {
   const a = ctx.account
   const org = a.company && a.company !== a.name ? ` (${a.company})` : ''
+  const creator = isCreator(ctx)
   const lines = [
-    `Posted by: ${a.name}${org}, ${a.accountType === 'company' ? 'a company page' : 'a person'}`
+    `Posted by: ${a.name}${org}, ${a.accountType === 'company' ? 'a company page' : creator ? 'a creator' : 'a person'}`
   ]
-  if (a.industry) lines.push(`Industry: ${a.industry}`)
+  if (a.industry) lines.push(`${creator ? 'Niche' : 'Industry'}: ${a.industry}`)
+  if (creator) {
+    // Without this the art director made a business graphic for a dancer.
+    lines.push(
+      'Style: a creator, not a business. Make it playful, personal and bold, like their own feed; never corporate, never a diagram, chart or business layout.'
+    )
+  }
   const audiences = ctx.audiences
     .map(x => x.name.replace(/\s+/g, ' ').trim())
     .filter(Boolean)

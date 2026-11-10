@@ -2,6 +2,7 @@ import type { Idea } from '@/db/schema'
 import {
   describeCta,
   describeHashtags,
+  isCreator,
   platformOf,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
@@ -15,6 +16,7 @@ import {
   type GenerationContext
 } from '../../context-blocks'
 import { TRUTH_RULES } from '../shared/truth-rules'
+import { CREATOR_STYLE_RULES, CREATOR_TRUTH_RULES } from '../shared/creator-rules'
 import type { DraftGenerationResult } from './schema'
 
 /** The exemplars that teach rhythm better than any slider can. */
@@ -47,8 +49,14 @@ export function buildInstructions(ctx: GenerationContext): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const feedback = renderReviewerFeedbackBlock(ctx)
   const alsoSupports = renderAlsoSupportsBlock(ctx)
+  // A creator's post is personal and playful; everyone else's is unchanged.
+  const creator = isCreator(ctx)
 
-  return `You are a ghostwriter producing a finished ${platformOf(ctx).name} post for one specific author. You write in their voice, not yours, and you never invent facts.
+  return `${
+    creator
+      ? `You are a ghostwriter producing a finished ${platformOf(ctx).name} post for one specific creator, who posts for a following rather than for business. You write in their voice, not yours, and you never invent facts about them.`
+      : `You are a ghostwriter producing a finished ${platformOf(ctx).name} post for one specific author. You write in their voice, not yours, and you never invent facts.`
+  }
 
 AUTHOR
 ${renderIdentityBlock(ctx)}
@@ -67,15 +75,19 @@ ${renderConstraintsBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 TRUTH RULES
-${TRUTH_RULES}
+${creator ? CREATOR_TRUTH_RULES : TRUTH_RULES}
 
 HOW IT SHOULD READ
-- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
+${
+  creator
+    ? CREATOR_STYLE_RULES
+    : `- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
 - One idea per post, made through one specific example (a task, a decision, a scene), not a list of abstractions. If the idea asks for an example, include it.
 - Vary sentence length. Use "it's not X, it's Y" at most twice in a post.
 - Do not announce what the post is or is not ("this is not a pitch", "here's the thing", "let me be honest"). Show it.
 - Do not summarise at the end. The last line before the call to action adds something new.
-- Write the way this author would say it to one reader across a table, not the way a report is written.
+- Write the way this author would say it to one reader across a table, not the way a report is written.`
+}
 ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
 }
 

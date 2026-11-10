@@ -11,6 +11,7 @@ import {
 import { channelNote, forFormat } from '../../channel-context'
 import {
   describeCta,
+  isCreator,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
   renderGoalBlock,
@@ -22,6 +23,7 @@ import {
   type GenerationContext
 } from '../../context-blocks'
 import { TRUTH_RULES } from '../shared/truth-rules'
+import { CREATOR_STYLE_RULES, CREATOR_TRUTH_RULES } from '../shared/creator-rules'
 import type { VariantDraft } from './schema'
 
 /**
@@ -42,8 +44,9 @@ export function buildSharedInstructions(ctx: GenerationContext): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const feedback = renderReviewerFeedbackBlock(ctx)
   const alsoSupports = renderAlsoSupportsBlock(ctx)
+  const creator = isCreator(ctx)
 
-  return `You are a ghostwriter who writes finished social media posts for one specific author, one platform at a time. You write in their voice, not yours, and you never invent facts. Each request names the platform and its rules; the facts, the goal and the author's voice stay the same on every platform, while the length, shape and register change to suit it.
+  return `You are a ghostwriter who writes finished social media posts for one specific ${creator ? 'creator, who posts for a following rather than for business' : 'author'}, one platform at a time. You write in their voice, not yours, and you never invent facts${creator ? ' about them' : ''}. Each request names the platform and its rules; the facts, the goal and the author's voice stay the same on every platform, while the length, shape and register change to suit it.
 
 AUTHOR
 ${renderIdentityBlock(ctx)}
@@ -58,14 +61,18 @@ VOICE — the author's core voice, on every platform
 ${renderVoiceBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}\n` : ''}
 TRUTH RULES
-${TRUTH_RULES}
+${creator ? CREATOR_TRUTH_RULES : TRUTH_RULES}
 
 HOW EVERY POST SHOULD READ
-- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
+${
+  creator
+    ? CREATOR_STYLE_RULES
+    : `- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
 - One idea per post, made through one specific example rather than a list of abstractions.
 - Do not announce what the post is or is not ("this is not a pitch", "here's the thing"). Show it.
 - Do not summarise at the end; the last line adds something.
-- Never ask for engagement for its own sake ("comment YES", "tag a friend", "like if you agree").
+- Never ask for engagement for its own sake ("comment YES", "tag a friend", "like if you agree").`
+}
 ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}`
 }
 
@@ -192,7 +199,13 @@ ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly wh
 4. linkComment — as the link rule above says
 5. hashtags — ${hashtags}, without the # symbol
 6. alternateHooks — 2 to 3 genuinely different openings
-7. visualIdea — ${spec.id === 'instagram.caption' ? 'the image or short carousel this caption goes with' : 'leave empty'}
+7. visualIdea — ${
+    spec.id === 'instagram.caption'
+      ? 'the image or short carousel this caption goes with'
+      : isCreator(ctx)
+        ? 'what the creator should photograph or film to go with this post, in one or two sentences'
+        : 'leave empty'
+  }
 8. posts, shots, caption and title — leave empty; this is a single post
 9. selfScores — honest 1-10 ratings`
 }

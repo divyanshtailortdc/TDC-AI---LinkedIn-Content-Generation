@@ -51,6 +51,11 @@ export interface LintOptions {
   limitTexts?: string[] | null
   /** How many posts a thread must have; absent for a single post. */
   partRange?: { min: number; max: number } | null
+  /**
+   * How hard engagement bait counts: an error (rewritten before review) by
+   * default; a warning for a creator, whose "tag a friend" is normal.
+   */
+  engagementBaitSeverity?: 'error' | 'warning' | null
   /** What `limitTexts` are called in messages: "Post" unless a video's "Caption". */
   limitLabel?: string | null
   /** A video: its spoken length, caption and (YouTube) title. */
@@ -517,7 +522,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   if (engagementBait.test(fullText)) {
     findings.push({
       rule: 'engagement_bait',
-      severity: 'error',
+      severity: opts.engagementBaitSeverity ?? 'error',
       message: `Engagement bait detected. ${platformName} penalises posts that ask for interactions this way.`,
       passed: false
     })

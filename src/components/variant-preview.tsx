@@ -114,6 +114,21 @@ function joined(parts: Array<string | null | undefined>) {
     .join('\n\n')
 }
 
+/** A creator's "what to shoot" for a post, written with it. */
+function ShotIdea({ payload }: { payload?: Record<string, unknown> | null }) {
+  const idea = typeof payload?.visualIdea === 'string' ? payload.visualIdea.trim() : ''
+  if (!idea) return null
+  return (
+    <div className="mt-3 flex gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:bg-surface-hover dark:text-neutral-300">
+      <Clapperboard className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>
+        <span className="font-semibold">What to shoot: </span>
+        {idea}
+      </span>
+    </div>
+  )
+}
+
 function LinkNote({ label, text }: { label: string; text?: string | null }) {
   const value = toPlainText(text)
   if (!value) return null
@@ -251,6 +266,7 @@ export function VariantPreview(props: VariantPreviewProps) {
         </ol>
         <div className="px-4 pb-4">
           <LinkNote label={spec.commentLabel} text={props.firstComment} />
+          <ShotIdea payload={props.payload} />
         </div>
       </div>
     )
@@ -316,6 +332,7 @@ export function VariantPreview(props: VariantPreviewProps) {
       </div>
       <div className="px-4 pb-4">
         <LinkNote label={spec.commentLabel} text={props.firstComment} />
+        <ShotIdea payload={props.payload} />
       </div>
     </div>
   )

@@ -44,6 +44,7 @@ import {
 } from '@/lib/publishing/publication-queries'
 import { findRevision, lockPost, saveRevision } from '@/lib/post-revisions'
 import {
+  isCreator,
   collectBannedWords,
   loadIdeaContext,
   platformOf,
@@ -622,7 +623,10 @@ async function prepareFormats(
     ? settle(
         DEFAULT_FORMAT,
         // LinkedIn reads its own sample posts once others are tagged.
-        prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep)
+        prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
+          // A creator posts their own photos and videos: no generated graphic.
+          withMedia: !isCreator(ctx)
+        })
       )
     : null
   const others = formats.filter(f => f !== DEFAULT_FORMAT)
@@ -815,7 +819,9 @@ export async function draftAdditionalFormat(
   const recordStep = stepRecorder(idea.runId)
   const post =
     formatId === DEFAULT_FORMAT
-      ? await prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep)
+      ? await prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
+          withMedia: !isCreator(ctx)
+        })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
           siblingOpenings: await siblingOpeningsOf(ideaId, formatId)
         })

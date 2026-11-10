@@ -12,7 +12,6 @@ const TAGS: Array<[RegExp, PlatformId]> = [
   [/\[\s*(?:instagram|insta|ig)\s*\]/i, 'instagram'],
   [/\[\s*(?:facebook|fb)\s*\]/i, 'facebook'],
   [/\[\s*threads\s*\]/i, 'threads'],
-  [/\[\s*tiktok\s*\]/i, 'tiktok'],
   [/\[\s*(?:youtube|yt)\s*\]/i, 'youtube'],
   [/\[\s*linkedin\s*\]/i, 'linkedin']
 ]

@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { audienceSegments, type GenerationContext } from '../../context'
+import { audienceSegments, isCreator, type GenerationContext } from '../../context'
 import { inferRegion } from '../../region'
 import { runSkill } from '../../run-skill'
 import type { CallUsage } from '../../usage'
@@ -72,7 +72,8 @@ export async function generateIdeas(input: {
       candidateCount: input.candidateCount,
       assignedGoals: input.assignedGoals,
       hookMaxChars: input.ctx.prefs.constraints.hook_max_chars,
-      channels
+      channels,
+      creator: isCreator(input.ctx)
     }),
     // A run with one format asks for exactly what it always did.
     schema: channels

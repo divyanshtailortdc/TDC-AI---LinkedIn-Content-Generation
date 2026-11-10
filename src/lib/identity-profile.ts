@@ -5,6 +5,23 @@ import { z } from 'zod'
  * apply step, so all three validate the same way.
  */
 
+/**
+ * Who the identity is: a professional writing as themselves, a company or
+ * product, or a creator (dance, comedy, lifestyle, a hobby) posting for a
+ * following. A creator's posts are written casually and from their niche,
+ * not as thought leadership (see isCreatorAccount).
+ */
+export const ACCOUNT_TYPES = ['personal', 'company', 'creator'] as const
+export type AccountType = (typeof ACCOUNT_TYPES)[number]
+
+/** A stored or submitted type; anything unknown is a person, as before. */
+export function parseAccountType(value: unknown): AccountType {
+  return value === 'company' || value === 'creator' ? value : 'personal'
+}
+
+export const isCreatorAccount = (account: { accountType?: string | null }) =>
+  account.accountType === 'creator'
+
 export const URL_MESSAGE = 'URLs must start with http:// or https://'
 
 /** The message for an invalid optional URL, or undefined when it is fine. */
@@ -72,6 +89,22 @@ export const IdentityProfileSchema = z.object({
 })
 
 export type IdentityProfile = z.infer<typeof IdentityProfileSchema>
+
+/**
+ * The profile schema for one identity type. A creator need not promote
+ * anything, so their "What you promote" (offerings) may be left empty.
+ */
+export function identityProfileSchemaFor(accountType: AccountType) {
+  if (accountType !== 'creator') return IdentityProfileSchema
+  return IdentityProfileSchema.extend({
+    offerings: z
+      .string()
+      .trim()
+      .max(PROFILE_MAX_LENGTH.offerings, tooLong('What you promote', PROFILE_MAX_LENGTH.offerings))
+      .optional()
+      .default('')
+  })
+}
 
 export type IdentityProfileField = keyof IdentityProfile
 

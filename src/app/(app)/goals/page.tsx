@@ -40,6 +40,7 @@ export default async function GoalsPage() {
   return (
     <GoalsClient
       accountId={identity.id}
+      accountType={identity.accountType}
       initialGoals={goals}
       usage={usage}
       picker={picker}

@@ -1,5 +1,6 @@
 import {
   collectBannedWords,
+  isCreator,
   platformOf,
   resolveLinkPlacement,
   type GenerationContext
@@ -57,6 +58,8 @@ export function buildPostLintOptions(
     bannedWords: collectBannedWords(ctx),
     bannedTopics: ctx.prefs.guardrails.banned_topics,
     platformName: platformOf(ctx).name,
+    // A creator inviting followers to tag a friend is not a business post's bait.
+    ...(isCreator(ctx) ? { engagementBaitSeverity: 'warning' as const } : {}),
     maxChars: constraints.max_chars,
     hookMaxChars: constraints.hook_max_chars,
     hashtagRange: constraints.hashtags,

@@ -318,11 +318,12 @@ describe('drafting prompts for other formats', () => {
     assert.deepStrictEqual(splitThread(draft.hook, draft.body), ['One', 'Two', 'Three'])
   })
 
-  it('drops a visual idea on formats other than Instagram', () => {
-    assert.strictEqual(
-      toVariantDraft('facebook.post', { hook: 'H', body: 'B', visualIdea: 'x' }).payload,
-      null
+  it("keeps a creator's shot idea on any single post, and none when not written", () => {
+    assert.deepStrictEqual(
+      toVariantDraft('facebook.post', { hook: 'H', body: 'B', visualIdea: 'Film the rehearsal' }).payload,
+      { visualIdea: 'Film the rehearsal' }
     )
+    assert.strictEqual(toVariantDraft('facebook.post', { hook: 'H', body: 'B' }).payload, null)
   })
 
   it("keeps an Instagram caption's visual idea", () => {
@@ -536,8 +537,8 @@ describe('short videos', () => {
   })
 
   it('pairs each spoken paragraph with its shot and estimates timing', () => {
-    const draft = toVariantDraft('tiktok.video', answer)
-    // TikTok takes no title.
+    const draft = toVariantDraft('instagram.reel', answer)
+    // A Reel takes no title.
     assert.strictEqual(draft.payload?.title, undefined)
     const script = videoScriptOf(draft)
     assert.strictEqual(script.shots.length, 3)
@@ -564,12 +565,12 @@ describe('short videos', () => {
     assert.strictEqual(rule(good, 'video_title'), undefined)
     assert.strictEqual(rule(good, 'cta_required'), undefined)
 
-    const long = toVariantDraft('tiktok.video', {
+    const long = toVariantDraft('instagram.reel', {
       ...answer,
       caption: '',
       shots: [{ say: 'word '.repeat(300), show: 'x' }, { say: 'end', show: 'y' }]
     })
-    const bad = runLinter(buildFormatLintOptions(ctx, 'tiktok.video', goldenIdea, long))
+    const bad = runLinter(buildFormatLintOptions(ctx, 'instagram.reel', goldenIdea, long))
     assert.strictEqual(rule(bad, 'script_length')?.severity, 'error')
     assert.strictEqual(rule(bad, 'caption_missing')?.passed, false)
 
@@ -585,21 +586,24 @@ describe('short videos', () => {
   })
 
   it('asks for shots, caption and the spoken length', () => {
-    const prompt = variantPrompt.buildFormatPrompt(ctx, 'tiktok.video')
-    assert.match(prompt, /PLATFORM: TikTok/)
-    assert.match(prompt, /1\. shots — /)
-    assert.match(prompt, /about 35 seconds/)
-    assert.match(prompt, /3\. title — leave empty/)
+    const reel = variantPrompt.buildFormatPrompt(ctx, 'instagram.reel')
+    assert.match(reel, /PLATFORM: Instagram/)
+    assert.match(reel, /1\. shots — /)
+    assert.match(reel, /about 30 seconds/)
+    assert.match(reel, /3\. title — leave empty/)
     const yt = variantPrompt.buildFormatPrompt(ctx, 'youtube.short')
     assert.match(yt, /3\. title — at most 100 characters/)
-    const reel = variantPrompt.buildFormatPrompt(ctx, 'instagram.reel')
     // A Reel reads and opens as a video, not as a photo caption.
     assert.ok(reel.includes(FORMATS['instagram.reel'].opening!))
   })
 
-  it('reads [TikTok] and [YouTube] sample tags', () => {
-    assert.strictEqual(samplePlatform('[TikTok] Hi').platform, 'tiktok')
+  it('reads [YouTube] sample tags', () => {
     assert.strictEqual(samplePlatform('[YouTube] Hi').platform, 'youtube')
+  })
+
+  it('offers no TikTok format', () => {
+    assert.ok(!FORMAT_IDS.some(id => id.startsWith('tiktok')))
+    assert.strictEqual(formatOf('tiktok.video'), 'linkedin.post')
   })
 })
 

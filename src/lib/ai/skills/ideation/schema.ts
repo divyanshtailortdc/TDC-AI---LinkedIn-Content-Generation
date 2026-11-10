@@ -51,14 +51,51 @@ export const PERSPECTIVE_ANGLE_GUIDE: Record<
   belief_shift: "Aim directly at the audience's stated belief and move it."
 }
 
-export type PerspectiveAngle = (typeof PERSPECTIVE_ANGLES)[number]
+/**
+ * A creator's formats, in place of the analytical lenses: what a dance,
+ * comedy or lifestyle account actually posts. Only creators are shown these.
+ */
+export const CREATOR_ANGLES = [
+  'pov_skit',
+  'storytime',
+  'tutorial',
+  'trend_or_challenge',
+  'behind_the_scenes',
+  'relatable_moment',
+  'before_and_after',
+  'reaction',
+  'day_in_the_life',
+  'myth_vs_reality',
+  'hot_take',
+  'series_episode'
+] as const
+
+export const CREATOR_ANGLE_GUIDE: Record<(typeof CREATOR_ANGLES)[number], string> = {
+  pov_skit: 'A short scene or "POV:" the audience recognises from their own life, played for laughs or feels.',
+  storytime: 'A real moment from the creator\'s life, told well; the specifics are theirs to fill in.',
+  tutorial: 'Teach one small thing step by step that a viewer can try today.',
+  trend_or_challenge: 'The creator\'s take on a trend, sound or challenge in their niche (only one the evidence shows).',
+  behind_the_scenes: 'What happens off camera: the practice, the mess, the setup, the people.',
+  relatable_moment: 'The tiny, specific thing everyone in this niche has felt but rarely says.',
+  before_and_after: 'A visible change: first try versus now, before versus after.',
+  reaction: 'React to something in the niche with the creator\'s honest, funny or expert eye.',
+  day_in_the_life: 'A slice of the creator\'s real routine, made interesting by one detail.',
+  myth_vs_reality: 'What people think the niche is like versus what it is really like.',
+  hot_take: 'A light, defensible opinion the niche will argue about in the comments.',
+  series_episode: 'An episode of a recurring series followers come back for.'
+}
+
+/** Every lens or format an idea may use, professional and creator. */
+export const ALL_PERSPECTIVE_ANGLES = [...PERSPECTIVE_ANGLES, ...CREATOR_ANGLES] as const
+
+export type PerspectiveAngle = (typeof ALL_PERSPECTIVE_ANGLES)[number]
 
 export const IdeaItemSchema = z.object({
   title: z.string().describe('Short punchy title for this idea'),
   thesis: z
     .string()
     .describe('The underlying root proposition or defensible claim'),
-  perspectiveAngle: z.enum(PERSPECTIVE_ANGLES).default('practitioner_lesson'),
+  perspectiveAngle: z.enum(ALL_PERSPECTIVE_ANGLES).default('practitioner_lesson'),
   angle: z.string().describe('The distinctive POV or contrarian thesis lens'),
   goalId: z
     .string()

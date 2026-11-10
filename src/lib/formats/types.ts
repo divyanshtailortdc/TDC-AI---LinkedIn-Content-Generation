@@ -20,7 +20,6 @@ export const FORMAT_IDS = [
   'facebook.post',
   'instagram.caption',
   'instagram.reel',
-  'tiktok.video',
   'youtube.short'
 ] as const
 export type FormatId = (typeof FORMAT_IDS)[number]

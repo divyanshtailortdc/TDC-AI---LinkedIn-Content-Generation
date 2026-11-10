@@ -12,7 +12,7 @@ import {
   type IdentityValues
 } from '@/components/identity-fields'
 import { showToast } from '@/components/toast-notification'
-import { profileFromRecords } from '@/lib/identity-profile'
+import { parseAccountType, profileFromRecords } from '@/lib/identity-profile'
 import { AlertCircle, X } from 'lucide-react'
 import { useState } from 'react'
 import { updateAccountAction } from './actions'
@@ -42,7 +42,7 @@ export function EditIdentityForm({
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<IdentityFieldErrors>({})
   const [accountType, setAccountType] = useState<AccountType>(
-    account.accountType === 'company' ? 'company' : 'personal'
+    parseAccountType(account.accountType)
   )
   const [fields, setFields] = useState<IdentityValues>(() =>
     profileFromRecords(account, initialOfferings[0], initialAudiences[0])
@@ -62,14 +62,14 @@ export function EditIdentityForm({
       initialOfferings[0],
       initialAudiences[0]
     ),
-    accountType: account.accountType === 'company' ? 'company' : 'personal'
+    accountType: parseAccountType(account.accountType)
   }))
   const dirty =
     accountType !== saved.accountType ||
     (Object.keys(values) as Array<keyof IdentityValues>).some(
       key => values[key] !== saved.values[key]
     )
-  const missingRequired = Object.keys(validateIdentityValues(values)).length > 0
+  const missingRequired = Object.keys(validateIdentityValues(values, accountType)).length > 0
   const setValues = (next: Partial<IdentityValues>) =>
     setFields(prev => ({ ...prev, ...next }))
 
@@ -93,11 +93,11 @@ export function EditIdentityForm({
     setError(null)
 
     // Nothing was changed and nothing required is missing: nothing to save.
-    if (!dirty && Object.keys(validateIdentityValues(values)).length === 0) {
+    if (!dirty && Object.keys(validateIdentityValues(values, accountType)).length === 0) {
       return true
     }
 
-    const errors = validateIdentityValues(values)
+    const errors = validateIdentityValues(values, accountType)
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       setError('Please fill in all required fields marked with *.')

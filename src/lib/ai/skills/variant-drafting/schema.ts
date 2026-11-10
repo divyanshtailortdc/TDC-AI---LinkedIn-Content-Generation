@@ -49,7 +49,7 @@ export const VariantOutputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Instagram caption only: the image or short carousel the caption goes with, in one or two sentences. Empty for other formats.'
+      'The image or short carousel an Instagram caption goes with, or for a creator what to photograph or film for the post, in one or two sentences. Empty when the request does not ask for it.'
     ),
   shots: z
     .array(
@@ -138,8 +138,9 @@ export function toVariantDraft(
         : splitThread(output?.hook ?? '', output?.body ?? '')
     return { ...common, ...threadColumns(posts), cta: '', payload: null }
   }
-  const visualIdea =
-    formatId === 'instagram.caption' ? output?.visualIdea?.trim() || '' : ''
+  // Instagram captions always come with one; for a creator every post does
+  // (what to shoot), and other formats are asked to leave it empty.
+  const visualIdea = output?.visualIdea?.trim() || ''
   return {
     ...common,
     hook: output?.hook ?? '',

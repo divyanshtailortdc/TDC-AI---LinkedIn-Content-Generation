@@ -19,6 +19,7 @@ import {
 } from '~/lib/research/web-search'
 import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
+  isCreator,
   audienceSegments,
   goalLabel,
   loadGenerationContext,
@@ -141,7 +142,9 @@ async function researchTheWeb(ctx: GenerationContext): Promise<WebResearch> {
 
   let fallbackReason: string | null = null
   let agentUsage: CallUsage = EMPTY_USAGE
-  if (env.RESEARCH_MODE === 'agent') {
+  // The agent researches a business and its field; a creator's research is
+  // the fixed trend search (buildSearchQueries).
+  if (env.RESEARCH_MODE === 'agent' && !isCreator(ctx)) {
     try {
       const agent = await runResearchAgent(ctx)
       if (agent.findings.length > 0) {

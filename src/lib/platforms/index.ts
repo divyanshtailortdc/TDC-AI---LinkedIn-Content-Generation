@@ -15,7 +15,6 @@ export const PLATFORM_IDS = [
   'threads',
   'facebook',
   'instagram',
-  'tiktok',
   'youtube'
 ] as const
 export type PlatformId = (typeof PLATFORM_IDS)[number]
@@ -99,15 +98,6 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
     id: 'instagram',
     name: 'Instagram',
     limits: { targetChars: 800, maxChars: 2200, hookMaxChars: 125, commentFoldChars: 125 },
-    foldLabel: 'more',
-    plainTextOnly: true,
-    bodyLinksCostReach: false,
-    unicodeBoldHook: false
-  },
-  tiktok: {
-    id: 'tiktok',
-    name: 'TikTok',
-    limits: { targetChars: 150, maxChars: 2200, hookMaxChars: 2200, commentFoldChars: 150 },
     foldLabel: 'more',
     plainTextOnly: true,
     bodyLinksCostReach: false,

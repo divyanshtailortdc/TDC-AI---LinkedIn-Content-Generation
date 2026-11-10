@@ -1,3 +1,4 @@
+import { GOAL_OBJECTIVES } from '@/lib/goal-objectives'
 import { z } from 'zod'
 import { idSchema } from './ids'
 import { optionalUrlError, tooLong } from './identity-profile'
@@ -25,14 +26,7 @@ export const AccountIdSchema = idSchema('Invalid account identifier')
 
 export const GoalPayloadSchema = z.object({
   title: text(200, 'Goal title'),
-  objectiveType: z.enum([
-    'awareness',
-    'engagement',
-    'authority',
-    'lead_gen',
-    'recruiting',
-    'community'
-  ]),
+  objectiveType: z.enum(GOAL_OBJECTIVES),
   keyMessage: text(2000, 'Key message'),
   desiredAction: text(500, 'Desired action').optional(),
   targetUrl: optionalUrl,

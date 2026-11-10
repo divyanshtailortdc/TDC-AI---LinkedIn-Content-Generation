@@ -4,11 +4,18 @@ import { frameEvidenceText } from '../ideation/prompt'
  * The review's instructions for a run whose ideas are for one platform
  * ("Instagram"); without one, the general instructions, unchanged.
  */
-export function instructionsFor(platform?: string | null): string {
-  return platform
+export function instructionsFor(
+  platform?: string | null,
+  creator = false
+): string {
+  const base = platform
     ? INSTRUCTIONS.replace('social media post ideas', `${platform} post ideas`)
     : INSTRUCTIONS
+  return creator ? `${base}\n\n${CREATOR_NOTE}` : base
 }
+
+/** How a creator's goals are judged: by their following, not by business. */
+const CREATOR_NOTE = `These ideas are for a creator posting for a following, not for a business. Their readers are their followers and the people who like their niche. An idea achieves a goal such as growing followers, entertaining or building community when those people would watch it to the end, share it, comment or follow for more; it achieves a promotion goal when it makes them curious about the thing promoted without reading like an advert. Do not mark an idea down for being casual, funny or personal.`
 
 export const INSTRUCTIONS = `You review proposed social media post ideas against the goal each was written for, before a person decides which to have written. Judge whether each idea would achieve its goal, not whether it would make a good post in general.
 

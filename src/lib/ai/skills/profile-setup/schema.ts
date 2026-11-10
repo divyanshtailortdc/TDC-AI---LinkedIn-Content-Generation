@@ -1,3 +1,4 @@
+import { GOAL_OBJECTIVES, objectivesFor } from '@/lib/goal-objectives'
 import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
 import { idSchema } from '@/lib/ids'
 import { normalizeUrlForCompare } from '@/lib/urls'
@@ -35,15 +36,8 @@ export const VOICE_PRESETS = WRITING_STYLES.map(s => s.value) as [
   ...(typeof WRITING_STYLES)[number]['value'][]
 ]
 
-/** Matches GoalPayload['objectiveType']. */
-export const GOAL_OBJECTIVES = [
-  'awareness',
-  'engagement',
-  'authority',
-  'lead_gen',
-  'recruiting',
-  'community'
-] as const
+/** Matches GoalPayload['objectiveType']; see src/lib/goal-objectives. */
+export { GOAL_OBJECTIVES }
 
 /** Matches GoalPayload['linkStrategy']: where a goal's link goes. */
 export const LINK_PLACEMENTS = ['first_comment', 'body'] as const
@@ -272,7 +266,8 @@ export const FIELD_SPECS = {
     objectiveType: {
       type: 'enum',
       label: 'Objective',
-      options: GOAL_OBJECTIVES
+      // AI setup reads every identity as a professional or a company.
+      options: objectivesFor('personal')
     },
     keyMessage: { type: 'text', label: 'Key message' },
     desiredAction: { type: 'text', label: 'Call to action' },

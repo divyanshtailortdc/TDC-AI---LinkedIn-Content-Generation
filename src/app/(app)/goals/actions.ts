@@ -1,5 +1,6 @@
 'use server'
 
+import type { GoalObjective } from '@/lib/goal-objectives'
 import { db } from '@/db'
 import { goalsTable } from '@/db/schema'
 import { NotFoundError, requireOwnedAccount } from '@/lib/account-guard'
@@ -26,13 +27,7 @@ import { z } from 'zod'
 /** Only what a user needs to steer a run: what to achieve and what to land. */
 export type GoalPayload = {
   title: string
-  objectiveType:
-    | 'awareness'
-    | 'engagement'
-    | 'authority'
-    | 'lead_gen'
-    | 'recruiting'
-    | 'community'
+  objectiveType: GoalObjective
   keyMessage: string // The one key message to land
   desiredAction?: string
   targetUrl?: string

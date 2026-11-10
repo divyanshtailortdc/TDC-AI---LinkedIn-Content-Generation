@@ -36,10 +36,19 @@ async function upsertPrimaryOfferingAndAudience(
     name: offeringNameFromText(profile.offerings),
     description: profile.offerings
   }
-  if (primaryOffering) {
+  // A creator may promote nothing: no offering row is made for that, and an
+  // emptied one is switched off so no prompt lists it.
+  if (!profile.offerings?.trim()) {
+    if (primaryOffering) {
+      await tx
+        .update(offeringsTable)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(offeringsTable.id, primaryOffering.id))
+    }
+  } else if (primaryOffering) {
     await tx
       .update(offeringsTable)
-      .set({ ...offeringValues, updatedAt: new Date() })
+      .set({ ...offeringValues, isActive: true, updatedAt: new Date() })
       .where(eq(offeringsTable.id, primaryOffering.id))
   } else {
     await tx

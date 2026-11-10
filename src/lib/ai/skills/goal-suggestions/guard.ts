@@ -32,11 +32,16 @@ export function collectAllowedUrls(profile: {
 /**
  * Drops empty and duplicate suggestions (including ones that repeat an
  * existing goal), trims lengths, and replaces any link the user did not save
- * with no link.
+ * with no link. With `objectives`, a suggestion of another type of identity's
+ * objective (lead generation for a creator) is dropped.
  */
 export function keepValidSuggestions(
   output: GoalSuggestionsModelOutput,
-  context: { allowedUrls: Map<string, string>; existingGoals: string[] }
+  context: {
+    allowedUrls: Map<string, string>
+    existingGoals: string[]
+    objectives?: readonly string[]
+  }
 ): GoalSuggestion[] {
   const taken = new Set(context.existingGoals.map(t => t.toLowerCase()))
   const suggestions: GoalSuggestion[] = []
@@ -44,6 +49,7 @@ export function keepValidSuggestions(
     const title = goal.title.trim().slice(0, 200)
     const keyMessage = goal.keyMessage.trim().slice(0, 1000)
     if (!title || !keyMessage || taken.has(title.toLowerCase())) continue
+    if (context.objectives && !context.objectives.includes(goal.objectiveType)) continue
     taken.add(title.toLowerCase())
     suggestions.push({
       title,

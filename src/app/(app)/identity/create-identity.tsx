@@ -77,9 +77,15 @@ export function CreateIdentity() {
         aside={
           <AiSetupCard
             variant="assistant"
-            accountType={accountType}
+            // AI setup reads a creator as a person, and a person it finds
+            // does not switch a creator back.
+            accountType={accountType === 'creator' ? 'personal' : accountType}
             accountTypeChosen={accountTypeChosen}
-            onAccountTypeChange={chooseAccountType}
+            onAccountTypeChange={type =>
+              chooseAccountType(
+                accountType === 'creator' && type === 'personal' ? 'creator' : type
+              )
+            }
             prefill={prefill}
             saving={saving}
             // Brings the filled form into view (it sits below on narrow screens).
@@ -153,7 +159,7 @@ function CreateIdentityForm({
   const save = async (): Promise<boolean> => {
     if (creating.current) return false
     // Chips and bullet lists have no native required check.
-    const found = validateIdentityValues(values)
+    const found = validateIdentityValues(values, accountType)
     setErrors(found)
     if (Object.keys(found).length > 0 || !formRef.current) return false
 

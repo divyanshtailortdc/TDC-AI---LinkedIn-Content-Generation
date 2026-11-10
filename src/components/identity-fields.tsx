@@ -2,16 +2,17 @@
 
 import {
   IDENTITY_FIELDS,
-  IdentityProfileSchema,
+  identityProfileSchemaFor,
   PROFILE_MAX_LENGTH,
+  type AccountType,
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, Globe, Link2, Sparkles, User } from 'lucide-react'
+import { Building2, Clapperboard, Globe, Link2, Sparkles, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
-export type AccountType = 'personal' | 'company'
+export type { AccountType }
 
 /** The schema's limit for a text field; URL fields have none. */
 const maxLengthOf = (name: IdentityProfileField): number | undefined =>
@@ -27,8 +28,8 @@ const ACCOUNT_TYPES: Array<{
 }> = [
   {
     value: 'personal',
-    label: 'Person',
-    description: 'You as an individual — founder, creator, or executive',
+    label: 'Professional',
+    description: 'You at work: founder, consultant, executive or expert',
     icon: User
   },
   {
@@ -36,6 +37,12 @@ const ACCOUNT_TYPES: Array<{
     label: 'Company / Product',
     description: 'A brand, agency, startup, or specific product',
     icon: Building2
+  },
+  {
+    value: 'creator',
+    label: 'Creator',
+    description: 'You posting for fun or a following: dance, comedy, fitness, food, any hobby',
+    icon: Clapperboard
   }
 ]
 
@@ -98,7 +105,7 @@ function AccountTypePicker({
       <div
         role="radiogroup"
         aria-label="Identity type"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-3"
       >
         {ACCOUNT_TYPES.map(option => {
           const selected = option.value === value
@@ -157,9 +164,10 @@ export type IdentityFieldErrors = Partial<Record<IdentityProfileField, string>>
 
 /** Runs the shared profile schema and maps its issues onto field names. */
 export function validateIdentityValues(
-  values: IdentityValues
+  values: IdentityValues,
+  accountType: AccountType = 'personal'
 ): IdentityFieldErrors {
-  const parsed = IdentityProfileSchema.safeParse(values)
+  const parsed = identityProfileSchemaFor(accountType).safeParse(values)
   if (parsed.success) return {}
   const errors: IdentityFieldErrors = {}
   for (const issue of parsed.error.issues) {
@@ -361,6 +369,41 @@ function IdentityField({
   )
 }
 
+/**
+ * How the Profile fields read for a creator: the same columns, asked about in
+ * a creator's terms (their niche, who follows them, what they promote).
+ */
+const CREATOR_FIELDS: Partial<
+  Record<IdentityProfileField, Partial<IdentityFieldDefinition>>
+> = {
+  name: { label: 'Creator Name', placeholder: 'e.g. Priya Dances' },
+  industry: {
+    label: 'Niche',
+    type: 'textarea',
+    placeholder: 'e.g. Bollywood dance tutorials, couple comedy skits, home workouts'
+  },
+  description: {
+    label: 'About You',
+    placeholder:
+      'e.g. Dance teacher from Pune. I post short choreography tutorials, rehearsal bloopers and trend videos with my students.'
+  },
+  targetAudience: {
+    label: 'Who Follows You',
+    placeholder:
+      'e.g. Teens and young adults learning to dance at home; parents of my students'
+  },
+  offerings: {
+    label: 'What You Promote',
+    required: false,
+    hint: '(optional)',
+    placeholder: 'e.g. Weekend dance classes, my choreography course, brand collaborations'
+  },
+  linkedinUrl: {
+    label: 'Main Profile (Instagram, YouTube…)',
+    placeholder: 'https://www.instagram.com/your-handle'
+  }
+}
+
 /** The Profile fields, laid out the same on the create and edit pages. */
 export function IdentityFields({
   values,
@@ -390,7 +433,10 @@ export function IdentityFields({
     } = {}
   ) => {
     let def = IDENTITY_FIELDS.find(f => f.name === name)!
-    if (name === 'name') {
+    const creatorDef = accountType === 'creator' ? CREATOR_FIELDS[name] : undefined
+    if (creatorDef) {
+      def = { ...def, ...creatorDef }
+    } else if (name === 'name') {
       def = {
         ...def,
         placeholder:
@@ -447,7 +493,8 @@ export function IdentityFields({
       <SectionCard title="Basic information">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {field('name')}
-          {field('company')}
+          {/* A creator posts as themselves; no company to name. */}
+          {accountType !== 'creator' && field('company')}
           <div className="sm:col-span-2">
             {field('industry', { textareaClass: 'h-20' })}
           </div>
@@ -470,7 +517,10 @@ export function IdentityFields({
       <SectionCard title="Online presence">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           <IdentityField
-            def={IDENTITY_FIELDS.find(f => f.name === 'linkedinUrl')!}
+            def={{
+              ...IDENTITY_FIELDS.find(f => f.name === 'linkedinUrl')!,
+              ...(accountType === 'creator' ? CREATOR_FIELDS.linkedinUrl : {})
+            }}
             value={values.linkedinUrl}
             error={errors.linkedinUrl}
             icon={<Link2 className="h-4 w-4" />}

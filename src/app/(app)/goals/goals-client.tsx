@@ -17,6 +17,11 @@ import { triggerNewRun } from '@/app/(app)/runs/actions'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
 import { EMPTY_SUGGESTIONS } from '@/lib/ai/skills/profile-setup/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
+import {
+  GOAL_OBJECTIVES,
+  OBJECTIVE_LABELS,
+  objectivesFor
+} from '@/lib/goal-objectives'
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
 import { cn } from '@/lib/cn'
 import {
@@ -56,25 +61,22 @@ type RawGoal = {
   createdAt: Date | string
 }
 
-const OBJECTIVES: Array<{
-  value: GoalPayload['objectiveType']
-  label: string
-}> = [
-  { value: 'authority', label: 'Authority (Thought leadership & POV)' },
-  { value: 'awareness', label: 'Awareness (Reach & impressions)' },
-  { value: 'engagement', label: 'Engagement (Discussions & DMs)' },
-  { value: 'lead_gen', label: 'Lead gen (Inbound inquiries & demos)' },
-  { value: 'recruiting', label: 'Recruiting (Attracting talent)' },
-  { value: 'community', label: 'Community (Peer network building)' }
-]
+/** Every objective with its label, for showing a saved goal's. */
+const OBJECTIVES = GOAL_OBJECTIVES.map(value => ({
+  value,
+  label: OBJECTIVE_LABELS[value]
+}))
 
 export function GoalsClient({
   accountId,
+  accountType,
   initialGoals,
   usage,
   picker
 }: {
   accountId: string
+  /** A creator is offered creator goals (followers, fun, promotion). */
+  accountType?: string | null
   initialGoals: RawGoal[]
   /** Ideas and posts made for each goal so far, by goal id. */
   usage: Record<string, { ideas: number; posts: number }>
@@ -95,8 +97,11 @@ export function GoalsClient({
 
   // Form states
   const [title, setTitle] = useState('')
+  // The objectives this identity chooses from; the first is the default.
+  const objectiveChoices = objectivesFor(accountType)
+  const defaultObjective = objectiveChoices[0]!
   const [objectiveType, setObjectiveType] =
-    useState<GoalPayload['objectiveType']>('authority')
+    useState<GoalPayload['objectiveType']>(defaultObjective)
   const [keyMessage, setKeyMessage] = useState('')
   const [desiredAction, setDesiredAction] = useState('')
   const [targetUrl, setTargetUrl] = useState('')
@@ -169,7 +174,7 @@ export function GoalsClient({
 
   const resetForm = () => {
     setTitle('')
-    setObjectiveType('authority')
+    setObjectiveType(defaultObjective)
     setKeyMessage('')
     setDesiredAction('')
     setTargetUrl('')
@@ -323,7 +328,7 @@ export function GoalsClient({
     setObjectiveType(
       OBJECTIVES.some(o => o.value === goal.objectiveType)
         ? (goal.objectiveType as GoalPayload['objectiveType'])
-        : 'authority'
+        : defaultObjective
     )
     setKeyMessage(goal.keyMessage)
     setDesiredAction(goal.desiredAction)
@@ -603,7 +608,11 @@ export function GoalsClient({
                     }
                     className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
                   >
-                    {OBJECTIVES.map(o => (
+                    {/* This identity's objectives, and a saved goal's own
+                        when it is from the other set. */}
+                    {OBJECTIVES.filter(
+                      o => objectiveChoices.includes(o.value) || o.value === objectiveType
+                    ).map(o => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>

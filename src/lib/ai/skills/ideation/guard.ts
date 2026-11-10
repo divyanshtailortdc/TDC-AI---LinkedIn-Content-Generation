@@ -220,9 +220,11 @@ export function detectFabricatedAnecdote(
   knownQuotes: string[]
 ): { detected: boolean; snippet?: string; label?: string } {
   if (!text) return { detected: false }
+  // A [placeholder] is left for the author to fill in, not a claim.
+  const claimed = text.replace(/\[[^\]]*\]/g, ' ')
 
   for (const { pattern, label } of FABRICATED_ANECDOTE_PATTERNS) {
-    const match = pattern.exec(text)
+    const match = pattern.exec(claimed)
     if (!match) continue
     // A phrase that appears verbatim in a source is the author's, not invented.
     const inQuote = knownQuotes.some(q =>

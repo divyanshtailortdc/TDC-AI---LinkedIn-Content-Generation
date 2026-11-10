@@ -1,3 +1,4 @@
+import { objectivesFor } from '@/lib/goal-objectives'
 import type { SiteLink } from '@/lib/site-links'
 import { hostnameOf, type VerifiedLink } from './research'
 import {
@@ -54,7 +55,7 @@ Keep it brief: values short and concrete, other lists at most 5 items, and each 
 Field guide (write every value as text; lists one item per line; scales a number 1-5):
 - profile: identityType, then the fields name, company, description, targetAudience, offerings, industry (all as above), linkedinUrl, websiteUrl.
 - voice: tone (one of ${VOICE_PRESETS.join(', ')}), derivedStyleRubric (4-5 sentences another writer could follow, covering how posts open, sentence and paragraph rhythm, warmth and humour, and how posts close; describe it as a recommended voice), formality, directness, perspective (I, we, third person), emojiPolicy (none, bullets only, liberal), hashtagPolicy (none, "0-3, end of post" or "3-5, end of post"), bannedWords (4-8 cliches that clash with this brand).
-- goals: one goal. title, objectiveType (${GOAL_OBJECTIVES.join(', ')}), keyMessage (the belief to move), desiredAction, targetUrl, linkStrategy (${LINK_PLACEMENTS.join(', ')}; only with a targetUrl).
+- goals: one goal. title, objectiveType (${objectivesFor('personal').join(', ')}), keyMessage (the belief to move), desiredAction, targetUrl, linkStrategy (${LINK_PLACEMENTS.join(', ')}; only with a targetUrl).
 - preferences: fields bannedTopics (subjects to stay away from), complianceNotes (extra writing rules). Emoji, hashtags and words to avoid belong in voice only; link placement belongs to the goal.`
 
 /** The user's Advanced analysis choices, written as plain statements. */

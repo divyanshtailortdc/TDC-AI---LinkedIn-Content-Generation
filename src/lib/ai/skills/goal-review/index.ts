@@ -1,3 +1,4 @@
+import { isCreator } from '../../context-blocks'
 import 'server-only'
 
 import { goalLabel, type GenerationContext } from '../../context-blocks'
@@ -31,7 +32,7 @@ export async function reviewGoalFit(
   try {
     const { output, usage } = await runSkill({
       stage: 'goal_review',
-      instructions: instructionsFor(platform),
+      instructions: instructionsFor(platform, isCreator(ctx)),
       prompt: buildPrompt({
         account: [ctx.account.name, ctx.account.headline]
           .filter(Boolean)

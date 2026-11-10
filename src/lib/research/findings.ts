@@ -1,5 +1,6 @@
 import type { GenerationContext } from '~/lib/ai/context-blocks'
 import type { Region } from '~/lib/ai/region'
+import { isCreatorAccount } from '@/lib/identity-profile'
 
 /**
  * The pure half of web research: what to search for and how old a result is.
@@ -118,6 +119,28 @@ function asSubject(text: string): string {
 }
 
 /**
+ * A creator's research is what is going on in their niche, not news about a
+ * business: trends, challenges and what people in the niche are making now,
+ * then the run's goals in the niche's words.
+ */
+function creatorSearchQueries(
+  ctx: GenerationContext,
+  limit: number,
+  region?: Region | null
+): string[] {
+  const a = ctx.account
+  const niche = (a.industry || a.headline || a.name).split(/[,;/|\n]/)[0]!.trim()
+  const place = region?.code ? ` ${region.name}` : ''
+  const queries = [
+    `${niche} trend this week`,
+    `${niche} challenge trending`,
+    `${niche} viral video ideas`,
+    ...ctx.selectedGoals.map(g => `${niche} ${g.title}`)
+  ].map(q => `${q}${place}`.replace(/\s+/g, ' ').trim())
+  return Array.from(new Set(queries)).slice(0, limit)
+}
+
+/**
  * Search queries for fixed research, each anchored to the account so results
  * are about this brand or its field. Bare subjects on their own ("Innovation",
  * "Brand trust") brought back marketing advice any account could have been
@@ -135,6 +158,7 @@ export function buildSearchQueries(
   region?: Region | null
 ): string[] {
   const a = ctx.account
+  if (isCreatorAccount(a)) return creatorSearchQueries(ctx, limit, region)
   // A person's name finds little; their field is the useful anchor.
   const brand = a.accountType === 'company' ? (a.company || a.name).trim() : ''
   // "Consumer electronics, semiconductors and appliances" searches as its first part.

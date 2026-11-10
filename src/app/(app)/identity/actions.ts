@@ -3,7 +3,13 @@
 import { db } from '@/db'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
-import { deriveHeadline, IdentityProfileSchema } from '@/lib/identity-profile'
+import { startCreatorFormats } from '@/lib/channels'
+import {
+  ACCOUNT_TYPES,
+  deriveHeadline,
+  identityProfileSchemaFor,
+  parseAccountType
+} from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
 import { findOwnedAccount } from '@/lib/ownership'
 import { requireUser } from '@/lib/session'
@@ -67,19 +73,18 @@ export async function createAccount(formData: FormData) {
   const user = await requireUser()
   if (await getIdentity()) return { redirectTo: IDENTITY_PATH }
 
-  const parsed = IdentityProfileSchema.safeParse(profileFromFormData(formData))
+  const accountType = parseAccountType(formData.get('accountType'))
+  const parsed = identityProfileSchemaFor(accountType).safeParse(
+    profileFromFormData(formData)
+  )
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
-  const data = parsed.data
-  const accountType =
-    formData.get('accountType') === 'company'
-      ? ('company' as const)
-      : ('personal' as const)
+  const data = { ...parsed.data, offerings: parsed.data.offerings ?? '' }
 
   try {
     // The account and its offering and audience are written together.
-    await insertIdentity(
+    const created = await insertIdentity(
       db,
       {
         userId: user.id,
@@ -95,6 +100,8 @@ export async function createAccount(formData: FormData) {
       },
       data
     )
+    // A creator posts on Instagram, not LinkedIn, until they choose otherwise.
+    if (accountType === 'creator') await startCreatorFormats(created.id)
   } catch (err) {
     if (isUniqueViolation(err)) return { redirectTo: IDENTITY_PATH }
     throw err
@@ -115,10 +122,10 @@ export async function createAccount(formData: FormData) {
   }
 }
 
-const updateAccountSchema = IdentityProfileSchema.extend({
+const updateAccountSchema = identityProfileSchemaFor('creator').extend({
   id: AccountIdSchema,
-  /** Person or Company / Product; left out keeps the saved type. */
-  accountType: z.enum(['personal', 'company']).optional()
+  /** Professional, Company / Product or Creator; left out keeps the saved type. */
+  accountType: z.enum(ACCOUNT_TYPES).optional()
 })
 
 export type UpdateAccountInput = z.input<typeof updateAccountSchema>
@@ -138,6 +145,12 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     const existing = await findOwnedAccount(db, user.id, validated.id)
     if (!existing) {
       return { success: false, error: 'Identity not found' }
+    }
+    // Offerings are optional for a creator only; checked against the type
+    // the identity will have once saved.
+    const nextType = validated.accountType ?? parseAccountType(existing.accountType)
+    if (nextType !== 'creator' && !validated.offerings?.trim()) {
+      return { success: false, error: 'Offerings are required' }
     }
 
     // The handle only follows the LinkedIn URL; renaming keeps the old handle.
@@ -169,6 +182,10 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       },
       validated
     )
+    // Becoming a creator moves an untouched LinkedIn-only setup to Instagram.
+    if (nextType === 'creator' && existing.accountType !== 'creator') {
+      await startCreatorFormats(validated.id)
+    }
 
     revalidatePath('/')
     revalidatePath(IDENTITY_PATH, 'layout')

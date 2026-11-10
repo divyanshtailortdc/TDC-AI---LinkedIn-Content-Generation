@@ -66,16 +66,6 @@ export const PLATFORMS: Record<PlatformId, PlatformInfo> = {
     opening:
       'A short line that makes the image make sense, or makes someone stop scrolling to read it. Not a headline.'
   },
-  tiktok: {
-    id: 'tiktok',
-    label: POST_PLATFORMS.tiktok.name,
-    ideationProfile:
-      'Short vertical video, watched with the sound on. Works: one practical tip shown, not told; a myth busted in under a minute; behind the scenes; a reaction to something in the field; a quick before and after. Falls flat: slides read aloud, corporate polish, anything that needs a long setup.',
-    register:
-      'Spoken, direct and personal, to one viewer. Short sentences that sound natural out loud. Energy from the point, not from hype.',
-    opening:
-      'A spoken first line that names the viewer\'s problem or makes a bold claim within the first two seconds, while the picture already shows something worth watching.'
-  },
   youtube: {
     id: 'youtube',
     label: POST_PLATFORMS.youtube.name,
@@ -230,29 +220,6 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
       'Spoken, personal and quick, to one viewer. Short sentences that sound natural out loud; the picture carries as much as the words.',
     opening:
       'A spoken first line, within two seconds, that makes the viewer want the rest, while the picture already shows something worth watching.'
-  },
-  'tiktok.video': {
-    id: 'tiktok.video',
-    platform: 'tiktok',
-    label: 'TikTok video',
-    version: 1,
-    structure: 'script',
-    limits: {
-      count: 'utf16',
-      maxChars: 2200,
-      targetChars: 150,
-      foldChars: null,
-      seconds: { target: 35, max: 90 }
-    },
-    hashtags: { min: 2, max: 5 },
-    links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
-    rules: [
-      'A vertical video script, shot by shot, to be filmed by the author: what is said, what is on screen, and any text overlay.',
-      'The first shot is the hook: within two seconds the viewer knows why to keep watching.',
-      'Write the spoken words to be said aloud: short sentences, contractions, no lists read out. Show the point on screen rather than describing it.',
-      'The caption is short: a line that adds context, then the hashtags. Never write a URL; say the link is in the bio.'
-    ],
-    commentLabel: 'Pinned comment'
   },
   'youtube.short': {
     id: 'youtube.short',
