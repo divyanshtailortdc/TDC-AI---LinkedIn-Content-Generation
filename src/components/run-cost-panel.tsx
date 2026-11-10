@@ -20,10 +20,17 @@ const STAGE_LABELS: Record<string, string> = {
   generating_ideas: 'Ideation',
   drafting: 'Drafting',
   linting: 'Revision pass',
-  media: 'Media (brief + image)'
+  media: 'Media (brief + image)',
+  article_drafting: 'Articles'
 }
 
-const STAGE_ORDER = ['generating_ideas', 'drafting', 'linting', 'media']
+const STAGE_ORDER = [
+  'generating_ideas',
+  'drafting',
+  'linting',
+  'media',
+  'article_drafting'
+]
 
 function usageOf(responseJson: unknown): CallUsage | null {
   const usage = (responseJson as { usage?: CallUsage } | null | undefined)?.usage

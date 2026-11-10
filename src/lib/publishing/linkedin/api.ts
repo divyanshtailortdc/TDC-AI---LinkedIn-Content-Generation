@@ -238,12 +238,28 @@ export async function uploadImage(
   return imageUrn
 }
 
+/**
+ * An article-link post's card. LinkedIn does not read the page ("The Posts
+ * API does not support URL scraping for article post creation"), so the card
+ * shows exactly these fields; the thumbnail is an image uploaded first. This
+ * shares a link: LinkedIn's API has no way to create a native long-form
+ * article.
+ */
+export type ArticleLink = {
+  source: string
+  title: string
+  description?: string | null
+  thumbnailUrn?: string | null
+}
+
 export async function createPost(
   ctx: ApiContext,
   post: {
     authorUrn: string
     commentary: string
     image?: { urn: string; altText?: string | null }
+    /** Shares a web page as a link card instead of attaching an image. */
+    article?: ArticleLink
   }
 ): Promise<string> {
   const res = await send(
@@ -261,16 +277,32 @@ export async function createPost(
           targetEntities: [],
           thirdPartyDistributionChannels: []
         },
-        ...(post.image && {
-          content: {
-            media: {
-              id: post.image.urn,
-              ...(post.image.altText && {
-                altText: post.image.altText.slice(0, 4086)
-              })
+        // A post carries one kind of content: a link card, or an image.
+        ...(post.article
+          ? {
+              content: {
+                article: {
+                  source: post.article.source,
+                  title: post.article.title.slice(0, 400),
+                  ...(post.article.description && {
+                    description: post.article.description.slice(0, 4086)
+                  }),
+                  ...(post.article.thumbnailUrn && {
+                    thumbnail: post.article.thumbnailUrn
+                  })
+                }
+              }
             }
-          }
-        }),
+          : post.image && {
+              content: {
+                media: {
+                  id: post.image.urn,
+                  ...(post.image.altText && {
+                    altText: post.image.altText.slice(0, 4086)
+                  })
+                }
+              }
+            }),
         lifecycleState: 'PUBLISHED',
         isReshareDisabledByAuthor: false
       })

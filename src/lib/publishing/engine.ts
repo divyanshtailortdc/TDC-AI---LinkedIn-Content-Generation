@@ -41,6 +41,7 @@ import { canPublishTo, PUBLISHING_PLATFORM } from './platform'
 import {
   addComment,
   type ApiContext,
+  type ArticleLink,
   authorIdOf,
   createPost,
   deletePost,
@@ -166,7 +167,10 @@ async function findOwnedDraft(
       hashtags: postDraftsTable.hashtags,
       firstComment: postDraftsTable.firstComment,
       status: postDraftsTable.status,
-      postedAt: postDraftsTable.postedAt
+      postedAt: postDraftsTable.postedAt,
+      linkUrl: postDraftsTable.linkUrl,
+      linkTitle: postDraftsTable.linkTitle,
+      linkDescription: postDraftsTable.linkDescription
     })
     .from(postDraftsTable)
     .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
@@ -210,7 +214,36 @@ function assertPublishable(
       'too_long'
     )
   }
+  if (draft.linkUrl !== null && articleLinkOf(draft) === null) {
+    throw new PublishRequestError(
+      'The link this post shares is not a valid https address, or has no title. Fix it and try again.',
+      'not_approved'
+    )
+  }
   return text
+}
+
+/**
+ * An article-link post's card (post_drafts.link_*), or null for any other
+ * post, or for a link that is not a public http(s) address with a title.
+ */
+function articleLinkOf(draft: {
+  linkUrl: string | null
+  linkTitle: string | null
+  linkDescription: string | null
+}): Omit<ArticleLink, 'thumbnailUrn'> | null {
+  if (!draft.linkUrl || !draft.linkTitle?.trim()) return null
+  try {
+    const url = new URL(draft.linkUrl)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  } catch {
+    return null
+  }
+  return {
+    source: draft.linkUrl,
+    title: draft.linkTitle.trim(),
+    description: draft.linkDescription?.trim() || null
+  }
 }
 
 /**
@@ -660,6 +693,7 @@ async function prepare(deps: PublishDeps, publication: Publication) {
     draftId: draft.id,
     text,
     comment: draft.firstComment?.trim() || null,
+    link: articleLinkOf(draft),
     connection,
     ctx,
     authorUrn: authorIdOf(connection.memberId)
@@ -677,7 +711,7 @@ export async function executePublication(
   const { database } = deps
   let postRequested = false
   try {
-    const { draftId, text, comment, connection, ctx, authorUrn } =
+    const { draftId, text, comment, link, connection, ctx, authorUrn } =
       await prepare(deps, publication)
     try {
       const image = await (
@@ -710,10 +744,18 @@ export async function executePublication(
       }
       postRequested = true
 
+      // An article-link post shares its page as a card, the image as the
+      // card's thumbnail; any other post attaches the image itself.
       const postUrn = await createPost(ctx, {
         authorUrn,
         commentary: toApiText(text),
-        image: imageUrn ? { urn: imageUrn, altText: image?.altText } : undefined
+        ...(link
+          ? { article: { ...link, thumbnailUrn: imageUrn } }
+          : {
+              image: imageUrn
+                ? { urn: imageUrn, altText: image?.altText }
+                : undefined
+            })
       })
 
       // The post is live. Recording that must not turn into a failure: the

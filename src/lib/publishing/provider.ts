@@ -11,6 +11,7 @@
 export {
   addComment,
   type ApiContext,
+  type ArticleLink,
   createPost,
   deletePost,
   LinkedInApiError as PlatformApiError,

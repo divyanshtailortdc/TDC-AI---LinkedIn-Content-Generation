@@ -1,7 +1,12 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { findOwnedAccount, findOwnedIdea, findOwnedRun } from './ownership'
+import {
+  findOwnedAccount,
+  findOwnedArticle,
+  findOwnedIdea,
+  findOwnedRun
+} from './ownership'
 
 /**
  * Guards for Server Actions that act on an identity, run or idea named by the
@@ -14,7 +19,7 @@ import { findOwnedAccount, findOwnedIdea, findOwnedRun } from './ownership'
  */
 
 export class NotFoundError extends Error {
-  constructor(resource: 'Identity' | 'Run' | 'Idea') {
+  constructor(resource: 'Identity' | 'Run' | 'Idea' | 'Article') {
     super(`${resource} not found`)
     this.name = 'NotFoundError'
   }
@@ -39,4 +44,11 @@ export async function requireOwnedIdea(userId: string, ideaId: unknown) {
   const idea = await findOwnedIdea(db, userId, ideaId)
   if (!idea) throw new NotFoundError('Idea')
   return idea
+}
+
+/** An article of the user's identity. */
+export async function requireOwnedArticle(userId: string, articleId: unknown) {
+  const article = await findOwnedArticle(db, userId, articleId)
+  if (!article) throw new NotFoundError('Article')
+  return article
 }

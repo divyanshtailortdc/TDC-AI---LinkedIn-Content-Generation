@@ -20,7 +20,7 @@ import { CREATOR_STYLE_RULES, CREATOR_TRUTH_RULES } from '../shared/creator-rule
 import type { DraftGenerationResult } from './schema'
 
 /** The exemplars that teach rhythm better than any slider can. */
-function renderExemplars(ctx: GenerationContext): string {
+export function renderExemplars(ctx: GenerationContext): string {
   const exemplars = ctx.samplePosts
     .slice()
     .sort((a, b) => Number(b.performedWell) - Number(a.performedWell))

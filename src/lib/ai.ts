@@ -38,6 +38,7 @@ export type AIStage =
   | 'extraction'
   | 'research'
   | 'goal_review'
+  | 'article_drafting'
 
 /**
  * Effort is the first quality/cost lever. Ideation and drafting carry the
@@ -71,7 +72,10 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   // The research agent: several short steps choosing searches and pages.
   research: { model: defaultModel, effort: 'medium' },
   // Judges each idea against its goal: reading and judgment, little reasoning.
-  goal_review: { model: defaultModel, effort: 'low' }
+  goal_review: { model: defaultModel, effort: 'low' },
+  // A long-form article: carries output quality like drafting, but at several
+  // times the length, so medium effort keeps it inside a request's time limit.
+  article_drafting: { model: defaultModel, effort: 'medium' }
 }
 
 export interface LanguageModelHandle {
