@@ -651,3 +651,31 @@ describe('image shape per post type', () => {
     }
   })
 })
+
+describe('formats posts can be created in', () => {
+  it('offers every format but Instagram Reels, from ideas and as a version', async () => {
+    const { CREATABLE_FORMATS, FORMAT_IDS, isCreatableFormat } = await import('../src/lib/formats')
+    assert.ok(!CREATABLE_FORMATS.includes('instagram.reel'))
+    assert.strictEqual(isCreatableFormat('instagram.reel'), false)
+    assert.strictEqual(isCreatableFormat('instagram.caption'), true)
+    assert.deepStrictEqual(
+      FORMAT_IDS.filter(id => !isCreatableFormat(id)),
+      ['instagram.reel']
+    )
+  })
+})
+
+describe('Reels turned on before', () => {
+  it('are dropped from what an identity drafts, so ideation and Preferences never see them', async () => {
+    const { resolveChannels } = await import('../src/lib/formats')
+    assert.deepStrictEqual(
+      resolveChannels({ enabledFormats: ['instagram.caption', 'instagram.reel'] }).enabledFormats,
+      ['instagram.caption']
+    )
+    // Only a Reel was on: back to the default, never an empty list.
+    assert.deepStrictEqual(
+      resolveChannels({ enabledFormats: ['instagram.reel'] }).enabledFormats,
+      ['linkedin.post']
+    )
+  })
+})

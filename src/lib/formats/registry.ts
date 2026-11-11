@@ -261,6 +261,17 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   }
 }
 
+/**
+ * The formats new posts can be created in, from ideas or as another version:
+ * every one above except Instagram Reels (Instagram is posts with a picture).
+ * Reels written before stay readable and editable.
+ */
+export const CREATABLE_FORMATS: readonly FormatId[] = FORMAT_IDS.filter(
+  id => id !== 'instagram.reel'
+)
+
+export const isCreatableFormat = (id: FormatId) => CREATABLE_FORMATS.includes(id)
+
 export const formatSpec = (id: FormatId): FormatSpec => FORMATS[id]
 
 export const platformOf = (id: FormatId): PlatformInfo =>

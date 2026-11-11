@@ -1,5 +1,5 @@
 import { cn } from '@/lib/cn'
-import { FORMATS, isFormatId } from '@/lib/formats'
+import { FORMATS, isCreatableFormat, isFormatId } from '@/lib/formats'
 
 /** One post format as a small label, e.g. "X thread". */
 export function FormatBadge({
@@ -30,7 +30,8 @@ export function FormatChips({
   formats: string[] | null | undefined
   label?: string
 }) {
-  const known = (formats ?? []).filter(isFormatId)
+  // Only formats a post can still be created in: no Reels.
+  const known = (formats ?? []).filter(isFormatId).filter(isCreatableFormat)
   if (known.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-1">

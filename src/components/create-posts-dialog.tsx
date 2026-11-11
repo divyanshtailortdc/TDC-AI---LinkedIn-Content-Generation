@@ -3,7 +3,7 @@
 import { PlatformMark } from '@/components/platform-mark'
 import { cn } from '@/lib/cn'
 import {
-  FORMAT_IDS,
+  CREATABLE_FORMATS,
   FORMATS,
   formatHint,
   PLATFORMS,
@@ -17,20 +17,12 @@ import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 /**
- * The formats offered here: every one the app writes for, except Instagram
- * Reels (Instagram is posts with a picture only).
- */
-const OFFERED_FORMATS: readonly FormatId[] = FORMAT_IDS.filter(
-  id => id !== 'instagram.reel'
-)
-
-/**
  * Asked every time posts are created from ideas: first the platforms the
  * posts are for, then the type of post on each (an X post or a thread).
  * Create stays disabled until every chosen platform has its type. A platform
  * with one type (a LinkedIn post, an Instagram post) has it chosen with the
- * platform. OFFERED_FORMATS are offered, whatever the identity turned on in
- * Identity → Preferences.
+ * platform. CREATABLE_FORMATS are offered, whatever the identity turned on
+ * in Identity → Preferences.
  */
 export function CreatePostsDialog({
   title,
@@ -51,9 +43,9 @@ export function CreatePostsDialog({
 }) {
   const titleId = useId()
   const descriptionId = useId()
-  const platforms = platformsOf([...OFFERED_FORMATS])
+  const platforms = platformsOf([...CREATABLE_FORMATS])
   const formatsOf = (platform: PlatformId) =>
-    OFFERED_FORMATS.filter(f => FORMATS[f].platform === platform)
+    CREATABLE_FORMATS.filter(f => FORMATS[f].platform === platform)
   const isSuggested = (id: string) => suggested?.includes(id) ?? false
 
   const [chosen, setChosen] = useState<PlatformId[]>([])

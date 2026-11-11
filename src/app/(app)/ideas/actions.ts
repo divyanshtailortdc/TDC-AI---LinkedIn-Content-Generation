@@ -2,7 +2,7 @@
 
 import { db } from '@/db'
 import { feedbackTable, ideasTable } from '@/db/schema'
-import { cleanFormats, type FormatId } from '@/lib/formats'
+import { cleanFormats, isCreatableFormat, type FormatId } from '@/lib/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
@@ -21,11 +21,11 @@ import {
 } from '~/lib/ai/pipeline/drafting-run'
 
 /**
- * The formats picked in "Create posts": any the app writes for, whatever the
- * identity turned on in its preferences; refused when none are known.
+ * The formats picked in "Create posts": any that can be created (no Reels),
+ * whatever the identity turned on in its preferences; refused when none are.
  */
 function chosenFormats(raw: unknown): FormatId[] {
-  const formats = cleanFormats(raw)
+  const formats = cleanFormats(raw).filter(isCreatableFormat)
   if (formats.length === 0) {
     throw new Error('Choose at least one platform to write these posts for.')
   }

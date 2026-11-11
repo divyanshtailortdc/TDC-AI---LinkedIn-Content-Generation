@@ -10,8 +10,8 @@ import {
 } from '@/lib/formats'
 import { eq } from 'drizzle-orm'
 
-/** What a creator writes for until they choose: Instagram posts and Reels. */
-export const CREATOR_START_FORMATS: FormatId[] = ['instagram.caption', 'instagram.reel']
+/** What a creator writes for until they choose: Instagram posts. */
+export const CREATOR_START_FORMATS: FormatId[] = ['instagram.caption']
 
 /**
  * Starts a creator on Instagram instead of LinkedIn: when the identity has no

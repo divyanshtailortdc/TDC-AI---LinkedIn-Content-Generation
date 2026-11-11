@@ -12,6 +12,7 @@ import {
   type PreferencesValues
 } from '@/lib/settings-merge'
 import {
+  CREATABLE_FORMATS,
   FORMAT_IDS,
   FORMATS,
   PLATFORM_IDS,
@@ -257,7 +258,7 @@ export function PreferencesForm({
                 {PLATFORMS[platform].label}
               </legend>
               <div className="space-y-1.5">
-                {FORMAT_IDS.filter(f => FORMATS[f].platform === platform).map(
+                {CREATABLE_FORMATS.filter(f => FORMATS[f].platform === platform).map(
                   id => (
                     <label
                       key={id}

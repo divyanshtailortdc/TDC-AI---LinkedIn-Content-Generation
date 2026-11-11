@@ -8,6 +8,7 @@ import {
   FORMATS,
   formatHint,
   formatOf,
+  isCreatableFormat,
   isFormatId,
   type FormatId
 } from '@/lib/formats'
@@ -17,13 +18,13 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { addPostVersion } from './actions'
 import type { PostDetail } from './posts-client'
 
-/** The enabled formats the post's idea has no post in yet. */
+/** The enabled formats the post's idea has no post in yet, that can be created (no Reels). */
 function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[] {
   const have = new Set(
     (post.ideaFormats?.length ? post.ideaFormats : [post.formatId ?? 'linkedin.post'])
       .filter(isFormatId)
   )
-  return enabledFormats.filter(f => !have.has(f))
+  return enabledFormats.filter(f => !have.has(f) && isCreatableFormat(f))
 }
 
 /** Where a version stands, in a word. */
