@@ -363,7 +363,7 @@ describe('articles', { skip: !url }, () => {
     }) as typeof fetch
     const deps = (withImage: boolean) => ({
       database,
-      config,
+      configs: { linkedin: config },
       fetchFn,
       loadImage: async () =>
         withImage

@@ -12,6 +12,7 @@ import {
   text,
   type AnyPgColumn,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   varchar,
@@ -1438,7 +1439,7 @@ export const intelMentionsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// 24. Platform Connections (1:1 with auth user) — authorization to publish
+// 24. Platform Connections (1 per user and platform) — authorization to publish
 // ---------------------------------------------------------------------------
 
 // The platform account a user allowed the app to publish as (docs/PUBLISHING.md).
@@ -1451,16 +1452,25 @@ export const platformConnectionsTable = pgTable(
   'linkedin_connections',
   {
     id: commonFieldDefs.id(),
-    // One per user: reconnecting updates this row in place.
+    // One per user and platform: reconnecting updates this row in place.
     userId: uuid('user_id')
       .notNull()
-      .unique()
       .references(() => authUsersTable.id, { onDelete: 'cascade' }),
-    /** The account's id on the platform (for OpenID providers, the `sub`). */
+    // The platform it publishes to (src/lib/platforms). Rows from before X
+    // was added are LinkedIn's.
+    platform: varchar('platform', { length: 30 })
+      .$type<PlatformId>()
+      .default(DEFAULT_PLATFORM_ID)
+      .notNull(),
+    /**
+     * The account's id on the platform (for OpenID providers, the `sub`; for
+     * X through Buffer, the Buffer channel's id).
+     */
     memberId: text('member_id').notNull(),
     name: text('name'),
     pictureUrl: text('picture_url'),
-    // Encrypted; null once disconnected.
+    // Encrypted (an OAuth access token, or a Buffer API key); null once
+    // disconnected.
     accessToken: text('access_token'),
     accessTokenExpiresAt: commonFieldDefs.date('access_token_expires_at'),
     // Only for apps the platform has granted programmatic refresh; usually null.
@@ -1485,6 +1495,10 @@ export const platformConnectionsTable = pgTable(
     ...commonFieldDefs.dates
   },
   table => [
+    unique('linkedin_connections_user_platform_unique').on(
+      table.userId,
+      table.platform
+    ),
     check(
       'linkedin_connections_status_check',
       sql`${table.status} in (${sqlList(CONNECTION_STATUSES)})`
@@ -1513,6 +1527,12 @@ export const publicationsTable = pgTable(
     draftId: uuid('draft_id').references(() => postDraftsTable.id, {
       onDelete: 'set null'
     }),
+    // Where it goes: the post's platform when it was queued, which picks the
+    // connection and the provider. Rows from before X was added are LinkedIn's.
+    platform: varchar('platform', { length: 30 })
+      .$type<PlatformId>()
+      .default(DEFAULT_PLATFORM_ID)
+      .notNull(),
     // The connection used, set when it is published; kept for history.
     connectionId: uuid('connection_id').references(
       () => platformConnectionsTable.id,
@@ -1535,7 +1555,11 @@ export const publicationsTable = pgTable(
     maxAttempts: integer('max_attempts').default(3).notNull(),
     /** Set when claimed; a stale lock means the process died mid-publish. */
     lockedAt: commonFieldDefs.date('locked_at'),
-    /** The platform's id for the published post. */
+    /**
+     * The platform's id for the published post (for X, Buffer's id for it).
+     * Set while still 'publishing' when the provider sends the post on after
+     * answering (Buffer): the row then waits for it to be confirmed.
+     */
     externalPostId: text('linkedin_post_urn'),
     publishedAt: commonFieldDefs.date('published_at'),
     /**
@@ -1551,6 +1575,8 @@ export const publicationsTable = pgTable(
         /** Set just before the create request: from then the post may exist. */
         postRequestedAt?: string
         imageUrn?: string
+        /** The published post's link, when the provider gives one (Buffer). */
+        postUrl?: string
         commentUrn?: string
         commentError?: string
         httpStatus?: number

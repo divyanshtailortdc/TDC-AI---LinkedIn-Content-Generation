@@ -11,9 +11,13 @@ import {
   saveConnection
 } from '../src/lib/publishing/connection'
 import type { LinkedInAppConfig, TokenSet } from '../src/lib/publishing/linkedin/oauth'
+import { verifyMediaToken } from '../src/lib/publishing/media-token'
+import type { BufferConfig } from '../src/lib/publishing/provider'
 import {
   cancelPublication,
   claimPublication,
+  confirmPendingPublications,
+  CONFIRM_TIMEOUT_MS,
   deletePublishedPost,
   executePublication,
   type PostImage,
@@ -41,6 +45,71 @@ const config: LinkedInAppConfig = {
   scopes: ['openid', 'profile', 'w_member_social'],
   apiVersion: '202610',
   encryptionKey: randomBytes(32)
+}
+
+const BUFFER_URL = 'https://buffer.example/graphql'
+
+const xConfig: BufferConfig = {
+  // Connected with API keys here (the OAuth flow is checked in publishing-units).
+  oauth: null,
+  apiUrl: BUFFER_URL,
+  appUrl: 'https://app.example.com',
+  encryptionKey: config.encryptionKey,
+  // Publish now does not wait for Buffer in tests.
+  inlineWaitMs: 0
+}
+
+/**
+ * A stand-in for Buffer's GraphQL API: records each operation, answers
+ * createPost and post from queues (by default: sent at once).
+ */
+function fakeBuffer() {
+  const calls: Array<{ operation: string; variables: any; auth?: string }> = []
+  let createAnswers: Array<() => Response> = []
+  let postStates: string[] = []
+  let created = 0
+  const post = (id: string, status: string) => ({
+    id,
+    status,
+    externalLink: status === 'sent' ? `https://x.com/qa/status/${id}` : null,
+    sentAt: status === 'sent' ? new Date().toISOString() : null,
+    error: status === 'error' ? { message: 'Duplicate content' } : null
+  })
+  const fetchFn = (async (_input: string | URL, init: RequestInit = {}) => {
+    const body = JSON.parse(String(init.body))
+    const operation = /(mutation|query)\s+(\w+)/.exec(body.query)?.[2] ?? '?'
+    const headers = (init.headers ?? {}) as Record<string, string>
+    calls.push({ operation, variables: body.variables, auth: headers.Authorization })
+    if (operation === 'CreatePost') {
+      const next = createAnswers.shift()
+      if (next) return next()
+      created++
+      return Response.json({
+        data: { createPost: { __typename: 'PostActionSuccess', post: post(`B${created}`, 'sent') } }
+      })
+    }
+    if (operation === 'Post') {
+      const id = body.variables.input.id
+      return Response.json({ data: { post: post(id, postStates.shift() ?? 'sent') } })
+    }
+    return Response.json({ errors: [{ message: 'unknown', extensions: { code: 'NOT_FOUND' } }] })
+  }) as typeof fetch
+  return {
+    fetchFn,
+    calls,
+    creates: () => calls.filter(c => c.operation === 'CreatePost'),
+    answerNextCreates: (...answers: Array<() => Response>) => {
+      createAnswers = answers
+    },
+    /** What the next looks at a post find, in order (then 'sent'). */
+    postStatesNext: (...states: string[]) => {
+      postStates = states
+    },
+    pending: (id: string) => () =>
+      Response.json({
+        data: { createPost: { __typename: 'PostActionSuccess', post: post(id, 'sending') } }
+      })
+  }
 }
 
 type Call = {
@@ -131,6 +200,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   const client = postgres(url!, { max: 4, prepare: false })
   const database = drizzle(client, { schema })
   let linkedIn = fakePlatform()
+  let buffer = fakeBuffer()
   const deps = (
     extra: {
       now?: () => Date
@@ -138,8 +208,12 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     } = {}
   ) => ({
     database,
-    config,
-    fetchFn: linkedIn.fetchFn,
+    configs: { linkedin: config, x: xConfig },
+    // Buffer's calls to the Buffer stub, everything else to LinkedIn's.
+    fetchFn: ((input: string | URL, init?: RequestInit) =>
+      String(input) === BUFFER_URL
+        ? buffer.fetchFn(input, init)
+        : linkedIn.fetchFn(input, init)) as typeof fetch,
     loadImage: extra.loadImage ?? (async () => null),
     now: extra.now
   })
@@ -236,6 +310,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   })
   beforeEach(() => {
     linkedIn = fakePlatform()
+    buffer = fakeBuffer()
   })
   after(async () => {
     await client`delete from auth_users where email like ${`${tag}-%`}`
@@ -912,6 +987,232 @@ describe('LinkedIn publishing', { skip: !url }, () => {
           )
         )
       assert.strictEqual(rows.length, 0)
+    })
+  })
+  describe('X through Buffer', () => {
+    let x: { userId: string; accountId: string }
+    const apiKey = 'BUFFER-KEY-1234567890'
+    const connectX = (userId: string, channelId = 'CHANNEL_X', key = apiKey) =>
+      saveConnection(
+        database,
+        xConfig,
+        userId,
+        {
+          accessToken: key,
+          accessTokenExpiresAt: null,
+          refreshToken: null,
+          refreshTokenExpiresAt: null,
+          scopes: ['account:read', 'posts:read', 'posts:write']
+        },
+        { memberId: channelId, name: '@qa', pictureUrl: null },
+        { platform: 'x' }
+      )
+    const xPost = (overrides: Partial<schema.NewPostDraft> = {}) =>
+      newPost(x.accountId, {
+        platform: 'x',
+        formatId: 'x.post',
+        hook: 'A short hook',
+        body: 'The body (with brackets) #QA',
+        firstComment: 'Not sent on X',
+        ...overrides
+      })
+    const rowOf = async (id: string) =>
+      (
+        await database
+          .select()
+          .from(schema.publicationsTable)
+          .where(eq(schema.publicationsTable.id, id))
+      )[0]!
+
+    before(async () => {
+      x = await newUser('x', 'google')
+    })
+
+    it('X1. without X connected, an X post is refused; LinkedIn alone does not count', async () => {
+      await connect(x.userId, 'MEMBER_X')
+      const draft = await xPost()
+      assert.strictEqual(await codeOf(publishNow(x.userId, draft)), 'not_connected')
+      assert.strictEqual(buffer.calls.length + linkedIn.postCalls().length, 0)
+    })
+
+    it('X2. connected beside LinkedIn, an X post goes to Buffer as plain text, now', async () => {
+      await connectX(x.userId)
+      // Both connections, one per platform.
+      assert.strictEqual((await getConnection(database, x.userId))!.memberId, 'MEMBER_X')
+      const connection = (await getConnection(database, x.userId, 'x'))!
+      assert.strictEqual(connection.memberId, 'CHANNEL_X')
+      assert.ok(connection.accessToken && !connection.accessToken.includes(apiKey), 'key encrypted')
+
+      const draft = await xPost()
+      const image: PostImage = {
+        bytes: Buffer.from('png'),
+        mediaType: 'image/png',
+        altText: 'Alt'
+      }
+      const result = await publishNow(
+        x.userId,
+        draft,
+        deps({ loadImage: async () => image })
+      )
+      assert.strictEqual(result.status, 'published', String(result.error))
+      assert.strictEqual(result.platform, 'x')
+      assert.strictEqual(result.externalPostId, 'B1')
+      assert.strictEqual(result.metadata.postUrl, 'https://x.com/qa/status/B1')
+
+      const [create] = buffer.creates()
+      assert.strictEqual(create!.auth, `Bearer ${apiKey}`)
+      const input = create!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_X')
+      assert.strictEqual(input.mode, 'shareNow')
+      // No little-text escaping and no Unicode bold on X.
+      assert.strictEqual(input.text, 'A short hook\n\nThe body (with brackets) #QA')
+      // The image is a signed link to this post's image only.
+      const imageUrl = new URL(input.assets[0].image.url)
+      assert.strictEqual(imageUrl.origin, 'https://app.example.com')
+      const token = decodeURIComponent(imageUrl.pathname.split('/').pop()!)
+      assert.strictEqual(verifyMediaToken(xConfig.encryptionKey, token), draft)
+      assert.strictEqual(input.assets[0].image.metadata.altText, 'Alt')
+      // No first comment on X, and LinkedIn untouched.
+      assert.strictEqual(linkedIn.calls.length, 0)
+
+      const [saved] = await database
+        .select()
+        .from(schema.postDraftsTable)
+        .where(eq(schema.postDraftsTable.id, draft))
+      assert.ok(saved!.postedAt, 'marked posted')
+    })
+
+    it('X3. a post Buffer is still sending waits, then is confirmed by the worker', async () => {
+      const draft = await xPost()
+      buffer.answerNextCreates(buffer.pending('P1'))
+      const handedOn = await publishNow(x.userId, draft)
+      assert.strictEqual(handedOn.status, 'publishing')
+      assert.strictEqual(handedOn.externalPostId, 'P1')
+
+      // A second request cannot queue it again meanwhile.
+      assert.strictEqual(await codeOf(publishNow(x.userId, draft)), 'already_queued')
+
+      const later = new Date(Date.now() + 60_000)
+      buffer.postStatesNext('sending')
+      assert.deepStrictEqual(
+        await confirmPendingPublications(deps({ now: () => later })),
+        { confirmed: 0, failed: 0 }
+      )
+      const result = await confirmPendingPublications(deps({ now: () => later }))
+      assert.strictEqual(result.confirmed, 1)
+      const row = await rowOf(handedOn.id)
+      assert.strictEqual(row.status, 'published')
+      assert.strictEqual(row.metadata.postUrl, 'https://x.com/qa/status/P1')
+      // Never sent twice.
+      assert.strictEqual(buffer.creates().length, 1)
+    })
+
+    it('X4. a post X refused after Buffer took it fails without a retry', async () => {
+      const draft = await xPost()
+      buffer.answerNextCreates(buffer.pending('P2'))
+      const handedOn = await publishNow(x.userId, draft)
+      buffer.postStatesNext('error')
+      await confirmPendingPublications(deps({ now: () => new Date(Date.now() + 60_000) }))
+      const row = await rowOf(handedOn.id)
+      assert.strictEqual(row.status, 'failed')
+      assert.strictEqual(row.errorCode, 'rejected_by_platform')
+      assert.match(row.error ?? '', /Duplicate content/)
+    })
+
+    it('X5. a post never confirmed is given up as unknown_outcome', async () => {
+      const draft = await xPost()
+      buffer.answerNextCreates(buffer.pending('P3'))
+      const handedOn = await publishNow(x.userId, draft)
+      buffer.postStatesNext('sending')
+      await confirmPendingPublications(
+        deps({ now: () => new Date(Date.now() + CONFIRM_TIMEOUT_MS + 60_000) })
+      )
+      const row = await rowOf(handedOn.id)
+      assert.strictEqual(row.status, 'failed')
+      assert.strictEqual(row.errorCode, 'unknown_outcome')
+      // Trying again asks the user to check X first.
+      assert.strictEqual(
+        await codeOf(publishNow(x.userId, draft)),
+        'confirm_unknown_outcome'
+      )
+    })
+
+    it('X6. Buffer refusing the post, a rate limit and a revoked key', async () => {
+      const refused = await xPost()
+      buffer.answerNextCreates(() =>
+        Response.json({
+          data: { createPost: { __typename: 'InvalidInputError', message: 'Text too long' } }
+        })
+      )
+      const r1 = await publishNow(x.userId, refused)
+      assert.strictEqual(r1.status, 'failed')
+      assert.strictEqual(r1.errorCode, 'rejected_by_platform')
+
+      const limited = await xPost()
+      buffer.answerNextCreates(() =>
+        Response.json(
+          { errors: [{ message: 'Too many', extensions: { code: 'RATE_LIMIT_EXCEEDED' } }] },
+          { status: 429 }
+        )
+      )
+      const r2 = await publishNow(x.userId, limited)
+      assert.strictEqual(r2.status, 'scheduled', 'retried later')
+      assert.strictEqual(r2.errorCode, 'rate_limited')
+
+      const revoked = await xPost()
+      buffer.answerNextCreates(() =>
+        Response.json({ errors: [{ message: 'Not authorized', extensions: { code: 'UNAUTHORIZED' } }] })
+      )
+      const r3 = await publishNow(x.userId, revoked)
+      assert.strictEqual(r3.status, 'failed')
+      assert.strictEqual(r3.errorCode, 'reauth_required')
+      assert.strictEqual((await getConnection(database, x.userId, 'x'))!.status, 'expired')
+      // LinkedIn's connection is untouched.
+      assert.strictEqual((await getConnection(database, x.userId))!.status, 'connected')
+      await connectX(x.userId)
+    })
+
+    it('X7. too long for X, as X counts it, is refused before Buffer is called', async () => {
+      const draft = await xPost({ body: `${'word '.repeat(50)}https://example.com/${'a'.repeat(300)}` })
+      assert.strictEqual(await codeOf(publishNow(x.userId, draft)), 'too_long')
+      // The same length with a long link counted as 23 is fine.
+      const ok = await xPost({ body: `Read https://example.com/${'a'.repeat(300)}` })
+      assert.strictEqual((await publishNow(x.userId, ok)).status, 'published')
+    })
+
+    it('X8. disconnecting X cancels only X posts; X posts cannot be deleted from here', async () => {
+      const at = new Date(Date.now() + 3600_000)
+      const xDraft = await xPost()
+      const liDraft = await newPost(x.accountId)
+      const xRow = await requestPublication(database, {
+        userId: x.userId, draftId: xDraft, trigger: 'scheduled', scheduledAt: at
+      })
+      const liRow = await requestPublication(database, {
+        userId: x.userId, draftId: liDraft, trigger: 'scheduled', scheduledAt: at
+      })
+      assert.strictEqual(xRow.platform, 'x')
+      assert.strictEqual(liRow.platform, 'linkedin')
+      // Every X post waiting (this one, and the one X6 left to retry), no LinkedIn one.
+      assert.deepStrictEqual(await disconnect(database, x.userId, 'x'), { cancelled: 2 })
+      assert.strictEqual((await rowOf(xRow.id)).status, 'cancelled')
+      assert.strictEqual((await rowOf(liRow.id)).status, 'scheduled')
+      await cancelPublication(database, x.userId, liRow.id)
+
+      const [published] = await database
+        .select()
+        .from(schema.publicationsTable)
+        .where(
+          and(
+            eq(schema.publicationsTable.userId, x.userId),
+            eq(schema.publicationsTable.platform, 'x'),
+            eq(schema.publicationsTable.status, 'published')
+          )
+        )
+        .limit(1)
+      assert.strictEqual(
+        await codeOf(deletePublishedPost(deps(), x.userId, published!.id)),
+        'not_supported'
+      )
     })
   })
 })

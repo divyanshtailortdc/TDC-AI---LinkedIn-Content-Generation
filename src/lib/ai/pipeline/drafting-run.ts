@@ -36,8 +36,8 @@ import {
 import { postCharCount, postFullText } from '@/lib/post-text'
 import { buildFormatLintOptions, buildPostLintOptions } from './post-lint'
 import { recheckPostText } from './post-recheck'
-import { publishingConfig } from '@/lib/publishing/config'
-import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
+import { getPlatform } from '@/lib/platforms'
+import { isPublishingConfigured } from '@/lib/publishing/config'
 import {
   cancelPendingPublications,
   hasLivePublication
@@ -59,7 +59,11 @@ import {
   type DraftGenerationResult,
   type RegenerateRequest
 } from '../skills/post-drafting'
-import { writeVariant, type VariantDraft } from '../skills/variant-drafting'
+import {
+  writeVariant,
+  type ApprovedSibling,
+  type VariantDraft
+} from '../skills/variant-drafting'
 import { forFormat } from '../channel-context'
 import type { GenerationContext } from '../context'
 import type { DraftingDb } from './drafting-claim'
@@ -70,6 +74,8 @@ import {
   formatCharCount,
   formatOf,
   formatsToDraft,
+  splitThread,
+  toPlainText,
   type FormatId
 } from '@/lib/formats'
 
@@ -218,17 +224,48 @@ interface PrepareOptions {
   withMedia?: boolean
   /** How this idea's posts on other platforms already open (other formats only). */
   siblingOpenings?: string[]
+  /** This idea's posts the reviewer approved on other platforms (other formats only). */
+  approvedSiblings?: ApprovedSibling[]
 }
 
-/** The openings of an idea's posts in formats other than `formatId`. */
-async function siblingOpeningsOf(ideaId: string, formatId: FormatId): Promise<string[]> {
+/**
+ * What a new or rewritten post in `formatId` is told about its idea's posts
+ * in other formats: how they open, so it opens differently, and the text of
+ * those the reviewer approved, so it keeps their argument and facts.
+ */
+async function siblingsOf(
+  ideaId: string,
+  formatId: FormatId
+): Promise<Required<Pick<PrepareOptions, 'siblingOpenings' | 'approvedSiblings'>>> {
   const rows = await db
-    .select({ hook: postDraftsTable.hook })
+    .select({
+      hook: postDraftsTable.hook,
+      body: postDraftsTable.body,
+      cta: postDraftsTable.cta,
+      status: postDraftsTable.status,
+      formatId: postDraftsTable.formatId
+    })
     .from(postDraftsTable)
     .where(
       and(eq(postDraftsTable.ideaId, ideaId), ne(postDraftsTable.formatId, formatId))
     )
-  return rows.map(r => r.hook.trim()).filter(Boolean)
+  return {
+    siblingOpenings: rows.map(r => r.hook.trim()).filter(Boolean),
+    approvedSiblings: rows
+      .filter(r => r.status === 'approved')
+      .map(r => {
+        const format = formatOf(r.formatId)
+        const text =
+          FORMATS[format].structure === 'thread'
+            ? splitThread(r.hook, r.body).map(toPlainText).join('\n---\n')
+            : [r.hook, r.body, r.cta]
+                .map(part => toPlainText(part).trim())
+                .filter(Boolean)
+                .join('\n\n')
+        return { formatId: format, text }
+      })
+      .filter(s => s.text)
+  }
 }
 
 /**
@@ -501,7 +538,13 @@ async function prepareFormatPost(
   let draft: VariantDraft
   try {
     const written = await writeVariant(
-      { ctx, idea, formatId, siblingOpenings: options.siblingOpenings },
+      {
+        ctx,
+        idea,
+        formatId,
+        siblingOpenings: options.siblingOpenings,
+        approvedSiblings: options.approvedSiblings
+      },
       undefined,
       options.regenerate
     )
@@ -528,7 +571,13 @@ async function prepareFormatPost(
   if (blocking.length > 0) {
     try {
       const revision = await writeVariant(
-        { ctx, idea, formatId, siblingOpenings: options.siblingOpenings },
+        {
+          ctx,
+          idea,
+          formatId,
+          siblingOpenings: options.siblingOpenings,
+          approvedSiblings: options.approvedSiblings
+        },
         { previous: draft, failedChecks: blocking.map(f => f.message) }
       )
       revisionUsage = revision.usage
@@ -823,7 +872,7 @@ export async function draftAdditionalFormat(
           withMedia: !isCreator(ctx)
         })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
-          siblingOpenings: await siblingOpeningsOf(ideaId, formatId)
+          ...(await siblingsOf(ideaId, formatId))
         })
 
   await db.transaction(async tx => {
@@ -860,7 +909,7 @@ async function stopPublishingBeforeRewrite(
   draftId: string,
   what: 'rewritten' | 'restored'
 ): Promise<void> {
-  if (!publishingConfig()) return
+  if (!isPublishingConfigured()) return
   await cancelPendingPublications(
     database,
     { draftId },
@@ -868,7 +917,7 @@ async function stopPublishingBeforeRewrite(
   )
   if (await hasLivePublication(database, draftId)) {
     throw new Error(
-      `This post is published on ${PUBLISHING_PLATFORM.name}, so its text can no longer change.`
+      'This post is published on its platform, so its text can no longer change.'
     )
   }
 }
@@ -904,9 +953,9 @@ export async function regenerateDraft(
   })
   if (!idea) throw new Error('The idea behind this post no longer exists.')
   // Checked before the model is called too, so a published post costs nothing.
-  if (publishingConfig() && (await hasLivePublication(db, draftId))) {
+  if (isPublishingConfigured() && (await hasLivePublication(db, draftId))) {
     throw new Error(
-      `This post is published on ${PUBLISHING_PLATFORM.name}, so its text can no longer change.`
+      `This post is published on ${getPlatform(draft.platform).name}, so its text can no longer change.`
     )
   }
 
@@ -925,7 +974,7 @@ export async function regenerateDraft(
         })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
           regenerate,
-          siblingOpenings: await siblingOpeningsOf(idea.id, formatId)
+          ...(await siblingsOf(idea.id, formatId))
         })
 
   const v = post.values

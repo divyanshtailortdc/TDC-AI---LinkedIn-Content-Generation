@@ -79,7 +79,7 @@ export const PLATFORMS: Record<PlatformId, PlatformInfo> = {
 }
 
 const X_LINK_NOTE =
-  'Links cost the account more to publish through the X API and usually reach fewer people. Leave them out unless the goal needs one, and then put it in the reply.'
+  'Posts with links usually reach fewer people on X. Leave links out of the post unless the goal needs one, and then put it in the reply, which is published under the post.'
 
 export const FORMATS: Record<FormatId, FormatSpec> = {
   'linkedin.post': {
@@ -104,7 +104,8 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     id: 'x.post',
     platform: 'x',
     label: 'X post',
-    version: 1,
+    // 2: links go in the reply, which is published; one emoji at most.
+    version: 2,
     structure: 'single',
     limits: { count: 'x_weighted', maxChars: 280, targetChars: 220, foldChars: null },
     hashtags: { min: 0, max: 1 },
@@ -112,7 +113,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     rules: [
       'The whole post (hook, body, call to action and hashtags together) must fit in 280 characters as X counts them: every link counts as 23, and emoji count as 2.',
       'One or two sentences is normal. Leave the body empty when the hook says it all.',
-      'A call to action is optional; when there is one, make it a short question.',
+      'A call to action, when the post has one (required or not), is one short question in the same post.',
       'Plain text: no markdown, no bullet lists, no thread numbering.'
     ],
     commentLabel: 'Reply'
@@ -121,7 +122,9 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     id: 'x.thread',
     platform: 'x',
     label: 'X thread',
-    version: 1,
+    // 2: links go in the reply, which is published; one emoji at most;
+    // the posts follow the core argument as one connected flow.
+    version: 2,
     structure: 'thread',
     limits: {
       count: 'x_weighted',
@@ -134,8 +137,10 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     links: { inBody: 'reach_penalty', fallback: 'reply', note: X_LINK_NOTE },
     rules: [
       'Write 3 to 7 posts. Each must fit in 280 characters as X counts them (every link counts as 23, emoji as 2) and make sense on its own.',
+      'Plan the thread from the core argument before writing it: one step of the argument per post, in the order the argument runs.',
       'The first post is the hook: it makes the claim and earns the read on its own.',
-      'Each following post adds one step: a reason, an example or a piece of evidence. No filler posts.',
+      'Each following post adds one step: a reason, an example or a piece of evidence. It picks up where the previous post stopped and leads into the next, so the posts read as one connected argument. No filler posts, and nothing said twice.',
+      'A figure or quote goes in the post that makes the claim it supports.',
       'The last post lands the takeaway and, when the goal calls for one, the ask.',
       'Do not number the posts ("1/", "2/7"); the platform shows the thread.',
       'Plain text: no markdown and no bullet lists.'

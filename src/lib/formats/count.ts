@@ -10,7 +10,8 @@ import type { CountMode } from './types'
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>]+|\bwww\.[^\s<>]+/gi
-const EMOJI = /\p{Extended_Pictographic}/u
+// A flag is two regional indicators; X counts it as one emoji too.
+const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u
 
 /** X's link length: every URL is shortened to one of this many characters. */
 export const X_URL_LENGTH = 23

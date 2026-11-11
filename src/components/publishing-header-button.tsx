@@ -1,13 +1,8 @@
 'use client'
 
-import {
-  FacebookMark,
-  InstagramMark,
-  PlatformMark,
-  XMark
-} from '@/components/platform-mark'
+import { FacebookMark, InstagramMark, PlatformMark } from '@/components/platform-mark'
 import { cn } from '@/lib/cn'
-import type { PlatformSpec } from '@/lib/platforms'
+import type { PlatformId, PlatformSpec } from '@/lib/platforms'
 import type { ConnectionStatus } from '@/lib/publishing/status'
 import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
 import { ChevronDown, Settings } from 'lucide-react'
@@ -23,14 +18,18 @@ import {
   type ReactNode
 } from 'react'
 
-/** The signed-in user's publishing connection, as the header shows it. */
-export type PublishingHeaderStatus = {
-  /** The platform posts are published to. */
+/** The signed-in user's connection to one platform, as the header shows it. */
+export type PlatformPublishingStatus = {
   platform: PlatformSpec
-  /** The server has a publishing app set up. */
-  configured: boolean
+  /** The consent screen (OAuth), or a key pasted in Settings (X through Buffer). */
+  connectWith: 'oauth' | 'api_key'
   status: ConnectionStatus | null
   name: string | null
+}
+
+/** Every platform publishing is set up for on this server; empty when none. */
+export type PublishingHeaderStatus = {
+  platforms: PlatformPublishingStatus[]
 }
 
 const PublishingStatusContext = createContext<PublishingHeaderStatus | null>(null)
@@ -54,15 +53,27 @@ export function PublishingStatusProvider({
 export const usePublishingStatus = () => useContext(PublishingStatusContext)
 
 /**
- * Listed in the dropdown as coming soon: not in the platform registry
- * (src/lib/platforms) and without a publishing provider. One that gets both
- * leaves this list.
+ * The user's connection to `platform`, or null when publishing to it is not
+ * set up on this server.
+ */
+export function usePlatformPublishing(
+  platform: PlatformId
+): PlatformPublishingStatus | null {
+  return (
+    usePublishingStatus()?.platforms.find(p => p.platform.id === platform) ??
+    null
+  )
+}
+
+/**
+ * Listed in the dropdown as coming soon: in the platform registry, but
+ * without a publishing provider (src/lib/publishing/platform.ts). One that
+ * gets a provider leaves this list.
  */
 const COMING_SOON: Array<{
   name: string
   Mark: (props: { className: string }) => ReactElement
 }> = [
-  { name: 'X', Mark: XMark },
   { name: 'Facebook', Mark: FacebookMark },
   { name: 'Instagram', Mark: InstagramMark }
 ]
@@ -72,16 +83,46 @@ const ITEM =
   'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors focus-visible:outline-none'
 const ACTIVE_ITEM = 'hover:bg-foreground/10 focus-visible:bg-foreground/10'
 
+/** How one platform's connection reads, in its row and on the button. */
+function rowOf({ status, name }: PlatformPublishingStatus) {
+  // Disconnected counts as not connected.
+  const state =
+    status === 'connected' || status === 'expired' ? status : 'not_connected'
+  return {
+    state,
+    ...{
+      connected: {
+        detail: `as ${name ?? 'your account'}`,
+        action: 'Connected',
+        tone: 'text-emerald-700 dark:text-emerald-400',
+        dot: 'bg-emerald-500'
+      },
+      expired: {
+        detail: 'Connection expired',
+        action: 'Reconnect',
+        tone: 'text-amber-700 dark:text-amber-400',
+        dot: 'bg-amber-500'
+      },
+      not_connected: {
+        detail: 'Not connected',
+        action: 'Connect',
+        tone: 'text-platform-text',
+        dot: null
+      }
+    }[state]
+  }
+}
+
 /**
  * Publishing in the header, beside the theme button: a dropdown of the
- * platforms posts can be published to. The publishing platform shows its
- * state (connected, expired, not connected) on the button and in its row,
- * which connects (straight to the platform's consent screen) or opens
- * Settings → Integrations; the rest are listed as coming soon. Nothing when
- * publishing is not set up on this server.
+ * platforms posts can be published to. The button shows each platform's mark
+ * with its state (connected, expired); each row connects (straight to the
+ * platform's consent screen, or Settings → Integrations for a pasted key) or
+ * opens Settings → Integrations; the rest are listed as coming soon. Nothing
+ * when publishing is not set up on this server.
  */
 export function PublishingHeaderButton() {
-  const publishing = usePublishingStatus()
+  const platforms = usePublishingStatus()?.platforms ?? []
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -103,8 +144,7 @@ export function PublishingHeaderButton() {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
-  if (!publishing?.configured) return null
-  const { platform, status } = publishing
+  if (platforms.length === 0) return null
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!open) return
@@ -124,50 +164,17 @@ export function PublishingHeaderButton() {
     }
   }
 
-  // Disconnected counts as not connected.
-  const state =
-    status === 'connected' || status === 'expired' ? status : 'not_connected'
-  const row = {
-    connected: {
-      detail: `as ${publishing.name ?? 'your account'}`,
-      action: 'Connected',
-      tone: 'text-emerald-700 dark:text-emerald-400',
-      dot: 'bg-emerald-500'
-    },
-    expired: {
-      detail: 'Connection expired',
-      action: 'Reconnect',
-      tone: 'text-amber-700 dark:text-amber-400',
-      dot: 'bg-amber-500'
-    },
-    not_connected: {
-      detail: 'Not connected',
-      action: 'Connect',
-      tone: 'text-platform-text',
-      dot: null
-    }
-  }[state]
+  const rows = platforms.map(p => ({ ...p, row: rowOf(p) }))
+  const expired = rows.filter(r => r.row.state === 'expired')
   // Shown on the button too, unless all is well.
   const buttonLabel =
-    state === 'connected' ? null : `${row.action} ${platform.name}`
-
-  const rowContent = (
-    <>
-      <PlatformMark
-        platform={platform.id}
-        className="text-platform-text h-4 w-4 shrink-0"
-      />
-      <span className="min-w-0 flex-1">
-        <span className="text-foreground block font-medium">
-          {platform.name}
-        </span>
-        <span className="text-muted block truncate text-xs">{row.detail}</span>
-      </span>
-      <span className={cn('shrink-0 text-xs font-semibold', row.tone)}>
-        {row.action}
-      </span>
-    </>
-  )
+    expired.length > 0
+      ? `Reconnect ${expired.map(r => r.platform.name).join(' and ')}`
+      : rows.some(r => r.row.state === 'connected')
+        ? null
+        : rows.length === 1
+          ? `Connect ${rows[0]!.platform.name}`
+          : 'Connect to publish'
 
   return (
     <div
@@ -188,28 +195,40 @@ export function PublishingHeaderButton() {
         aria-label={
           buttonLabel
             ? undefined
-            : `Publishing connections: ${platform.name} connected ${row.detail}`
+            : `Publishing connections: ${rows
+                .map(r => `${r.platform.name} ${r.row.state === 'connected' ? `connected ${r.row.detail}` : r.row.detail.toLowerCase()}`)
+                .join(', ')}`
         }
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
         className={cn(
           'border-border hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2 text-[12px] font-medium transition-colors',
-          state === 'expired' ? row.tone : 'text-platform-text',
+          expired.length > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-foreground',
           open && 'bg-surface-hover'
         )}
       >
-        <span className="relative">
-          <PlatformMark platform={platform.id} className="h-4 w-4" />
-          {row.dot && (
-            <span
-              aria-hidden
-              className={cn(
-                'border-surface absolute -right-1 -bottom-1 h-2.5 w-2.5 rounded-full border-2',
-                row.dot
+        <span className="flex items-center gap-2.5">
+          {rows.map(({ platform, row }) => (
+            <span key={platform.id} data-platform={platform.id} className="relative">
+              <PlatformMark
+                platform={platform.id}
+                className={cn(
+                  'h-4 w-4',
+                  row.state !== 'expired' && 'text-platform-text'
+                )}
+              />
+              {row.dot && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    'border-surface absolute -right-1 -bottom-1 h-2.5 w-2.5 rounded-full border-2',
+                    row.dot
+                  )}
+                />
               )}
-            />
-          )}
+            </span>
+          ))}
         </span>
         {buttonLabel}
         <ChevronDown
@@ -240,27 +259,53 @@ export function PublishingHeaderButton() {
         <p className="text-muted px-2.5 pt-1 pb-1.5 text-[11px] font-semibold tracking-wide uppercase">
           Publish to
         </p>
-        {state === 'not_connected' ? (
-          // A plain link: the route redirects to the platform.
-          <a
-            href={`/api/integrations/${platform.id}/connect`}
-            role="menuitem"
-            onClick={close}
-            title={`Connect the ${platform.name} account approved posts are published to`}
-            className={cn(ITEM, ACTIVE_ITEM)}
-          >
-            {rowContent}
-          </a>
-        ) : (
-          <Link
-            href={INTEGRATIONS_SETTINGS_PATH}
-            role="menuitem"
-            onClick={close}
-            className={cn(ITEM, ACTIVE_ITEM)}
-          >
-            {rowContent}
-          </Link>
-        )}
+        {rows.map(({ platform, connectWith, row }) => {
+          const content = (
+            <>
+              <PlatformMark
+                platform={platform.id}
+                className="text-platform-text h-4 w-4 shrink-0"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="text-foreground block font-medium">
+                  {platform.name}
+                </span>
+                <span className="text-muted block truncate text-xs">
+                  {row.detail}
+                </span>
+              </span>
+              <span className={cn('shrink-0 text-xs font-semibold', row.tone)}>
+                {row.action}
+              </span>
+            </>
+          )
+          // A consent screen: a plain link, the route redirects to the
+          // platform. A pasted key is entered in Settings.
+          return row.state === 'not_connected' && connectWith === 'oauth' ? (
+            <a
+              key={platform.id}
+              href={`/api/integrations/${platform.id}/connect`}
+              role="menuitem"
+              onClick={close}
+              title={`Connect the ${platform.name} account approved posts are published to`}
+              data-platform={platform.id}
+              className={cn(ITEM, ACTIVE_ITEM)}
+            >
+              {content}
+            </a>
+          ) : (
+            <Link
+              key={platform.id}
+              href={INTEGRATIONS_SETTINGS_PATH}
+              role="menuitem"
+              onClick={close}
+              data-platform={platform.id}
+              className={cn(ITEM, ACTIVE_ITEM)}
+            >
+              {content}
+            </Link>
+          )
+        })}
         {COMING_SOON.map(({ name, Mark }) => (
           <div
             key={name}

@@ -1,6 +1,7 @@
 'use client'
 
 import { PageHeader } from '@/components/page-header'
+import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
 import type { Schedule } from '@/db/schema'
 import {
@@ -391,6 +392,13 @@ export function ScheduleClient({
                       className="space-y-2 px-4 py-3"
                     >
                       <div className="flex items-center gap-2">
+                        <PlatformMark
+                          platform={post.platform}
+                          className="text-muted h-3.5 w-3.5 shrink-0"
+                        />
+                        <span className="sr-only">
+                          {getPlatform(post.platform).name}
+                        </span>
                         <StatusBadge post={post} />
                         {post.goalTitle && (
                           <span className="text-muted inline-flex min-w-0 items-center gap-1 text-[11px]">
@@ -481,7 +489,7 @@ function PostChip({
       draggable
       onDragStart={e => e.dataTransfer.setData('text/plain', post.id)}
       onClick={onOpen}
-      title={`${status.label}: ${post.hook}`}
+      title={`${getPlatform(post.platform).name} · ${status.label}: ${post.hook}`}
       className={cn(
         'flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight transition-opacity hover:opacity-80',
         status.chip,
@@ -492,7 +500,11 @@ function PostChip({
         aria-hidden
         className={cn('h-1.5 w-1.5 shrink-0 rounded-full', status.dot)}
       />
-      <span className="sr-only">{status.label}: </span>
+      {/* A post and its X version share a hook: the mark tells them apart. */}
+      <PlatformMark platform={post.platform} className="h-3 w-3 shrink-0" />
+      <span className="sr-only">
+        {getPlatform(post.platform).name}, {status.label}:{' '}
+      </span>
       <span className="min-w-0 truncate">{post.hook}</span>
     </button>
   )

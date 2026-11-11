@@ -62,6 +62,24 @@ export const env = createEnv({
       .string()
       .regex(/^\d{6}(\.\d{2})?$/, 'LINKEDIN_API_VERSION must be YYYYMM')
       .default('202610'),
+    // Publishing to X through Buffer (docs/PUBLISHING_X.md): each user
+    // connects X in their own Buffer account; the app needs no X developer
+    // app. On whenever TOKEN_ENCRYPTION_KEY is set; "off" hides it.
+    X_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
+    /** Buffer's GraphQL endpoint; only a test stub needs another. */
+    BUFFER_API_URL: z.url().default('https://api.buffer.com'),
+    // Buffer app client (Buffer → Settings → API → App Clients): customers
+    // authorize their own Buffer account on Buffer's consent screen. Unset,
+    // each user pastes a Buffer API key instead (testing). The secret is for
+    // a confidential client only; leave it unset for a public one.
+    BUFFER_CLIENT_ID: z.string().optional(),
+    BUFFER_CLIENT_SECRET: z.string().optional(),
+    /** Defaults to {BETTER_AUTH_URL}/api/integrations/x/callback. Buffer requires HTTPS, even on localhost. */
+    BUFFER_REDIRECT_URI: z.url().optional(),
+    /** Space-separated; offline_access gives the refresh token. */
+    BUFFER_SCOPES: z
+      .string()
+      .default('account:read posts:read posts:write offline_access'),
     // Inbox: our own mail server (mailserver/README.md). Every address at
     // INBOUND_EMAIL_DOMAIN (inbox.tdcai.com in production) delivers into one
     // IMAP mailbox the app reads. Unset, the inbox is off. Production refuses
@@ -125,6 +143,12 @@ export const env = createEnv({
     LINKEDIN_PUBLISH_REDIRECT_URI: process.env.LINKEDIN_PUBLISH_REDIRECT_URI,
     LINKEDIN_PUBLISH_SCOPES: process.env.LINKEDIN_PUBLISH_SCOPES,
     LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
+    X_PUBLISHING: process.env.X_PUBLISHING,
+    BUFFER_API_URL: process.env.BUFFER_API_URL,
+    BUFFER_CLIENT_ID: process.env.BUFFER_CLIENT_ID,
+    BUFFER_CLIENT_SECRET: process.env.BUFFER_CLIENT_SECRET,
+    BUFFER_REDIRECT_URI: process.env.BUFFER_REDIRECT_URI,
+    BUFFER_SCOPES: process.env.BUFFER_SCOPES,
     // LINKEDIN_TOKEN_ENCRYPTION_KEY is its old name, still read so existing
     // deployments keep decrypting their tokens.
     TOKEN_ENCRYPTION_KEY:

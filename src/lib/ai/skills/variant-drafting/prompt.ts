@@ -40,6 +40,17 @@ import type { VariantDraft } from './schema'
  * LinkedIn keeps its own prompt (../post-drafting), unchanged.
  */
 
+/**
+ * Another post of the same idea that the reviewer approved: its text is the
+ * reviewed account of the idea (argument, example, facts) that this format
+ * carries over, rewritten for its own platform.
+ */
+export interface ApprovedSibling {
+  formatId: FormatId
+  /** Plain text: a single post's parts, or a thread's posts split by "---". */
+  text: string
+}
+
 export function buildSharedInstructions(ctx: GenerationContext): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const feedback = renderReviewerFeedbackBlock(ctx)
@@ -68,10 +79,12 @@ ${
   creator
     ? CREATOR_STYLE_RULES
     : `- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
-- One idea per post, made through one specific example rather than a list of abstractions.
+- One idea per post, made through one specific example rather than a list of abstractions. If the idea asks for an example, include it.
+- When the platform is short, keep the core argument and its strongest piece of evidence; cut words, never the argument.
 - Do not announce what the post is or is not ("this is not a pitch", "here's the thing"). Show it.
 - Do not summarise at the end; the last line adds something.
-- Never ask for engagement for its own sake ("comment YES", "tag a friend", "like if you agree").`
+- Never ask for engagement for its own sake ("comment YES", "tag a friend", "like if you agree").
+- Write the way this author would say it to one reader, not the way a report is written.`
 }
 ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}`
 }
@@ -106,10 +119,12 @@ function describeRange(range: { min: number; max: number }): string {
   return `between ${range.min} and ${range.max}, at the end`
 }
 
-function emojiRule(ctx: GenerationContext): string {
+function emojiRule(ctx: GenerationContext, spec: FormatSpec): string {
   const level = ctx.prefs.constraints.emoji_level
   if (level === 'none') return 'Use no emoji at all.'
   if (level === 'liberal') return 'Emoji are welcome where they add warmth.'
+  // X posts have no lists to mark, and each emoji costs two of 280 characters.
+  if (spec.platform === 'x') return 'At most one emoji, never mid-sentence.'
   return 'Emoji only as list markers, never mid-sentence.'
 }
 
@@ -210,12 +225,28 @@ ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly wh
 9. selfScores — honest 1-10 ratings`
 }
 
+/**
+ * The idea's approved posts on other platforms, to carry over: an X version
+ * written after the reviewer approved (and perhaps corrected) the LinkedIn
+ * post keeps that post's argument and facts instead of drifting from it.
+ */
+function renderApprovedSiblings(siblings: ApprovedSibling[], spec: FormatSpec): string {
+  const one = siblings.length === 1
+  return [
+    `THIS IDEA, ALREADY APPROVED ELSEWHERE — the reviewer checked ${one ? 'this post' : 'these posts'}:`,
+    ...siblings.map(s => `${FORMATS[s.formatId].label}:\n"""\n${s.text}\n"""`),
+    `Carry over ${one ? 'its' : 'their'} argument, example and facts: you may use ${one ? 'its' : 'their'} facts as you use the evidence, leave out nothing the argument needs, and add nothing ${one ? 'it does' : 'they do'} not say and the evidence does not hold. Do not copy sentences or the opening; write the ${spec.label} fresh, within its rules and limits.`
+  ].join('\n')
+}
+
 /** The platform, its rules and what to produce: the only per-format part. */
 export function buildFormatPrompt(
   baseCtx: GenerationContext,
   formatId: FormatId,
   /** How this idea's posts on other platforms already open. */
-  siblingOpenings: string[] = []
+  siblingOpenings: string[] = [],
+  /** This idea's posts the reviewer approved on other platforms. */
+  approvedSiblings: ApprovedSibling[] = []
 ): string {
   const spec = FORMATS[formatId]
   const platform = PLATFORMS[spec.platform]
@@ -230,6 +261,9 @@ export function buildFormatPrompt(
 
   const lines = [
     `Write the ${spec.label} for this idea.`,
+    ...(approvedSiblings.length > 0
+      ? ['', renderApprovedSiblings(approvedSiblings, spec)]
+      : []),
     '',
     `PLATFORM: ${platform.label}`,
     `How posts read here: ${spec.register ?? platform.register}`,
@@ -243,7 +277,7 @@ export function buildFormatPrompt(
     '',
     'FORMAT RULES',
     ...spec.rules.map(r => `- ${r}`),
-    `- ${emojiRule(ctx)}`,
+    `- ${emojiRule(ctx, spec)}`,
     `- Links: ${linkRule(ctx, spec)}`,
     ...(siblingOpenings.length > 0
       ? [
@@ -302,11 +336,12 @@ export function buildRegeneratePrompt(
     payload?: Record<string, unknown> | null
   },
   instruction: string | null,
-  siblingOpenings: string[] = []
+  siblingOpenings: string[] = [],
+  approvedSiblings: ApprovedSibling[] = []
 ): string {
   const spec = FORMATS[formatId]
   const shown = renderVersion(formatId, current)
-  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings)}
+  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings, approvedSiblings)}
 
 The reviewer asked for a new version of this ${spec.label}.${
     instruction
@@ -331,12 +366,13 @@ export function buildRevisionPrompt(
   formatId: FormatId,
   previous: VariantDraft,
   failedChecks: string[],
-  siblingOpenings: string[] = []
+  siblingOpenings: string[] = [],
+  approvedSiblings: ApprovedSibling[] = []
 ): string {
   const spec = FORMATS[formatId]
   const shown = renderVersion(formatId, previous)
   const length = formatCharCount(formatId, previous)
-  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings)}
+  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings, approvedSiblings)}
 
 Your previous draft failed these checks. Rewrite it so every one passes, keeping the argument and the voice intact.
 

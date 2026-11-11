@@ -6,9 +6,10 @@ import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
 import { accountsTable, ideasTable } from '@/db/schema'
 import { getIdentity } from '@/lib/identity'
-import { publishingConfig } from '@/lib/publishing/config'
-import { getCurrentConnection } from '@/lib/publishing/current-connection'
-import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
+import { publishConfigs } from '@/lib/publishing/config'
+import { getCurrentConnections } from '@/lib/publishing/current-connection'
+import { PUBLISHING_PLATFORM_IDS } from '@/lib/publishing/platform'
+import { providerFor } from '@/lib/publishing/provider'
 import { ownedByUser } from '@/lib/ownership'
 import { requireUser } from '@/lib/session'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
@@ -25,8 +26,12 @@ export default async function AppLayout({
   // Everything under this layout is signed-in only. The proxy already sent
   // visitors without a session cookie to /login; this is the real check.
   const user = await requireUser()
-  const publishingConfigured = publishingConfig() !== null
-  const [identity, [{ pending = 0 } = {}], cookieStore, connection] =
+  const configs = publishConfigs()
+  const configuredPlatforms = PUBLISHING_PLATFORM_IDS.flatMap(id => {
+    const config = configs[id]
+    return config ? [{ id, config }] : []
+  })
+  const [identity, [{ pending = 0 } = {}], cookieStore, connections] =
     await Promise.all([
       getIdentity(),
       // The badge on Ideas: what the identity still has to approve. Found
@@ -41,7 +46,7 @@ export default async function AppLayout({
       // For the header's publishing button; never a token (and shared with
       // Settings → Integrations). Skipped when publishing is not set up, so the
       // app does not depend on its tables.
-      publishingConfigured ? getCurrentConnection(user.id) : null
+      configuredPlatforms.length > 0 ? getCurrentConnections(user.id) : []
     ])
   const sidebarCollapsed =
     cookieStore.get(SIDEBAR_COLLAPSED_COOKIE)?.value === '1'
@@ -50,10 +55,16 @@ export default async function AppLayout({
     <MobileNavProvider>
       <PublishingStatusProvider
         value={{
-          platform: PUBLISHING_PLATFORM,
-          configured: publishingConfigured,
-          status: connection?.status ?? null,
-          name: connection?.name ?? null
+          platforms: configuredPlatforms.map(({ id, config }) => {
+            const provider = providerFor(id)
+            const connection = connections.find(c => c.platform === id)
+            return {
+              platform: provider.platform,
+              connectWith: provider.connectWith(config),
+              status: connection?.status ?? null,
+              name: connection?.name ?? null
+            }
+          })
         }}
       >
         <div className="flex h-full min-h-screen">

@@ -1,6 +1,6 @@
 import { formatHashtags, platformPostText, toPlatformText } from '@/lib/post-text'
 import { countChars } from './count'
-import { FORMATS } from './registry'
+import { FORMATS, PLATFORMS } from './registry'
 import type { FormatId } from './types'
 
 /**
@@ -143,6 +143,52 @@ export function formatCharCount(formatId: FormatId, post: PostText): number {
   )
 }
 
+const plainPost = (post: PostText): PostText => ({
+  ...post,
+  hook: toPlainText(post.hook),
+  body: toPlainText(post.body),
+  cta: toPlainText(post.cta)
+})
+
+/**
+ * The post as it is published, one text per platform post: a single post's
+ * whole text, or each post of a thread in order. Joined by "---" lines, it is
+ * what Copy gives.
+ */
+export function postTexts(formatId: FormatId, post: PostText): string[] {
+  return FORMATS[formatId].structure === 'thread'
+    ? limitedTexts(formatId, plainPost(post))
+    : [copyText(formatId, post)]
+}
+
+/**
+ * Why the post is too long to go out, or null: the first of its posts (each
+ * post of a thread) over the format's hard limit, as its platform counts. A
+ * reply that is published as a post of its own (X) is held to it too.
+ */
+export function overLimitMessage(
+  formatId: FormatId,
+  post: PostText & { firstComment?: string | null }
+): string | null {
+  const spec = FORMATS[formatId]
+  const posts = postTexts(formatId, post)
+  const reply =
+    spec.links.fallback === 'reply' ? toPlainText(post.firstComment).trim() : ''
+  const texts = reply ? [...posts, reply] : posts
+  const lengths = texts.map(text => countChars(text, spec.limits.count))
+  const i = lengths.findIndex(length => length > spec.limits.maxChars)
+  if (i === -1) return null
+  const what =
+    i >= posts.length
+      ? `The ${spec.commentLabel.toLowerCase()}`
+      : posts.length > 1
+        ? `Post ${i + 1} of the thread`
+        : 'The post'
+  return `${what} is ${lengths[i]} characters; ${PLATFORMS[spec.platform].label} allows ${spec.limits.maxChars}${
+    spec.limits.count === 'x_weighted' ? ' (a link counts as 23, an emoji as 2)' : ''
+  }. Shorten it first.`
+}
+
 /**
  * The post as Copy puts it on the clipboard. LinkedIn keeps its own text
  * (a bold hook); other platforms get plain text, and a thread its posts with
@@ -150,15 +196,10 @@ export function formatCharCount(formatId: FormatId, post: PostText): number {
  */
 export function copyText(formatId: FormatId, post: PostText): string {
   if (formatId === 'linkedin.post') return platformPostText(post)
-  const plain = {
-    ...post,
-    hook: toPlainText(post.hook),
-    body: toPlainText(post.body),
-    cta: toPlainText(post.cta)
-  }
   if (FORMATS[formatId].structure === 'thread') {
-    return limitedTexts(formatId, plain).join(THREAD_SEPARATOR)
+    return postTexts(formatId, post).join(THREAD_SEPARATOR)
   }
+  const plain = plainPost(post)
   if (FORMATS[formatId].structure === 'script') {
     const script = videoScriptOf(plain)
     const lines: string[] = []

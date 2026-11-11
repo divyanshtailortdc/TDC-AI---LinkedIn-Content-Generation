@@ -65,7 +65,7 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
   // The platforms below are written for in several formats each (a post, a
   // thread, a video script; src/lib/formats), whose own limits drafting and
   // the checks use. These are the platform's defaults, for code that only
-  // knows a post's platform. None of them is published through an API yet
+  // knows a post's platform. Of these, only X is published through an API
   // (src/lib/publishing/platform.ts).
   x: {
     id: 'x',

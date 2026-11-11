@@ -14,8 +14,8 @@ import {
 } from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
-import { publishingConfig, publishDeps } from '@/lib/publishing/config'
-import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
+import { isPublishingConfigured, publishDeps } from '@/lib/publishing/config'
+import { getPlatform } from '@/lib/platforms'
 import {
   cancelPendingPublications,
   hasLivePublication
@@ -26,7 +26,7 @@ import {
 } from '@/lib/publishing/engine'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
-import { FORMATS, formatOf, isFormatId } from '@/lib/formats'
+import { FORMATS, formatOf, isFormatId, overLimitMessage } from '@/lib/formats'
 import { loadChannels } from '@/lib/channels'
 import { requireUser } from '@/lib/session'
 import { and, eq } from 'drizzle-orm'
@@ -293,6 +293,30 @@ export async function approveDraft(draftId: string) {
   try {
     const identityId = await requireIdentityId()
 
+    // An X post is published as it is approved: one over X's limit (each
+    // post of a thread, and the reply) could never go out.
+    const draft = await db.query.postDraftsTable.findFirst({
+      where: and(
+        eq(postDraftsTable.id, draftId),
+        eq(postDraftsTable.accountId, identityId)
+      ),
+      columns: {
+        hook: true,
+        body: true,
+        cta: true,
+        hashtags: true,
+        payload: true,
+        firstComment: true,
+        formatId: true
+      }
+    })
+    if (!draft) throw new Error('Draft not found')
+    const format = formatOf(draft.formatId)
+    if (FORMATS[format].platform === 'x') {
+      const problem = overLimitMessage(format, draft)
+      if (problem) throw new Error(problem)
+    }
+
     const [approved] = await db
       .update(postDraftsTable)
       .set({
@@ -332,7 +356,7 @@ export async function rejectDraft(draftId: string, reason?: string) {
     if (!draft) throw new Error('Draft not found')
 
     // Only when publishing is set up, like the rest of the app.
-    const publishingOn = publishingConfig() !== null
+    const publishingOn = isPublishingConfigured()
 
     // Together, so a failed feedback insert cannot leave the post rejected
     // while the client is told the rejection failed.
@@ -353,7 +377,7 @@ export async function rejectDraft(draftId: string, reason?: string) {
         // rejected; throwing rolls the cancellation back too.
         if (await hasLivePublication(tx, draftId)) {
           throw new Error(
-            `This post is published on ${PUBLISHING_PLATFORM.name} and cannot be rejected.`
+            `This post is published on ${getPlatform(draft.platform).name} and cannot be rejected.`
           )
         }
       }
@@ -441,29 +465,31 @@ export async function deleteDraft(
       eq(postDraftsTable.accountId, identityId)
     )
     const [draft] = await db
-      .select({ id: postDraftsTable.id })
+      .select({ id: postDraftsTable.id, platform: postDraftsTable.platform })
       .from(postDraftsTable)
       .where(owned)
       .limit(1)
     if (!draft) throw new Error('Draft not found')
+    const platformName = getPlatform(draft.platform).name
 
     let deletedFromPlatform = false
     if (options.alsoFromPlatform) {
       const deps = publishDeps()
       if (!deps) {
         throw new Error(
-          `Publishing to ${PUBLISHING_PLATFORM.name} is not set up on this server.`
+          `Publishing to ${platformName} is not set up on this server.`
         )
       }
       const latest = await latestPublicationOf(db, user.id, draftId)
-      if (latest?.status === 'published' && !latest.deletedAt) {
+      // A platform whose API cannot delete posts (X through Buffer) is left alone.
+      if (latest?.status === 'published' && !latest.deletedAt && latest.canDelete) {
         await deletePublishedPost(deps, user.id, latest.id)
         deletedFromPlatform = true
       }
     }
 
     // Only when publishing is set up, like the rest of the app.
-    const publishingOn = publishingConfig() !== null
+    const publishingOn = isPublishingConfigured()
     await db.transaction(async tx => {
       if (publishingOn) {
         // Called off first, as in rejectDraft, so a worker claiming one now
@@ -480,7 +506,7 @@ export async function deleteDraft(
         )
         if (await hasLivePublication(tx, draftId, ['publishing'])) {
           throw new Error(
-            `This post is being published to ${PUBLISHING_PLATFORM.name} right now. Try again in a moment.`
+            `This post is being published to ${platformName} right now. Try again in a moment.`
           )
         }
       }

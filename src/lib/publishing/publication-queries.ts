@@ -1,4 +1,5 @@
 import { publicationsTable } from '@/db/schema'
+import type { PlatformId } from '@/lib/platforms'
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import type { PublishingDb } from './connection'
 import type { PublicationErrorCode, PublicationStatus } from './status'
@@ -9,7 +10,11 @@ import type { PublicationErrorCode, PublicationStatus } from './status'
  * publishing.ts, which imports connection.ts (that would be a cycle).
  */
 
-/** Set just before the create request: from then the post may exist. */
+/**
+ * Set just before the create request: from then the post may exist (and a
+ * row still 'publishing' with its post id is waiting for the platform to
+ * confirm it, see confirmPendingPublications).
+ */
 export const postRequested = sql`${publicationsTable.metadata} ? 'postRequestedAt'`
 
 /**
@@ -21,7 +26,7 @@ export const postRequested = sql`${publicationsTable.metadata} ? 'postRequestedA
  */
 export async function cancelPendingPublications(
   database: PublishingDb,
-  scope: { userId?: string; draftId?: string },
+  scope: { userId?: string; draftId?: string; platform?: PlatformId },
   reason: { message: string; code: PublicationErrorCode },
   options: { includeUnsentInFlight?: boolean; now?: Date } = {}
 ): Promise<number> {
@@ -29,6 +34,8 @@ export async function cancelPendingPublications(
   if (scope.userId) filters.push(eq(publicationsTable.userId, scope.userId))
   if (scope.draftId) filters.push(eq(publicationsTable.draftId, scope.draftId))
   if (filters.length === 0) throw new Error('cancelPendingPublications needs a scope.')
+  // Narrows a user's scope to one platform (a disconnect of X leaves LinkedIn's).
+  if (scope.platform) filters.push(eq(publicationsTable.platform, scope.platform))
 
   const pending = options.includeUnsentInFlight
     ? sql`(${publicationsTable.status} = 'scheduled' or (${publicationsTable.status} = 'publishing' and not (${postRequested})))`

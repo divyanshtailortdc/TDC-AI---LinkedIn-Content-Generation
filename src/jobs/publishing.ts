@@ -6,8 +6,8 @@ declare global {
 }
 
 /**
- * One pass of publishing: scheduled and auto-published posts that
- * are due. Called every minute by the scheduler, and by /api/cron/jobs where
+ * One pass of publishing, for every platform set up: scheduled and
+ * auto-published posts that are due, and posts Buffer is still sending to X. Called every minute by the scheduler, and by /api/cron/jobs where
  * timers do not run. A pass still going when the next tick comes is joined,
  * not doubled; rows are claimed one by one anyway, so two processes (or two
  * `next dev`s on one database) cannot publish the same post.
@@ -18,7 +18,11 @@ export function runPublishing(): Promise<unknown> {
   globalThis.__publishingPass ??= runDuePublications(deps)
     .then(result => {
       if (
-        result.recovered + result.queued + result.published + result.failed >
+        result.recovered +
+          result.confirmed +
+          result.queued +
+          result.published +
+          result.failed >
         0
       ) {
         console.info('Publishing pass:', result)

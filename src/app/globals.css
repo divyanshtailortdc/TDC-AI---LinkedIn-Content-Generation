@@ -91,6 +91,28 @@
   }
 }
 
+/* Another platform's colour, for what is about its posts or connection: set
+   data-platform on the element and its children pick it up. */
+[data-platform='x'] {
+  --platform: #0f1419;
+  --platform-hover: #272c30;
+  --platform-text: #0f1419;
+}
+
+.dark [data-platform='x'] {
+  --platform: #333639;
+  --platform-hover: #4a4e52;
+  --platform-text: #e7e9ea;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-platform='x'] {
+    --platform: #333639;
+    --platform-hover: #4a4e52;
+    --platform-text: #e7e9ea;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

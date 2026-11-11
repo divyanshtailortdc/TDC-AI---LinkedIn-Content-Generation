@@ -12,3 +12,6 @@ example
 
 # debug folder
 debug/
+
+# next dev --experimental-https (self-signed, local only)
+certificates

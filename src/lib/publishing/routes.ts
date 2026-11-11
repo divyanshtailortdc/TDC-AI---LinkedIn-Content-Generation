@@ -3,29 +3,39 @@ import 'server-only'
 import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
 import { NextResponse } from 'next/server'
 import { env } from '~/env'
-import type { CallbackResult } from './provider'
-import { PUBLISHING_PLATFORM } from './platform'
+import type { CallbackResult } from './callback-results'
 
 /** Holds the signed OAuth state between /connect and /callback only. */
 export const STATE_COOKIE = 'tdc_publish_state'
 export const STATE_COOKIE_PATH = '/api/integrations'
 
-/** Where the platform sends the browser back after the user allows publishing. */
-export const CALLBACK_PATH = `/api/integrations/${PUBLISHING_PLATFORM.id}/callback`
+/**
+ * Where the provider sends the browser back after the user allows publishing
+ * to `platform` (LinkedIn's consent screen, or Buffer's for X).
+ */
+export const callbackPath = (platform: string) =>
+  `/api/integrations/${platform}/callback`
 
-/** The query parameter Settings → Integrations reads the outcome from. */
+/** The query parameters Settings → Integrations reads the outcome from. */
 export const RESULT_PARAM = 'connection'
+export const PLATFORM_PARAM = 'platform'
 
 /**
- * Back to Settings → Integrations with the outcome, which the page turns into a
- * message. On `base`'s origin: the callback's own, where the session is.
+ * Back to Settings → Integrations with the outcome for `platform`, which the
+ * page turns into a message on that platform's card. On `base`'s origin: the
+ * callback's own, where the session is.
  */
-export function settingsRedirect(result: CallbackResult, base?: string) {
+export function settingsRedirect(
+  result: CallbackResult,
+  platform: string,
+  base?: string
+) {
   const url = new URL(
     INTEGRATIONS_SETTINGS_PATH,
-    base ?? env.BETTER_AUTH_URL ?? env.NEXT_PUBLIC_APP_URL
+    base || env.BETTER_AUTH_URL || env.NEXT_PUBLIC_APP_URL
   )
   url.searchParams.set(RESULT_PARAM, result)
+  url.searchParams.set(PLATFORM_PARAM, platform)
   const response = NextResponse.redirect(url, 303)
   // Whatever happened, the state is single-use.
   response.cookies.delete({ name: STATE_COOKIE, path: STATE_COOKIE_PATH })

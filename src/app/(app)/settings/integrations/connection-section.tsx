@@ -15,6 +15,7 @@ import { CalendarClock, RefreshCw, Unplug } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useId, useState } from 'react'
 import { disconnectPlatform, saveAutoPublish } from './actions'
+import { BufferAccountSwitch, BufferConnectForm } from './buffer-connect-form'
 
 /** A route, not a page: a full navigation that redirects to the platform. */
 const connectUrl = (platform: PlatformSpec) =>
@@ -38,30 +39,44 @@ const STATUS = {
 } as const
 
 /**
- * Settings → Integrations: connect the platform account approved posts are
- * published to, separately from how the user signs in, and opt in to
- * auto-publishing.
+ * Settings → Integrations, one per platform: connect the account approved
+ * posts are published to, separately from how the user signs in, and opt in
+ * to auto-publishing. LinkedIn connects on its consent screen; X through
+ * Buffer, on Buffer's consent screen (or, without a Buffer app client, with a
+ * Buffer API key pasted here).
  */
 export function ConnectionSection({
   platform,
+  connectWith,
+  via,
   configured,
   connection,
   notice
 }: {
   platform: PlatformSpec
+  connectWith: 'oauth' | 'api_key'
+  /** The service posts go through ("Buffer"), when not the platform's own API. */
+  via: string | null
   configured: boolean
   connection: ConnectionSummary | null
   notice: { variant: 'success' | 'error'; message: string } | null
 }) {
   const mounted = useHasMounted()
+  const titleId = useId()
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
+  // A pasted key (Buffer without an app client): the form, open to connect
+  // or to change the key.
+  const [keyFormOpen, setKeyFormOpen] = useState(false)
+  const viaBuffer = via === 'Buffer'
+  const withKey = connectWith === 'api_key'
 
-  // The callback's ?connection= is shown once; a reload should not repeat it.
+  // The callback's outcome is shown once; a reload should not repeat it.
   useEffect(() => {
     if (!notice) return
     const url = new URL(window.location.href)
     url.searchParams.delete('connection')
+    url.searchParams.delete('platform')
     window.history.replaceState(null, '', url)
   }, [notice])
 
@@ -72,7 +87,7 @@ export function ConnectionSection({
 
   const confirmDisconnect = async () => {
     setDisconnecting(true)
-    const res = await disconnectPlatform().catch(() => ({
+    const res = await disconnectPlatform(platform.id).catch(() => ({
       success: false as const,
       error: `${name} could not be disconnected. Please try again.`
     }))
@@ -96,16 +111,52 @@ export function ConnectionSection({
     })
   }
 
+  // The way to connect: a link to the consent screen, or the key form.
+  const connectButton = (label: string, variant: 'platform' | 'secondary') =>
+    withKey ? (
+      <Button
+        variant={variant}
+        size="sm"
+        onClick={() => setKeyFormOpen(open => !open)}
+        aria-expanded={keyFormOpen}
+      >
+        {variant === 'platform' ? (
+          <PlatformMark platform={platform.id} className="h-4 w-4" />
+        ) : (
+          <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+        )}
+        {label}
+      </Button>
+    ) : (
+      // A plain link: the route redirects to the platform.
+      <a
+        href={CONNECT_URL}
+        title={
+          variant === 'secondary'
+            ? 'Connect again, e.g. before access runs out'
+            : undefined
+        }
+        className={buttonClassName({ variant, size: 'sm' })}
+      >
+        {variant === 'platform' ? (
+          <PlatformMark platform={platform.id} className="h-4 w-4" />
+        ) : (
+          <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+        )}
+        {label}
+      </a>
+    )
+
   return (
-    <>
+    <div data-platform={platform.id} className="space-y-6">
       <section
-        aria-labelledby="platform-title"
+        aria-labelledby={titleId}
         className="border-border bg-surface rounded-2xl border p-5 shadow-xs"
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1 basis-60">
             <h2
-              id="platform-title"
+              id={titleId}
               className="text-foreground flex items-center gap-2.5 text-base font-semibold"
             >
               <span className="bg-platform/10 rounded-lg p-1.5">
@@ -125,21 +176,37 @@ export function ConnectionSection({
               </span>
             </h2>
             <p className="text-muted mt-1 text-xs leading-relaxed">
-              Connect the {name} account TDC AI publishes your approved posts
-              to. This is separate from how you sign in: signing in with{' '}
-              {name} does not let TDC AI post for you.
+              {viaBuffer ? (
+                <>
+                  Connect the {name} account TDC AI publishes your approved
+                  posts to, through{' '}
+                  <a
+                    href="https://buffer.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    Buffer
+                  </a>
+                  : your {name} account is connected in Buffer, and TDC AI
+                  hands Buffer each post to publish. TDC AI never sees your{' '}
+                  {name} password.
+                </>
+              ) : (
+                <>
+                  Connect the {name} account TDC AI publishes your approved
+                  posts to. This is separate from how you sign in: signing in
+                  with {name} does not let TDC AI post for you.
+                </>
+              )}
             </p>
           </div>
-          {configured && !connected && (
-            // A plain link: the route redirects to the platform.
-            <a
-              href={CONNECT_URL}
-              className={buttonClassName({ variant: 'platform', size: 'sm' })}
-            >
-              <PlatformMark platform={platform.id} className="h-4 w-4" />
-              {status === 'expired' ? `Reconnect ${name}` : `Connect ${name}`}
-            </a>
-          )}
+          {configured &&
+            !connected &&
+            connectButton(
+              status === 'expired' ? `Reconnect ${name}` : `Connect ${name}`,
+              'platform'
+            )}
         </div>
 
         <div className="mt-5 space-y-4">
@@ -147,31 +214,44 @@ export function ConnectionSection({
             <FormAlert variant={notice.variant}>{notice.message}</FormAlert>
           )}
 
+          {configured && withKey && keyFormOpen && (
+            <BufferConnectForm
+              platformName={name}
+              onDone={() => setKeyFormOpen(false)}
+            />
+          )}
+
           {!configured ? (
             <FormAlert variant="info">
               Publishing to {name} is not set up on this server yet. An
-              administrator needs to add the {name} publishing app&apos;s
-              credentials (see docs/PUBLISHING.md).
+              administrator needs to set it up (see docs/PUBLISHING.md).
             </FormAlert>
           ) : !connection || status === 'disconnected' ? (
-            <div className="border-border rounded-xl border-2 border-dashed px-6 py-8 text-center">
-              <p className="text-foreground text-sm font-medium">
-                No {name} account connected
-              </p>
-              <p className="text-muted mx-auto mt-1 max-w-md text-xs leading-relaxed">
-                {name} will ask you to allow TDC AI to see your name and photo
-                and to create posts for you. Nothing is posted until you approve
-                a post and choose to publish it.
-              </p>
-            </div>
+            keyFormOpen ? null : (
+              <div className="border-border rounded-xl border-2 border-dashed px-6 py-8 text-center">
+                <p className="text-foreground text-sm font-medium">
+                  No {name} account connected
+                </p>
+                <p className="text-muted mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                  {viaBuffer && withKey
+                    ? `Connect your ${name} account in Buffer (its free plan is enough), create a Buffer API key, and paste it here.`
+                    : viaBuffer
+                      ? `Connect your ${name} account in Buffer first (its free plan is enough). Buffer will then ask you to allow TDC AI to see your channels and create posts.`
+                      : `${name} will ask you to allow TDC AI to see your name and photo and to create posts for you.`}{' '}
+                  Nothing is posted until you approve a post and choose to
+                  publish it.
+                </p>
+              </div>
+            )
           ) : (
             <>
               {status === 'expired' && (
                 <FormAlert>
                   {connection.lastError ??
                     `${name} no longer accepts this connection.`}{' '}
-                  Reconnect to keep publishing; scheduled posts will fail until
-                  you do.
+                  {withKey
+                    ? 'Connect again with a working Buffer API key; scheduled posts will fail until you do.'
+                    : 'Reconnect to keep publishing; scheduled posts will fail until you do.'}
                 </FormAlert>
               )}
               {connected && !connection.canPublish && (
@@ -200,13 +280,17 @@ export function ConnectionSection({
                 <div className="min-w-0 flex-1">
                   <p className="text-foreground truncate text-sm font-medium">
                     {connection.name ?? `${name} account`}
+                    {viaBuffer && (
+                      <span className="text-muted font-normal"> · via Buffer</span>
+                    )}
                   </p>
                   {/* Dates in the viewer's own format, so only after mount. */}
                   <p className="text-muted mt-0.5 text-xs">
                     {mounted && (
                       <>
                         Connected {formatDate(connection.connectedAt)}
-                        {connected && connection.expiresAt && (
+                        {/* A token renewed by itself needs no date. */}
+                        {connected && connection.expiresAt && !connection.renews && (
                           <>
                             {' '}
                             · Access until {formatDate(connection.expiresAt)}
@@ -217,19 +301,14 @@ export function ConnectionSection({
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {connected && (
-                    <a
-                      href={CONNECT_URL}
-                      title="Connect again, e.g. before access runs out"
-                      className={buttonClassName({
-                        variant: 'secondary',
-                        size: 'sm'
-                      })}
-                    >
-                      <RefreshCw aria-hidden className="h-3.5 w-3.5" />
-                      Reconnect
-                    </a>
+                  {connected && viaBuffer && !withKey && (
+                    <BufferAccountSwitch platformName={name} />
                   )}
+                  {connected &&
+                    connectButton(
+                      withKey ? 'Change key or account' : 'Reconnect',
+                      'secondary'
+                    )}
                   <Button
                     variant="secondary"
                     size="sm"
@@ -243,10 +322,29 @@ export function ConnectionSection({
                 </div>
               </div>
               <p className="text-muted text-[11px] leading-relaxed">
-                {name} grants access for a limited time; reconnect before it
-                runs out. Disconnecting deletes TDC AI&apos;s access here. To
-                also remove it on {name}, remove TDC AI from the apps allowed
-                in your {name} privacy settings.
+                {viaBuffer && withKey ? (
+                  <>
+                    Posts go out through Buffer and count toward your Buffer
+                    plan&apos;s limits. Disconnecting deletes the Buffer API
+                    key saved here; to revoke the key itself, delete it in
+                    Buffer (Settings → API).
+                  </>
+                ) : viaBuffer ? (
+                  <>
+                    Posts go out through Buffer and count toward your Buffer
+                    plan&apos;s limits. TDC AI renews its access by itself.
+                    Disconnecting deletes TDC AI&apos;s access here; to remove
+                    it in Buffer too, remove TDC AI from the apps in your
+                    Buffer account settings.
+                  </>
+                ) : (
+                  <>
+                    {name} grants access for a limited time; reconnect before
+                    it runs out. Disconnecting deletes TDC AI&apos;s access
+                    here. To also remove it on {name}, remove TDC AI from the
+                    apps allowed in your {name} privacy settings.
+                  </>
+                )}
               </p>
             </>
           )}
@@ -277,7 +375,7 @@ export function ConnectionSection({
           onConfirm={confirmDisconnect}
         />
       )}
-    </>
+    </div>
   )
 }
 
@@ -290,6 +388,7 @@ function AutoPublishSection({
   connection: ConnectionSummary
 }) {
   const mounted = useHasMounted()
+  const titleId = useId()
   const toggleId = useId()
   const timeId = useId()
   const [enabled, setEnabled] = useState(connection.autoPublish)
@@ -309,7 +408,12 @@ function AutoPublishSection({
 
   const save = async () => {
     setSaving(true)
-    const res = await saveAutoPublish({ enabled, time, timezone: zone }).catch(
+    const res = await saveAutoPublish({
+      platform: platform.id,
+      enabled,
+      time,
+      timezone: zone
+    }).catch(
       () => ({
         success: false as const,
         error: 'The setting could not be saved. Please try again.'
@@ -333,21 +437,21 @@ function AutoPublishSection({
 
   return (
     <section
-      aria-labelledby="auto-publish-title"
+      aria-labelledby={titleId}
       className="border-border bg-surface rounded-2xl border p-5 shadow-xs"
     >
       <h2
-        id="auto-publish-title"
+        id={titleId}
         className="text-foreground flex items-center gap-2.5 text-base font-semibold"
       >
         <span className="bg-accent/10 rounded-lg p-1.5">
           <CalendarClock aria-hidden className="text-accent h-4 w-4" />
         </span>
-        Auto-publishing
+        Auto-publishing to {platform.name}
       </h2>
       <p className="text-muted mt-1 text-xs leading-relaxed">
         When on, every <strong className="text-foreground">approved</strong>{' '}
-        post planned for a day on the{' '}
+        {platform.name} post planned for a day on the{' '}
         <Link href="/schedule" className="text-accent hover:underline">
           Schedule
         </Link>{' '}

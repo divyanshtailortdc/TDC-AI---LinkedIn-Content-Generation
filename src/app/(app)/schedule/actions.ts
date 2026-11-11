@@ -6,8 +6,8 @@ import { requireOwnedAccount } from '@/lib/account-guard'
 import { isIsoDay } from '@/lib/calendar'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
-import { publishingConfig } from '@/lib/publishing/config'
-import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
+import { isPublishingConfigured } from '@/lib/publishing/config'
+import { getPlatform } from '@/lib/platforms'
 import {
   cancelPendingPublications,
   hasLivePublication
@@ -150,7 +150,7 @@ export async function setPostPosted(
     if (!isIsoDay(day)) throw new Error('Pick a valid date.')
     const accountId = await requireIdentityId()
     // Publications are only looked at when publishing is set up.
-    const publishingOn = publishingConfig() !== null
+    const publishingOn = isPublishingConfigured()
 
     // One transaction, so a refusal below also undoes the update.
     await db.transaction(async tx => {
@@ -173,7 +173,7 @@ export async function setPostPosted(
             eq(postDraftsTable.status, 'approved')
           )
         )
-        .returning({ id: postDraftsTable.id })
+        .returning({ id: postDraftsTable.id, platform: postDraftsTable.platform })
       if (!updated) {
         throw new Error('Only an approved post can be marked as posted.')
       }
@@ -192,7 +192,7 @@ export async function setPostPosted(
       } else if (await hasLivePublication(tx, draftId)) {
         // Out on its platform (or going out now): un-marking it would be untrue.
         throw new Error(
-          `This post was published on ${PUBLISHING_PLATFORM.name}; it stays posted.`
+          `This post was published on ${getPlatform(updated.platform).name}; it stays posted.`
         )
       }
     })

@@ -1,16 +1,17 @@
 import { platformConnectionsTable, type PlatformConnection } from '@/db/schema'
+import { DEFAULT_PLATFORM_ID, getPlatform, type PlatformId } from '@/lib/platforms'
 import { and, eq } from 'drizzle-orm'
 import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
 import {
   type AccountInfo,
+  type BaseConfig,
+  type Credentials,
   type FetchFn,
   PlatformApiError,
+  type PlatformConfig,
   PlatformOAuthError,
-  PUBLISH_SCOPE,
-  type PublishingAppConfig,
-  refreshAccessToken,
-  type TokenSet
+  providerFor
 } from './provider'
 import { cancelPendingPublications } from './publication-queries'
 import {
@@ -18,15 +19,17 @@ import {
   encryptToken,
   TokenDecryptionError
 } from './token-crypto'
-import { PUBLISHING_PLATFORM } from './platform'
 
 /**
- * A user's publishing connection to the platform: saving it after the OAuth
- * callback, removing it, and handing out a token that still works. Always
- * looked up by the signed-in user's id, never by an id from a request, so one
- * user can never reach another's connection.
+ * A user's publishing connection to a platform: saving it after the OAuth
+ * callback (or a pasted API key), removing it, and handing out a credential
+ * that still works. One per user and platform. Always looked up by the
+ * signed-in user's id, never by an id from a request, so one user can never
+ * reach another's connection.
  *
  * Takes the database as an argument so tests can run it on any connection.
+ * Every function takes the platform last, defaulting to LinkedIn (the one
+ * platform there was before X).
  */
 
 export type PublishingDb = PgDatabase<PostgresJsQueryResultHKT, any, any>
@@ -44,61 +47,89 @@ export class ConnectionError extends Error {
   }
 }
 
-const PLATFORM = PUBLISHING_PLATFORM.name
-const NOT_CONNECTED = `Connect ${PLATFORM} in Settings to publish.`
-const EXPIRED = `Your ${PLATFORM} connection has expired. Reconnect ${PLATFORM} in Settings.`
-const NO_PERMISSION = `${PLATFORM} did not grant permission to publish. Reconnect ${PLATFORM} and allow posting.`
-const UNREADABLE = `The saved ${PLATFORM} connection can no longer be read. Reconnect ${PLATFORM} in Settings.`
+/** What the user is told, in the platform's name. */
+function messagesFor(platform: string) {
+  const name = getPlatform(platform).name
+  return {
+    name,
+    notConnected: `Connect ${name} in Settings to publish.`,
+    expired: `Your ${name} connection has expired. Reconnect ${name} in Settings.`,
+    noPermission: `${name} did not grant permission to publish. Reconnect ${name} and allow posting.`,
+    unreadable: `The saved ${name} connection can no longer be read. Reconnect ${name} in Settings.`
+  }
+}
 
-/** Throws a ConnectionError unless the connection is there, working and allowed to post. */
+/** Whether the connection's grant includes posting (a key always does). */
+const canPublish = (
+  connection: Pick<PlatformConnection, 'scopes' | 'platform'>
+) => {
+  const scope = providerFor(connection.platform).publishScope
+  return scope === null || connection.scopes.includes(scope)
+}
+
+/**
+ * Throws a ConnectionError unless the connection is there, working and
+ * allowed to post. `platform` names it in the message when there is none.
+ */
 export function assertCanPublish(
-  connection: PlatformConnection | null
+  connection: PlatformConnection | null,
+  platform: PlatformId = connection?.platform ?? DEFAULT_PLATFORM_ID
 ): asserts connection is PlatformConnection & { accessToken: string } {
+  const say = messagesFor(platform)
   if (
     !connection ||
     connection.status === 'disconnected' ||
     !connection.accessToken
   ) {
-    throw new ConnectionError(NOT_CONNECTED, 'not_connected')
+    throw new ConnectionError(say.notConnected, 'not_connected')
   }
   if (connection.status === 'expired') {
-    throw new ConnectionError(EXPIRED, 'reauth_required')
+    throw new ConnectionError(say.expired, 'reauth_required')
   }
   if (!canPublish(connection)) {
-    throw new ConnectionError(NO_PERMISSION, 'missing_permission')
+    throw new ConnectionError(say.noPermission, 'missing_permission')
   }
 }
 
 export async function getConnection(
   database: PublishingDb,
-  userId: string
+  userId: string,
+  platform: PlatformId = DEFAULT_PLATFORM_ID
 ): Promise<PlatformConnection | null> {
   const [row] = await database
     .select()
     .from(platformConnectionsTable)
-    .where(eq(platformConnectionsTable.userId, userId))
+    .where(
+      and(
+        eq(platformConnectionsTable.userId, userId),
+        eq(platformConnectionsTable.platform, platform)
+      )
+    )
     .limit(1)
   return row ?? null
 }
 
 /**
- * Saves the connection the callback just made, for `userId` (the signed-in
- * user who started it). Reconnecting replaces the tokens in place.
- * Auto-publishing and scheduled posts survive a reconnect of the same
- * member, but not a switch to a different platform account: auto-publishing
- * must be turned on again knowingly, and scheduled posts are cancelled.
+ * Saves the connection the callback (or a pasted key) just made, for
+ * `userId` (the signed-in user who started it). Reconnecting replaces the
+ * credential in place. Auto-publishing and scheduled posts survive a
+ * reconnect of the same account, but not a switch to a different one:
+ * auto-publishing must be turned on again knowingly, and scheduled posts
+ * for that platform are cancelled.
  */
 export async function saveConnection(
   database: PublishingDb,
-  config: Pick<PublishingAppConfig, 'encryptionKey'>,
+  config: Pick<BaseConfig, 'encryptionKey'>,
   userId: string,
-  tokens: TokenSet,
+  tokens: Credentials,
   member: AccountInfo,
-  now = new Date()
+  options: { now?: Date; platform?: PlatformId } = {}
 ): Promise<PlatformConnection> {
+  const now = options.now ?? new Date()
+  const platform = options.platform ?? DEFAULT_PLATFORM_ID
   const encrypt = (value: string | null) =>
     value === null ? null : encryptToken(value, config.encryptionKey, userId)
-  const previous = await getConnection(database, userId)
+  const previous = await getConnection(database, userId, platform)
   const sameMember = previous?.memberId === member.memberId
   const columns = {
     memberId: member.memberId,
@@ -118,20 +149,20 @@ export async function saveConnection(
   return database.transaction(async tx => {
     const [row] = await tx
       .insert(platformConnectionsTable)
-      .values({ userId, ...columns })
+      .values({ userId, platform, ...columns })
       .onConflictDoUpdate({
-        target: platformConnectionsTable.userId,
+        target: [platformConnectionsTable.userId, platformConnectionsTable.platform],
         set: columns
       })
       .returning()
-    // Posts scheduled while connected as another member must not go out
+    // Posts scheduled while connected as another account must not go out
     // under this one: they are cancelled, as on disconnecting.
     if (previous && !sameMember) {
       await cancelPendingPublications(
         tx,
-        { userId },
+        { userId, platform },
         {
-          message: `Cancelled because a different ${PLATFORM} account was connected.`,
+          message: `Cancelled because a different ${messagesFor(platform).name} account was connected.`,
           code: 'not_connected'
         },
         { includeUnsentInFlight: true, now }
@@ -142,15 +173,17 @@ export async function saveConnection(
 }
 
 /**
- * Removes the connection: its tokens are deleted, auto-publishing turns off
- * and posts waiting to be published are cancelled (in flight too, until the
- * post is sent), so connecting again later never publishes something the
- * user had forgotten about. The row stays (as 'disconnected') so earlier
- * publications keep their history.
+ * Removes the connection: its credential is deleted, auto-publishing turns
+ * off and the platform's posts waiting to be published are cancelled (in
+ * flight too, until the post is sent), so connecting again later never
+ * publishes something the user had forgotten about. The row stays (as
+ * 'disconnected') so earlier publications keep their history. The user's
+ * other platforms are untouched.
  */
 export async function disconnect(
   database: PublishingDb,
   userId: string,
+  platform: PlatformId = DEFAULT_PLATFORM_ID,
   now = new Date()
 ): Promise<{ cancelled: number } | null> {
   return database.transaction(async tx => {
@@ -167,14 +200,19 @@ export async function disconnect(
         lastError: null,
         updatedAt: now
       })
-      .where(eq(platformConnectionsTable.userId, userId))
+      .where(
+        and(
+          eq(platformConnectionsTable.userId, userId),
+          eq(platformConnectionsTable.platform, platform)
+        )
+      )
       .returning({ id: platformConnectionsTable.id })
     if (!row) return null
     const cancelled = await cancelPendingPublications(
       tx,
-      { userId },
+      { userId, platform },
       {
-        message: `Cancelled because ${PLATFORM} was disconnected.`,
+        message: `Cancelled because ${messagesFor(platform).name} was disconnected.`,
         code: 'not_connected'
       },
       { includeUnsentInFlight: true, now }
@@ -184,7 +222,7 @@ export async function disconnect(
 }
 
 /**
- * Marks the connection expired, only while it still holds the token that
+ * Marks the connection expired, only while it still holds the credential that
  * failed (`accessToken` as stored, encrypted): a reconnect or refresh in the
  * meantime is left alone.
  */
@@ -205,106 +243,188 @@ export async function markExpired(
     )
 }
 
-/** Whether the connection's grant includes posting. */
-const canPublish = (connection: Pick<PlatformConnection, 'scopes'>) =>
-  connection.scopes.includes(PUBLISH_SCOPE)
-
 /**
- * A decrypted access token that still works, refreshed first when it has
- * run out and the platform gave this app a refresh token. The one place a
- * connection is marked expired (besides a 401 while publishing): when its
- * tokens cannot be read, have run out, or the platform refused the refresh.
- * Then the user must connect again: most platforms give apps no programmatic
- * refresh. A refresh that failed for any other reason (an outage) throws a
- * retryable PlatformApiError instead.
+ * A decrypted credential that still works, refreshed first when it has run
+ * out (or is about to) and the platform gave this app a refresh token. A
+ * Buffer API key does not run out. The one place a connection is marked
+ * expired (besides a 401 while publishing): when its credential cannot be
+ * read, has run out, or the platform refused the refresh. Then the user must
+ * connect again. A refresh that failed for any other reason (an outage)
+ * throws a retryable PlatformApiError instead.
+ *
+ * A refresh runs with the connection's row locked, so processes take turns:
+ * Buffer's refresh tokens are single-use, and sending one twice (two workers,
+ * or a worker and Publish now) would revoke the user's whole grant. The one
+ * that waited finds the new token and uses it.
  */
 export async function usableAccessToken(
   database: PublishingDb,
-  config: PublishingAppConfig,
+  config: PlatformConfig,
   connection: PlatformConnection,
   fetchFn: FetchFn = fetch,
   now = new Date()
 ): Promise<string> {
   assertCanPublish(connection)
-  const { accessToken } = connection
-  const expire = async (message: string) => {
-    await markExpired(database, connection, message, now)
-    return new ConnectionError(message, 'reauth_required')
-  }
+  const say = messagesFor(connection.platform)
   const decrypt = (value: string) =>
     decryptToken(value, config.encryptionKey, connection.userId)
+  const fresh = (row: PlatformConnection) =>
+    (row.accessTokenExpiresAt?.getTime() ?? Infinity) - EXPIRY_MARGIN_MS >
+    now.getTime()
+  // Marks expired whichever credential was in use when it failed.
+  let failing = { id: connection.id, accessToken: connection.accessToken }
+  const expire = async (message: string) => {
+    await markExpired(database, failing, message, now)
+    return new ConnectionError(message, 'reauth_required')
+  }
 
-  const expiresAt = connection.accessTokenExpiresAt?.getTime() ?? Infinity
-  if (expiresAt - EXPIRY_MARGIN_MS > now.getTime()) {
+  if (fresh(connection)) {
     try {
-      return decrypt(accessToken)
+      return decrypt(connection.accessToken)
     } catch (err) {
-      if (err instanceof TokenDecryptionError) throw await expire(UNREADABLE)
+      if (err instanceof TokenDecryptionError) throw await expire(say.unreadable)
       throw err
     }
   }
 
-  const refreshUsable =
-    connection.refreshToken &&
-    (connection.refreshTokenExpiresAt?.getTime() ?? Infinity) > now.getTime()
-  if (!refreshUsable) throw await expire(EXPIRED)
+  const refresh = providerFor(connection.platform).refreshAccessToken
+  if (!refresh || !connection.refreshToken) throw await expire(say.expired)
+
   try {
-    const tokens = await refreshAccessToken(
-      config,
-      decrypt(connection.refreshToken!),
-      fetchFn,
-      now.getTime()
-    )
-    const encrypt = (value: string) =>
-      encryptToken(value, config.encryptionKey, connection.userId)
-    await database
-      .update(platformConnectionsTable)
-      .set({
-        accessToken: encrypt(tokens.accessToken),
-        accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-        // The platform may or may not rotate the refresh token.
-        ...(tokens.refreshToken && {
-          refreshToken: encrypt(tokens.refreshToken),
-          refreshTokenExpiresAt: tokens.refreshTokenExpiresAt
-        }),
-        updatedAt: now
-      })
-      // Only over the token it replaces: a reconnect meanwhile wins.
-      .where(
-        and(
-          eq(platformConnectionsTable.id, connection.id),
-          eq(platformConnectionsTable.accessToken, accessToken)
-        )
+    return await database.transaction(async tx => {
+      const [locked] = await tx
+        .select()
+        .from(platformConnectionsTable)
+        .where(eq(platformConnectionsTable.id, connection.id))
+        .for('update')
+      const current = locked ?? null
+      assertCanPublish(current, connection.platform)
+      failing = { id: current.id, accessToken: current.accessToken }
+      // Refreshed (or reconnected) while this waited for the lock.
+      if (fresh(current)) return decrypt(current.accessToken)
+
+      const refreshUsable =
+        current.refreshToken &&
+        (current.refreshTokenExpiresAt?.getTime() ?? Infinity) > now.getTime()
+      if (!refreshUsable) throw new RefreshRefused(say.expired)
+
+      const tokens = await refresh(
+        config,
+        decrypt(current.refreshToken!),
+        fetchFn,
+        now.getTime()
       )
-    return tokens.accessToken
+      const encrypt = (value: string) =>
+        encryptToken(value, config.encryptionKey, connection.userId)
+      await tx
+        .update(platformConnectionsTable)
+        .set({
+          accessToken: encrypt(tokens.accessToken),
+          accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+          // The platform may or may not rotate the refresh token (Buffer does).
+          ...(tokens.refreshToken && {
+            refreshToken: encrypt(tokens.refreshToken),
+            refreshTokenExpiresAt: tokens.refreshTokenExpiresAt
+          }),
+          updatedAt: now
+        })
+        .where(eq(platformConnectionsTable.id, current.id))
+      return tokens.accessToken
+    })
   } catch (err) {
+    if (err instanceof ConnectionError) throw err
+    if (err instanceof RefreshRefused) throw await expire(err.message)
     console.error(
-      `Could not refresh the ${PLATFORM} token of connection ${connection.id}:`,
+      `Could not refresh the ${say.name} token of connection ${connection.id}:`,
       err
     )
-    if (err instanceof TokenDecryptionError) throw await expire(UNREADABLE)
+    if (err instanceof TokenDecryptionError) throw await expire(say.unreadable)
     // The platform said no: the refresh token was revoked or ran out.
     if (
       err instanceof PlatformOAuthError &&
       (err.status === 400 || err.status === 401)
     ) {
-      throw await expire(EXPIRED)
+      throw await expire(say.expired)
     }
     // An outage (network, the platform's 5xx, our database): nothing was sent.
     throw new PlatformApiError(
-      `The ${PLATFORM} connection could not be renewed just now. It will be tried again.`,
+      `The ${say.name} connection could not be renewed just now. It will be tried again.`,
       'platform_unavailable'
     )
   }
 }
 
+/** Inside the refresh: there is no refresh token left to use. */
+class RefreshRefused extends Error {}
+
+/**
+ * Switches the connection to another account on the same platform the user
+ * already authorized (another X channel in their Buffer account), keeping
+ * its credential. As with connecting a different account: auto-publishing
+ * turns off and the platform's scheduled posts are cancelled.
+ */
+export async function changeAccount(
+  database: PublishingDb,
+  userId: string,
+  platform: PlatformId,
+  member: AccountInfo,
+  now = new Date()
+): Promise<PlatformConnection | null> {
+  return database.transaction(async tx => {
+    const [previous] = await tx
+      .select({ memberId: platformConnectionsTable.memberId })
+      .from(platformConnectionsTable)
+      .where(
+        and(
+          eq(platformConnectionsTable.userId, userId),
+          eq(platformConnectionsTable.platform, platform),
+          eq(platformConnectionsTable.status, 'connected')
+        )
+      )
+      .for('update')
+    if (!previous) return null
+    const switched = previous.memberId !== member.memberId
+    const [row] = await tx
+      .update(platformConnectionsTable)
+      .set({
+        memberId: member.memberId,
+        name: member.name,
+        pictureUrl: member.pictureUrl,
+        ...(switched && { autoPublish: false, autoPublishEnabledAt: null }),
+        updatedAt: now
+      })
+      .where(
+        and(
+          eq(platformConnectionsTable.userId, userId),
+          eq(platformConnectionsTable.platform, platform)
+        )
+      )
+      .returning()
+    if (switched) {
+      await cancelPendingPublications(
+        tx,
+        { userId, platform },
+        {
+          message: `Cancelled because a different ${messagesFor(platform).name} account was chosen.`,
+          code: 'not_connected'
+        },
+        { includeUnsentInFlight: true, now }
+      )
+    }
+    return row ?? null
+  })
+}
+
 /** What the browser may see of a connection: never a token. */
 export type ConnectionSummary = {
+  platform: PlatformId
   status: PlatformConnection['status']
   name: string | null
   pictureUrl: string | null
   connectedAt: string
   expiresAt: string | null
+  /** The platform renews the access token by itself (a refresh token). */
+  renews: boolean
   canPublish: boolean
   lastError: string | null
   autoPublish: boolean
@@ -316,11 +436,13 @@ export function toConnectionSummary(
   connection: PlatformConnection
 ): ConnectionSummary {
   return {
+    platform: connection.platform,
     status: connection.status,
     name: connection.name,
     pictureUrl: connection.pictureUrl,
     connectedAt: connection.connectedAt.toISOString(),
     expiresAt: connection.accessTokenExpiresAt?.toISOString() ?? null,
+    renews: Boolean(connection.refreshToken),
     canPublish: canPublish(connection),
     lastError: connection.lastError,
     autoPublish: connection.autoPublish,

@@ -8,7 +8,8 @@ import {
   postMediaTable
 } from '@/db/schema'
 import { isUniqueViolation } from '@/lib/db-errors'
-import { platformPostText } from '@/lib/post-text'
+import { getPlatform, type PlatformId } from '@/lib/platforms'
+import { FORMATS, formatOf, postTexts, toPlainText } from '@/lib/formats'
 import {
   instantOf,
   localDayKey,
@@ -23,6 +24,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -37,23 +39,17 @@ import {
   markExpired,
   usableAccessToken
 } from './connection'
-import { canPublishTo, PUBLISHING_PLATFORM } from './platform'
+import { canPublishTo, PUBLISHING_PLATFORM_IDS } from './platform'
 import {
-  addComment,
-  type ApiContext,
-  type ArticleLink,
-  authorIdOf,
-  createPost,
-  deletePost,
   type FetchFn,
-  MAX_POST_LENGTH,
+  type LinkCard,
   PlatformApiError,
+  type PlatformConfig,
+  type PostImage,
   PostImageError,
-  postUrl,
-  type PublishingAppConfig,
-  toApiText,
-  uploadImage,
-  visibleLength
+  type ProviderContext,
+  providerFor,
+  type PublishConfigs
 } from './provider'
 import { postRequested as postRequestedSql } from './publication-queries'
 import type {
@@ -63,9 +59,9 @@ import type {
 } from './status'
 
 /**
- * Publishing approved posts through the platform's API (PUBLISHING_PLATFORM,
- * through its provider in ./linkedin). Publish now, Schedule and
- * auto-publishing all go through the same steps:
+ * Publishing approved posts through each platform's API, by the provider for
+ * the post's platform (./provider.ts: LinkedIn, and X through Buffer). Publish
+ * now, Schedule and auto-publishing all go through the same steps:
  *
  *   requestPublication   a `scheduled` row, refused unless the post is the
  *                        user's, approved, not yet posted, and the platform
@@ -78,6 +74,9 @@ import type {
  *                        creates the post, unless the claim was lost meanwhile
  *                        (a cancel, a disconnect); records the post's URN at
  *                        once.
+ *   confirm*             only for a provider that sends the post on after
+ *                        answering (Buffer): the row stays 'publishing' with
+ *                        the post's id until the provider says it is out.
  *
  * Duplicates: creating a post is not idempotent and member tokens cannot read
  * posts back, so once the create request may have reached the platform the row
@@ -88,19 +87,16 @@ import type {
 
 export type PublishDeps = {
   database: PublishingDb
-  config: PublishingAppConfig
-  /** For the platform's API and OAuth; a stub in tests. */
+  /** The config of each platform publishing is set up for. */
+  configs: PublishConfigs
+  /** For the platforms' APIs and OAuth; a stub in tests. */
   fetchFn?: FetchFn
   /** The post's image, or null for none. */
   loadImage?: (draftId: string) => Promise<PostImage | null>
   now?: () => Date
 }
 
-export type PostImage = {
-  bytes: Buffer
-  mediaType: string
-  altText: string | null
-}
+export type { PostImage }
 
 /** A publication's metadata, with what this file keeps beyond the schema's type. */
 type PublicationMetadata = Publication['metadata'] & {
@@ -113,6 +109,12 @@ const RETRY_DELAYS_MS = [60_000, 5 * 60_000]
 
 /** A publishing row locked longer than this belongs to a process that died. */
 export const STALE_LOCK_MS = 10 * 60_000
+
+/**
+ * A post handed to a provider that sends it on (Buffer) and not confirmed
+ * within this long is given up on as `unknown_outcome`: it may be out.
+ */
+export const CONFIRM_TIMEOUT_MS = 2 * 60 * 60_000
 
 /** Scheduling further ahead than this is refused (and tokens last about 60 days). */
 const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60_000
@@ -137,6 +139,8 @@ export class PublishRequestError extends Error {
       | 'invalid_time'
       | 'confirm_unknown_outcome'
       | 'wrong_platform'
+      | 'not_configured'
+      | 'not_supported'
   ) {
     super(message)
     this.name = 'PublishRequestError'
@@ -145,8 +149,39 @@ export class PublishRequestError extends Error {
 
 const nowOf = (deps: Pick<PublishDeps, 'now'>) => deps.now?.() ?? new Date()
 
-/** The platform's name, for messages. */
-const PLATFORM = PUBLISHING_PLATFORM.name
+/** A platform's name, for messages. */
+const nameOf = (platform: string | null | undefined) => getPlatform(platform).name
+
+/** The config for `platform`, or a refusal when it is not set up here. */
+function configFor(deps: PublishDeps, platform: PlatformId): PlatformConfig {
+  const config = canPublishTo(platform) ? deps.configs[platform] : undefined
+  if (!config) {
+    throw new PublishRequestError(
+      `Publishing to ${nameOf(platform)} is not set up on this server.`,
+      'not_configured'
+    )
+  }
+  return config
+}
+
+/** What a provider call runs with, for this connection. */
+async function contextFor(
+  deps: PublishDeps,
+  connection: PlatformConnection
+): Promise<ProviderContext> {
+  const config = configFor(deps, connection.platform)
+  return {
+    accessToken: await usableAccessToken(
+      deps.database,
+      config,
+      connection,
+      deps.fetchFn,
+      nowOf(deps)
+    ),
+    config,
+    fetchFn: deps.fetchFn
+  }
+}
 
 /**
  * The user's own post, through the identity that owns it. A post of another
@@ -168,6 +203,7 @@ async function findOwnedDraft(
       firstComment: postDraftsTable.firstComment,
       status: postDraftsTable.status,
       postedAt: postDraftsTable.postedAt,
+      formatId: postDraftsTable.formatId,
       linkUrl: postDraftsTable.linkUrl,
       linkTitle: postDraftsTable.linkTitle,
       linkDescription: postDraftsTable.linkDescription
@@ -182,16 +218,28 @@ async function findOwnedDraft(
 }
 
 /**
- * The post's text for the platform, if it can go out: written for the
- * platform, approved, not marked posted and within the platform's length. Checked when it is queued and again
- * when it is published (it may have changed in between).
+ * The post's texts for the platform, if it can go out: written for a platform
+ * and format its provider publishes, approved, not marked posted and each
+ * within the platform's length. Checked when it is queued and again when it
+ * is published (it may have changed in between). One text, exactly what Copy
+ * gives (src/lib/formats); for a provider that publishes threads, every post
+ * of a thread in order, then the first comment as the last reply.
  */
 function assertPublishable(
   draft: NonNullable<Awaited<ReturnType<typeof findOwnedDraft>>>
-): string {
+): string[] {
+  const name = nameOf(draft.platform)
   if (!canPublishTo(draft.platform)) {
     throw new PublishRequestError(
-      `Only ${PLATFORM} posts can be published from here.`,
+      `${name} posts cannot be published from here.`,
+      'wrong_platform'
+    )
+  }
+  const provider = providerFor(draft.platform)
+  const format = formatOf(draft.formatId)
+  if (!provider.formats.includes(format)) {
+    throw new PublishRequestError(
+      `This ${FORMATS[format].label} cannot be published from here yet: copy it and post it on ${name}.`,
       'wrong_platform'
     )
   }
@@ -203,24 +251,47 @@ function assertPublishable(
   }
   if (draft.postedAt) {
     throw new PublishRequestError(
-      `This post is already marked as posted on ${PLATFORM}.`,
+      `This post is already marked as posted on ${name}.`,
       'already_posted'
     )
   }
-  const text = platformPostText(draft, PUBLISHING_PLATFORM)
-  if (visibleLength(text) > MAX_POST_LENGTH) {
+  const posts = postTexts(format, draft)
+  const reply = provider.threads ? toPlainText(draft.firstComment).trim() : ''
+  const texts = reply ? [...posts, reply] : posts
+  const tooLong = texts.findIndex(
+    text => provider.measure(text) > provider.maxPostLength
+  )
+  if (tooLong !== -1) {
+    const what =
+      tooLong >= posts.length
+        ? `The ${FORMATS[format].commentLabel.toLowerCase()}`
+        : posts.length > 1
+          ? `Post ${tooLong + 1} of the thread`
+          : 'The post'
     throw new PublishRequestError(
-      `The post is longer than ${PLATFORM}'s ${MAX_POST_LENGTH} characters. Shorten it and try again.`,
+      `${what} is longer than ${name}'s ${provider.maxPostLength} characters${
+        FORMATS[format].limits.count === 'x_weighted'
+          ? ' (a link counts as 23, an emoji as 2)'
+          : ''
+      }. Shorten it and try again.`,
       'too_long'
     )
   }
-  if (draft.linkUrl !== null && articleLinkOf(draft) === null) {
-    throw new PublishRequestError(
-      'The link this post shares is not a valid https address, or has no title. Fix it and try again.',
-      'not_approved'
-    )
+  if (draft.linkUrl !== null) {
+    if (!provider.linkCards) {
+      throw new PublishRequestError(
+        `This post shares a link card, which ${name} posts cannot carry from here.`,
+        'wrong_platform'
+      )
+    }
+    if (articleLinkOf(draft) === null) {
+      throw new PublishRequestError(
+        'The link this post shares is not a valid https address, or has no title. Fix it and try again.',
+        'not_approved'
+      )
+    }
   }
-  return text
+  return texts
 }
 
 /**
@@ -231,7 +302,7 @@ function articleLinkOf(draft: {
   linkUrl: string | null
   linkTitle: string | null
   linkDescription: string | null
-}): Omit<ArticleLink, 'thumbnailUrn'> | null {
+}): LinkCard | null {
   if (!draft.linkUrl || !draft.linkTitle?.trim()) return null
   try {
     const url = new URL(draft.linkUrl)
@@ -266,12 +337,27 @@ export async function requestPublication(
     confirmedNotPublished?: boolean
     /** The viewer's IANA zone (validated by the caller): the day it is marked posted on. */
     timezone?: string | null
+    /**
+     * The platforms set up on this server (PublishDeps.configs); a post for
+     * any other is refused. Absent: not checked here (the worker refuses it).
+     */
+    configuredPlatforms?: readonly string[]
   },
   now = new Date()
 ): Promise<Publication> {
   const draft = await findOwnedDraft(database, input.userId, input.draftId)
   if (!draft) throw new PublishRequestError('Post not found.', 'not_found')
   assertPublishable(draft)
+  const name = nameOf(draft.platform)
+  if (
+    input.configuredPlatforms &&
+    !input.configuredPlatforms.includes(draft.platform)
+  ) {
+    throw new PublishRequestError(
+      `Publishing to ${name} is not set up on this server.`,
+      'not_configured'
+    )
+  }
   if (input.trigger === 'scheduled') {
     const ahead = input.scheduledAt.getTime() - now.getTime()
     if (!Number.isFinite(ahead) || ahead < 60_000) {
@@ -299,13 +385,16 @@ export async function requestPublication(
       .limit(1)
     if (last?.status === 'failed' && last.errorCode === 'unknown_outcome') {
       throw new PublishRequestError(
-        `The last attempt may have reached ${PLATFORM}. Check your profile, then confirm it is not there to publish again.`,
+        `The last attempt may have reached ${name}. Check your profile, then confirm it is not there to publish again.`,
         'confirm_unknown_outcome'
       )
     }
   }
   try {
-    assertCanPublish(await getConnection(database, input.userId))
+    assertCanPublish(
+      await getConnection(database, input.userId, draft.platform),
+      draft.platform
+    )
   } catch (err) {
     throw err instanceof ConnectionError
       ? new PublishRequestError(err.message, err.code)
@@ -317,6 +406,7 @@ export async function requestPublication(
       .values({
         userId: input.userId,
         draftId: draft.id,
+        platform: draft.platform,
         trigger: input.trigger,
         status: 'scheduled',
         scheduledAt: input.scheduledAt,
@@ -405,31 +495,34 @@ export async function deletePublishedPost(
   }
   if (publication.deletedAt) return publication
 
+  const name = nameOf(publication.platform)
+  const provider = providerFor(publication.platform)
+  const { deletePost } = provider
+  if (!deletePost) {
+    throw new PublishRequestError(
+      `Posts cannot be deleted from ${name} through TDC AI. Open the post on ${name} and delete it there.`,
+      'not_supported'
+    )
+  }
   try {
-    const connection = await getConnection(database, userId)
-    assertCanPublish(connection)
+    const connection = await getConnection(
+      database,
+      userId,
+      publication.platform
+    )
+    assertCanPublish(connection, publication.platform)
     // Only its author can delete it, and the platform's 404 for anyone else
     // would read as "already deleted".
     if (
       publication.authorUrn &&
-      publication.authorUrn !== authorIdOf(connection.memberId)
+      publication.authorUrn !== provider.authorIdOf(connection.memberId)
     ) {
       throw new PublishRequestError(
-        `This post was published from a different ${PLATFORM} account. Connect that account to delete it.`,
+        `This post was published from a different ${name} account. Connect that account to delete it.`,
         'missing_permission'
       )
     }
-    const ctx: ApiContext = {
-      accessToken: await usableAccessToken(
-        database,
-        deps.config,
-        connection,
-        deps.fetchFn,
-        nowOf(deps)
-      ),
-      apiVersion: deps.config.apiVersion,
-      fetchFn: deps.fetchFn
-    }
+    const ctx = await contextFor(deps, connection)
     try {
       await deletePost(ctx, publication.externalPostId)
     } catch (err) {
@@ -553,7 +646,7 @@ async function downloadImage(
  * public link. An image that cannot be used throws PostImageError; a
  * download or storage error that may pass throws a plain error.
  */
-async function loadPostImage(
+export async function loadPostImage(
   database: PublishingDb,
   draftId: string
 ): Promise<PostImage | null> {
@@ -594,8 +687,6 @@ type Failure = {
   httpStatus?: number
 }
 
-const NOTHING_SENT = `Publishing failed before anything was sent to ${PLATFORM}.`
-
 /**
  * What a failed attempt records. Messages written for the user are kept;
  * anything else (a bug, a database error) gets a fixed message, and its
@@ -604,7 +695,8 @@ const NOTHING_SENT = `Publishing failed before anything was sent to ${PLATFORM}.
 function describeFailure(
   err: unknown,
   postRequested: boolean,
-  attemptsLeft: boolean
+  attemptsLeft: boolean,
+  platformName: string
 ): Failure {
   if (err instanceof PlatformApiError) {
     return {
@@ -632,10 +724,11 @@ function describeFailure(
     return {
       code: 'unknown_outcome',
       message:
-        `Publishing stopped after the post was sent to ${PLATFORM}. Check your profile before trying again.`,
+        `Publishing stopped after the post was sent to ${platformName}. Check your profile before trying again.`,
       retryable: false
     }
   }
+  const NOTHING_SENT = `Publishing failed before anything was sent to ${platformName}.`
   return {
     code: 'internal',
     message: attemptsLeft
@@ -675,28 +768,35 @@ async function prepare(deps: PublishDeps, publication: Publication) {
   if (!draft) {
     throw new PublishRequestError('The post no longer exists.', 'not_approved')
   }
-  const text = assertPublishable(draft)
-  const connection = await getConnection(database, publication.userId)
-  assertCanPublish(connection)
-  const ctx: ApiContext = {
-    accessToken: await usableAccessToken(
-      database,
-      deps.config,
-      connection,
-      deps.fetchFn,
-      nowOf(deps)
-    ),
-    apiVersion: deps.config.apiVersion,
-    fetchFn: deps.fetchFn
+  const [text = '', ...replies] = assertPublishable(draft)
+  // Queued for one platform, it goes out there or not at all.
+  if (draft.platform !== publication.platform) {
+    throw new PublishRequestError(
+      `The post is now written for ${nameOf(draft.platform)}, not ${nameOf(publication.platform)}.`,
+      'wrong_platform'
+    )
   }
+  const provider = providerFor(publication.platform)
+  const connection = await getConnection(
+    database,
+    publication.userId,
+    publication.platform
+  )
+  assertCanPublish(connection, publication.platform)
+  const ctx = await contextFor(deps, connection)
   return {
     draftId: draft.id,
     text,
-    comment: draft.firstComment?.trim() || null,
+    // A thread's other posts and the reply, for a provider with `threads`.
+    replies,
+    // Only where the platform's posts carry one, added after the post.
+    comment: provider.addComment ? draft.firstComment?.trim() || null : null,
+    // An article-link post's card (LinkedIn).
     link: articleLinkOf(draft),
     connection,
+    provider,
     ctx,
-    authorUrn: authorIdOf(connection.memberId)
+    authorUrn: provider.authorIdOf(connection.memberId)
   }
 }
 
@@ -711,13 +811,30 @@ export async function executePublication(
   const { database } = deps
   let postRequested = false
   try {
-    const { draftId, text, comment, link, connection, ctx, authorUrn } =
-      await prepare(deps, publication)
+    const {
+      draftId,
+      text,
+      replies,
+      comment,
+      link,
+      connection,
+      provider,
+      ctx,
+      authorUrn
+    } = await prepare(deps, publication)
     try {
       const image = await (
         deps.loadImage ?? (id => loadPostImage(database, id))
       )(draftId)
-      const imageUrn = image ? await uploadImage(ctx, authorUrn, image) : null
+      // An uploaded image's URN (LinkedIn), or a link the provider fetches (Buffer).
+      const imageUrn = image
+        ? await provider.prepareImage(ctx, {
+            authorId: authorUrn,
+            draftId,
+            image,
+            now: nowOf(deps)
+          })
+        : null
 
       // From here on the post may exist on the platform whatever happens next; the
       // mark lets recovery tell a crash here from one during the image upload.
@@ -746,29 +863,41 @@ export async function executePublication(
 
       // An article-link post shares its page as a card, the image as the
       // card's thumbnail; any other post attaches the image itself.
-      const postUrn = await createPost(ctx, {
-        authorUrn,
-        commentary: toApiText(text),
+      const created = await provider.createPost(ctx, {
+        authorId: authorUrn,
+        text: provider.toApiText(text),
+        ...(replies.length > 0 && { replies: replies.map(provider.toApiText) }),
         ...(link
-          ? { article: { ...link, thumbnailUrn: imageUrn } }
+          ? { link: { ...link, thumbnailRef: imageUrn } }
           : {
               image: imageUrn
-                ? { urn: imageUrn, altText: image?.altText }
+                ? { ref: imageUrn, altText: image?.altText ?? null }
                 : undefined
             })
       })
 
+      // Handed on, not out yet (Buffer): the row waits, with the post's id,
+      // for confirmPendingPublications. Never retried from here.
+      if (created.pending) {
+        return await recordHandedOn(deps, publication, created.postId)
+      }
+
       // The post is live. Recording that must not turn into a failure: the
       // post's URN is the only proof it exists, and a retry would duplicate it.
       const metadata = publication.metadata as PublicationMetadata
+      const { addComment } = provider
       return await recordPublished(deps, publication, {
         draftId,
-        postUrn,
+        postUrn: created.postId,
+        postUrl: created.url,
+        publishedAt: created.publishedAt,
         zone: zoneOf({
           timezone: metadata.timezone ?? connection.autoPublishTimezone
         }),
         comment,
-        addFirstComment: text => addComment(ctx, postUrn, authorUrn, text)
+        addFirstComment: addComment
+          ? text => addComment(ctx, created.postId, authorUrn, text)
+          : null
       })
     } catch (err) {
       // The platform refused the token itself (usableAccessToken expires the rest).
@@ -797,9 +926,10 @@ async function recordFailure(
   postRequested: boolean
 ): Promise<Publication> {
   const attemptsLeft = publication.attempts < publication.maxAttempts
-  const failure = describeFailure(err, postRequested, attemptsLeft)
+  const name = nameOf(publication.platform)
+  const failure = describeFailure(err, postRequested, attemptsLeft, name)
   if (failure.code === 'internal' || failure.code === 'unknown_outcome') {
-    console.error(`${PLATFORM} publication ${publication.id} failed:`, err)
+    console.error(`${name} publication ${publication.id} failed:`, err)
   }
   const retry = failure.retryable && attemptsLeft
   const now = nowOf(deps)
@@ -827,7 +957,7 @@ async function recordFailure(
     .returning()
     .catch(updateErr => {
       console.error(
-        `Could not record the failure of ${PLATFORM} publication ${publication.id}:`,
+        `Could not record the failure of ${name} publication ${publication.id}:`,
         updateErr
       )
       return []
@@ -855,18 +985,26 @@ async function recordPublished(
   deps: PublishDeps,
   publication: Publication,
   result: {
-    /** The post it is a publication of. */
-    draftId: string
+    /** The post it is a publication of; null once it was deleted from the app. */
+    draftId: string | null
     postUrn: string
+    /** The post's link, when the provider gave one (else built from the URN). */
+    postUrl?: string | null
+    /** When it went out, if the provider says; now otherwise. */
+    publishedAt?: Date | null
     /** The zone of the day the post is marked posted on. */
     zone: string
     comment: string | null
-    addFirstComment: (text: string) => Promise<string | null>
+    /** Null when the platform's posts carry no first comment. */
+    addFirstComment: ((text: string) => Promise<string | null>) | null
+    /** Only while the row is still 'publishing' (a confirmation, which may race another). */
+    onlyIfPublishing?: boolean
   }
 ): Promise<Publication> {
   const { database } = deps
   const byId = eq(publicationsTable.id, publication.id)
-  const publishedAt = nowOf(deps)
+  const name = nameOf(publication.platform)
+  const publishedAt = result.publishedAt ?? nowOf(deps)
   const published = {
     status: 'published' as const,
     externalPostId: result.postUrn,
@@ -874,23 +1012,38 @@ async function recordPublished(
     lockedAt: null,
     error: null,
     errorCode: null,
-    updatedAt: publishedAt
+    ...(result.postUrl && {
+      metadata: mergeMetadata({ postUrl: result.postUrl })
+    }),
+    updatedAt: nowOf(deps)
   }
   // What the caller sees even if the database cannot be written.
-  let row: Publication = { ...publication, ...published }
+  let row: Publication = {
+    ...publication,
+    ...published,
+    metadata: result.postUrl
+      ? { ...publication.metadata, postUrl: result.postUrl }
+      : publication.metadata
+  }
 
   try {
     const [saved] = await writeWithRetry(() =>
       database
         .update(publicationsTable)
         .set(published)
-        .where(byId)
+        .where(
+          result.onlyIfPublishing
+            ? and(byId, eq(publicationsTable.status, 'publishing'))
+            : byId
+        )
         .returning()
     )
     if (saved) row = saved
+    // Another pass confirmed it first, and did the rest.
+    else if (result.onlyIfPublishing) return row
   } catch (err) {
     console.error(
-      `${PLATFORM} publication ${publication.id} IS PUBLISHED as ${result.postUrn}, but it could not be recorded:`,
+      `${name} publication ${publication.id} IS PUBLISHED as ${result.postUrn}, but it could not be recorded:`,
       err
     )
     return row
@@ -898,17 +1051,20 @@ async function recordPublished(
 
   // The post shows as posted on Schedule, on the day it went out. Only a
   // display detail: the publication row above is what prevents a repeat.
+  const { draftId } = result
   try {
-    await writeWithRetry(() =>
-      database
-        .update(postDraftsTable)
-        .set({
-          postedAt: publishedAt,
-          plannedFor: sql`coalesce(${postDraftsTable.plannedFor}, ${localDayKey(publishedAt, result.zone)}::date)`,
-          updatedAt: publishedAt
-        })
-        .where(eq(postDraftsTable.id, result.draftId))
-    )
+    if (draftId) {
+      await writeWithRetry(() =>
+        database
+          .update(postDraftsTable)
+          .set({
+            postedAt: publishedAt,
+            plannedFor: sql`coalesce(${postDraftsTable.plannedFor}, ${localDayKey(publishedAt, result.zone)}::date)`,
+            updatedAt: nowOf(deps)
+          })
+          .where(eq(postDraftsTable.id, draftId))
+      )
+    }
   } catch (err) {
     console.error(
       `Could not mark post ${result.draftId} as posted after publishing it:`,
@@ -918,7 +1074,7 @@ async function recordPublished(
 
   // The first comment is extra: if it fails the post is still published,
   // and it is never retried (it could appear twice).
-  if (result.comment) {
+  if (result.comment && result.addFirstComment) {
     let outcome: Record<string, unknown>
     try {
       const commentUrn = await result.addFirstComment(result.comment)
@@ -927,7 +1083,7 @@ async function recordPublished(
     } catch (err) {
       const answered =
         err instanceof PlatformApiError && err.status
-          ? ` (${PLATFORM} answered ${err.status})`
+          ? ` (${name} answered ${err.status})`
           : ''
       outcome = {
         commentError: `The first comment could not be added${answered}.`
@@ -951,9 +1107,154 @@ async function recordPublished(
 }
 
 /**
+ * Records that the provider took the post and will send it on (Buffer): the
+ * row stays 'publishing', now with the post's id, and is confirmed later by
+ * confirmPendingPublications. Never throws: if the id cannot be written the
+ * row is left as it was, and stale-lock recovery fails it as unknown_outcome
+ * (it may be out), never retrying it.
+ */
+async function recordHandedOn(
+  deps: PublishDeps,
+  publication: Publication,
+  postId: string
+): Promise<Publication> {
+  const now = nowOf(deps)
+  const handedOn = { externalPostId: postId, lockedAt: now, updatedAt: now }
+  try {
+    const [saved] = await writeWithRetry(() =>
+      deps.database
+        .update(publicationsTable)
+        .set(handedOn)
+        .where(heldClaim(publication))
+        .returning()
+    )
+    return saved ?? { ...publication, ...handedOn }
+  } catch (err) {
+    console.error(
+      `${nameOf(publication.platform)} publication ${publication.id} was handed on as ${postId}, but that could not be recorded:`,
+      err
+    )
+    return { ...publication, ...handedOn }
+  }
+}
+
+/**
+ * Rows handed to a provider that sends the post on (Buffer), waiting for it to
+ * say the post is out: published (with its link) or failed. A row whose
+ * connection is gone, or that is not confirmed within CONFIRM_TIMEOUT_MS,
+ * fails as `unknown_outcome`: the post may be out, so it is never retried by
+ * itself. A look that fails (an outage) just waits for the next pass.
+ */
+export async function confirmPendingPublications(
+  deps: PublishDeps,
+  options: { limit?: number } = {}
+): Promise<{ confirmed: number; failed: number }> {
+  const { database } = deps
+  const now = nowOf(deps)
+  const pending = await database
+    .select()
+    .from(publicationsTable)
+    .where(
+      and(
+        eq(publicationsTable.status, 'publishing'),
+        isNotNull(publicationsTable.externalPostId),
+        // Not one a request is still waiting on (Publish now's short wait).
+        lt(publicationsTable.lockedAt, new Date(now.getTime() - 30_000))
+      )
+    )
+    .orderBy(asc(publicationsTable.lockedAt))
+    .limit(options.limit ?? 20)
+
+  let confirmed = 0
+  let failed = 0
+  for (const publication of pending) {
+    const name = nameOf(publication.platform)
+    const giveUp = async (error: string, errorCode: PublicationErrorCode) => {
+      const [row] = await database
+        .update(publicationsTable)
+        .set({ status: 'failed', lockedAt: null, error, errorCode, updatedAt: now })
+        .where(
+          and(
+            eq(publicationsTable.id, publication.id),
+            eq(publicationsTable.status, 'publishing')
+          )
+        )
+        .returning({ id: publicationsTable.id })
+      if (row) failed++
+    }
+    const timedOut =
+      now.getTime() - (publication.lockedAt ?? now).getTime() >
+      CONFIRM_TIMEOUT_MS
+    try {
+      const provider = providerFor(publication.platform)
+      const connection = await getConnection(
+        database,
+        publication.userId,
+        publication.platform
+      )
+      const check = provider.checkPost
+      if (!check || !connection?.accessToken || connection.status !== 'connected') {
+        await giveUp(
+          `${name} could not confirm the post: the connection was removed while it was being published. Check your ${name} profile before trying again.`,
+          'unknown_outcome'
+        )
+        continue
+      }
+      const ctx = await contextFor(deps, connection)
+      const state = await check(ctx, publication.externalPostId!)
+      if (state.state === 'published') {
+        const metadata = publication.metadata as PublicationMetadata
+        const row = await recordPublished(deps, publication, {
+          draftId: publication.draftId,
+          postUrn: publication.externalPostId!,
+          postUrl: state.url,
+          publishedAt: state.publishedAt,
+          zone: zoneOf({
+            timezone: metadata.timezone ?? connection.autoPublishTimezone
+          }),
+          comment: null,
+          addFirstComment: null,
+          onlyIfPublishing: true
+        })
+        if (row.status === 'published') confirmed++
+      } else if (state.state === 'failed') {
+        await giveUp(
+          state.error ?? `${name} did not publish the post.`,
+          'rejected_by_platform'
+        )
+      } else if (timedOut) {
+        await giveUp(
+          `${name} did not confirm the post within ${CONFIRM_TIMEOUT_MS / 3_600_000} hours. Check your ${name} profile and Buffer queue before trying again.`,
+          'unknown_outcome'
+        )
+      }
+    } catch (err) {
+      // An outage, a refused key: looked at again next pass, until the timeout.
+      console.error(
+        `Could not confirm ${name} publication ${publication.id}:`,
+        err
+      )
+      // A connection that stopped working, or no answer for too long (an
+      // outage, or the platform no longer set up): it may be out, so it is
+      // given up as unknown, never retried.
+      if (err instanceof ConnectionError || timedOut) {
+        await giveUp(
+          err instanceof ConnectionError
+            ? `${err.message} The post may already be on ${name}: check before trying again.`
+            : `${name} did not confirm the post within ${CONFIRM_TIMEOUT_MS / 3_600_000} hours. Check your ${name} profile before trying again.`,
+          'unknown_outcome'
+        ).catch(() => {})
+      }
+    }
+  }
+  return { confirmed, failed }
+}
+
+/**
  * Rows left `publishing` by a process that died. One that never sent the
  * create request goes back in the queue (or fails, out of attempts); one that
- * did may be on the platform already, so it fails as `unknown_outcome`.
+ * did may be on the platform already, so it fails as `unknown_outcome`. A row
+ * already handed on with its post id is confirmPendingPublications' to settle.
  */
 export async function recoverStalePublications(
   database: PublishingDb,
@@ -961,23 +1262,31 @@ export async function recoverStalePublications(
 ): Promise<number> {
   const stale = and(
     eq(publicationsTable.status, 'publishing'),
+    isNull(publicationsTable.externalPostId),
     lt(
       publicationsTable.lockedAt,
       new Date(now.getTime() - STALE_LOCK_MS)
     )
   )
-  const unsure = await database
-    .update(publicationsTable)
-    .set({
-      status: 'failed',
-      lockedAt: null,
-      errorCode: 'unknown_outcome',
-      error:
-        `Publishing was interrupted after the post was sent to ${PLATFORM}. Check your profile before trying again.`,
-      updatedAt: now
-    })
-    .where(and(stale, postRequestedSql))
-    .returning({ id: publicationsTable.id })
+  let unsure = 0
+  // Per platform, so the message names it.
+  for (const platform of PUBLISHING_PLATFORM_IDS) {
+    const rows = await database
+      .update(publicationsTable)
+      .set({
+        status: 'failed',
+        lockedAt: null,
+        errorCode: 'unknown_outcome',
+        error:
+          `Publishing was interrupted after the post was sent to ${nameOf(platform)}. Check your profile before trying again.`,
+        updatedAt: now
+      })
+      .where(
+        and(stale, eq(publicationsTable.platform, platform), postRequestedSql)
+      )
+      .returning({ id: publicationsTable.id })
+    unsure += rows.length
+  }
   const requeued = await database
     .update(publicationsTable)
     .set({
@@ -990,7 +1299,7 @@ export async function recoverStalePublications(
     })
     .where(and(stale, sql`not (${postRequestedSql})`))
     .returning({ id: publicationsTable.id })
-  return unsure.length + requeued.length
+  return unsure + requeued.length
 }
 
 /**
@@ -1078,6 +1387,13 @@ export async function queueAutoPublications(
       .where(
         and(
           eq(accountsTable.userId, connection.userId),
+          // Each connection publishes the posts written for its platform, in
+          // a format its provider publishes.
+          eq(postDraftsTable.platform, connection.platform),
+          inArray(
+            postDraftsTable.formatId,
+            providerFor(connection.platform).formats
+          ),
           eq(postDraftsTable.status, 'approved'),
           isNull(postDraftsTable.postedAt),
           eq(postDraftsTable.plannedFor, due.day),
@@ -1099,6 +1415,7 @@ export async function queueAutoPublications(
           drafts.map(draft => ({
             userId: connection.userId,
             draftId: draft.id,
+            platform: connection.platform,
             trigger: 'auto' as const,
             status: 'scheduled' as const,
             scheduledAt: slot,
@@ -1116,20 +1433,23 @@ export async function queueAutoPublications(
 }
 
 /**
- * One pass of the publishing worker: recover interrupted rows, queue
- * auto-publications, then publish what is due, oldest first, one at a time.
+ * One pass of the publishing worker: recover interrupted rows, confirm posts
+ * a provider sent on, queue auto-publications, then publish what is due,
+ * oldest first, one at a time.
  */
 export async function runDuePublications(
   deps: PublishDeps,
   options: { limit?: number } = {}
 ): Promise<{
   recovered: number
+  confirmed: number
   queued: number
   published: number
   failed: number
 }> {
   const { database } = deps
   const recovered = await recoverStalePublications(database, nowOf(deps))
+  const confirmation = await confirmPendingPublications(deps)
   const queued = await queueAutoPublications(database, nowOf(deps))
   const due = await database
     .select({ id: publicationsTable.id })
@@ -1152,19 +1472,27 @@ export async function runDuePublications(
       outcome = await executePublication(deps, claimed)
     } catch (err) {
       // One row's failure must not stop the others in this pass.
-      console.error(`${PLATFORM} publishing pass failed on ${id}:`, err)
+      console.error(`Publishing pass failed on ${id}:`, err)
       failed++
       continue
     }
     if (outcome.status === 'published') published++
-    else failed++
+    // Handed on (Buffer): counted when confirmed.
+    else if (outcome.status !== 'publishing') failed++
   }
-  return { recovered, queued, published, failed }
+  return {
+    recovered,
+    confirmed: confirmation.confirmed,
+    queued,
+    published,
+    failed: failed + confirmation.failed
+  }
 }
 
 /** What the browser sees of a publication. */
 export type PublicationSummary = {
   id: string
+  platform: PlatformId
   status: PublicationStatus
   trigger: PublicationTrigger
   scheduledAt: string
@@ -1173,6 +1501,8 @@ export type PublicationSummary = {
   /** When the user deleted the post from the platform; it is still 'published'. */
   deletedAt: string | null
   postUrl: string | null
+  /** The post can be deleted from its platform through the API. */
+  canDelete: boolean
   error: string | null
   errorCode: PublicationErrorCode | null
   attempts: number
@@ -1182,15 +1512,22 @@ export type PublicationSummary = {
 export function toPublicationSummary(
   row: Publication
 ): PublicationSummary {
+  const provider = canPublishTo(row.platform) ? providerFor(row.platform) : null
   return {
     id: row.id,
+    platform: row.platform,
     status: row.status,
     trigger: row.trigger,
     scheduledAt: row.scheduledAt.toISOString(),
     nextAttemptAt: row.nextAttemptAt.toISOString(),
     publishedAt: row.publishedAt?.toISOString() ?? null,
     deletedAt: row.deletedAt?.toISOString() ?? null,
-    postUrl: row.externalPostId ? postUrl(row.externalPostId) : null,
+    postUrl:
+      row.metadata?.postUrl ??
+      (row.externalPostId && row.status === 'published'
+        ? (provider?.postUrl(row.externalPostId) ?? null)
+        : null),
+    canDelete: Boolean(provider?.deletePost),
     error: row.error,
     errorCode: row.errorCode,
     attempts: row.attempts,

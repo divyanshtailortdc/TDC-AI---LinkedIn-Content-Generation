@@ -11,7 +11,7 @@ import {
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
-import { publishingConfig } from '@/lib/publishing/config'
+import { isPublishingConfigured } from '@/lib/publishing/config'
 import {
   latestPublications,
   type PublicationSummary
@@ -179,7 +179,7 @@ export async function loadPostsPage(
       : Promise.resolve([]),
     // These posts are already the identity's; their publications.
     // Skipped when publishing is not set up, so Posts does not depend on its tables.
-    publishingConfig()
+    isPublishingConfigured()
       ? latestPublications(db, draftIds)
       : Promise.resolve(new Map<string, PublicationSummary>()),
     // Which formats each idea already has, so the review screen offers only

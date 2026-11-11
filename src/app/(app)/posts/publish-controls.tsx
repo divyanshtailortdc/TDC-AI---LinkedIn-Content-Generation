@@ -1,14 +1,16 @@
 'use client'
 
 import { PlatformMark } from '@/components/platform-mark'
-import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { usePublishingStatus } from '@/components/publishing-header-button'
+import { usePlatformPublishing } from '@/components/publishing-header-button'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import { formatAbsoluteDateTime as formatDateTime } from '@/lib/format-date'
+import { FORMATS, type FormatId } from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+import { getPlatform, type PlatformId } from '@/lib/platforms'
 import type { PublicationSummary } from '@/lib/publishing/engine'
+import { SENDS_FIRST_COMMENT } from '@/lib/publishing/platform'
 import {
   AlertTriangle,
   CalendarClock,
@@ -55,25 +57,43 @@ const SMALL_BUTTON =
 
 /**
  * Publish now, Schedule, and the state of the post's publication, for an
- * approved post. Only the post id goes to the server; it publishes as the
- * signed-in user's own connected platform account, or not at all. The
- * connection comes from the layout (usePublishingStatus); only Publish now and
- * Schedule need it, the publication's state shows either way.
+ * approved post, on the platform it was written for. Only the post id goes to
+ * the server; it publishes as the signed-in user's own connected account on
+ * that platform, or not at all. The connection comes from the layout
+ * (usePlatformPublishing); only Publish now and Schedule need it, the
+ * publication's state shows either way.
  */
-export function PublishControls({
+export function PublishControls(
+  props: Parameters<typeof PublishControlsInner>[0]
+) {
+  // The platform's colour for everything below.
+  return (
+    <span data-platform={props.platform} className="contents">
+      <PublishControlsInner {...props} />
+    </span>
+  )
+}
+
+function PublishControlsInner({
+  platform: platformId,
+  formatId,
   postId,
   postedAt,
   publication,
   onChange
 }: {
+  /** The platform the post is written for. */
+  platform: PlatformId
+  /** Its format (src/lib/formats): a thread and its reply are worded as such. */
+  formatId: FormatId
   postId: string
   /** Set when the post is already marked posted (e.g. by hand on Schedule). */
   postedAt: string | null
   publication: PublicationSummary | null | undefined
   onChange: (publication: PublicationSummary) => void
 }) {
-  const publishing = usePublishingStatus()
-  const platform = publishing?.platform ?? PUBLISHING_PLATFORM
+  const publishing = usePlatformPublishing(platformId)
+  const platform = getPlatform(platformId)
   const name = platform.name
   const router = useRouter()
   const mounted = useHasMounted()
@@ -193,7 +213,10 @@ export function PublishControls({
                 title: 'Will retry shortly',
                 message: p.error ?? `${name} was busy; it will be tried again.`
               }
-            : { title: 'Publishing…' },
+            : {
+                title: 'Publishing…',
+                message: `${name} is publishing it; this updates when it is out.`
+              },
       'unknown-publish'
     )
 
@@ -231,8 +254,7 @@ export function PublishControls({
 
   // Not set up, not connected or expired: the header's publishing link handles
   // that, so there is nothing to offer here but the publication's state.
-  const canPublish =
-    publishing?.status === 'connected' && publishing.configured
+  const canPublish = publishing?.status === 'connected'
 
   // Deleted from the platform: still the record of it, and it stays published so
   // it is not published again.
@@ -267,7 +289,7 @@ export function PublishControls({
           <ExternalLink className="h-3 w-3" />
         </a>
       ),
-      canPublish && (
+      canPublish && publication.canDelete && (
         <button
           key="delete"
           type="button"
@@ -492,8 +514,11 @@ export function PublishControls({
           title={`Publish to ${name} now?`}
           description={
             <>
-              This post, with its image and first comment, is published publicly
-              as{' '}
+              This {FORMATS[formatId].structure === 'thread' ? 'thread' : 'post'}, with its image
+              {SENDS_FIRST_COMMENT.has(platform.id)
+                ? ` and ${FORMATS[formatId].commentLabel.toLowerCase()}`
+                : ''}, is published
+              publicly as{' '}
               <span className="text-foreground font-medium">
                 {publishing?.name ?? `your ${name} account`}
               </span>

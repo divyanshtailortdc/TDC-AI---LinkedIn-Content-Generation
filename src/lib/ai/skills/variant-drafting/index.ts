@@ -11,10 +11,13 @@ import {
   buildIdeaBlock,
   buildRegeneratePrompt,
   buildRevisionPrompt,
-  buildSharedInstructions
+  buildSharedInstructions,
+  type ApprovedSibling
 } from './prompt'
 import type { RegenerateRequest } from '../post-drafting'
 import { toVariantDraft, VariantOutputSchema, type VariantDraft } from './schema'
+
+export type { ApprovedSibling } from './prompt'
 
 export type { VariantDraft } from './schema'
 
@@ -46,6 +49,8 @@ export async function writeVariant(
     formatId: FormatId
     /** How this idea's posts on other platforms already open. */
     siblingOpenings?: string[]
+    /** This idea's posts the reviewer approved on other platforms. */
+    approvedSiblings?: ApprovedSibling[]
   },
   revise?: { previous: VariantDraft; failedChecks: string[] },
   /** A new version of an existing post, with what the reviewer wants changed. */
@@ -53,21 +58,30 @@ export async function writeVariant(
 ): Promise<{ draft: VariantDraft; usage: CallUsage; modelId: string }> {
   const { ctx, idea, formatId } = input
   const siblings = input.siblingOpenings ?? []
+  const approved = input.approvedSiblings ?? []
   const { output, usage, modelId } = await runSkill({
     stage: 'drafting',
     instructions: [buildSharedInstructions(ctx), buildIdeaBlock(idea)],
     cacheInstructions: true,
     prompt: revise
-      ? buildRevisionPrompt(ctx, formatId, revise.previous, revise.failedChecks, siblings)
+      ? buildRevisionPrompt(
+          ctx,
+          formatId,
+          revise.previous,
+          revise.failedChecks,
+          siblings,
+          approved
+        )
       : regenerate
         ? buildRegeneratePrompt(
             ctx,
             formatId,
             regenerate.current,
             regenerate.instruction,
-            siblings
+            siblings,
+            approved
           )
-        : buildFormatPrompt(ctx, formatId, siblings),
+        : buildFormatPrompt(ctx, formatId, siblings, approved),
     // One schema for every format, so they share the prompt cache.
     schema: VariantOutputSchema,
     timeoutMs: DRAFTING_TIMEOUT_MS,

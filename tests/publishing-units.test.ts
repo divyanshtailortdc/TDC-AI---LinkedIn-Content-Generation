@@ -390,3 +390,62 @@ describe('LinkedIn API errors say whether a retry is safe', () => {
     assert.strictEqual(sent, false)
   })
 })
+
+describe('X through Buffer', () => {
+  it("counts a post's length the way X does", async () => {
+    const { countChars } = await import('../src/lib/formats/count')
+    const xWeightedLength = (text: string) => countChars(text, 'x_weighted')
+    assert.strictEqual(xWeightedLength('hello'), 5)
+    // Any link is 23, an emoji (with its joined parts) 2, CJK 2 per character.
+    assert.strictEqual(xWeightedLength(`see https://example.com/${'a'.repeat(200)}`), 4 + 23)
+    assert.strictEqual(xWeightedLength('👨‍👩‍👧 🇮🇳'), 5)
+    assert.strictEqual(xWeightedLength('日本'), 4)
+  })
+
+  it('signs image links for one post and one day only', async () => {
+    const { createMediaToken, verifyMediaToken, MEDIA_TOKEN_TTL_MS } =
+      await import('../src/lib/publishing/media-token')
+    const token = createMediaToken(key, 'POST-1', 0)
+    assert.strictEqual(verifyMediaToken(key, token, 1000), 'POST-1')
+    assert.strictEqual(verifyMediaToken(key, token, MEDIA_TOKEN_TTL_MS + 1), null)
+    assert.strictEqual(verifyMediaToken(randomBytes(32), token, 1000), null)
+    assert.strictEqual(verifyMediaToken(key, token.replace('POST-1', 'POST-2'), 1000), null)
+    assert.strictEqual(verifyMediaToken(key, 'garbage', 1000), null)
+  })
+
+  it("classifies Buffer's answers: what may be retried, and what may have posted", async () => {
+    const { createPost } = await import('../src/lib/publishing/buffer/api')
+    const ctx = (answer: () => Response | Promise<Response>) => ({
+      apiKey: 'KEY',
+      apiUrl: 'https://buffer.example/graphql',
+      fetchFn: (async () => answer()) as typeof fetch
+    })
+    const post = { channelId: 'C', text: 'Hi' }
+    const codeOf = async (answer: () => Response | Promise<Response>) => {
+      const err = await createPost(ctx(answer), post).catch(e => e)
+      return [err.code, err.retryable]
+    }
+    const graphqlError = (code: string, status = 200) => () =>
+      Response.json({ errors: [{ message: code, extensions: { code } }] }, { status })
+
+    assert.deepStrictEqual(await codeOf(graphqlError('UNAUTHORIZED')), ['reauth_required', false])
+    assert.deepStrictEqual(await codeOf(graphqlError('FORBIDDEN')), ['missing_permission', false])
+    assert.deepStrictEqual(await codeOf(graphqlError('RATE_LIMIT_EXCEEDED', 429)), ['rate_limited', true])
+    assert.deepStrictEqual(await codeOf(graphqlError('UNEXPECTED')), ['unknown_outcome', false])
+    assert.deepStrictEqual(await codeOf(() => new Response('', { status: 503 })), ['platform_unavailable', true])
+    assert.deepStrictEqual(await codeOf(() => new Response('', { status: 502 })), ['unknown_outcome', false])
+    assert.deepStrictEqual(
+      await codeOf(() =>
+        Response.json({ data: { createPost: { __typename: 'LimitReachedError', message: 'Queue full' } } })
+      ),
+      ['rejected_by_platform', false]
+    )
+    // A refused connection never reached Buffer; a dropped one may have.
+    const refused = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
+    assert.deepStrictEqual(await codeOf(() => Promise.reject(refused)), ['platform_unavailable', true])
+    assert.deepStrictEqual(
+      await codeOf(() => Promise.reject(new TypeError('socket hang up'))),
+      ['unknown_outcome', false]
+    )
+  })
+})

@@ -1,6 +1,6 @@
 # Publishing
 
-How users connect a platform account for publishing, and how approved posts are published to it: now, at a scheduled time, or automatically. LinkedIn is the only platform with a publishing provider so far; most of this page describes that provider.
+How users connect a platform account for publishing, and how approved posts are published to it: now, at a scheduled time, or automatically. Two platforms have a publishing provider: **LinkedIn** (its own API, described on this page) and **X** (through Buffer, see [PUBLISHING_X.md](PUBLISHING_X.md)). The pipeline, states, retries and security below apply to both.
 
 - [Platforms and providers](#platforms-and-providers)
 - [Sign-in and publishing are separate](#sign-in-and-publishing-are-separate)
@@ -19,14 +19,14 @@ Two layers keep the app independent of any one platform:
 | Layer | Where | What it holds |
 | --- | --- | --- |
 | Platform registry | `src/lib/platforms/index.ts` | Every platform posts can be written for: name, length limits, fold, plain-text rules, link policy. Prompts, the linter, Copy, the preview and the UI read a post's platform (`post_drafts.platform`) from here. |
-| Publishing provider | `src/lib/publishing/linkedin/` | One platform's API client, OAuth flow and text format. Generic code reaches it only through `src/lib/publishing/provider.ts`, under neutral names. |
+| Publishing providers | `src/lib/publishing/linkedin/`, `src/lib/publishing/buffer/` | Each platform's API client, connection method and text format, behind one shape (`PublishingProvider`). Generic code finds one with `providerFor(platform)` in `src/lib/publishing/provider.ts`. |
 
-`src/lib/publishing/platform.ts` names the platform the engine publishes to (`PUBLISHING_PLATFORM`); only posts written for it can be published from the app. Every message, route and settings screen takes the platform's name from the registry.
+`src/lib/publishing/platform.ts` lists the platforms the engine publishes to. A post is published to the platform it was written for (`post_drafts.platform`); each publication records it (`linkedin_publications.platform`), and each user has one connection per platform (`linkedin_connections.platform`, unique with `user_id`). The tables keep their original names. Every message, route and settings screen takes the platform's name from the registry.
 
-**Adding a platform** (Instagram, Facebook, X, …):
+**Adding a platform** (Instagram, Facebook, …):
 
 1. Add its id to `PLATFORM_IDS` and its spec to `PLATFORMS` in `src/lib/platforms/index.ts`, and its mark to `src/components/platform-mark.tsx`. Posts can then be written, previewed, checked and copied for it.
-2. To publish through its API as well, add a provider folder beside `src/lib/publishing/linkedin/` (API client, OAuth, text format), point `src/lib/publishing/provider.ts` at it, and add its credentials to `src/env.ts` and `src/lib/publishing/config.ts`. Supporting two publishing platforms at once needs a `platform` column on `linkedin_connections` and `linkedin_publications` (the tables keep their original names) and a provider lookup by platform.
+2. To publish through its API as well, add a provider folder beside `src/lib/publishing/linkedin/` that exports a `PublishingProvider`, add it to `PROVIDERS` in `src/lib/publishing/provider.ts` and its id to `src/lib/publishing/platform.ts`, and add its config to `src/env.ts` and `src/lib/publishing/config.ts`. Settings → Integrations, the header, Posts and the worker pick it up from there.
 
 ## Sign-in and publishing are separate
 
@@ -86,9 +86,9 @@ Settings → "Connect LinkedIn"
   → 303 /settings/integrations?connection=connected
 ```
 
-One connection per user (`UNIQUE user_id`). Reconnecting replaces the tokens in the same row. Reconnecting as a *different* LinkedIn member turns auto-publishing off and cancels the user's scheduled publications (and in-flight ones whose create request was not sent yet), so nothing queued for the old member goes out as the new one.
+One connection per user and platform (`UNIQUE (user_id, platform)`). Reconnecting replaces the tokens in the same row. Reconnecting as a *different* LinkedIn member turns auto-publishing off and cancels the user's scheduled publications (and in-flight ones whose create request was not sent yet), so nothing queued for the old member goes out as the new one.
 
-**Disconnecting** deletes the tokens, turns auto-publishing off and cancels every `scheduled` publication. The row stays as `disconnected` so earlier publications keep their history. Sign-in is untouched. TDC AI cannot revoke the grant on LinkedIn's side for a member app, so the page tells the user where to remove it (LinkedIn Settings → Data privacy → Permitted services).
+**Disconnecting** deletes the tokens, turns auto-publishing off and cancels every `scheduled` publication for that platform (another platform's are untouched). The row stays as `disconnected` so earlier publications keep their history. Sign-in is untouched. TDC AI cannot revoke the grant on LinkedIn's side for a member app, so the page tells the user where to remove it (LinkedIn Settings → Data privacy → Permitted services).
 
 ### Publishing
 
@@ -185,7 +185,7 @@ The publishing app's id and secret identify **TDC AI**, not any member. Every us
 
 ### 3. Database
 
-Apply migration `0036_linkedin_publishing` (two new tables and their indexes; no change to existing tables):
+Apply migrations `0036_linkedin_publishing` (two new tables and their indexes) and `0041_x_publishing` (a `platform` column on both, one connection per user and platform):
 
 ```bash
 npm run db:migrate

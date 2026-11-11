@@ -12,7 +12,7 @@ import {
   videoScriptOf,
   type FormatId
 } from '@/lib/formats'
-import { AddVersionMenu } from './add-version-menu'
+import { IdeaVersions } from './add-version-menu'
 import { RegenerateControl, VersionHistory } from './post-versions'
 import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
@@ -114,7 +114,7 @@ import {
 import { initialsOf } from '@/lib/initials'
 import type { PublicationSummary } from '@/lib/publishing/engine'
 import { PublishControls } from './publish-controls'
-import { canPublishTo } from '@/lib/publishing/platform'
+import { canPublishFormat } from '@/lib/publishing/platform'
 import { getPostPublication } from './publish-actions'
 import {
   currentMediaJob,
@@ -801,6 +801,10 @@ export function PostsClientInner({
   // meant copying or approving one text while another was stored.
   // Copy, like Approve, takes the saved comment, in the form the preview shows.
   const copyableComment = toPlatformText(activePost?.firstComment, activePlatform)
+  // What the format calls it: "First comment" on LinkedIn, "Reply" on X.
+  const activeCommentLabel = activePost
+    ? FORMATS[formatOf(activePost.formatId)].commentLabel
+    : 'First comment'
 
   // Asks before unsaved edits are thrown away. True when it is fine to go on.
   const confirmDiscardEdits = (what: string) =>
@@ -1546,7 +1550,7 @@ export function PostsClientInner({
         message:
           draftComment !== savedComment
             ? 'Copied the saved comment. Your unsaved edits are not included; save them to copy them.'
-            : 'First comment copied, ready to paste under the published post.'
+            : `${activeCommentLabel} copied, ready to paste under the published post.`
       })
       setTimeout(() => setCopiedComment(false), 2500)
     } else {
@@ -1793,10 +1797,12 @@ export function PostsClientInner({
     }
   }
 
-  // Published and still on its platform: the Delete dialog offers to remove it there too.
+  // Published and still on its platform, whose API can delete it: the Delete
+  // dialog offers to remove it there too.
   const canDeleteFromPlatform =
     activePost?.publication?.status === 'published' &&
-    !activePost.publication.deletedAt
+    !activePost.publication.deletedAt &&
+    activePost.publication.canDelete
 
   const openDeleteDialog = () => {
     if (!confirmDiscardEdits('Deleting this post')) return
@@ -2015,6 +2021,38 @@ export function PostsClientInner({
     </div>
   )
 
+  // Opens another version of the idea (Versions, above the preview). A
+  // filter never hides it: it stays in the queue while open (keptPostId),
+  // and a platform filter makes way for it.
+  const openVersion = (postId: string) => {
+    const target = posts.find(p => p.id === postId)
+    if (!target || postId === activePost?.id) return
+    if (!confirmDiscardEdits('Opening another version')) return
+    if (formatFilter && formatOf(target.formatId) !== formatFilter) {
+      setFormatFilter(null)
+    }
+    setKeptPostId(postId)
+    setSelectedPostId(postId)
+  }
+
+  // A version just written (Add a version) opens at once, for review.
+  const handleVersionAdded = (added: PostDetail) => {
+    setPosts(prev => [
+      added,
+      // Its siblings now have one more format between them.
+      ...prev.map(p =>
+        p.ideaId && p.ideaId === added.ideaId
+          ? { ...p, ideaFormats: added.ideaFormats }
+          : p
+      )
+    ])
+    if (formatFilter && formatOf(added.formatId) !== formatFilter) {
+      setFormatFilter(null)
+    }
+    setKeptPostId(added.id)
+    setSelectedPostId(added.id)
+  }
+
   // The decision bar: where you are in the queue, approve / reject, then
   // previous / next. It sits in the page header's strip, so it is always in
   // view while the post scrolls.
@@ -2195,12 +2233,12 @@ export function PostsClientInner({
                     <MessageSquare className="h-3.5 w-3.5" />
                   )}
                   {copiedComment
-                    ? 'Comment copied'
-                    : '2. Copy first comment'}
+                    ? `${activeCommentLabel} copied`
+                    : `2. Copy ${activeCommentLabel.toLowerCase()}`}
                 </button>
               ) : (
                 <span className="text-muted text-[11px]">
-                  No first comment
+                  No {activeCommentLabel.toLowerCase()}
                 </span>
               )}
               {!activePublished && (
@@ -2218,24 +2256,6 @@ export function PostsClientInner({
           <div className="flex shrink-0 items-center gap-3">
            
             <div className="flex items-center gap-2">
-              <AddVersionMenu
-                key={activePost.id}
-                post={activePost}
-                enabledFormats={enabledFormats}
-                disabled={isSaving}
-                onAdded={added => {
-                  setPosts(prev => [
-                    added,
-                    // Its siblings now have one more format between them.
-                    ...prev.map(p =>
-                      p.ideaId && p.ideaId === added.ideaId
-                        ? { ...p, ideaFormats: added.ideaFormats }
-                        : p
-                    )
-                  ])
-                  setSelectedPostId(added.id)
-                }}
-              />
               {activePost.status !== 'rejected' && (
                 <button
                   type="button"
@@ -2275,11 +2295,14 @@ export function PostsClientInner({
         actions={
           // Publishing the open post, in the header beside the theme button
           // (Publish now and Schedule need its platform set up and connected).
-          // Only for platforms the app can publish to: an X or Instagram
-          // version is copied out by hand.
-          activePost?.status === 'approved' && canPublishTo(activePost.platform) ? (
+          // Only for formats the app can publish: a Reel or a video script is
+          // copied out by hand.
+          activePost?.status === 'approved' &&
+          canPublishFormat(activePost.platform, formatOf(activePost.formatId)) ? (
             <PublishControls
               key={activePost.id}
+              platform={activePost.platform}
+              formatId={formatOf(activePost.formatId)}
               postId={activePost.id}
               postedAt={activePost.postedAt ?? null}
               publication={activePost.publication}
@@ -2600,6 +2623,16 @@ export function PostsClientInner({
             </div>
           ) : (
             <>
+              {/* The idea's versions (LinkedIn, X…), and Add a version */}
+              <IdeaVersions
+                post={activePost}
+                posts={posts}
+                enabledFormats={enabledFormats}
+                disabled={isSaving}
+                onOpen={openVersion}
+                onAdded={handleVersionAdded}
+                className="mb-6"
+              />
               {/* TWO-COLUMN REVIEW WORKSPACE (Left: Feed Preview; Right: Compact Review Panel) */}
               <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
                 {/* ============================================================ */}

@@ -13,7 +13,7 @@ export function LinkedInMark({ className }: { className: string }) {
   )
 }
 
-/** X's mark, in the current text colour. Listed as coming soon. */
+/** X's mark, in the current text colour. */
 export function XMark({ className }: { className: string }) {
   return (
     <svg aria-hidden viewBox="0 0 24 24" className={className}>

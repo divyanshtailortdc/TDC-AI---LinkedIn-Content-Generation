@@ -1,5 +1,8 @@
 import type { FetchFn } from './oauth'
+import { PlatformApiError, PostImageError } from '../errors'
 import type { PublicationErrorCode } from '../status'
+
+export { PostImageError }
 
 /**
  * The LinkedIn REST calls publishing makes: upload an image, create the post,
@@ -16,29 +19,15 @@ import type { PublicationErrorCode } from '../status'
 const API_BASE = 'https://api.linkedin.com/rest'
 const REQUEST_TIMEOUT_MS = 30_000
 
-export class LinkedInApiError extends Error {
-  /** LinkedIn certainly made nothing: trying again cannot duplicate. */
-  readonly retryable: boolean
-
+/** A PlatformApiError from LinkedIn; `retryable` when LinkedIn certainly made nothing. */
+export class LinkedInApiError extends PlatformApiError {
   constructor(
     message: string,
-    readonly code: PublicationErrorCode,
-    readonly status?: number
+    code: PublicationErrorCode,
+    status?: number
   ) {
-    super(message)
+    super(message, code, status)
     this.name = 'LinkedInApiError'
-    this.retryable = code === 'rate_limited' || code === 'platform_unavailable'
-  }
-}
-
-/**
- * The post's image cannot be used: unreadable, of a type LinkedIn does not
- * take, or too large. Trying again cannot help; the message is for the user.
- */
-export class PostImageError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'PostImageError'
   }
 }
 

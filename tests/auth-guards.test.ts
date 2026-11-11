@@ -115,6 +115,8 @@ describe('every API route checks the session first', () => {
     .filter(file => !file.includes(`${path.sep}cron${path.sep}`))
     // Called by the Cloudflare Email Worker; checked below instead.
     .filter(file => !file.includes(`${path.sep}mail${path.sep}inbound${path.sep}`))
+    // Fetched by Buffer with a signed link; checked below instead.
+    .filter(file => !file.includes(`${path.sep}publishing-media${path.sep}`))
     .map(parse)
 
   for (const source of routes) {
@@ -144,6 +146,27 @@ describe('the inbound mail webhook checks its signature first', () => {
         assert.ok(
           checksFirst(fn, 'signatureError'),
           `${fn.name!.text} must call signatureError() before any try block`
+        )
+      })
+    }
+  }
+})
+
+describe('the publishing image route checks its signed token first', () => {
+  const routes = walk(path.join(SRC, 'app', 'api', 'publishing-media'))
+    .filter(file => file.endsWith('route.ts'))
+    .map(parse)
+
+  it('finds the image route', () => {
+    assert.strictEqual(routes.length, 1, 'no publishing image route found')
+  })
+
+  for (const source of routes) {
+    for (const fn of exportedFunctions(source)) {
+      it(`${relative(source.fileName)}: ${fn.name!.text}`, () => {
+        assert.ok(
+          checksFirst(fn, 'verifyMediaToken'),
+          `${fn.name!.text} must call verifyMediaToken() before any try block`
         )
       })
     }

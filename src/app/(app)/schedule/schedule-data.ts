@@ -10,7 +10,7 @@ import {
 } from '@/db/schema'
 import { monthGridRange, type Month } from '@/lib/calendar'
 import type { PlatformId } from '@/lib/platforms'
-import { publishingConfig } from '@/lib/publishing/config'
+import { isPublishingConfigured } from '@/lib/publishing/config'
 import { nextSlot } from '@/lib/schedule-time'
 import {
   and,
@@ -115,7 +115,7 @@ function nextRunOf(
 export async function loadSchedulePage(accountId: string, month: Month) {
   const { from, to } = monthGridRange(month)
   const ofAccount = eq(postDraftsTable.accountId, accountId)
-  const publishingOn = publishingConfig() !== null
+  const publishingOn = isPublishingConfigured()
 
   const [planned, unscheduled, [unscheduledTotal], schedule, goals] =
     await Promise.all([

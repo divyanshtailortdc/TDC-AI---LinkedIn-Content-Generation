@@ -1,4 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { PlatformOAuthError } from '../errors'
+import type { CallbackResult } from '../callback-results'
+
+export {
+  createOAuthState,
+  STATE_TTL_MS,
+  verifyOAuthState
+} from '../oauth-state'
 
 /**
  * LinkedIn's 3-legged OAuth (authorization code) for publishing, apart from
@@ -27,9 +34,6 @@ export type LinkedInAppConfig = {
 
 export type FetchFn = typeof fetch
 
-/** LinkedIn's authorization code lives 30 minutes; the state lives 10. */
-export const STATE_TTL_MS = 10 * 60 * 1000
-
 /** "openid profile w_member_social" or "openid,profile,…", as LinkedIn returns either. */
 export function parseScopes(value: string | null | undefined): string[] {
   return [...new Set((value ?? '').split(/[\s,]+/).filter(Boolean))]
@@ -49,83 +53,13 @@ export function buildAuthorizationUrl(
 }
 
 // ---------------------------------------------------------------------------
-// State (CSRF). The random state goes to LinkedIn; the cookie holds it with
-// the user who started the flow and an expiry, signed, so the callback can
-// check all three and nothing in the cookie can be forged or swapped.
-// ---------------------------------------------------------------------------
-
-const stateMac = (key: Buffer, payload: string) =>
-  createHmac('sha256', key)
-    .update(`linkedin-publish-state:${payload}`)
-    .digest('base64url')
-
-export function createOAuthState(
-  key: Buffer,
-  userId: string,
-  now = Date.now()
-): { state: string; cookie: string } {
-  const state = randomBytes(32).toString('base64url')
-  const payload = `${userId}.${state}.${now + STATE_TTL_MS}`
-  return { state, cookie: `${payload}.${stateMac(key, payload)}` }
-}
-
-type StateCheck =
-  | { ok: true }
-  | {
-      ok: false
-      reason: 'missing' | 'invalid' | 'expired' | 'mismatch' | 'wrong_user'
-    }
-
-const sameString = (a: string, b: string) => {
-  const x = Buffer.from(a)
-  const y = Buffer.from(b)
-  return x.length === y.length && timingSafeEqual(x, y)
-}
-
-/**
- * Whether the callback's `state` is the one this browser was sent off with,
- * by this user, less than STATE_TTL_MS ago.
- */
-export function verifyOAuthState(
-  key: Buffer,
-  input: {
-    cookie: string | null | undefined
-    state: string | null | undefined
-    userId: string
-    now?: number
-  }
-): StateCheck {
-  if (!input.cookie || !input.state) return { ok: false, reason: 'missing' }
-  const parts = input.cookie.split('.')
-  if (parts.length !== 4) return { ok: false, reason: 'invalid' }
-  const [userId, state, expires, mac] = parts as [
-    string,
-    string,
-    string,
-    string
-  ]
-  if (!sameString(mac, stateMac(key, `${userId}.${state}.${expires}`))) {
-    return { ok: false, reason: 'invalid' }
-  }
-  if (!sameString(state, input.state)) return { ok: false, reason: 'mismatch' }
-  if (userId !== input.userId) return { ok: false, reason: 'wrong_user' }
-  if (!(Number(expires) > (input.now ?? Date.now()))) {
-    return { ok: false, reason: 'expired' }
-  }
-  return { ok: true }
-}
-
-// ---------------------------------------------------------------------------
 // Tokens and the member
 // ---------------------------------------------------------------------------
 
 /** LinkedIn refused a token or profile request; `status` is its HTTP status. */
-export class LinkedInOAuthError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number
-  ) {
-    super(message)
+export class LinkedInOAuthError extends PlatformOAuthError {
+  constructor(message: string, status?: number) {
+    super(message, status)
     this.name = 'LinkedInOAuthError'
   }
 }
@@ -263,23 +197,6 @@ export async function fetchMemberInfo(
 }
 
 export const personUrn = (memberId: string) => `urn:li:person:${memberId}`
-
-/**
- * What the settings page says after the callback, keyed by the `linkedin`
- * query parameter it redirects with. Nothing from LinkedIn is echoed back.
- */
-export const CALLBACK_RESULTS = {
-  connected:
-    'LinkedIn is connected. You can publish approved posts from Posts.',
-  cancelled: 'LinkedIn was not connected: authorization was cancelled.',
-  state_error:
-    'LinkedIn was not connected: the request could not be verified. Please try again.',
-  missing_permission:
-    'LinkedIn did not grant permission to publish posts. Connect again and allow it.',
-  failed: 'LinkedIn could not be connected. Please try again.',
-  not_configured: 'Publishing to LinkedIn is not set up on this server.'
-} as const
-export type CallbackResult = keyof typeof CALLBACK_RESULTS
 
 /** LinkedIn's `error` on the callback: a member who said no, or anything else. */
 export function callbackErrorResult(error: string): CallbackResult {

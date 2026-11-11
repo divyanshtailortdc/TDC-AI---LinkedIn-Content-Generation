@@ -1,11 +1,137 @@
 'use client'
 
+import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
-import { FORMATS, isFormatId, type FormatId } from '@/lib/formats'
+import { cn } from '@/lib/cn'
+import {
+  FORMAT_IDS,
+  FORMATS,
+  formatOf,
+  isFormatId,
+  type FormatId
+} from '@/lib/formats'
+import { canPublishFormat } from '@/lib/publishing/platform'
 import { ChevronDown, Loader2, Plus } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { addPostVersion } from './actions'
 import type { PostDetail } from './posts-client'
+
+/** The enabled formats the post's idea has no post in yet. */
+function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[] {
+  const have = new Set(
+    (post.ideaFormats?.length ? post.ideaFormats : [post.formatId ?? 'linkedin.post'])
+      .filter(isFormatId)
+  )
+  return enabledFormats.filter(f => !have.has(f))
+}
+
+/** What a format is, in a few words, for the menu. */
+function formatHint(id: FormatId): string {
+  const { structure, limits } = FORMATS[id]
+  if (structure === 'thread' && limits.parts) {
+    return `${limits.parts.min}–${limits.parts.max} posts, each up to ${limits.maxChars} characters`
+  }
+  if (structure === 'script') return 'A short video script and its caption'
+  return `One post, up to ${limits.maxChars.toLocaleString('en-US')} characters`
+}
+
+/** Where a version stands, in a word. */
+function versionStatus(post: PostDetail): string {
+  const published = post.publication?.status
+  if (post.postedAt || published === 'published') return 'Posted'
+  if (published === 'publishing') return 'Publishing'
+  if (published === 'scheduled') return 'Scheduled'
+  const labels: Record<string, string> = {
+    awaiting_review: 'In review',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    draft: 'Draft'
+  }
+  return labels[post.status] ?? post.status
+}
+
+/**
+ * The versions of the open post's idea (a LinkedIn post, an X post, an X
+ * thread…), one click apart, with "Add a version" for the platforms it has no
+ * post on yet. Each version is its own post, reviewed, approved and published
+ * on its own platform.
+ */
+export function IdeaVersions({
+  post,
+  posts,
+  enabledFormats,
+  onOpen,
+  onAdded,
+  disabled,
+  className
+}: {
+  /** The open post. */
+  post: PostDetail
+  /** Every loaded post: its idea's other versions are among them. */
+  posts: PostDetail[]
+  enabledFormats: FormatId[]
+  onOpen: (postId: string) => void
+  onAdded: (post: PostDetail) => void
+  disabled?: boolean
+  className?: string
+}) {
+  if (!post.ideaId) return null
+  const versions = posts
+    .filter(p => p.ideaId === post.ideaId)
+    .sort(
+      (a, b) =>
+        FORMAT_IDS.indexOf(formatOf(a.formatId)) -
+        FORMAT_IDS.indexOf(formatOf(b.formatId))
+    )
+  if (versions.length < 2 && missingFormats(post, enabledFormats).length === 0) {
+    return null
+  }
+
+  return (
+    <div
+      className={cn(
+        'border-border bg-surface flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2',
+        className
+      )}
+    >
+      <span className="text-muted mr-1 text-[11px] font-semibold tracking-wider uppercase">
+        Versions
+      </span>
+      {versions.map(version => {
+        const active = version.id === post.id
+        return (
+          <button
+            key={version.id}
+            type="button"
+            aria-current={active ? 'true' : undefined}
+            disabled={disabled && !active}
+            onClick={() => onOpen(version.id)}
+            title={`Open the ${FORMATS[formatOf(version.formatId)].label}`}
+            className={cn(
+              'flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+              active
+                ? 'border-accent bg-accent/10 text-foreground'
+                : 'border-border text-muted hover:bg-surface-hover hover:text-foreground'
+            )}
+          >
+            <PlatformMark platform={version.platform} className="h-3.5 w-3.5 shrink-0" />
+            {FORMATS[formatOf(version.formatId)].label}
+            <span className="text-muted text-[11px] font-medium">
+              · {versionStatus(version)}
+            </span>
+          </button>
+        )
+      })}
+      <AddVersionMenu
+        key={post.id}
+        post={post}
+        enabledFormats={enabledFormats}
+        disabled={disabled}
+        onAdded={onAdded}
+      />
+    </div>
+  )
+}
 
 /**
  * "Add a version": writes the post's idea up for another platform the
@@ -45,11 +171,7 @@ export function AddVersionMenu({
     }
   }, [open])
 
-  const have = new Set(
-    (post.ideaFormats?.length ? post.ideaFormats : [post.formatId ?? 'linkedin.post'])
-      .filter(isFormatId)
-  )
-  const missing = enabledFormats.filter(f => !have.has(f))
+  const missing = missingFormats(post, enabledFormats)
   if (!post.ideaId || (missing.length === 0 && !writing)) return null
 
   const write = async (formatId: FormatId) => {
@@ -62,7 +184,7 @@ export function AddVersionMenu({
         showToast({
           type: 'success',
           title: `${FORMATS[formatId].label} written`,
-          message: 'It is open for review.'
+          message: 'It is open for review: approve it to publish or schedule it.'
         })
       } else {
         showToast({
@@ -90,7 +212,7 @@ export function AddVersionMenu({
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen(o => !o)}
-        className="border-border text-foreground hover:bg-surface-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3 text-[13px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-70"
+        className="border-border text-foreground hover:bg-surface-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-dashed px-3 text-xs font-semibold transition-colors disabled:cursor-wait disabled:opacity-70"
       >
         {writing ? (
           <>
@@ -100,7 +222,7 @@ export function AddVersionMenu({
         ) : (
           <>
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Add a version</span>
+            <span>Add a version</span>
             <ChevronDown className="h-3.5 w-3.5" />
           </>
         )}
@@ -109,22 +231,41 @@ export function AddVersionMenu({
         <div
           id={panelId}
           role="menu"
-          className="border-border bg-surface absolute right-0 z-40 mt-1.5 w-60 rounded-xl border p-1.5 shadow-lg"
+          className="border-border bg-surface absolute top-full left-0 z-40 mt-1.5 w-72 rounded-xl border p-1.5 shadow-lg"
         >
-          <p className="text-muted px-2 pt-1 pb-1.5 text-[11px] leading-snug">
-            Write this idea for another platform, from the same evidence.
+          <p className="text-muted px-2 pt-1 pb-2 text-[11px] leading-snug">
+            Write this idea for another platform, from the same evidence. It
+            opens here for review.
           </p>
-          {missing.map(id => (
-            <button
-              key={id}
-              type="button"
-              role="menuitem"
-              onClick={() => void write(id)}
-              className="text-foreground hover:bg-surface-hover block w-full cursor-pointer rounded-lg px-2 py-1.5 text-left text-xs font-medium"
-            >
-              {FORMATS[id].label}
-            </button>
-          ))}
+          {missing.map(id => {
+            const spec = FORMATS[id]
+            return (
+              <button
+                key={id}
+                type="button"
+                role="menuitem"
+                onClick={() => void write(id)}
+                className="hover:bg-surface-hover flex w-full cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 text-left"
+              >
+                <span className="border-border mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border">
+                  <PlatformMark platform={spec.platform} className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="text-foreground block text-xs font-semibold">
+                    {spec.label}
+                  </span>
+                  <span className="text-muted block text-[11px] leading-snug">
+                    {formatHint(id)}
+                  </span>
+                  <span className="text-muted block text-[11px] leading-snug">
+                    {canPublishFormat(spec.platform, id)
+                      ? 'Publish or schedule it from here'
+                      : 'Copy it and post it by hand'}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

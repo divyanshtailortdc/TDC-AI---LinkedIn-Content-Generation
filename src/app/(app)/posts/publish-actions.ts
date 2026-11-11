@@ -17,7 +17,6 @@ import {
 } from '@/lib/publishing/engine'
 import { isValidTimeZone } from '@/lib/schedule-time'
 import { requireUser } from '@/lib/session'
-import { PUBLISHING_PLATFORM } from '@/lib/publishing/platform'
 
 /**
  * Publishing an approved post to the signed-in user's own platform account. Only a
@@ -44,7 +43,7 @@ type PublishOptions = {
   timezone?: string
 }
 
-const NOT_SET_UP = `Publishing to ${PUBLISHING_PLATFORM.name} is not set up on this server.`
+const NOT_SET_UP = 'Publishing is not set up on this server.'
 
 /** The browser's zone, if it is a real one; otherwise the server decides. */
 const zoneOf = (options: PublishOptions) =>
@@ -82,7 +81,8 @@ export async function publishPostNow(
         trigger: 'manual',
         scheduledAt: now,
         confirmedNotPublished: options.confirmedNotPublished,
-        timezone: zoneOf(options)
+        timezone: zoneOf(options),
+        configuredPlatforms: Object.keys(deps.configs)
       },
       now
     )
@@ -107,7 +107,8 @@ export async function schedulePostPublication(
   const user = await requireUser()
   try {
     if (!isUuid(draftId)) return { success: false, error: 'Post not found.' }
-    if (!publishDeps()) return { success: false, error: NOT_SET_UP }
+    const deps = publishDeps()
+    if (!deps) return { success: false, error: NOT_SET_UP }
     const scheduledAt = new Date(at)
     if (typeof at !== 'string' || Number.isNaN(scheduledAt.getTime())) {
       return { success: false, error: 'Pick a valid date and time.' }
@@ -118,7 +119,8 @@ export async function schedulePostPublication(
       trigger: 'scheduled',
       scheduledAt,
       confirmedNotPublished: options.confirmedNotPublished,
-      timezone: zoneOf(options)
+      timezone: zoneOf(options),
+      configuredPlatforms: Object.keys(deps.configs)
     })
     return { success: true, publication: toPublicationSummary(row) }
   } catch (err) {
@@ -172,7 +174,7 @@ export async function deletePostFromPlatform(
   } catch (err) {
     return failure(
       err,
-      `The post could not be deleted from ${PUBLISHING_PLATFORM.name}. Please try again.`
+      'The post could not be deleted from its platform. Please try again.'
     )
   }
 }
