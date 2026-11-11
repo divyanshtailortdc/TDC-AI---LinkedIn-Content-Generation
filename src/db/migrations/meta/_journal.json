@@ -295,6 +295,13 @@
       "when": 1794372372574,
       "tag": "0041_x_publishing",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794397478144,
+      "tag": "0042_remove_articles",
+      "breakpoints": true
     }
   ]
 }

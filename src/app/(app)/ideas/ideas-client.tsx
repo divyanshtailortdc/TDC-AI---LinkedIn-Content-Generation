@@ -21,7 +21,6 @@ import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/r
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
 import { approveIdea, rejectIdea, editIdea, draftSelectedIdeas, approveAllIdeas } from './actions'
-import { generateArticle } from '../articles/actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { StatusFilterMenu } from '@/components/status-filter-menu'
@@ -42,9 +41,6 @@ type ClientIdeaData = IdeaCardData & {
   runAccountName?: string | null
   /** The goals the run was started for. */
   runGoalTitles?: string[] | null
-  /** The idea's long-form article, if any, and its generation status. */
-  articleId?: string | null
-  articleStatus?: string | null
 }
 
 const statusLabel = (status: StatusFilter) =>
@@ -507,49 +503,6 @@ export function IdeasClient({
     else void handleDraftSelected(formats)
   }
 
-  // Generate Article: the article is claimed at once and written in the
-  // background; its editor follows it. A second click while one is starting
-  // is turned away here, and the server claims at most one per idea.
-  const articleStartingRef = useRef(new Set<string>())
-  const [articleBusyIds, setArticleBusyIds] = useState<string[]>([])
-  const handleGenerateArticle = async (id: string) => {
-    if (articleStartingRef.current.has(id)) return
-    articleStartingRef.current.add(id)
-    setArticleBusyIds((prev) => [...prev, id])
-    try {
-      const res = await generateArticle(id)
-      if (!res.success) throw new Error(res.error)
-      setIdeas((prev) =>
-        prev.map((i) =>
-          i.id === id
-            ? {
-                ...i,
-                articleId: res.articleId,
-                articleStatus: res.outcome === 'exists' ? 'ready' : 'generating'
-              }
-            : i
-        )
-      )
-      if (res.outcome !== 'exists') {
-        showToast({
-          title: 'Writing the article',
-          message: 'It takes a minute or two. You can keep working; it opens in the editor.',
-          type: 'info'
-        })
-      }
-      router.push(`/articles/${res.articleId}`)
-    } catch (err: any) {
-      showToast({
-        title: 'Article not started',
-        message: err?.message || 'Please try again.',
-        type: 'error'
-      })
-    } finally {
-      articleStartingRef.current.delete(id)
-      setArticleBusyIds((prev) => prev.filter((x) => x !== id))
-    }
-  }
-
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
@@ -749,8 +702,6 @@ export function IdeasClient({
                     onReject={handleReject}
                     onEditSave={handleEditSave}
                     onDraft={handleDraftSingle}
-                    onGenerateArticle={handleGenerateArticle}
-                    isArticleBusy={articleBusyIds.includes(idea.id)}
                     isBusy={ideaActionBusyId === idea.id}
                     showStatus={status === 'all'}
                     selected={selection.includes(idea.id)}

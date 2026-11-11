@@ -1,7 +1,6 @@
 import { relations } from 'drizzle-orm'
 import {
   accountsTable,
-  articlesTable,
   audiencesTable,
   brandThemesTable,
   documentChunksTable,
@@ -37,7 +36,6 @@ export const accountsRelations = relations(accountsTable, ({ one, many }) => ({
   runs: many(runsTable),
   ideas: many(ideasTable),
   postDrafts: many(postDraftsTable),
-  articles: many(articlesTable),
   feedback: many(feedbackTable),
   newsletters: many(newslettersTable)
 }))
@@ -166,8 +164,7 @@ export const ideasRelations = relations(ideasTable, ({ one, many }) => ({
     fields: [ideasTable.offeringId],
     references: [offeringsTable.id]
   }),
-  postDrafts: many(postDraftsTable),
-  article: one(articlesTable)
+  postDrafts: many(postDraftsTable)
 }))
 
 export const postDraftsRelations = relations(postDraftsTable, ({ one, many }) => ({
@@ -186,23 +183,7 @@ export const postDraftsRelations = relations(postDraftsTable, ({ one, many }) =>
   variants: many(postVariantsTable),
   citations: many(postCitationsTable),
   media: one(postMediaTable),
-  feedback: many(feedbackTable),
-  article: one(articlesTable, {
-    fields: [postDraftsTable.articleId],
-    references: [articlesTable.id]
-  })
-}))
-
-export const articlesRelations = relations(articlesTable, ({ one, many }) => ({
-  account: one(accountsTable, {
-    fields: [articlesTable.accountId],
-    references: [accountsTable.id]
-  }),
-  idea: one(ideasTable, {
-    fields: [articlesTable.ideaId],
-    references: [ideasTable.id]
-  }),
-  linkPosts: many(postDraftsTable)
+  feedback: many(feedbackTable)
 }))
 
 export const postVariantsRelations = relations(postVariantsTable, ({ one }) => ({

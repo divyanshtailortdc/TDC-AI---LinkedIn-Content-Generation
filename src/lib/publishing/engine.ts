@@ -43,7 +43,6 @@ import {
 import { canPublishTo, PUBLISHING_PLATFORM_IDS } from './platform'
 import {
   type FetchFn,
-  type LinkCard,
   PlatformApiError,
   type PlatformConfig,
   type PostImage,
@@ -205,10 +204,7 @@ async function findOwnedDraft(
       firstComment: postDraftsTable.firstComment,
       status: postDraftsTable.status,
       postedAt: postDraftsTable.postedAt,
-      formatId: postDraftsTable.formatId,
-      linkUrl: postDraftsTable.linkUrl,
-      linkTitle: postDraftsTable.linkTitle,
-      linkDescription: postDraftsTable.linkDescription
+      formatId: postDraftsTable.formatId
     })
     .from(postDraftsTable)
     .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
@@ -279,44 +275,7 @@ function assertPublishable(
       'too_long'
     )
   }
-  if (draft.linkUrl !== null) {
-    if (!provider.linkCards) {
-      throw new PublishRequestError(
-        `This post shares a link card, which ${name} posts cannot carry from here.`,
-        'wrong_platform'
-      )
-    }
-    if (articleLinkOf(draft) === null) {
-      throw new PublishRequestError(
-        'The link this post shares is not a valid https address, or has no title. Fix it and try again.',
-        'not_approved'
-      )
-    }
-  }
   return texts
-}
-
-/**
- * An article-link post's card (post_drafts.link_*), or null for any other
- * post, or for a link that is not a public http(s) address with a title.
- */
-function articleLinkOf(draft: {
-  linkUrl: string | null
-  linkTitle: string | null
-  linkDescription: string | null
-}): LinkCard | null {
-  if (!draft.linkUrl || !draft.linkTitle?.trim()) return null
-  try {
-    const url = new URL(draft.linkUrl)
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-  } catch {
-    return null
-  }
-  return {
-    source: draft.linkUrl,
-    title: draft.linkTitle.trim(),
-    description: draft.linkDescription?.trim() || null
-  }
 }
 
 /** The post's active image, if it has one: what loadPostImage loads. */
@@ -822,8 +781,6 @@ async function prepare(deps: PublishDeps, publication: Publication) {
     inPostComment: provider.commentInPost
       ? toPlainText(draft.firstComment).trim() || null
       : null,
-    // An article-link post's card (LinkedIn).
-    link: articleLinkOf(draft),
     connection,
     provider,
     ctx,
@@ -848,7 +805,6 @@ export async function executePublication(
       replies,
       comment,
       inPostComment,
-      link,
       connection,
       provider,
       ctx,
@@ -897,20 +853,14 @@ export async function executePublication(
       }
       postRequested = true
 
-      // An article-link post shares its page as a card, the image as the
-      // card's thumbnail; any other post attaches the image itself.
       const created = await provider.createPost(ctx, {
         authorId: authorUrn,
         text: provider.toApiText(text),
         ...(replies.length > 0 && { replies: replies.map(provider.toApiText) }),
         ...(inPostComment && { comment: provider.toApiText(inPostComment) }),
-        ...(link
-          ? { link: { ...link, thumbnailRef: imageUrn } }
-          : {
-              image: imageUrn
-                ? { ref: imageUrn, altText: image?.altText ?? null }
-                : undefined
-            })
+        image: imageUrn
+          ? { ref: imageUrn, altText: image?.altText ?? null }
+          : undefined
       })
 
       // Handed on, not out yet (Buffer): the row waits, with the post's id,

@@ -1,7 +1,6 @@
 'use client'
 
 import { ConfirmPopover } from '@/components/confirm-popover'
-import { canGenerateArticleFrom } from '@/lib/articles/status'
 import { cn } from '@/lib/cn'
 import { FormatChips } from '@/components/format-chips'
 import {
@@ -11,10 +10,8 @@ import {
   ChevronDown,
   Edit3,
   ExternalLink,
-  FileText,
   Flame,
   Loader2,
-  Newspaper,
   Sparkles,
   Target,
   X
@@ -54,10 +51,6 @@ export interface RunIdeaCardData {
   /** The formats ideation judged it suits, when its run offered several. */
   formatFit?: string[] | null
   status: string
-  /** The idea's long-form article, if one was generated (one per idea). */
-  articleId?: string | null
-  /** Its generation status: generating, ready or failed. */
-  articleStatus?: string | null
 }
 
 interface RunIdeaCardProps {
@@ -70,13 +63,6 @@ interface RunIdeaCardProps {
     payload: { hookConcept: string; angle: string }
   ) => Promise<boolean | void>
   onDraft?: (id: string) => Promise<void>
-  /**
-   * Generate Article: with it, an idea that was approved offers an article
-   * beside its post (or opens the one it has).
-   */
-  onGenerateArticle?: (id: string) => Promise<void>
-  /** An article is being started for this idea. */
-  isArticleBusy?: boolean
   isBusy: boolean
   /** Hide the status badge where the surrounding list already filters by it. */
   showStatus?: boolean
@@ -162,8 +148,6 @@ export function RunIdeaCard({
   onReject,
   onEditSave,
   onDraft,
-  onGenerateArticle,
-  isArticleBusy = false,
   isBusy,
   showStatus = true,
   selected = false,
@@ -178,22 +162,6 @@ export function RunIdeaCard({
     idea.status
   )
   const showDraft = canDraft && !!onDraft
-  // An article can be written from any idea that was approved, whether or
-  // not it has a post yet; one that has an article always links to it.
-  const articleAction: 'open' | 'generating' | 'generate' | 'retry' | null =
-    !onGenerateArticle
-      ? null
-      : idea.articleId && idea.articleStatus === 'generating'
-        ? 'generating'
-        : idea.articleId && idea.articleStatus !== 'failed'
-          ? 'open'
-          : !canGenerateArticleFrom(idea.status)
-            ? idea.articleId
-              ? 'open'
-              : null
-            : idea.articleId
-              ? 'retry'
-              : 'generate'
   // The face is the title plus what the idea is for, shown in full;
   // everything else sits behind Details. Rejected and drafted ideas are done,
   // so they're muted.
@@ -538,8 +506,7 @@ export function RunIdeaCard({
             canReject ||
             canApprove ||
             showDraft ||
-            showViewPost ||
-            articleAction) && (
+            showViewPost) && (
             // mt-auto pins the actions to the bottom edge of the fixed-height card.
             <div className="mt-auto pt-4">
               <div className="border-border flex flex-wrap items-center gap-2 border-t pt-3">
@@ -621,52 +588,6 @@ export function RunIdeaCard({
                       Post
                     </button>
                   )}
-                  {(articleAction === 'generate' ||
-                    articleAction === 'retry') && (
-                    <button
-                      type="button"
-                      disabled={actionsDisabled || isArticleBusy}
-                      onClick={() => onGenerateArticle?.(idea.id)}
-                      aria-label={
-                        articleAction === 'retry'
-                          ? 'Retry Article'
-                          : 'Generate Article'
-                      }
-                      title={
-                        articleAction === 'retry'
-                          ? 'The last attempt failed. Generate the article again.'
-                          : 'Write a long-form article from this idea'
-                      }
-                      className="border-accent/30 text-accent hover:bg-accent/10 inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
-                    >
-                      {isArticleBusy ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Newspaper className="h-3.5 w-3.5" />
-                      )}
-                      <span className="max-sm:hidden lg:max-xl:hidden">
-                        {articleAction === 'retry' ? 'Retry' : 'Generate'}
-                      </span>
-                      Article
-                    </button>
-                  )}
-                  {(articleAction === 'open' ||
-                    articleAction === 'generating') &&
-                    idea.articleId && (
-                      <Link
-                        href={`/articles/${idea.articleId}`}
-                        className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors"
-                      >
-                        {articleAction === 'generating' ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <FileText className="h-3.5 w-3.5" />
-                        )}
-                        {articleAction === 'generating'
-                          ? 'Writing article…'
-                          : 'Open article'}
-                      </Link>
-                    )}
                   {showViewPost && (
                     <Link
                       href="/posts"

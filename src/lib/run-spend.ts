@@ -78,7 +78,7 @@ export interface AccountUsageSummary {
 }
 
 /** Stage keys that consume tokens, in pipeline order. */
-const BILLED_STAGES = ['generating_ideas', 'drafting', 'article_drafting']
+const BILLED_STAGES = ['generating_ideas', 'drafting']
 
 /**
  * All-time token and cost totals for one account.

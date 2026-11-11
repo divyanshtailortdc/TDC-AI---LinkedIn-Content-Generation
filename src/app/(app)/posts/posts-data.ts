@@ -53,10 +53,6 @@ export async function loadPostsPage(
     postedAt: postDraftsTable.postedAt,
     hiddenAt: postDraftsTable.hiddenAt,
     lintFindings: postDraftsTable.lintFindings,
-    linkUrl: postDraftsTable.linkUrl,
-    linkTitle: postDraftsTable.linkTitle,
-    linkDescription: postDraftsTable.linkDescription,
-    articleId: postDraftsTable.articleId,
     createdAt: postDraftsTable.createdAt,
     formatId: postDraftsTable.formatId,
     payload: postDraftsTable.payload,
@@ -284,14 +280,6 @@ export async function loadPostsPage(
           }
         : null,
       mediaFailure: media ? null : (mediaFailureByDraft.get(draft.id) ?? null),
-      link: draft.linkUrl
-        ? {
-            url: draft.linkUrl,
-            title: draft.linkTitle || draft.linkUrl,
-            description: draft.linkDescription,
-            articleId: draft.articleId
-          }
-        : null,
       lintFindings: (draft.lintFindings as any[]) || [],
       postedAt: draft.postedAt?.toISOString() ?? null,
       hiddenAt: draft.hiddenAt?.toISOString() ?? null,

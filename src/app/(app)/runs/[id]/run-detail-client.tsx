@@ -80,8 +80,7 @@ const STEP_LABELS: Record<string, string> = {
   generating_ideas: 'Ideation',
   drafting: 'Drafting',
   linting: 'Revision pass',
-  media: 'Media',
-  article_drafting: 'Article'
+  media: 'Media'
 }
 
 const SOURCES_PREVIEW = 6

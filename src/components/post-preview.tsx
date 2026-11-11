@@ -16,16 +16,6 @@ import {
 import Image from 'next/image'
 import type { PlatformSpec } from '@/lib/platforms'
 import { formatHashtags, toPlatformText } from '@/lib/post-text'
-import { cn } from '@/lib/cn'
-
-/** The site a shared link opens, as the feed's link card shows it. */
-function linkHost(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
-}
 
 /**
  * A post as it will look in its platform's feed: the author, the hook above the
@@ -44,11 +34,6 @@ interface PostPreviewProps {
   hashtags?: string[]
   mediaUrl?: string | null
   mediaAltText?: string | null
-  /**
-   * An article-link post's card: the image (if any) becomes its thumbnail,
-   * with the title and the site under it, as the feed shows a shared link.
-   */
-  link?: { url: string; title: string; description?: string | null } | null
   /** When set, the attached image becomes clickable (e.g. to open a zoom view). */
   onMediaClick?: () => void
   /**
@@ -75,7 +60,6 @@ export function PostPreview({
   hashtags = [],
   mediaUrl,
   mediaAltText,
-  link,
   onMediaClick,
   hookOptions = [],
   onSelectHook,
@@ -283,25 +267,6 @@ export function PostPreview({
             />
           )}
         </div>
-      )}
-
-      {link && (
-        <a
-          href={link.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            'block bg-neutral-100 px-4 py-2.5 hover:bg-neutral-200/70 dark:bg-surface-hover/60 dark:hover:bg-surface-hover',
-            !mediaUrl && 'mt-2 border-y border-neutral-200 dark:border-border'
-          )}
-        >
-          <span className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-foreground">
-            {link.title}
-          </span>
-          <span className="mt-0.5 block truncate text-xs text-neutral-500 dark:text-muted">
-            {linkHost(link.url)}
-          </span>
-        </a>
       )}
 
       {/* Reaction Counts Bar */}

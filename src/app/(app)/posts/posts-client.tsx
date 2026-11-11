@@ -198,16 +198,6 @@ export interface PostDetail {
   } | null
   /** Why drafting could not make this post's image, when it tried and failed. */
   mediaFailure?: string | null
-  /**
-   * An article-link post's card: the page it shares, with the image as its
-   * thumbnail. Null for every other post.
-   */
-  link?: {
-    url: string
-    title: string
-    description: string | null
-    articleId: string | null
-  } | null
   lintFindings: LintFinding[]
   /** When it was marked posted (by hand on Schedule, or by publishing), as ISO. */
   postedAt?: string | null
@@ -1503,14 +1493,10 @@ export function PostsClientInner({
     const format = formatOf(activePost.formatId)
     // LinkedIn copies as its platform formats it (a bold hook); every other
     // format as plain text in its own shape.
-    const text =
+    const success = await copyTextToClipboard(
       format === 'linkedin.post'
         ? platformPostText(activePost, activePlatform)
         : copyText(format, activePost)
-    // An article-link post pasted by hand needs its link in the text: the
-    // platform builds the card from it (publishing sends the card instead).
-    const success = await copyTextToClipboard(
-      activePost.link ? `${text}\n\n${activePost.link.url}` : text
     )
     if (success) {
       setCopiedPost(true)
@@ -2726,7 +2712,6 @@ export function PostsClientInner({
                         hashtags={activePost.hashtags}
                         mediaUrl={activePost.media?.imageUrl}
                         mediaAltText={activePost.media?.altText}
-                        link={activePost.link}
                         onMediaClick={
                           activePost.media?.imageUrl
                             ? () => setIsImageZoomOpen(true)

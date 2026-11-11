@@ -24,7 +24,6 @@ import {
   Palette,
   Play,
   Plus,
-  ScrollText,
   Search,
   Settings,
   Target,
@@ -77,7 +76,6 @@ const primaryNavItems = [
   },
   { href: '/runs', label: 'Run Details', icon: Play },
   { href: '/posts', label: 'Posts', icon: FileText },
-  { href: '/articles', label: 'Articles', icon: ScrollText },
   { href: '/schedule', label: 'Schedule', icon: CalendarDays }
 ]
 

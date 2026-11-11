@@ -101,16 +101,6 @@ export type OAuthFlow<C extends BaseConfig> = {
   redirectUri: (config: C) => string
 }
 
-/**
- * A web page shared as a link card (an article-link post, post_drafts.link_*).
- * The platform shows exactly these fields; it does not read the page.
- */
-export type LinkCard = {
-  source: string
-  title: string
-  description: string | null
-}
-
 export type PostImage = {
   bytes: Buffer
   mediaType: string
@@ -160,8 +150,6 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
    * before (X through Buffer). Without it, the comment goes through addComment.
    */
   threads?: boolean
-  /** Shares a page as a link card: createPost takes `link` (LinkedIn). */
-  linkCards?: boolean
   /**
    * The first comment goes out with the post itself: createPost takes it as
    * `comment` (Facebook through Buffer), instead of through addComment.
@@ -195,11 +183,6 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
       /** Only for a provider with `commentInPost`. */
       comment?: string
       image?: { ref: string; altText: string | null }
-      /**
-       * Only for a provider with `linkCards`: the page as a card, in place of
-       * the image, which becomes the card's thumbnail.
-       */
-      link?: LinkCard & { thumbnailRef: string | null }
     }
   ) => Promise<CreatedPost>
   /** Where a `pending` post stands; only for providers that return one. */

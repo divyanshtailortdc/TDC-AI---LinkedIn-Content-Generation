@@ -51,8 +51,6 @@ export const linkedInProvider: PublishingProvider<LinkedInAppConfig> = {
   },
   publishScope: PUBLISH_SCOPE,
   formats: PUBLISHABLE_FORMATS.linkedin,
-  // An article-link post goes out as LinkedIn's article card.
-  linkCards: true,
   maxPostLength: COMMENTARY_MAX_LENGTH,
   measure: visibleLength,
   toApiText: toLittleText,
@@ -63,20 +61,9 @@ export const linkedInProvider: PublishingProvider<LinkedInAppConfig> = {
     postId: await createPost(api(ctx), {
       authorUrn: post.authorId,
       commentary: post.text,
-      ...(post.link
-        ? {
-            article: {
-              source: post.link.source,
-              title: post.link.title,
-              description: post.link.description,
-              thumbnailUrn: post.link.thumbnailRef
-            }
-          }
-        : {
-            image: post.image
-              ? { urn: post.image.ref, altText: post.image.altText }
-              : undefined
-          })
+      image: post.image
+        ? { urn: post.image.ref, altText: post.image.altText }
+        : undefined
     }),
     url: null,
     pending: false,

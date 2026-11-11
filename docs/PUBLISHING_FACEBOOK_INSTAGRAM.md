@@ -28,7 +28,7 @@ Both use `createPost` with `mode: shareNow`, like X. Each network has its own `m
 | Facebook | `{ facebook: { type: "post", firstComment } }` | **Published** as the first comment, inside the same Buffer post (`commentInPost`), so there is no second request |
 | Instagram | `{ instagram: { type: "post", shouldShareToFeed: true } }` | **Never published.** For an Instagram post this field is the "Link-in-bio note", a reminder for the author and not a comment |
 
-The text is exactly what Copy gives. Length is checked before Buffer is called: 2,200 characters for an Instagram caption (Instagram's limit) and 63,206 for Facebook (Facebook's limit; drafting aims far shorter). Article link cards are LinkedIn only, so a post that shares a link card is refused for Facebook and Instagram, as it is for X.
+The text is exactly what Copy gives. Length is checked before Buffer is called: 2,200 characters for an Instagram caption (Instagram's limit) and 63,206 for Facebook (Facebook's limit; drafting aims far shorter).
 
 Delete from the platform is not offered, because Buffer's API cannot remove a published post. As with X, the user deletes it on Facebook or Instagram.
 

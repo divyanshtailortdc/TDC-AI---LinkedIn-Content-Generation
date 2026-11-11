@@ -4,8 +4,7 @@ import type { LucideIcon } from 'lucide-react'
 
 const STAGE_LABELS: Record<string, string> = {
   generating_ideas: 'Ideation',
-  drafting: 'Drafting',
-  article_drafting: 'Articles'
+  drafting: 'Drafting'
 }
 
 function formatUsd(value: number): string {
