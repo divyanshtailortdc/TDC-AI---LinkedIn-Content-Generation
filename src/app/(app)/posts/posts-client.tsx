@@ -2971,8 +2971,8 @@ export function PostsClientInner({
                           <Image
                             src={activePost.media.imageUrl}
                             alt={activePost.media.altText || 'Generated visual'}
-                            width={2048}
-                            height={1072}
+                            width={activePost.media.width || 2048}
+                            height={activePost.media.height || 1072}
                             className="h-auto w-full object-contain"
                             unoptimized
                           />

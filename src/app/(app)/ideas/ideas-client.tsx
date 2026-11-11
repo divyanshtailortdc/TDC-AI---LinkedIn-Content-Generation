@@ -15,7 +15,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Sparkles, ArrowRight, Check, CheckCheck, SquareCheck, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
-import { FormatMenu, formatsForRequest, type FormatChoice } from '@/components/format-menu'
+import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import type { FormatId } from '@/lib/formats'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
@@ -74,11 +74,8 @@ export function IdeasClient({
   statusCounts,
   proposedIds,
   approvedIds,
-  identity,
-  enabledFormats = ['linkedin.post']
+  identity
 }: {
-  /** The formats the identity drafts; with two or more, "Create posts" asks which. */
-  enabledFormats?: FormatId[]
   /** One page of the ideas the status filter shows; pageInfo says which. */
   initialIdeas: ClientIdeaData[]
   pageInfo: PageInfo
@@ -92,7 +89,15 @@ export function IdeasClient({
 }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [formatChoice, setFormatChoice] = useState<FormatChoice>('suited')
+  // Creating posts asks first which platforms and types of post to write
+  // (CreatePostsDialog); the last answer is kept for Try again.
+  const [createDialog, setCreateDialog] = useState<
+    | { kind: 'selected' }
+    | { kind: 'approve' }
+    | { kind: 'single'; id: string }
+    | null
+  >(null)
+  const [lastFormats, setLastFormats] = useState<FormatId[] | undefined>()
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
   // The server sends a new page after every action here (each revalidates
   // /ideas) and on each page or filter change. It replaces the local copy,
@@ -298,11 +303,11 @@ export function IdeasClient({
   // same tick all run before the busy state renders and disables the button;
   // the ref turns the extras away straight away. Whoever takes it must be the
   // one to release it.
-  const draftIdeas = async (targetIds: string[]) => {
+  const draftIdeas = async (targetIds: string[], formats?: FormatId[]) => {
     if (targetIds.length === 0 || draftingRef.current) return
     draftingRef.current = true
     try {
-      await runDrafting(targetIds)
+      await runDrafting(targetIds, formats)
     } finally {
       draftingRef.current = false
     }
@@ -311,8 +316,9 @@ export function IdeasClient({
   // Queues the ideas for drafting. The caller holds draftingRef. The action
   // answers at once; the posts are written in the background and followed by
   // useDraftingPoll below.
-  const runDrafting = async (targetIds: string[]) => {
+  const runDrafting = async (targetIds: string[], formats?: FormatId[]) => {
     setIsActionBusy(true)
+    setLastFormats(formats)
     setDraftStatus('processing')
     setDraftError(null)
     setDraftTargetIds(targetIds)
@@ -321,7 +327,7 @@ export function IdeasClient({
     try {
       const res = await draftSelectedIdeas({
         ideaIds: targetIds,
-        formats: formatsForRequest(formatChoice)
+        formats
       })
       if (res.success) {
         setTicked((prev) => prev.filter((id) => !targetIds.includes(id)))
@@ -400,8 +406,8 @@ export function IdeasClient({
   })
 
   // Posts are made only from the selected ideas that are approved.
-  const handleDraftSelected = async () => {
-    await draftIdeas(selectedApproved)
+  const handleDraftSelected = async (formats: FormatId[]) => {
+    await draftIdeas(selectedApproved, formats)
   }
 
   const handleApproveSelected = async () => {
@@ -428,7 +434,7 @@ export function IdeasClient({
   // One click: approve the selected ideas still waiting for review, then draft
   // posts for every selected idea that is now approved. Nothing outside the
   // selection is approved or drafted.
-  const handleApproveSelectedAndDraft = async () => {
+  const handleApproveSelectedAndDraft = async (formats: FormatId[]) => {
     const alreadyApprovedIds = selectedApproved
     const toApprove = selectedProposed
     if (toApprove.length === 0 || draftingRef.current) return
@@ -464,19 +470,41 @@ export function IdeasClient({
         return
       }
       // Stays busy straight through into drafting, which clears it when done.
-      await runDrafting([...alreadyApprovedIds, ...approvedNow])
+      await runDrafting([...alreadyApprovedIds, ...approvedNow], formats)
     } finally {
       draftingRef.current = false
     }
   }
 
+  // An idea's own Create post asks for the platform and type first.
   const handleDraftSingle = async (id: string) => {
+    setCreateDialog({ kind: 'single', id })
+  }
+
+  const draftSingle = async (id: string, formats: FormatId[]) => {
     setIdeaActionBusyId(id)
     try {
-      await draftIdeas([id])
+      await draftIdeas([id], formats)
     } finally {
       setIdeaActionBusyId(null)
     }
+  }
+
+  // The ideas the open dialog creates posts from, and what it says.
+  const dialogTargetIds =
+    createDialog?.kind === 'single'
+      ? [createDialog.id]
+      : createDialog?.kind === 'approve'
+        ? selection
+        : selectedApproved
+  const dialogPosts = `${dialogTargetIds.length} post${dialogTargetIds.length === 1 ? '' : 's'}`
+  const confirmCreate = (formats: FormatId[]) => {
+    const open = createDialog
+    setCreateDialog(null)
+    // Not awaited: drafting shows its own progress.
+    if (open?.kind === 'single') void draftSingle(open.id, formats)
+    else if (open?.kind === 'approve') void handleApproveSelectedAndDraft(formats)
+    else void handleDraftSelected(formats)
   }
 
   // Generate Article: the article is claimed at once and written in the
@@ -567,16 +595,10 @@ export function IdeasClient({
                 </button>
               )}
 
-              <FormatMenu
-                enabled={enabledFormats}
-                value={formatChoice}
-                onChange={setFormatChoice}
-                disabled={isActionBusy}
-              />
               {selectedProposed.length === 0 ? (
                 <button
                   type="button"
-                  onClick={handleDraftSelected}
+                  onClick={() => setCreateDialog({ kind: 'selected' })}
                   disabled={isActionBusy}
                   className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -585,26 +607,17 @@ export function IdeasClient({
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               ) : (
-                <ConfirmPopover
-                  title={`Approve and create ${selection.length} post${selection.length === 1 ? '' : 's'}?`}
-                  description={`The ${selectedProposed.length} selected idea${selectedProposed.length === 1 ? ' still to review is' : 's still to review are'} approved, then a post is drafted for each selected idea. Ideas you did not select are left alone.`}
-                  confirmLabel="Approve & create"
-                  tone="neutral"
-                  align="end"
-                  // Don't await: the popover would otherwise stay open for the whole drafting run.
-                  onConfirm={() => void handleApproveSelectedAndDraft()}
+                // The dialog says what is approved first and asks for the platforms.
+                <button
+                  type="button"
+                  onClick={() => setCreateDialog({ kind: 'approve' })}
                   disabled={isActionBusy}
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <button
-                    type="button"
-                    disabled={isActionBusy}
-                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    <span>Approve &amp; Create Posts</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
-                </ConfirmPopover>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Approve &amp; Create Posts</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
               )}
             </>
           ) : (
@@ -687,7 +700,7 @@ export function IdeasClient({
                 : 'your ideas'
             }
             errorMessage={draftError}
-            onRetry={() => void draftIdeas(draftTargetIds)}
+            onRetry={() => void draftIdeas(draftTargetIds, lastFormats)}
             retryDisabled={isActionBusy}
           />
 
@@ -759,6 +772,29 @@ export function IdeasClient({
           )}
         </div>
       </div>
+
+      {createDialog && (
+        <CreatePostsDialog
+          title={
+            createDialog.kind === 'approve'
+              ? `Approve and create ${dialogPosts}`
+              : `Create ${dialogPosts}`
+          }
+          description={
+            createDialog.kind === 'approve'
+              ? `The ${selectedProposed.length} selected idea${selectedProposed.length === 1 ? ' still to review is' : 's still to review are'} approved first. Choose where the posts go and what type of post to write. Ideas you did not select are left alone.`
+              : `Choose where the post${dialogTargetIds.length === 1 ? '' : 's'} go and what type of post to write.`
+          }
+          suggested={ideas
+            .filter((i) => dialogTargetIds.includes(i.id))
+            .flatMap((i) => i.formatFit ?? [])}
+          confirmLabel={
+            createDialog.kind === 'approve' ? 'Approve & create' : 'Create posts'
+          }
+          onCancel={() => setCreateDialog(null)}
+          onConfirm={confirmCreate}
+        />
+      )}
     </div>
   )
 }

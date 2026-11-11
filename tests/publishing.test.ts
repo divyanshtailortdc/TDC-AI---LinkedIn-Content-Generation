@@ -208,7 +208,8 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     } = {}
   ) => ({
     database,
-    configs: { linkedin: config, x: xConfig },
+    // Facebook and Instagram go through the same Buffer stub as X.
+    configs: { linkedin: config, x: xConfig, facebook: xConfig, instagram: xConfig },
     // Buffer's calls to the Buffer stub, everything else to LinkedIn's.
     fetchFn: ((input: string | URL, init?: RequestInit) =>
       String(input) === BUFFER_URL
@@ -1213,6 +1214,168 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         await codeOf(deletePublishedPost(deps(), x.userId, published!.id)),
         'not_supported'
       )
+    })
+  })
+
+  describe('Facebook and Instagram through Buffer', () => {
+    let m: { userId: string; accountId: string }
+    const connectVia = (platform: 'facebook' | 'instagram', channelId: string) =>
+      saveConnection(
+        database,
+        xConfig,
+        m.userId,
+        {
+          accessToken: 'BUFFER-KEY-META-1234567890',
+          accessTokenExpiresAt: null,
+          refreshToken: null,
+          refreshTokenExpiresAt: null,
+          scopes: ['account:read', 'posts:read', 'posts:write']
+        },
+        { memberId: channelId, name: `${platform} QA`, pictureUrl: null },
+        { platform }
+      )
+    const image: PostImage = {
+      bytes: Buffer.from('png'),
+      mediaType: 'image/png',
+      altText: 'Alt'
+    }
+    /** An active image on the post, as drafting leaves one. */
+    const addImage = (draftId: string) =>
+      database.insert(schema.postMediaTable).values({
+        draftId,
+        mode: 'ai_generated',
+        imageUrl: 'https://img.example/a.png'
+      })
+    const caption = (overrides: Partial<schema.NewPostDraft> = {}) =>
+      newPost(m.accountId, {
+        platform: 'instagram',
+        formatId: 'instagram.caption',
+        hook: 'Behind the scenes',
+        body: 'Our team at work.',
+        cta: '',
+        hashtags: ['craft'],
+        firstComment: 'Link in bio note',
+        ...overrides
+      })
+
+    before(async () => {
+      m = await newUser('meta', 'google')
+    })
+
+    it('M1. a Facebook post goes to its Page, with the first comment in the same Buffer post', async () => {
+      await connectVia('facebook', 'CHANNEL_FB')
+      const draft = await newPost(m.accountId, {
+        platform: 'facebook',
+        formatId: 'facebook.post',
+        hook: 'Hello neighbours',
+        body: 'We are open late on Friday.',
+        cta: '',
+        hashtags: [],
+        firstComment: 'Details: https://example.com/friday'
+      })
+      const result = await publishNow(
+        m.userId,
+        draft,
+        deps({ loadImage: async () => image })
+      )
+      assert.strictEqual(result.status, 'published', String(result.error))
+      assert.strictEqual(result.platform, 'facebook')
+
+      const [create] = buffer.creates()
+      const input = create!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_FB')
+      assert.strictEqual(input.mode, 'shareNow')
+      assert.strictEqual(input.text, 'Hello neighbours\n\nWe are open late on Friday.')
+      assert.deepStrictEqual(input.metadata, {
+        facebook: { type: 'post', firstComment: 'Details: https://example.com/friday' }
+      })
+      // A signed link to this post's image, served as Facebook takes it.
+      const imageUrl = new URL(input.assets[0].image.url)
+      assert.strictEqual(imageUrl.searchParams.get('for'), 'facebook')
+      const token = decodeURIComponent(imageUrl.pathname.split('/').pop()!)
+      assert.strictEqual(verifyMediaToken(xConfig.encryptionKey, token), draft)
+      // No separate comment request, and LinkedIn untouched.
+      assert.strictEqual(buffer.creates().length, 1)
+      assert.strictEqual(linkedIn.calls.length, 0)
+    })
+
+    it('M2. an Instagram caption needs an image; with one it goes out as a feed post', async () => {
+      await connectVia('instagram', 'CHANNEL_IG')
+      const draft = await caption()
+      assert.strictEqual(await codeOf(publishNow(m.userId, draft)), 'needs_image')
+      assert.strictEqual(buffer.calls.length, 0)
+
+      await addImage(draft)
+      const result = await publishNow(
+        m.userId,
+        draft,
+        deps({ loadImage: async () => image })
+      )
+      assert.strictEqual(result.status, 'published', String(result.error))
+      assert.strictEqual(result.platform, 'instagram')
+      const input = buffer.creates()[0]!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_IG')
+      assert.strictEqual(input.text, 'Behind the scenes\n\nOur team at work.\n\n#craft')
+      assert.deepStrictEqual(input.metadata, {
+        instagram: { type: 'post', shouldShareToFeed: true }
+      })
+      assert.strictEqual(
+        new URL(input.assets[0].image.url).searchParams.get('for'),
+        'instagram'
+      )
+      // The link-in-bio note is for the author, never posted.
+      assert.ok(!JSON.stringify(input).includes('Link in bio note'))
+    })
+
+    it('M3. an image removed after queueing fails before Buffer; a Reel cannot be published', async () => {
+      const draft = await caption()
+      await addImage(draft)
+      const result = await publishNow(m.userId, draft, deps({ loadImage: async () => null }))
+      assert.strictEqual(result.status, 'failed')
+      assert.match(String(result.error), /Instagram posts need an image/)
+      assert.strictEqual(buffer.creates().length, 0)
+
+      const reel = await caption({ formatId: 'instagram.reel' })
+      await addImage(reel)
+      assert.strictEqual(await codeOf(publishNow(m.userId, reel)), 'wrong_platform')
+    })
+
+    it('M4. auto-publishing to Instagram skips posts without an image', async () => {
+      // 10:00 UTC today; the slot is 09:00 UTC, the posts approved an hour before it.
+      const today = new Date()
+      today.setUTCHours(10, 0, 0, 0)
+      const day = today.toISOString().slice(0, 10)
+      const slot = new Date(`${day}T09:00:00Z`)
+      const before = new Date(slot.getTime() - 3600_000)
+      const withImage = await caption({ plannedFor: day, updatedAt: before })
+      await addImage(withImage)
+      const without = await caption({ plannedFor: day, updatedAt: before })
+      await database
+        .update(schema.platformConnectionsTable)
+        .set({
+          autoPublish: true,
+          autoPublishTime: '09:00',
+          autoPublishTimezone: 'UTC',
+          autoPublishEnabledAt: new Date(slot.getTime() - 24 * 3600_000)
+        })
+        .where(
+          and(
+            eq(schema.platformConnectionsTable.userId, m.userId),
+            eq(schema.platformConnectionsTable.platform, 'instagram')
+          )
+        )
+      await queueAutoPublications(database, today)
+      const queued = await database
+        .select({ draftId: schema.publicationsTable.draftId })
+        .from(schema.publicationsTable)
+        .where(inArray(schema.publicationsTable.draftId, [withImage, without]))
+      assert.deepStrictEqual(queued.map(r => r.draftId), [withImage])
+    })
+
+    it('M5. each network keeps its own connection: disconnecting Instagram leaves Facebook alone', async () => {
+      assert.ok(await disconnect(database, m.userId, 'instagram'))
+      assert.strictEqual((await getConnection(database, m.userId, 'instagram'))!.status, 'disconnected')
+      assert.strictEqual((await getConnection(database, m.userId, 'facebook'))!.status, 'connected')
     })
   })
 })

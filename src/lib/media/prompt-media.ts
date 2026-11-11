@@ -6,6 +6,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
+import { FORMATS, formatOf } from '@/lib/formats'
 import { postFullText } from '@/lib/post-text'
 import { loadBrandRendering } from './brand-assets'
 import {
@@ -72,7 +73,7 @@ export async function createPromptMediaForDraft(input: {
       eq(postDraftsTable.id, input.draftId),
       eq(postDraftsTable.accountId, input.accountId)
     ),
-    columns: { id: true, hook: true, body: true, cta: true }
+    columns: { id: true, hook: true, body: true, cta: true, formatId: true }
   })
   if (!draft) return { status: 'draft_not_found' }
 
@@ -111,6 +112,8 @@ export async function createPromptMediaForDraft(input: {
       editImage,
       brand,
       postText: postFullText(draft),
+      // The shape the post's platform shows (X 16:9, Instagram 4:5…).
+      shape: FORMATS[formatOf(draft.formatId)].imageShape,
       allowedText,
       abortSignal: input.abortSignal,
       onUsage: usage => {

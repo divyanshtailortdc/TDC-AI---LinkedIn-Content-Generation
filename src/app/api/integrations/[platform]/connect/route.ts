@@ -14,7 +14,8 @@ import { NextResponse } from 'next/server'
 
 /**
  * Starts connecting a platform for publishing: sends the signed-in user to
- * the consent screen (LinkedIn's, or Buffer's for X) with a fresh state, kept
+ * the consent screen (LinkedIn's, or Buffer's for X, Facebook and Instagram)
+ * with a fresh state, kept
  * in a signed, httpOnly cookie for the callback to check, and a PKCE
  * challenge whose verifier only this server can derive from the state.
  * Separate from sign-in: it never touches the session or Better Auth's

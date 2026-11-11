@@ -1,7 +1,11 @@
 import type { FormatId } from '@/lib/formats'
 import type { PlatformSpec } from '@/lib/platforms'
 import type { BufferOAuthConfig } from './buffer/oauth'
-import { bufferXProvider } from './buffer/provider'
+import {
+  bufferFacebookProvider,
+  bufferInstagramProvider,
+  bufferXProvider
+} from './buffer/provider'
 import type { CallbackResult } from './callback-results'
 import { linkedInProvider } from './linkedin/provider'
 import type { LinkedInAppConfig, MemberInfo, TokenSet } from './linkedin/oauth'
@@ -13,9 +17,11 @@ import { canPublishTo, type PublishingPlatformId } from './platform'
  * post's (or a connection's) platform and never import a provider's own
  * modules, so adding a platform adds a provider here rather than changing them.
  *
- *   linkedin  LinkedIn's REST API, connected through LinkedIn's OAuth (./linkedin)
- *   x         X through Buffer's API, connected through Buffer's OAuth (an
- *             app client), or with a Buffer API key for testing (./buffer)
+ *   linkedin   LinkedIn's REST API, connected through LinkedIn's OAuth (./linkedin)
+ *   x          X through Buffer's API, connected through Buffer's OAuth (an
+ *              app client), or with a Buffer API key for testing (./buffer)
+ *   facebook   A Facebook Page through Buffer, connected the same way
+ *   instagram  An Instagram professional account through Buffer, likewise
  *
  * No `server-only` import, so tests can run what uses it.
  */
@@ -25,7 +31,10 @@ export type FetchFn = typeof fetch
 /** What every provider's config holds: the key tokens are encrypted with. */
 export type BaseConfig = { encryptionKey: Buffer }
 
-/** X through Buffer: where Buffer's API is, and where it fetches images from. */
+/**
+ * X, Facebook or Instagram through Buffer: where Buffer's API is, and where
+ * it fetches images from.
+ */
 export type BufferConfig = BaseConfig & {
   /**
    * The app client customers authorize through Buffer's consent screen; null
@@ -45,6 +54,8 @@ export type PlatformConfig = LinkedInAppConfig | BufferConfig
 export type PublishConfigs = {
   linkedin?: LinkedInAppConfig
   x?: BufferConfig
+  facebook?: BufferConfig
+  instagram?: BufferConfig
 }
 
 /** What a provider call runs with: the user's decrypted credential and the platform's config. */
@@ -151,6 +162,13 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
   threads?: boolean
   /** Shares a page as a link card: createPost takes `link` (LinkedIn). */
   linkCards?: boolean
+  /**
+   * The first comment goes out with the post itself: createPost takes it as
+   * `comment` (Facebook through Buffer), instead of through addComment.
+   */
+  commentInPost?: boolean
+  /** The platform refuses a post without an image (Instagram). */
+  requiresImage?: boolean
   /** The longest post the platform takes, as `measure` counts. */
   maxPostLength: number
   measure: (text: string) => number
@@ -174,6 +192,8 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
       text: string
       /** Only for a provider with `threads`; the image goes on the first post. */
       replies?: string[]
+      /** Only for a provider with `commentInPost`. */
+      comment?: string
       image?: { ref: string; altText: string | null }
       /**
        * Only for a provider with `linkCards`: the page as a card, in place of
@@ -206,7 +226,9 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
 
 const PROVIDERS: Record<PublishingPlatformId, PublishingProvider<any>> = {
   linkedin: linkedInProvider,
-  x: bufferXProvider
+  x: bufferXProvider,
+  facebook: bufferFacebookProvider,
+  instagram: bufferInstagramProvider
 }
 
 /** The provider for `platform`; throws for one that has none. */

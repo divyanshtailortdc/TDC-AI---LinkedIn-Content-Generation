@@ -11,7 +11,8 @@ export const STATE_COOKIE_PATH = '/api/integrations'
 
 /**
  * Where the provider sends the browser back after the user allows publishing
- * to `platform` (LinkedIn's consent screen, or Buffer's for X).
+ * to `platform` (LinkedIn's consent screen, or Buffer's for X, Facebook and
+ * Instagram).
  */
 export const callbackPath = (platform: string) =>
   `/api/integrations/${platform}/callback`

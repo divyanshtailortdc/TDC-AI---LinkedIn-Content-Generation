@@ -1,4 +1,5 @@
 import type { CanvasPattern } from '~/lib/brand/theme'
+import type { ImageShape } from '@/lib/formats'
 import type { PlacedBlueprint } from './blueprint'
 import type { IconName } from './icon-names'
 import type { CanvasPalette } from './palette'
@@ -15,6 +16,19 @@ import type { CanvasPalette } from './palette'
 
 /** The 1.91:1 feed ratio at ~1.7x 1200x627, so it stays sharp after recompression. */
 export const CANVAS_SIZE = { width: 2048, height: 1072 } as const
+
+/**
+ * The size each post shape (src/lib/formats) is drawn and generated at:
+ * about 1.4-1.7x the feed's own (1200x627, 1600x900, 1080x1350), in
+ * multiples of 16 for the image models. The built-in layouts fit the same
+ * square visual panel into each: beside the text when wide, under or over it
+ * when tall.
+ */
+export const SHAPE_SIZES: Record<ImageShape, { width: number; height: number }> = {
+  '1.91:1': CANVAS_SIZE,
+  '16:9': { width: 2048, height: 1152 },
+  '4:5': { width: 1536, height: 1920 }
+}
 
 /** The right-hand side: a square the full height of the image, 52% of its width. */
 export const VISUAL_PANEL = {

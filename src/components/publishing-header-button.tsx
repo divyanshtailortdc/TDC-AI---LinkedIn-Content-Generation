@@ -1,6 +1,6 @@
 'use client'
 
-import { FacebookMark, InstagramMark, PlatformMark } from '@/components/platform-mark'
+import { PlatformMark } from '@/components/platform-mark'
 import { cn } from '@/lib/cn'
 import type { PlatformId, PlatformSpec } from '@/lib/platforms'
 import type { ConnectionStatus } from '@/lib/publishing/status'
@@ -21,7 +21,7 @@ import {
 /** The signed-in user's connection to one platform, as the header shows it. */
 export type PlatformPublishingStatus = {
   platform: PlatformSpec
-  /** The consent screen (OAuth), or a key pasted in Settings (X through Buffer). */
+  /** The consent screen (OAuth), or a key pasted in Settings (through Buffer). */
   connectWith: 'oauth' | 'api_key'
   status: ConnectionStatus | null
   name: string | null
@@ -68,15 +68,12 @@ export function usePlatformPublishing(
 /**
  * Listed in the dropdown as coming soon: in the platform registry, but
  * without a publishing provider (src/lib/publishing/platform.ts). One that
- * gets a provider leaves this list.
+ * gets a provider leaves this list (Facebook and Instagram did).
  */
 const COMING_SOON: Array<{
   name: string
   Mark: (props: { className: string }) => ReactElement
-}> = [
-  { name: 'Facebook', Mark: FacebookMark },
-  { name: 'Instagram', Mark: InstagramMark }
-]
+}> = []
 
 const ITEM_SELECTOR = '[role="menuitem"]:not([aria-disabled="true"])'
 const ITEM =
@@ -211,13 +208,7 @@ export function PublishingHeaderButton() {
         <span className="flex items-center gap-2.5">
           {rows.map(({ platform, row }) => (
             <span key={platform.id} data-platform={platform.id} className="relative">
-              <PlatformMark
-                platform={platform.id}
-                className={cn(
-                  'h-4 w-4',
-                  row.state !== 'expired' && 'text-platform-text'
-                )}
-              />
+              <PlatformMark platform={platform.id} colored className="h-4 w-4" />
               {row.dot && (
                 <span
                   aria-hidden
@@ -264,7 +255,8 @@ export function PublishingHeaderButton() {
             <>
               <PlatformMark
                 platform={platform.id}
-                className="text-platform-text h-4 w-4 shrink-0"
+                colored
+                className="h-5 w-5 shrink-0"
               />
               <span className="min-w-0 flex-1">
                 <span className="text-foreground block font-medium">

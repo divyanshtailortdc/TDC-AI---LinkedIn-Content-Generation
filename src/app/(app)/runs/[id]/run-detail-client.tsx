@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { FormatMenu, formatsForRequest, type FormatChoice } from '@/components/format-menu'
+import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import type { FormatId } from '@/lib/formats'
 import Link from 'next/link'
 import {
@@ -54,8 +54,6 @@ interface RunDetailProps {
   initialFindings: any[]
   initialIdeas: any[]
   account: any
-  /** The formats the identity drafts; with two or more, "Create posts" asks which. */
-  enabledFormats?: FormatId[]
 }
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
@@ -176,11 +174,13 @@ export function RunDetailClient({
   initialSteps,
   initialFindings,
   initialIdeas,
-  account,
-  enabledFormats = ['linkedin.post']
+  account
 }: RunDetailProps) {
   const router = useRouter()
-  const [formatChoice, setFormatChoice] = useState<FormatChoice>('suited')
+  // Creating posts asks first which platforms and types of post to write
+  // (CreatePostsDialog); the last answer is kept for Try again.
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [lastFormats, setLastFormats] = useState<FormatId[] | undefined>()
   const [run, setRun] = useState(initialRun)
   const [steps, setSteps] = useState(initialSteps)
   const [findings, setFindings] = useState(initialFindings)
@@ -421,12 +421,13 @@ export function RunDetailClient({
   }
 
   // Posts are made only from the given ideas, and of those only approved ones.
-  const handleDraftSelected = async (targetIds: string[]) => {
+  const handleDraftSelected = async (targetIds: string[], formats?: FormatId[]) => {
     const approvedIds = ideas
       .filter((i) => i.status === 'approved' && targetIds.includes(i.id))
       .map((i) => i.id)
     if (approvedIds.length === 0) return
     setDraftTargetIds(approvedIds)
+    setLastFormats(formats)
 
     // The action only queues the ideas and answers at once; the posts are
     // written in the background and followed by useDraftingPoll below. The
@@ -454,7 +455,7 @@ export function RunDetailClient({
       const res = await draftSelectedIdeas({
         runId: run.id,
         ideaIds: approvedIds,
-        formats: formatsForRequest(formatChoice)
+        formats
       })
       if (!res.success) {
         await fail(res.error || 'Drafting failed. Please try again.')
@@ -619,15 +620,9 @@ export function RunDetailClient({
                   <span>Approve {selectedProposed}</span>
                 </button>
               )}
-              <FormatMenu
-                enabled={enabledFormats}
-                value={formatChoice}
-                onChange={setFormatChoice}
-                disabled={isBusy}
-              />
               <button
                 type="button"
-                onClick={() => void handleDraftSelected(selection)}
+                onClick={() => setCreateDialogOpen(true)}
                 disabled={isBusy || selectedApproved.length === 0}
                 title={
                   selectedApproved.length === 0
@@ -695,7 +690,7 @@ export function RunDetailClient({
                 : 'Posts generated. They are in the review queue.'
             }
             errorMessage={draftError}
-            onRetry={() => void handleDraftSelected(draftTargetIds)}
+            onRetry={() => void handleDraftSelected(draftTargetIds, lastFormats)}
             retryDisabled={isDrafting}
           />
 
@@ -991,6 +986,26 @@ export function RunDetailClient({
           </details>
         </div>
       </div>
+
+      {createDialogOpen && (
+        <CreatePostsDialog
+          title={`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}
+          description={`Choose where the post${selectedApproved.length === 1 ? '' : 's'} go and what type of post to write.${
+            selectedProposed > 0
+              ? ` The ${selectedProposed} selected idea${selectedProposed === 1 ? ' still to review is' : 's still to review are'} left out until approved.`
+              : ''
+          }`}
+          suggested={ideas
+            .filter((i) => selectedApproved.includes(i.id))
+            .flatMap((i) => i.formatFit ?? [])}
+          confirmLabel="Create posts"
+          onCancel={() => setCreateDialogOpen(false)}
+          onConfirm={(formats) => {
+            setCreateDialogOpen(false)
+            void handleDraftSelected(selection, formats)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -74,6 +74,7 @@ import {
   formatCharCount,
   formatOf,
   formatsToDraft,
+  postTexts,
   splitThread,
   toPlainText,
   type FormatId
@@ -204,7 +205,7 @@ interface PreparedPost {
   formatId: FormatId
   values: NewPostDraft & { id: string }
   alternateHooks: string[]
-  /** The image and the row recording it; only LinkedIn posts make one yet. */
+  /** The image and the row recording it: LinkedIn posts and picture formats (an Instagram post). */
   media: {
     plan: MediaPlanResult
     mode: 'ai_generated' | 'stock'
@@ -406,7 +407,32 @@ async function prepareLinkedInPost(
     lintErrorsCount: blockingCount(lintFindings)
   })
   if (options.withMedia === false) return prepared(crypto.randomUUID(), null)
+  const { draftId, media } = await planPostImage(
+    ctx,
+    idea,
+    DEFAULT_FORMAT,
+    postFullText(draft),
+    recordStep
+  )
+  return prepared(draftId, media)
+}
 
+/**
+ * A new post's image: designed from its text, in the brand colours with the
+ * logo (or a stock photo when the idea asks for one), and stored under the id
+ * the post will be saved with. Never throws: a failure leaves the post text
+ * only, with the reason recorded for the review screen.
+ */
+async function planPostImage(
+  ctx: GenerationContext,
+  idea: Idea,
+  /** Its format: the image is made in that format's shape (imageShape). */
+  formatId: FormatId,
+  postText: string,
+  recordStep: RecordStep,
+  /** The post's own picture idea (an Instagram post's visualIdea). */
+  visualIdea?: string
+): Promise<{ draftId: string; media: NonNullable<PreparedPost['media']> }> {
   // ------------------------------------------------------------------ media
   const suggested = (idea.suggestedMedia || {}) as {
     mode?: 'ai_generated' | 'stock' | 'none'
@@ -416,7 +442,6 @@ async function prepareLinkedInPost(
   // colours with the logo; the reviewer can replace or remove it on the
   // review screen. An idea that asks for a stock photo gets one instead.
   const mediaMode = suggested.mode === 'stock' ? 'stock' : 'ai_generated'
-  const fullPostText = postFullText(draft)
 
   let previousVersions = undefined
   if (mediaMode === 'ai_generated') {
@@ -454,15 +479,17 @@ async function prepareLinkedInPost(
   try {
     mediaPlan = await createMediaPlan({
       mode: mediaMode,
-      postText: fullPostText,
+      postText,
+      shape: FORMATS[formatId].imageShape,
       context: buildMediaBriefContext(ctx, idea),
       brand: await loadBrandRendering(
         ctx.account.id,
         ctx.brand ?? DEFAULT_BRAND_THEME
       ),
       previousVersions,
-      // The idea's own visual direction, written at ideation.
-      direction: suggested.brief || undefined
+      // The post's own picture idea when it has one, else the idea's visual
+      // direction, written at ideation.
+      direction: visualIdea || suggested.brief || undefined
     })
   } catch (err) {
     mediaPlan = {
@@ -501,12 +528,17 @@ async function prepareLinkedInPost(
   const draftId = crypto.randomUUID()
   const storedImages = await storeMediaImages(draftId, mediaPlan)
 
-  return prepared(draftId, { plan: mediaPlan, mode: mediaMode, stored: storedImages })
+  return {
+    draftId,
+    media: { plan: mediaPlan, mode: mediaMode, stored: storedImages }
+  }
 }
 
 /**
  * A post in any other format: the variant-drafting skill, the format's
- * checks with one revision pass. No image yet; the reviewer can add one.
+ * checks with one revision pass. A format that is a picture with its caption
+ * (an Instagram post) then gets its picture, as a LinkedIn post does; the
+ * others have none, and the reviewer can add one.
  */
 async function prepareFormatPost(
   ctx: GenerationContext,
@@ -614,10 +646,25 @@ async function prepareFormatPost(
     }
   })
 
+  // Even for a creator, unlike LinkedIn: the post is the picture, it cannot
+  // go out without one, and the reviewer can swap in their own photo.
+  const visualIdea = (draft.payload as { visualIdea?: unknown } | null)?.visualIdea
+  const image =
+    spec.withImage && options.withMedia !== false
+      ? await planPostImage(
+          ctx,
+          idea,
+          formatId,
+          postTexts(formatId, draft).join('\n\n'),
+          recordStep,
+          typeof visualIdea === 'string' ? visualIdea : undefined
+        )
+      : null
+
   return {
     formatId,
     values: {
-      id: crypto.randomUUID(),
+      id: image?.draftId ?? crypto.randomUUID(),
       accountId: ctx.account.id,
       ideaId: idea.id,
       // Where it goes out. Publishing (src/lib/publishing) only takes the
@@ -641,7 +688,7 @@ async function prepareFormatPost(
       status: 'awaiting_review'
     },
     alternateHooks: draft.alternateHooks.slice(0, 3),
-    media: null,
+    media: image?.media ?? null,
     lintErrorsCount: blockingCount(lintFindings)
   }
 }
@@ -974,6 +1021,8 @@ export async function regenerateDraft(
         })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
           regenerate,
+          // A rewrite keeps the post's image.
+          withMedia: false,
           ...(await siblingsOf(idea.id, formatId))
         })
 

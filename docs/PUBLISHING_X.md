@@ -1,6 +1,6 @@
 # Publishing to X (through Buffer)
 
-How approved X posts are published, and how to set it up. The generic parts (states, retries, duplicates, security, the worker) are in [PUBLISHING.md](PUBLISHING.md); this page covers only what is different for X.
+How approved X posts are published, and how to set it up. The generic parts (states, retries, duplicates, security, the worker) are in [PUBLISHING.md](PUBLISHING.md); this page covers only what is different for X. Facebook and Instagram go through Buffer the same way, with the differences in [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md).
 
 - [Why Buffer](#why-buffer)
 - [How it works](#how-it-works)
@@ -47,7 +47,7 @@ X posts are written by the multi-platform content engine (`src/lib/formats`): tu
 | `x.post` | One post; its **Reply** (`post_drafts.first_comment`, where X posts keep their link) goes out as a reply under it |
 | `x.thread` | Every post of the thread in order (stored in `hook` and `body`, split on `---` lines; hashtags on the last), each a reply to the one before, then the Reply |
 
-Both go out in **one** Buffer post: `createPost` with `metadata.twitter.thread` holding every post, the first included (Buffer requires the top-level `text` and image to be the first post's). The image goes on the first post. Each post, and the reply, must fit **280 characters as X counts them** (a link is 23, an emoji 2): Approve refuses an X post over that (`overLimitMessage` in `src/lib/formats/text.ts`), and so does Publish (`assertPublishable`), with the same count as the editor (`countChars(…, 'x_weighted')`). The texts are exactly what Copy gives (`postTexts` / `copyText`). Instagram, Threads, Facebook and YouTube formats are copied and posted by hand; Publish is not offered for them.
+Both go out in **one** Buffer post: `createPost` with `metadata.twitter.thread` holding every post, the first included (Buffer requires the top-level `text` and image to be the first post's). The image goes on the first post. Each post, and the reply, must fit **280 characters as X counts them** (a link is 23, an emoji 2): Approve refuses an X post over that (`overLimitMessage` in `src/lib/formats/text.ts`), and so does Publish (`assertPublishable`), with the same count as the editor (`countChars(…, 'x_weighted')`). The texts are exactly what Copy gives (`postTexts` / `copyText`). Facebook posts and Instagram captions are published through Buffer too ([PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md)); Threads, Instagram Reels and YouTube formats are copied and posted by hand, and Publish is not offered for them.
 
 ### Connecting
 
@@ -178,13 +178,15 @@ npm run dev:https        # next dev --experimental-https: a self-signed certific
 
 Open **https://localhost:3000** (accept the certificate warning once) and sign in there: the session and the OAuth state cookies belong to that address. Google and LinkedIn sign-in redirect to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/{google,linkedin}` to those apps, or sign in with a passkey.
 
-Without a public URL, Buffer cannot download images, so image posts fail with Buffer's error ("rejected"); text posts work. For images, use a tunnel instead and register its callback URL on the app client too (see [PUBLISHING.md](PUBLISHING.md#local-development)):
+Buffer downloads post images from the app itself, and it cannot reach localhost or a private network address. An image post would come back as Buffer's "Image could not be read from its URL", so the app refuses it first and says which setting to change. Text posts work without this. For image posts, give only the image links a public address with a tunnel, and keep signing in on localhost:
 
 ```bash
-cloudflared tunnel --url http://localhost:3000
-BETTER_AUTH_URL="https://<tunnel-host>"
-# register https://<tunnel-host>/api/integrations/x/callback on the Buffer app client
+cloudflared tunnel --url http://localhost:3000     # prints https://<random>.trycloudflare.com
+# .env
+PUBLISHING_MEDIA_URL="https://<random>.trycloudflare.com"
 ```
+
+Restart the dev server after changing `.env`. A quick tunnel gets a new address each time it starts, so update `PUBLISHING_MEDIA_URL` whenever you restart the tunnel. The tunnel only needs to stay up until Buffer has fetched the image, which takes a few seconds after **Publish now**. In production, leave `PUBLISHING_MEDIA_URL` unset: images come from `BETTER_AUTH_URL`.
 
 ## Trying it end to end
 
@@ -212,5 +214,6 @@ Buffer's real API and X itself cannot run in CI; check them by hand with a test 
 - **Buffer says the redirect URI is invalid**: the callback URL registered on the app client differs from `BUFFER_REDIRECT_URI` / `{BETTER_AUTH_URL}/api/integrations/x/callback` (scheme, port and trailing slash all count).
 - **Connection shows Expired**: the customer removed TDC AI in Buffer, or the refresh token was refused; click **Reconnect** (with an API key: paste a new one).
 - **"Publishing…" for a long time**: the worker confirms every minute (`APP_ROLE` `all` or `worker`, or `/api/cron/jobs`). After 2 hours without an answer it fails as `unknown_outcome`: check X and the Buffer queue before **Try again**.
-- **Image posts fail, text posts work**: `BETTER_AUTH_URL` is not reachable from the internet (local development), or the image is over 5 MB.
+- **"Image could not be read from its URL"**, or "Buffer cannot download this post's image from http://localhost:3000": the image links point at an address Buffer cannot reach. Set `PUBLISHING_MEDIA_URL` to a tunnel (see [Local development](#local-development)), restart, then **Try again**. Nothing was posted, so trying again is safe.
+- **Image posts fail, text posts work**: the image is over 5 MB, or see the line above.
 - Stuck or failed X publications: `SELECT id, status, error_code, error, linkedin_post_urn AS buffer_post_id FROM linkedin_publications WHERE platform = 'x' AND status IN ('failed','publishing') ORDER BY updated_at DESC;`

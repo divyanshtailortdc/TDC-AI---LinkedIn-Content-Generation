@@ -3,8 +3,9 @@
 import { db } from '@/db'
 import { platformConnectionsTable } from '@/db/schema'
 import { getPlatform } from '@/lib/platforms'
-import { listXChannels, type XChannel } from '@/lib/publishing/buffer/api'
+import type { BufferChannel } from '@/lib/publishing/buffer/api'
 import { API_KEY_SCOPES } from '@/lib/publishing/buffer/oauth'
+import { listPlatformChannels } from '@/lib/publishing/buffer/provider'
 import { bufferConfig } from '@/lib/publishing/config'
 import {
   assertCanPublish,
@@ -17,7 +18,9 @@ import {
 } from '@/lib/publishing/connection'
 import { PlatformApiError } from '@/lib/publishing/errors'
 import {
+  type BufferPlatformId,
   canPublishTo,
+  isBufferPlatform,
   PUBLISHING_PLATFORM_IDS
 } from '@/lib/publishing/platform'
 import { isValidTimeZone, parseTimeOfDay } from '@/lib/schedule-time'
@@ -133,28 +136,36 @@ const BufferKeySchema = z.object({
   channelId: z.string().trim().min(1).max(200).optional()
 })
 
-type ChannelChoice = Pick<XChannel, 'id' | 'name' | 'avatar'>
+type ChannelChoice = Pick<BufferChannel, 'id' | 'name' | 'avatar'>
 
 /**
- * Connects X through Buffer: checks the pasted Buffer API key by listing the
- * X channels its account can post to, and saves it (encrypted) with the one
- * chosen. With more than one channel and none chosen yet, returns them to
- * pick from. The key is never sent back to the browser.
+ * Connects X, Facebook or Instagram through Buffer: checks the pasted Buffer
+ * API key by listing that network's channels its account can post to, and
+ * saves it (encrypted) with the one chosen. With more than one channel and
+ * none chosen yet, returns them to pick from. The key is never sent back to
+ * the browser.
  */
-export async function connectXWithBuffer(input: {
-  apiKey: string
-  channelId?: string
-}): Promise<
+export async function connectWithBuffer(
+  platform: string,
+  input: {
+    apiKey: string
+    channelId?: string
+  }
+): Promise<
   | { success: true; name: string }
   | { success: false; error: string; channels?: ChannelChoice[] }
 > {
   const user = await requireUser()
+  if (!isBufferPlatform(platform)) {
+    return { success: false, error: 'Unknown platform.' }
+  }
+  const platformName = getPlatform(platform).name
   try {
-    const config = bufferConfig()
+    const config = bufferConfig(platform)
     if (!config) {
       return {
         success: false,
-        error: 'Publishing to X is not set up on this server.'
+        error: `Publishing to ${platformName} is not set up on this server.`
       }
     }
     const parsed = BufferKeySchema.safeParse(input)
@@ -166,9 +177,12 @@ export async function connectXWithBuffer(input: {
     }
     const { apiKey, channelId } = parsed.data
 
-    let channels: XChannel[]
+    let channels: BufferChannel[]
     try {
-      channels = await listXChannels({ apiKey, apiUrl: config.apiUrl })
+      channels = await listPlatformChannels(
+        { apiKey, apiUrl: config.apiUrl },
+        platform
+      )
     } catch (err) {
       if (err instanceof PlatformApiError) {
         return {
@@ -190,8 +204,8 @@ export async function connectXWithBuffer(input: {
         success: false,
         error:
           channels.length > 0
-            ? 'Your X channel is locked in Buffer (the free plan allows 3 channels). Unlock it in Buffer, then try again.'
-            : 'No X account is connected in this Buffer account. In Buffer, connect your X account as a channel, then try again.'
+            ? `Your ${platformName} channel is locked in Buffer (the free plan allows 3 channels). Unlock it in Buffer, then try again.`
+            : `No ${platformName} account is connected in this Buffer account. In Buffer, connect your ${platformName} account as a channel, then try again.`
       }
     }
     const channel = channelId
@@ -203,8 +217,8 @@ export async function connectXWithBuffer(input: {
       return {
         success: false,
         error: channelId
-          ? 'That X account is no longer in Buffer. Pick another.'
-          : 'Pick the X account to publish to.',
+          ? `That ${platformName} account is no longer in Buffer. Pick another.`
+          : `Pick the ${platformName} account to publish to.`,
         channels: usable.map(({ id, name, avatar }) => ({ id, name, avatar }))
       }
     }
@@ -222,27 +236,41 @@ export async function connectXWithBuffer(input: {
         scopes: API_KEY_SCOPES
       },
       { memberId: channel.id, name: channel.name, pictureUrl: channel.avatar },
-      { platform: 'x' }
+      { platform }
     )
     revalidatePath(INTEGRATIONS_SETTINGS_PATH)
     return { success: true, name: channel.name }
   } catch (err) {
-    console.error(`Could not connect X through Buffer for user ${user.id}:`, err)
+    console.error(
+      `Could not connect ${platformName} through Buffer for user ${user.id}:`,
+      err
+    )
     return {
       success: false,
-      error: 'X could not be connected. Please try again.'
+      error: `${platformName} could not be connected. Please try again.`
     }
   }
 }
 
-/** The X accounts in the user's own Buffer account, through their connection. */
-async function xChannelsOf(userId: string) {
-  const config = bufferConfig()
-  if (!config) throw new ConnectionError('Publishing to X is not set up on this server.', 'not_connected')
-  const connection = await getConnection(db, userId, 'x')
-  assertCanPublish(connection, 'x')
+/**
+ * The accounts of `platform` in the user's own Buffer account, through their
+ * connection.
+ */
+async function bufferChannelsOf(userId: string, platform: BufferPlatformId) {
+  const config = bufferConfig(platform)
+  if (!config) {
+    throw new ConnectionError(
+      `Publishing to ${getPlatform(platform).name} is not set up on this server.`,
+      'not_connected'
+    )
+  }
+  const connection = await getConnection(db, userId, platform)
+  assertCanPublish(connection, platform)
   const accessToken = await usableAccessToken(db, config, connection)
-  const channels = await listXChannels({ apiKey: accessToken, apiUrl: config.apiUrl })
+  const channels = await listPlatformChannels(
+    { apiKey: accessToken, apiUrl: config.apiUrl },
+    platform
+  )
   return { connection, channels: channels.filter(c => !c.isLocked) }
 }
 
@@ -251,14 +279,17 @@ const failureMessage = (err: unknown) =>
     ? err.message
     : 'Buffer could not be reached. Please try again.'
 
-/** The X accounts the user can publish as, from their Buffer account. */
-export async function listXAccounts(): Promise<
+/** The accounts of `platform` the user can publish as, from their Buffer account. */
+export async function listBufferAccounts(platform: string): Promise<
   | { success: true; channels: ChannelChoice[]; currentId: string }
   | { success: false; error: string }
 > {
   const user = await requireUser()
+  if (!isBufferPlatform(platform)) {
+    return { success: false, error: 'Unknown platform.' }
+  }
   try {
-    const { connection, channels } = await xChannelsOf(user.id)
+    const { connection, channels } = await bufferChannelsOf(user.id, platform)
     return {
       success: true,
       channels: channels.map(({ id, name, avatar }) => ({ id, name, avatar })),
@@ -266,42 +297,57 @@ export async function listXAccounts(): Promise<
     }
   } catch (err) {
     if (!(err instanceof ConnectionError || err instanceof PlatformApiError)) {
-      console.error(`Could not list X accounts for user ${user.id}:`, err)
+      console.error(
+        `Could not list ${getPlatform(platform).name} accounts for user ${user.id}:`,
+        err
+      )
     }
     return { success: false, error: failureMessage(err) }
   }
 }
 
 /**
- * Publishes as another X account of the user's Buffer account. Only an
- * account Buffer lists for them now can be chosen; switching cancels the
- * scheduled X posts, as connecting a different account does.
+ * Publishes as another account of `platform` in the user's Buffer account.
+ * Only an account Buffer lists for them now can be chosen; switching cancels
+ * that platform's scheduled posts, as connecting a different account does.
  */
-export async function switchXAccount(channelId: string) {
+export async function switchBufferAccount(platform: string, channelId: string) {
   const user = await requireUser()
+  if (!isBufferPlatform(platform)) {
+    return { success: false as const, error: 'Unknown platform.' }
+  }
+  const platformName = getPlatform(platform).name
   try {
     if (typeof channelId !== 'string' || !channelId) {
-      return { success: false as const, error: 'Pick an X account.' }
+      return {
+        success: false as const,
+        error: `Pick the ${platformName} account to publish as.`
+      }
     }
-    const { channels } = await xChannelsOf(user.id)
+    const { channels } = await bufferChannelsOf(user.id, platform)
     const channel = channels.find(c => c.id === channelId)
     if (!channel) {
       return {
         success: false as const,
-        error: 'That X account is no longer in your Buffer account.'
+        error: `That ${platformName} account is no longer in your Buffer account.`
       }
     }
-    const row = await changeAccount(db, user.id, 'x', {
+    const row = await changeAccount(db, user.id, platform, {
       memberId: channel.id,
       name: channel.name,
       pictureUrl: channel.avatar
     })
-    if (!row) return { success: false as const, error: 'Connect X first.' }
+    if (!row) {
+      return { success: false as const, error: `Connect ${platformName} first.` }
+    }
     revalidatePath(INTEGRATIONS_SETTINGS_PATH)
     return { success: true as const, name: channel.name }
   } catch (err) {
     if (!(err instanceof ConnectionError || err instanceof PlatformApiError)) {
-      console.error(`Could not switch the X account of user ${user.id}:`, err)
+      console.error(
+        `Could not switch the ${platformName} account of user ${user.id}:`,
+        err
+      )
     }
     return { success: false as const, error: failureMessage(err) }
   }

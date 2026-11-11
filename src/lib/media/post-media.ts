@@ -7,6 +7,7 @@ import {
   postMediaTable,
   type PostMedia
 } from '@/db/schema'
+import { FORMATS, formatOf } from '@/lib/formats'
 import { postFullText } from '@/lib/post-text'
 import { and, desc, eq } from 'drizzle-orm'
 import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
@@ -161,6 +162,8 @@ export async function createPostMedia(input: {
         ? [input.visualType]
         : undefined,
     postText: postFullText(draft),
+    // The shape the post's platform shows (X 16:9, Instagram 4:5…).
+    shape: FORMATS[formatOf(draft.formatId)].imageShape,
     context,
     brand,
     previousVersions,

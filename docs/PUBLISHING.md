@@ -1,6 +1,6 @@
 # Publishing
 
-How users connect a platform account for publishing, and how approved posts are published to it: now, at a scheduled time, or automatically. Two platforms have a publishing provider: **LinkedIn** (its own API, described on this page) and **X** (through Buffer, see [PUBLISHING_X.md](PUBLISHING_X.md)). The pipeline, states, retries and security below apply to both.
+How users connect a platform account for publishing, and how approved posts are published to it: now, at a scheduled time, or automatically. Four platforms have a publishing provider: **LinkedIn** (its own API, described on this page), **X** (through Buffer, see [PUBLISHING_X.md](PUBLISHING_X.md)), and **Facebook** and **Instagram** (through Buffer too, see [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md)). The pipeline, states, retries and security below apply to all of them.
 
 - [Platforms and providers](#platforms-and-providers)
 - [Sign-in and publishing are separate](#sign-in-and-publishing-are-separate)

@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import {
   FORMAT_IDS,
   FORMATS,
+  formatHint,
   formatOf,
   isFormatId,
   type FormatId
@@ -23,16 +24,6 @@ function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[
       .filter(isFormatId)
   )
   return enabledFormats.filter(f => !have.has(f))
-}
-
-/** What a format is, in a few words, for the menu. */
-function formatHint(id: FormatId): string {
-  const { structure, limits } = FORMATS[id]
-  if (structure === 'thread' && limits.parts) {
-    return `${limits.parts.min}–${limits.parts.max} posts, each up to ${limits.maxChars} characters`
-  }
-  if (structure === 'script') return 'A short video script and its caption'
-  return `One post, up to ${limits.maxChars.toLocaleString('en-US')} characters`
 }
 
 /** Where a version stands, in a word. */

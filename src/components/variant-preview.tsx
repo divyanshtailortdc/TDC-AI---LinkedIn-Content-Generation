@@ -283,9 +283,10 @@ export function VariantPreview(props: VariantPreviewProps) {
           <span className="truncate text-sm font-semibold">{props.authorName}</span>
         </div>
         {props.mediaUrl ? (
-          <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} square />
+          // Its own shape, as the feed shows it (4:5 portrait), not cropped square.
+          <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} />
         ) : (
-          <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-neutral-100 p-6 text-center text-xs text-neutral-500 dark:bg-surface-hover dark:text-neutral-400">
+          <div className="flex aspect-[4/5] w-full flex-col items-center justify-center gap-2 bg-neutral-100 p-6 text-center text-xs text-neutral-500 dark:bg-surface-hover dark:text-neutral-400">
             <ImageOff className="h-6 w-6" />
             <span className="font-semibold">Instagram needs an image</span>
             {visualIdea && <span className="max-w-xs leading-snug">Suggested: {visualIdea}</span>}

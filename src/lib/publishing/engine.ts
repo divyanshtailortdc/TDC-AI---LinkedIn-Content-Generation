@@ -23,6 +23,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   inArray,
   isNotNull,
   isNull,
@@ -141,6 +142,7 @@ export class PublishRequestError extends Error {
       | 'wrong_platform'
       | 'not_configured'
       | 'not_supported'
+      | 'needs_image'
   ) {
     super(message)
     this.name = 'PublishRequestError'
@@ -317,6 +319,25 @@ function articleLinkOf(draft: {
   }
 }
 
+/** The post's active image, if it has one: what loadPostImage loads. */
+const activeImageOf = (
+  database: PublishingDb,
+  draftId: string | typeof postDraftsTable.id
+) =>
+  database
+    .select({ one: sql`1` })
+    .from(postMediaTable)
+    .where(
+      and(
+        eq(postMediaTable.draftId, draftId),
+        eq(postMediaTable.status, 'active'),
+        isNotNull(postMediaTable.imageUrl)
+      )
+    )
+
+const needsImageMessage = (name: string) =>
+  `${name} posts need an image. Add one to this post, then publish it.`
+
 /**
  * Queues a post to publish at `scheduledAt` (now, for Publish now). Every
  * rule is checked here, and again when it is published. Throws only
@@ -349,6 +370,12 @@ export async function requestPublication(
   if (!draft) throw new PublishRequestError('Post not found.', 'not_found')
   assertPublishable(draft)
   const name = nameOf(draft.platform)
+  if (
+    providerFor(draft.platform).requiresImage &&
+    (await activeImageOf(database, draft.id).limit(1)).length === 0
+  ) {
+    throw new PublishRequestError(needsImageMessage(name), 'needs_image')
+  }
   if (
     input.configuredPlatforms &&
     !input.configuredPlatforms.includes(draft.platform)
@@ -791,6 +818,10 @@ async function prepare(deps: PublishDeps, publication: Publication) {
     replies,
     // Only where the platform's posts carry one, added after the post.
     comment: provider.addComment ? draft.firstComment?.trim() || null : null,
+    // Sent with the post itself (Facebook through Buffer).
+    inPostComment: provider.commentInPost
+      ? toPlainText(draft.firstComment).trim() || null
+      : null,
     // An article-link post's card (LinkedIn).
     link: articleLinkOf(draft),
     connection,
@@ -816,6 +847,7 @@ export async function executePublication(
       text,
       replies,
       comment,
+      inPostComment,
       link,
       connection,
       provider,
@@ -826,6 +858,10 @@ export async function executePublication(
       const image = await (
         deps.loadImage ?? (id => loadPostImage(database, id))
       )(draftId)
+      // Removed since it was queued: nothing is sent.
+      if (!image && provider.requiresImage) {
+        throw new PostImageError(needsImageMessage(provider.platform.name))
+      }
       // An uploaded image's URN (LinkedIn), or a link the provider fetches (Buffer).
       const imageUrn = image
         ? await provider.prepareImage(ctx, {
@@ -867,6 +903,7 @@ export async function executePublication(
         authorId: authorUrn,
         text: provider.toApiText(text),
         ...(replies.length > 0 && { replies: replies.map(provider.toApiText) }),
+        ...(inPostComment && { comment: provider.toApiText(inPostComment) }),
         ...(link
           ? { link: { ...link, thumbnailRef: imageUrn } }
           : {
@@ -1394,6 +1431,10 @@ export async function queueAutoPublications(
             postDraftsTable.formatId,
             providerFor(connection.platform).formats
           ),
+          // Instagram: a post without an image would only fail.
+          providerFor(connection.platform).requiresImage
+            ? exists(activeImageOf(database, postDraftsTable.id))
+            : undefined,
           eq(postDraftsTable.status, 'approved'),
           isNull(postDraftsTable.postedAt),
           eq(postDraftsTable.plannedFor, due.day),
