@@ -1,8 +1,7 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { articlesTable, goalsTable, ideasTable, runsTable } from '@/db/schema'
-import { isStaleGeneration } from '@/lib/articles/status'
+import { goalsTable, ideasTable, runsTable } from '@/db/schema'
 import { ideaGoalTitles } from '@/lib/ai/context-blocks'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { and, count, desc, eq, inArray } from 'drizzle-orm'
@@ -71,15 +70,10 @@ export async function loadIdeasPage(
             runId: ideasTable.runId,
             runCreatedAt: runsTable.createdAt,
             runAccountName: accountNameAtRunSql,
-            runGoalTitles: runGoalTitlesSql,
-            // The idea's article, if one was generated (at most one per idea).
-            articleId: articlesTable.id,
-            articleStatus: articlesTable.generationStatus,
-            articleStartedAt: articlesTable.generationStartedAt
+            runGoalTitles: runGoalTitlesSql
           })
           .from(ideasTable)
           .leftJoin(runsTable, eq(runsTable.id, ideasTable.runId))
-          .leftJoin(articlesTable, eq(articlesTable.ideaId, ideasTable.id))
           .where(shown)
           .orderBy(desc(ideasTable.createdAt), desc(ideasTable.id))
           .offset(offset)
@@ -97,17 +91,8 @@ export async function loadIdeasPage(
   ])
 
   return {
-    ideas: rows.map(({ goalId, goalIds, goalSnapshot, articleStartedAt, ...idea }) => ({
+    ideas: rows.map(({ goalId, goalIds, goalSnapshot, ...idea }) => ({
       ...idea,
-      // A generation that went stale reads as failed, so the card offers a retry.
-      articleStatus:
-        idea.articleStatus &&
-        isStaleGeneration({
-          generationStatus: idea.articleStatus,
-          generationStartedAt: articleStartedAt
-        })
-          ? 'failed'
-          : idea.articleStatus,
       // Every goal the idea serves, its main goal first.
       goalTitles: ideaGoalTitles({ goalId, goalIds, goalSnapshot }, goals)
     })),

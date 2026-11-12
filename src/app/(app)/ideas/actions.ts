@@ -2,8 +2,7 @@
 
 import { db } from '@/db'
 import { feedbackTable, ideasTable } from '@/db/schema'
-import { loadChannels } from '@/lib/channels'
-import { cleanFormats, type FormatId } from '@/lib/formats'
+import { cleanFormats, isCreatableFormat, type FormatId } from '@/lib/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
@@ -22,12 +21,11 @@ import {
 } from '~/lib/ai/pipeline/drafting-run'
 
 /**
- * The formats picked in "Create posts", limited to the ones this identity has
- * turned on; refused when none are left.
+ * The formats picked in "Create posts": any that can be created (no Reels),
+ * whatever the identity turned on in its preferences; refused when none are.
  */
-async function chosenFormats(accountId: string, raw: unknown): Promise<FormatId[]> {
-  const { enabledFormats: enabled } = await loadChannels(accountId)
-  const formats = cleanFormats(raw).filter(f => enabled.includes(f))
+function chosenFormats(raw: unknown): FormatId[] {
+  const formats = cleanFormats(raw).filter(isCreatableFormat)
   if (formats.length === 0) {
     throw new Error('Choose at least one platform to write these posts for.')
   }
@@ -168,7 +166,7 @@ export async function draftSelectedIdeas(options: {
   runId?: string
   /**
    * The formats to write each idea in. Absent: each idea's own (what its run
-   * chose, or LinkedIn). Only formats the identity has turned on are used.
+   * chose, or LinkedIn).
    */
   formats?: string[]
 }) {
@@ -190,7 +188,7 @@ export async function draftSelectedIdeas(options: {
       : null
 
     if (options.formats !== undefined) {
-      const formats = await chosenFormats(accountId, options.formats)
+      const formats = chosenFormats(options.formats)
       // Set before the claim, so the drafting queue reads them. Ideas not yet
       // approved keep theirs: they are skipped below and not drafted.
       await db

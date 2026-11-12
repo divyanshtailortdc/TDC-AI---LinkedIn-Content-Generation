@@ -199,16 +199,6 @@ export interface PostDetail {
   } | null
   /** Why drafting could not make this post's image, when it tried and failed. */
   mediaFailure?: string | null
-  /**
-   * An article-link post's card: the page it shares, with the image as its
-   * thumbnail. Null for every other post.
-   */
-  link?: {
-    url: string
-    title: string
-    description: string | null
-    articleId: string | null
-  } | null
   lintFindings: LintFinding[]
   /** When it was marked posted (by hand on Schedule, or by publishing), as ISO. */
   postedAt?: string | null
@@ -1504,14 +1494,10 @@ export function PostsClientInner({
     const format = formatOf(activePost.formatId)
     // LinkedIn copies as its platform formats it (a bold hook); every other
     // format as plain text in its own shape.
-    const text =
+    const success = await copyTextToClipboard(
       format === 'linkedin.post'
         ? platformPostText(activePost, activePlatform)
         : copyText(format, activePost)
-    // An article-link post pasted by hand needs its link in the text: the
-    // platform builds the card from it (publishing sends the card instead).
-    const success = await copyTextToClipboard(
-      activePost.link ? `${text}\n\n${activePost.link.url}` : text
     )
     if (success) {
       setCopiedPost(true)
@@ -2737,7 +2723,6 @@ export function PostsClientInner({
                         hashtags={activePost.hashtags}
                         mediaUrl={activePost.media?.imageUrl}
                         mediaAltText={activePost.media?.altText}
-                        link={activePost.link}
                         onMediaClick={
                           activePost.media?.imageUrl
                             ? () => setIsImageZoomOpen(true)
@@ -2991,8 +2976,8 @@ export function PostsClientInner({
                           <Image
                             src={activePost.media.imageUrl}
                             alt={activePost.media.altText || 'Generated visual'}
-                            width={2048}
-                            height={1072}
+                            width={activePost.media.width || 2048}
+                            height={activePost.media.height || 1072}
                             className="h-auto w-full object-contain"
                             unoptimized
                           />
@@ -3547,86 +3532,6 @@ export function PostsClientInner({
                     </div>
                   </div>
                   )}
-
-                  {/* B. QUALITY CHECKS (Summary by default: "✓ 6 checks passed") */}
-                  <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
-                    <button
-                      type="button"
-                      onClick={() => setShowQualityChecks(!showQualityChecks)}
-                      className="text-foreground hover:bg-surface-hover/50 flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold transition-colors"
-                    >
-                      <span className="flex items-center gap-2">
-                        <FileCheck className="text-accent h-3.5 w-3.5" />
-                        Quality Checks
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            hasLintIssues
-                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                              : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                          }`}
-                        >
-                          {hasLintIssues ? (
-                            <>
-                              <AlertTriangle className="h-3 w-3" />
-                              <span>
-                                {totalLintCount - passedLintCount} to review
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="h-3 w-3" />
-                              <span>{passedLintCount} checks passed</span>
-                            </>
-                          )}
-                        </span>
-                        {showQualityChecks ? (
-                          <ChevronUp className="text-muted h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="text-muted h-4 w-4" />
-                        )}
-                      </div>
-                    </button>
-
-                    {showQualityChecks && (
-                      <div className="divide-border/60 border-border/40 divide-y border-t p-4 pt-0 text-xs">
-                        {lintFindings.length === 0 ? (
-                          <p className="text-muted py-2 text-xs">
-                            All standard{' '}
-                            {formatOf(activePost.formatId) === 'linkedin.post'
-                              ? activePlatform.name
-                              : PLATFORMS[FORMATS[formatOf(activePost.formatId)].platform].label}{' '}
-                            checks verified.
-                          </p>
-                        ) : (
-                          lintFindings.map((finding, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-start gap-2.5 py-2.5"
-                            >
-                              {finding.passed ? (
-                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                              ) : finding.severity === 'error' ? (
-                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
-                              ) : (
-                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <span className="text-foreground block text-xs font-medium">
-                                  {getHumanRuleLabel(finding.rule, activePost.formatId)}
-                                </span>
-                                <p className="text-muted mt-0.5 text-[11px]">
-                                  {finding.message}
-                                </p>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-
 
                 </div>
               </div>

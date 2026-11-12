@@ -2,10 +2,11 @@ import { PlatformApiError } from '../errors'
 import type { PublicationErrorCode } from '../status'
 
 /**
- * Buffer's GraphQL API (https://developers.buffer.com), which publishes X
- * posts for us: the user connects their X account in Buffer and gives the app
- * a Buffer API key, so the app never holds an X token or needs an X developer
- * app. Plain functions over a key and a `fetch`, so tests can run them
+ * Buffer's GraphQL API (https://developers.buffer.com), which publishes X,
+ * Facebook and Instagram posts for us: the user connects the account in
+ * Buffer as a channel and authorizes the app on Buffer (or gives it a Buffer
+ * API key), so the app never holds an X or Meta token or needs a developer
+ * app there. Plain functions over a key and a `fetch`, so tests can run them
  * against a stub.
  *
  * Buffer answers HTTP 200 for most failures, with the reason in the body:
@@ -22,7 +23,7 @@ export const BUFFER_API_URL = 'https://api.buffer.com'
 const REQUEST_TIMEOUT_MS = 30_000
 
 /** Buffer's name for X channels. */
-const X_SERVICES = new Set(['twitter', 'x'])
+export const X_SERVICES: ReadonlySet<string> = new Set(['twitter', 'x'])
 
 export type FetchFn = typeof fetch
 
@@ -30,6 +31,8 @@ export type BufferContext = {
   apiKey: string
   apiUrl?: string
   fetchFn?: FetchFn
+  /** The network posts go to, for messages ("X", "Facebook"); "X" when unset. */
+  platformName?: string
 }
 
 /** What a request does: creating a post is the one that must not repeat. */
@@ -43,10 +46,17 @@ const error = (
   status?: number
 ) => new PlatformApiError(message, code, status)
 
-const MAY_HAVE_POSTED =
-  'and the post may still have gone through: check your X profile before trying again.'
+const nameOf = (ctx: Pick<BufferContext, 'platformName'>) =>
+  ctx.platformName ?? 'X'
 
-function networkError(err: unknown, what: Sending): PlatformApiError {
+const mayHavePosted = (name: string) =>
+  `and the post may still have gone through: check your ${name} profile before trying again.`
+
+function networkError(
+  err: unknown,
+  what: Sending,
+  name: string
+): PlatformApiError {
   const code = (err as { cause?: { code?: string } })?.cause?.code
   if (what === 'read' || (code !== undefined && NOT_SENT_CODES.has(code))) {
     return error(
@@ -54,7 +64,10 @@ function networkError(err: unknown, what: Sending): PlatformApiError {
       'platform_unavailable'
     )
   }
-  return error(`The connection to Buffer was lost ${MAY_HAVE_POSTED}`, 'unknown_outcome')
+  return error(
+    `The connection to Buffer was lost ${mayHavePosted(name)}`,
+    'unknown_outcome'
+  )
 }
 
 type GraphQLError = { message?: string; extensions?: { code?: string } }
@@ -63,7 +76,8 @@ type GraphQLError = { message?: string; extensions?: { code?: string } }
 function requestError(
   status: number,
   errors: GraphQLError[],
-  what: Sending
+  what: Sending,
+  name: string
 ): PlatformApiError {
   const codes = new Set(errors.map(e => e.extensions?.code).filter(Boolean))
   const detail = errors
@@ -73,14 +87,14 @@ function requestError(
     .slice(0, 300)
   if (status === 401 || codes.has('UNAUTHORIZED') || codes.has('UNAUTHENTICATED')) {
     return error(
-      'Buffer no longer accepts this API key. Connect X again in Settings with a new key.',
+      `Buffer no longer accepts this connection. Connect ${name} again in Settings.`,
       'reauth_required',
       status
     )
   }
   if (status === 403 || codes.has('FORBIDDEN')) {
     return error(
-      'Buffer refused: the API key lacks permission for this channel. Connect X again in Settings.',
+      `Buffer refused: this connection lacks permission for the ${name} channel. Connect ${name} again in Settings.`,
       'missing_permission',
       status
     )
@@ -110,7 +124,7 @@ function requestError(
           status
         )
       : error(
-          `Buffer answered with an error ${MAY_HAVE_POSTED}`,
+          `Buffer answered with an error ${mayHavePosted(name)}`,
           'unknown_outcome',
           status
         )
@@ -141,7 +155,7 @@ async function graphql<T>(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     })
   } catch (err) {
-    throw networkError(err, what)
+    throw networkError(err, what, nameOf(ctx))
   }
   const body = (await res.json().catch(() => null)) as {
     data?: T | null
@@ -149,16 +163,16 @@ async function graphql<T>(
   } | null
   const errors = Array.isArray(body?.errors) ? body.errors : []
   if (!res.ok || errors.length > 0 || !body?.data) {
-    throw requestError(res.status, errors, what)
+    throw requestError(res.status, errors, what, nameOf(ctx))
   }
   return body.data
 }
 
 // ---------------------------------------------------------------------------
-// The account and its X channels, for connecting
+// The account and its channels on one network, for connecting
 // ---------------------------------------------------------------------------
 
-export type XChannel = {
+export type BufferChannel = {
   /** Buffer's id for the channel: what posts are created on. */
   id: string
   name: string
@@ -166,6 +180,7 @@ export type XChannel = {
   /** Buffer's free plan locks channels past its limit; a locked one cannot post. */
   isLocked: boolean
 }
+export type XChannel = BufferChannel
 
 type ChannelNode = {
   id: string
@@ -177,12 +192,19 @@ type ChannelNode = {
   isLocked?: boolean
 }
 
-/** The X channels the key's account can post to, across its organizations. */
-export async function listXChannels(ctx: BufferContext): Promise<XChannel[]> {
+/**
+ * The channels of one network (Buffer's `service` names: X_SERVICES,
+ * "facebook", "instagram") the key's account can post to, across its
+ * organizations.
+ */
+export async function listChannels(
+  ctx: BufferContext,
+  services: ReadonlySet<string>
+): Promise<BufferChannel[]> {
   const { account } = await graphql<{
     account: { organizations: Array<{ id: string }> }
   }>(ctx, 'query Organizations { account { organizations { id } } }', {}, 'read')
-  const channels: XChannel[] = []
+  const channels: BufferChannel[] = []
   for (const organization of account.organizations ?? []) {
     const data = await graphql<{ channels: ChannelNode[] }>(
       ctx,
@@ -195,7 +217,7 @@ export async function listXChannels(ctx: BufferContext): Promise<XChannel[]> {
       'read'
     )
     for (const channel of data.channels ?? []) {
-      if (!X_SERVICES.has(channel.service) || channel.isDisconnected) continue
+      if (!services.has(channel.service) || channel.isDisconnected) continue
       channels.push({
         id: channel.id,
         name: channel.displayName || channel.name,
@@ -207,6 +229,10 @@ export async function listXChannels(ctx: BufferContext): Promise<XChannel[]> {
   return channels
 }
 
+/** The X channels the key's account can post to. */
+export const listXChannels = (ctx: BufferContext) =>
+  listChannels(ctx, X_SERVICES)
+
 // ---------------------------------------------------------------------------
 // Posts
 // ---------------------------------------------------------------------------
@@ -214,9 +240,9 @@ export async function listXChannels(ctx: BufferContext): Promise<XChannel[]> {
 /** Where a post Buffer was given stands. */
 export type BufferPostState = {
   id: string
-  /** sent: on X. error: Buffer gave up. pending: still queued or sending. */
+  /** sent: on the network. error: Buffer gave up. pending: still queued or sending. */
   state: 'sent' | 'error' | 'pending'
-  /** The post on X, once sent. */
+  /** The post on the network, once sent. */
   url: string | null
   sentAt: Date | null
   error: string | null
@@ -232,7 +258,7 @@ type PostNode = {
 
 const POST_FIELDS = 'id status externalLink sentAt error { message }'
 
-function toState(post: PostNode): BufferPostState {
+function toState(post: PostNode, name: string): BufferPostState {
   const state =
     post.status === 'sent' ? 'sent' : post.status === 'error' ? 'error' : 'pending'
   const sentAt = post.sentAt ? new Date(post.sentAt) : null
@@ -243,19 +269,21 @@ function toState(post: PostNode): BufferPostState {
     sentAt: sentAt && !Number.isNaN(sentAt.getTime()) ? sentAt : null,
     error:
       state === 'error'
-        ? `X did not take the post: ${post.error?.message?.slice(0, 300) || 'Buffer reported an error.'}`
+        ? `${name} did not take the post: ${post.error?.message?.slice(0, 300) || 'Buffer reported an error.'}`
         : null
   }
 }
 
 /**
  * Hands the post to Buffer to publish on the channel now (mode shareNow).
- * Buffer answers before X has it: the state is usually `pending`, and
- * getPost follows it to `sent`.
+ * Buffer answers before the network has it: the state is usually `pending`,
+ * and getPost follows it to `sent`.
  *
- * With `replies`, it is a thread: Buffer publishes `metadata.twitter.thread`
- * (every post, the first included) in order, each a reply to the one before,
- * and the top-level text and image must be the first post's.
+ * With `replies`, it is an X thread: Buffer publishes
+ * `metadata.twitter.thread` (every post, the first included) in order, each
+ * a reply to the one before, and the top-level text and image must be the
+ * first post's. `metadata` is the network's own (`facebook`: the post type
+ * and first comment; `instagram`: the post type).
  */
 export async function createPost(
   ctx: BufferContext,
@@ -264,6 +292,7 @@ export async function createPost(
     text: string
     replies?: string[]
     image?: { url: string; altText?: string | null }
+    metadata?: Record<string, unknown>
   }
 ): Promise<BufferPostState> {
   const assets = post.image
@@ -279,6 +308,17 @@ export async function createPost(
       ]
     : []
   const replies = post.replies?.filter(text => text.trim()) ?? []
+  const metadata = {
+    ...post.metadata,
+    ...(replies.length > 0 && {
+      twitter: {
+        thread: [
+          { text: post.text, assets },
+          ...replies.map(text => ({ text, assets: [] }))
+        ]
+      }
+    })
+  }
   const data = await graphql<{
     createPost: { __typename?: string; post?: PostNode; message?: string }
   }>(
@@ -299,22 +339,13 @@ export async function createPost(
         needsApproval: false,
         aiAssisted: true,
         assets,
-        ...(replies.length > 0 && {
-          metadata: {
-            twitter: {
-              thread: [
-                { text: post.text, assets },
-                ...replies.map(text => ({ text, assets: [] }))
-              ]
-            }
-          }
-        })
+        ...(Object.keys(metadata).length > 0 && { metadata })
       }
     },
     'post'
   )
   const result = data.createPost
-  if (result?.post?.id) return toState(result.post)
+  if (result?.post?.id) return toState(result.post, nameOf(ctx))
   if (result?.message) {
     // A typed refusal (InvalidInputError, LimitReachedError, …): nothing made.
     throw error(
@@ -324,7 +355,7 @@ export async function createPost(
   }
   // A success with no id to follow: it may be on its way to X.
   throw error(
-    'Buffer accepted the post but did not return its id. Check your X profile before trying again.',
+    `Buffer accepted the post but did not return its id. Check your ${nameOf(ctx)} profile before trying again.`,
     'unknown_outcome'
   )
 }
@@ -340,5 +371,5 @@ export async function getPost(
     { input: { id: postId } },
     'read'
   )
-  return toState(data.post)
+  return toState(data.post, nameOf(ctx))
 }

@@ -84,6 +84,7 @@ const X_LINK_NOTE =
 export const FORMATS: Record<FormatId, FormatSpec> = {
   'linkedin.post': {
     id: 'linkedin.post',
+    imageShape: '1.91:1',
     platform: 'linkedin',
     label: 'LinkedIn post',
     version: 1,
@@ -102,6 +103,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'x.post': {
     id: 'x.post',
+    imageShape: '16:9',
     platform: 'x',
     label: 'X post',
     // 2: links go in the reply, which is published; one emoji at most.
@@ -120,6 +122,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'x.thread': {
     id: 'x.thread',
+    imageShape: '16:9',
     platform: 'x',
     label: 'X thread',
     // 2: links go in the reply, which is published; one emoji at most;
@@ -149,6 +152,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'threads.post': {
     id: 'threads.post',
+    imageShape: '4:5',
     platform: 'threads',
     label: 'Threads post',
     version: 1,
@@ -166,6 +170,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'facebook.post': {
     id: 'facebook.post',
+    imageShape: '4:5',
     platform: 'facebook',
     label: 'Facebook post',
     version: 1,
@@ -181,10 +186,12 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     ],
     commentLabel: 'First comment'
   },
+  // A feed post: a picture with its caption. The id is older than the label.
   'instagram.caption': {
     id: 'instagram.caption',
+    imageShape: '4:5',
     platform: 'instagram',
-    label: 'Instagram caption',
+    label: 'Instagram post',
     version: 1,
     structure: 'single',
     limits: { count: 'utf16', maxChars: 2200, targetChars: 800, foldChars: 125 },
@@ -197,10 +204,40 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
       'Links are not clickable in captions. Never write a URL; say the link is in the bio.',
       'Hashtags go at the end, in addition to the caption text.'
     ],
-    commentLabel: 'Link-in-bio note'
+    commentLabel: 'Link-in-bio note',
+    withImage: true
+  },
+  'instagram.reel': {
+    id: 'instagram.reel',
+    imageShape: '4:5',
+    platform: 'instagram',
+    label: 'Instagram Reel',
+    version: 1,
+    structure: 'script',
+    limits: {
+      count: 'utf16',
+      maxChars: 2200,
+      targetChars: 300,
+      foldChars: 125,
+      seconds: { target: 30, max: 90 }
+    },
+    hashtags: { min: 1, max: 5 },
+    links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
+    rules: [
+      'A vertical video script, shot by shot, to be filmed by the author: what is said, what is on screen, and any text overlay.',
+      'The first shot is the hook: it earns the next three seconds, in words and in picture.',
+      'Write the spoken words to be said aloud: short sentences, contractions, no lists read out.',
+      'The caption goes with the video: its first 125 characters show before "more". Never write a URL; say the link is in the bio.'
+    ],
+    commentLabel: 'Pinned comment',
+    register:
+      'Spoken, personal and quick, to one viewer. Short sentences that sound natural out loud; the picture carries as much as the words.',
+    opening:
+      'A spoken first line, within two seconds, that makes the viewer want the rest, while the picture already shows something worth watching.'
   },
   'youtube.short': {
     id: 'youtube.short',
+    imageShape: '4:5',
     platform: 'youtube',
     label: 'YouTube Short',
     version: 1,
@@ -223,6 +260,17 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     commentLabel: 'Pinned comment'
   }
 }
+
+/**
+ * The formats new posts can be created in, from ideas or as another version:
+ * every one above except Instagram Reels (Instagram is posts with a picture).
+ * Reels written before stay readable and editable.
+ */
+export const CREATABLE_FORMATS: readonly FormatId[] = FORMAT_IDS.filter(
+  id => id !== 'instagram.reel'
+)
+
+export const isCreatableFormat = (id: FormatId) => CREATABLE_FORMATS.includes(id)
 
 export const formatSpec = (id: FormatId): FormatSpec => FORMATS[id]
 
@@ -255,6 +303,19 @@ export function formatsOfPlatform(platform: PlatformId): FormatId[] {
 export function platformsOf(formats: FormatId[]): PlatformId[] {
   const used = new Set(formats.map(f => FORMATS[f].platform))
   return PLATFORM_IDS.filter(p => used.has(p))
+}
+
+/** What a format is, in a few words, for pickers. */
+export function formatHint(id: FormatId): string {
+  const { structure, limits, withImage } = FORMATS[id]
+  if (withImage) {
+    return `A picture with its caption, up to ${limits.maxChars.toLocaleString('en-US')} characters`
+  }
+  if (structure === 'thread' && limits.parts) {
+    return `${limits.parts.min}–${limits.parts.max} posts, each up to ${limits.maxChars} characters`
+  }
+  if (structure === 'script') return 'A short video script and its caption'
+  return `One post, up to ${limits.maxChars.toLocaleString('en-US')} characters`
 }
 
 /** "LinkedIn post, X thread and Instagram caption". */

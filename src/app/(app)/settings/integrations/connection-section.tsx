@@ -21,6 +21,15 @@ import { BufferAccountSwitch, BufferConnectForm } from './buffer-connect-form'
 const connectUrl = (platform: PlatformSpec) =>
   `/api/integrations/${platform.id}/connect`
 
+/**
+ * What Buffer can connect on a network, where that is not just any account:
+ * Facebook Pages, and Instagram professional accounts (not personal ones).
+ */
+const BUFFER_ACCOUNT_KIND: Partial<Record<string, string>> = {
+  facebook: 'Facebook Page',
+  instagram: 'Instagram business or creator account'
+}
+
 const STATUS = {
   connected: {
     label: 'Connected',
@@ -41,9 +50,9 @@ const STATUS = {
 /**
  * Settings → Integrations, one per platform: connect the account approved
  * posts are published to, separately from how the user signs in, and opt in
- * to auto-publishing. LinkedIn connects on its consent screen; X through
- * Buffer, on Buffer's consent screen (or, without a Buffer app client, with a
- * Buffer API key pasted here).
+ * to auto-publishing. LinkedIn connects on its consent screen; X, Facebook
+ * and Instagram through Buffer, on Buffer's consent screen (or, without a
+ * Buffer app client, with a Buffer API key pasted here).
  */
 export function ConnectionSection({
   platform,
@@ -70,6 +79,7 @@ export function ConnectionSection({
   const [keyFormOpen, setKeyFormOpen] = useState(false)
   const viaBuffer = via === 'Buffer'
   const withKey = connectWith === 'api_key'
+  const bufferAccount = BUFFER_ACCOUNT_KIND[platform.id] ?? `${platform.name} account`
 
   // The callback's outcome is shown once; a reload should not repeat it.
   useEffect(() => {
@@ -216,6 +226,7 @@ export function ConnectionSection({
 
           {configured && withKey && keyFormOpen && (
             <BufferConnectForm
+              platform={platform.id}
               platformName={name}
               onDone={() => setKeyFormOpen(false)}
             />
@@ -234,9 +245,9 @@ export function ConnectionSection({
                 </p>
                 <p className="text-muted mx-auto mt-1 max-w-md text-xs leading-relaxed">
                   {viaBuffer && withKey
-                    ? `Connect your ${name} account in Buffer (its free plan is enough), create a Buffer API key, and paste it here.`
+                    ? `Connect your ${bufferAccount} in Buffer (its free plan is enough), create a Buffer API key, and paste it here.`
                     : viaBuffer
-                      ? `Connect your ${name} account in Buffer first (its free plan is enough). Buffer will then ask you to allow TDC AI to see your channels and create posts.`
+                      ? `Connect your ${bufferAccount} in Buffer first (its free plan is enough). Buffer will then ask you to allow TDC AI to see your channels and create posts.`
                       : `${name} will ask you to allow TDC AI to see your name and photo and to create posts for you.`}{' '}
                   Nothing is posted until you approve a post and choose to
                   publish it.
@@ -302,7 +313,7 @@ export function ConnectionSection({
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   {connected && viaBuffer && !withKey && (
-                    <BufferAccountSwitch platformName={name} />
+                    <BufferAccountSwitch platform={platform.id} platformName={name} />
                   )}
                   {connected &&
                     connectButton(

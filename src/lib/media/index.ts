@@ -46,8 +46,10 @@ import { loadCanvasFonts } from './canvas/fonts'
 import { prepareIllustration } from './canvas/illustration'
 import { canvasPalette } from './canvas/palette'
 import { renderCanvas } from './canvas/render'
+import type { ImageShape } from '@/lib/formats'
 import {
   CANVAS_SIZE,
+  SHAPE_SIZES,
   fitDiagram,
   type CanvasCopy,
   type CanvasLayout,
@@ -67,6 +69,11 @@ export interface MediaPlanRequest {
   /** The brand colours, and the logo file when one was uploaded. */
   brand: BrandRendering
   aspectRatio?: '1:1' | '16:9' | '4:5'
+  /**
+   * The post's image shape (its format's imageShape): the canvas is drawn at
+   * SHAPE_SIZES[shape]. 1.91:1 when unset. A reference image keeps its own.
+   */
+  shape?: ImageShape
   /** Visual direction: the reviewer's words, or the approved idea's. */
   direction?: string
   /** The image type the reviewer chose; the art director picks when unset. */
@@ -791,10 +798,10 @@ export async function createMediaPlan(
 
     // With a reference image, its own structure, drawn block by block at
     // the feed shape nearest its own. Null when it gave nothing to build on;
-    // the built-in layout is drawn then.
+    // the built-in layout is drawn then, at the post's own shape.
     const canvasSize = reference
       ? canvasSizeFor((await imageSize(reference)) ?? CANVAS_SIZE)
-      : CANVAS_SIZE
+      : SHAPE_SIZES[req.shape ?? '1.91:1']
     const placeOptions = {
       logo: theme.showLogo,
       footer: Boolean(copySpec.footer),
@@ -905,7 +912,8 @@ export async function createMediaPlan(
         !logoSpec && theme.showLogo
           ? req.context.accountName || null
           : null,
-      size: blueprint ? canvasSize : undefined
+      // A reference's built-in fallback is drawn at the post's shape.
+      size: blueprint ? canvasSize : SHAPE_SIZES[req.shape ?? '1.91:1']
     }
 
     let finalBuffer = await renderCanvas(spec, fontSet.fonts)
@@ -1065,6 +1073,8 @@ export interface CustomImageRequest {
   brand?: BrandRendering
   /** The post the image goes with, for the lettering check. */
   postText?: string
+  /** The post's image shape: a new image is generated at SHAPE_SIZES[shape]. */
+  shape?: ImageShape
   /**
    * The only words the image should carry: what the reviewer put in quotes,
    * or the headline an edited image already had. Anything else is flagged.
@@ -1118,11 +1128,13 @@ export interface CustomImageResult {
 /** "a wide 1.91:1 landscape" for 2048x1072; the shapes the canvas draws at. */
 function shapeWords(size: { width: number; height: number }): string {
   const ratio = size.width / size.height
-  return ratio > 1.3
+  return ratio > 1.85
     ? 'a wide 1.91:1 landscape'
-    : ratio > 0.9
-      ? 'a square 1:1'
-      : 'a tall 4:5 portrait'
+    : ratio > 1.3
+      ? 'a wide 16:9 landscape'
+      : ratio > 0.9
+        ? 'a square 1:1'
+        : 'a tall 4:5 portrait'
 }
 
 function buildEditPrompt(
@@ -1170,17 +1182,18 @@ export async function generateCustomImage(
   const workflow: 'generate' | 'edit' =
     references.length > 0 ? 'edit' : 'generate'
   const seed = req.seed ?? randomSeed()
-  // An edit keeps its image's shape: one built on a reference may be square or tall.
+  // An edit keeps its image's shape: one built on a reference may be square
+  // or tall. A new image, or one of an unknown size, takes the post's shape.
   const editImage =
     workflow === 'edit' ? decodeImageDataUrl(references[0]!) : null
   const editSize = editImage ? readImageDimensions(editImage.buffer) : null
   const target =
     editSize &&
-    BLUEPRINT_SIZES.some(
+    [...BLUEPRINT_SIZES, ...Object.values(SHAPE_SIZES)].some(
       s => s.width === editSize.width && s.height === editSize.height
     )
       ? editSize
-      : FEED_IMAGE
+      : SHAPE_SIZES[req.shape ?? '1.91:1']
 
   let finalPrompt =
     workflow === 'edit' ? buildEditPrompt(prompt, target) : prompt

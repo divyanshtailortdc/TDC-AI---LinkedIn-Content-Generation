@@ -6,20 +6,26 @@ import { showToast } from '@/components/toast-notification'
 import { initialsOf } from '@/lib/initials'
 import { Users } from 'lucide-react'
 import { useId, useState } from 'react'
-import { connectXWithBuffer, listXAccounts, switchXAccount } from './actions'
+import {
+  connectWithBuffer,
+  listBufferAccounts,
+  switchBufferAccount
+} from './actions'
 
 type Channel = { id: string; name: string; avatar: string | null }
 
 /**
- * Connecting X through Buffer: the user pastes a Buffer API key, the server
- * checks it by listing the X accounts connected in that Buffer account, and
- * saves it (encrypted) with the one picked. The key is only ever sent to the
- * server, never shown again.
+ * Connecting X, Facebook or Instagram through Buffer: the user pastes a
+ * Buffer API key, the server checks it by listing the platform's accounts
+ * connected in that Buffer account, and saves it (encrypted) with the one
+ * picked. The key is only ever sent to the server, never shown again.
  */
 export function BufferConnectForm({
+  platform,
   platformName,
   onDone
 }: {
+  platform: string
   platformName: string
   onDone: () => void
 }) {
@@ -33,7 +39,7 @@ export function BufferConnectForm({
   const submit = async () => {
     setSaving(true)
     setError(null)
-    const res = await connectXWithBuffer({
+    const res = await connectWithBuffer(platform, {
       apiKey,
       channelId: channelId ?? undefined
     }).catch(() => ({
@@ -145,7 +151,7 @@ export function BufferConnectForm({
   )
 }
 
-/** The X accounts of a Buffer account, to pick the one to publish as. */
+/** A platform's accounts in a Buffer account, to pick the one to publish as. */
 function ChannelOptions({
   channels,
   value,
@@ -196,11 +202,17 @@ function ChannelOptions({
 }
 
 /**
- * Connected through Buffer's consent screen: switch to another X account of
- * the same Buffer account, without connecting again. Lists them only when
- * opened (each look is a Buffer request).
+ * Connected through Buffer's consent screen: switch to another account of
+ * the same platform in the same Buffer account, without connecting again.
+ * Lists them only when opened (each look is a Buffer request).
  */
-export function BufferAccountSwitch({ platformName }: { platformName: string }) {
+export function BufferAccountSwitch({
+  platform,
+  platformName
+}: {
+  platform: string
+  platformName: string
+}) {
   const [open, setOpen] = useState(false)
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [channelId, setChannelId] = useState<string | null>(null)
@@ -211,7 +223,7 @@ export function BufferAccountSwitch({ platformName }: { platformName: string }) 
     setOpen(true)
     setBusy(true)
     setError(null)
-    const res = await listXAccounts().catch(() => ({
+    const res = await listBufferAccounts(platform).catch(() => ({
       success: false as const,
       error: 'Buffer could not be reached. Please try again.'
     }))
@@ -227,7 +239,7 @@ export function BufferAccountSwitch({ platformName }: { platformName: string }) 
   const save = async () => {
     if (!channelId) return
     setBusy(true)
-    const res = await switchXAccount(channelId).catch(() => ({
+    const res = await switchBufferAccount(platform, channelId).catch(() => ({
       success: false as const,
       error: 'The account could not be changed. Please try again.'
     }))

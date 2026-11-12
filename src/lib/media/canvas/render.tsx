@@ -23,11 +23,28 @@ import {
  * - top_bottom: Headline across top, horizontal visual/cards across bottom
  * - centered_hero: Centered elevated card with headline and highlight pills
  *
+ * At the size of the post's shape (spec.size, SHAPE_SIZES): a wide one (X's
+ * 16:9) keeps these layouts, centred in its extra height; a tall one (4:5)
+ * stacks the text over the square visual panel, or under it for split_right.
+ *
  * With a reference image, its own structure (spec.blueprint) is drawn
  * instead; see ./blueprint-render.
  */
 
 const LOGO_BOX = { width: 340, height: 84 }
+
+/** A tall canvas's margin above or below the visual panel. */
+const STACK_MARGIN = 96
+
+const sizeOf = (spec: CanvasSpec) => spec.size ?? CANVAS_SIZE
+
+/** Too narrow for text and panel side by side (4:5): they are stacked. */
+const isStacked = (size: { width: number; height: number }) =>
+  size.width / size.height < 1.3
+
+/** The height a wide shape has beyond 1.91:1 (16:9's 80 px), split above and below. */
+const extraHeight = (spec: CanvasSpec) =>
+  Math.max(0, sizeOf(spec).height - CANVAS_SIZE.height)
 
 /** The dots and grid the background patterns fill with, for an svg's <defs>. */
 const patternDefs = (palette: CanvasSpec['palette']) => [
@@ -61,18 +78,38 @@ function PlainBackground({ spec }: { spec: CanvasSpec }) {
 
 function Background({ spec }: { spec: CanvasSpec }) {
   const { palette, pattern, layout = 'split_left' } = spec
-  const glowX =
-    layout === 'split_right'
+  const size = sizeOf(spec)
+  const stacked = isStacked(size)
+  // Stacked: the panel is under the text, or over it for split_right.
+  const visualFirst = layout === 'split_right'
+  const glowX = stacked
+    ? size.width / 2
+    : layout === 'split_right'
       ? VISUAL_PANEL.width / 2
       : layout === 'top_bottom' || layout === 'centered_hero'
         ? CANVAS_SIZE.width / 2
         : VISUAL_PANEL.left + VISUAL_PANEL.width / 2
-  const glowY = layout === 'top_bottom' ? 740 : CANVAS_SIZE.height / 2
+  const glowY = stacked
+    ? visualFirst
+      ? STACK_MARGIN + VISUAL_PANEL.height / 2
+      : size.height - STACK_MARGIN - VISUAL_PANEL.height / 2
+    : layout === 'top_bottom'
+      ? 740 + extraHeight(spec) / 2
+      : size.height / 2
+  // The fade runs from the text's side, opaque, toward the visual.
+  const fade = stacked
+    ? { x1: '0', y1: visualFirst ? '1' : '0', x2: '0', y2: visualFirst ? '0' : '1' }
+    : {
+        x1: layout === 'top_bottom' ? '0' : layout === 'split_right' ? '1' : '0',
+        y1: '0',
+        x2: layout === 'top_bottom' ? '0' : layout === 'split_right' ? '0' : '1',
+        y2: layout === 'top_bottom' ? '1' : '0'
+      }
 
   return (
     <svg
-      width={CANVAS_SIZE.width}
-      height={CANVAS_SIZE.height}
+      width={size.width}
+      height={size.height}
       style={{ position: 'absolute', left: 0, top: 0 }}
     >
       <defs>
@@ -81,13 +118,7 @@ function Background({ spec }: { spec: CanvasSpec }) {
           <stop offset="0" stopColor={palette.primary} stopOpacity="0.13" />
           <stop offset="1" stopColor={palette.primary} stopOpacity="0" />
         </radialGradient>
-        <linearGradient
-          id="fade"
-          x1={layout === 'top_bottom' ? '0' : layout === 'split_right' ? '1' : '0'}
-          y1="0"
-          x2={layout === 'top_bottom' ? '0' : layout === 'split_right' ? '0' : '1'}
-          y2={layout === 'top_bottom' ? '1' : '0'}
-        >
+        <linearGradient id="fade" {...fade}>
           <stop offset="0" stopColor={palette.background} stopOpacity="1" />
           <stop offset="0.45" stopColor={palette.background} stopOpacity="0.92" />
           <stop offset="0.75" stopColor={palette.background} stopOpacity="0" />
@@ -156,7 +187,7 @@ function TextColumn({
   const words = splitHeadline(copy.headline, copy.highlights)
   const size = headlineFontSize(copy.headline)
   const left = alignRight
-    ? CANVAS_SIZE.width - TEXT_COLUMN.width
+    ? sizeOf(spec).width - TEXT_COLUMN.width
     : TEXT_COLUMN.left
 
   return (
@@ -166,7 +197,7 @@ function TextColumn({
         left,
         top: 0,
         width: TEXT_COLUMN.width,
-        height: CANVAS_SIZE.height,
+        height: sizeOf(spec).height,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
@@ -491,8 +522,8 @@ function CenteredHero({ spec }: { spec: CanvasSpec }) {
         position: 'absolute',
         left: 0,
         top: 0,
-        width: CANVAS_SIZE.width,
-        height: CANVAS_SIZE.height,
+        width: sizeOf(spec).width,
+        height: sizeOf(spec).height,
         display: 'flex'
       }}
     >
@@ -534,7 +565,7 @@ function CenteredHero({ spec }: { spec: CanvasSpec }) {
           left: 110,
           top: 156,
           width: 1828,
-          height: 820,
+          height: 820 + extraHeight(spec),
           borderRadius: 40,
           backgroundColor: palette.surface,
           border: `2px solid ${palette.line}`,
@@ -668,11 +699,159 @@ function CenteredHero({ spec }: { spec: CanvasSpec }) {
   )
 }
 
+/** The logo, and the website when there is one, in one row. */
+function LogoRow({ spec }: { spec: CanvasSpec }) {
+  const { copy, palette } = spec
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}
+    >
+      <Logo spec={spec} />
+      {copy.footer ? (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 6,
+              backgroundColor: palette.accent,
+              marginRight: 14
+            }}
+          />
+          <div style={{ fontSize: 28, fontWeight: 600, color: palette.muted }}>
+            {copy.footer}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * A tall image (4:5): the text across the full width and the square visual
+ * panel centred under it, or over it when `visualFirst` (split_right).
+ */
+function Stacked({
+  spec,
+  visualFirst
+}: {
+  spec: CanvasSpec
+  visualFirst: boolean
+}) {
+  const { copy, palette, fonts } = spec
+  const size = sizeOf(spec)
+  const words = splitHeadline(copy.headline, copy.highlights)
+  const fontSize = headlineFontSize(copy.headline)
+  const panelTop = visualFirst
+    ? STACK_MARGIN
+    : size.height - STACK_MARGIN - VISUAL_PANEL.height
+  const textTop = visualFirst ? panelTop + VISUAL_PANEL.height : 0
+  const textHeight = size.height - VISUAL_PANEL.height - STACK_MARGIN
+  const padX = TEXT_COLUMN.padX
+
+  const headline = (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {copy.tagline ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 26 }}>
+          <div style={{ width: 44, height: 6, borderRadius: 3, backgroundColor: palette.accent }} />
+          <div
+            style={{
+              fontSize: 27,
+              fontWeight: 600,
+              letterSpacing: 4,
+              textTransform: 'uppercase',
+              color: palette.primary
+            }}
+          >
+            {copy.tagline}
+          </div>
+        </div>
+      ) : null}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          fontFamily: fonts.heading,
+          fontSize,
+          fontWeight: fonts.headingWeight,
+          lineHeight: 1.07,
+          letterSpacing: -1.5,
+          color: palette.ink
+        }}
+      >
+        {words.map((word, i) => (
+          <span
+            key={i}
+            style={{
+              marginRight: Math.round(fontSize * 0.24),
+              color: word.highlight ? palette.accent : palette.ink
+            }}
+          >
+            {word.text}
+          </span>
+        ))}
+      </div>
+      {copy.subheadline ? (
+        <div
+          style={{
+            marginTop: 26,
+            fontSize: 34,
+            lineHeight: 1.36,
+            color: palette.body
+          }}
+        >
+          {copy.subheadline}
+        </div>
+      ) : null}
+    </div>
+  )
+
+  return (
+    <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        style={{
+          display: 'flex',
+          position: 'absolute',
+          left: Math.round((size.width - VISUAL_PANEL.width) / 2),
+          top: panelTop,
+          width: VISUAL_PANEL.width,
+          height: VISUAL_PANEL.height
+        }}
+      >
+        <Visual spec={spec} />
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: textTop,
+          width: size.width,
+          height: textHeight,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          padding: visualFirst
+            ? `40px ${padX}px ${TEXT_COLUMN.padY}px ${padX}px`
+            : `${TEXT_COLUMN.padY}px ${padX}px 40px ${padX}px`
+        }}
+      >
+        {visualFirst ? headline : <LogoRow spec={spec} />}
+        {visualFirst ? <LogoRow spec={spec} /> : headline}
+      </div>
+    </div>
+  )
+}
+
 export async function renderCanvas(
   spec: CanvasSpec,
   fonts: SatoriFont[]
 ): Promise<Buffer> {
   const layout = spec.layout || 'split_left'
+  const extra = extraHeight(spec)
 
   const response = new ImageResponse(
     (
@@ -695,6 +874,8 @@ export async function renderCanvas(
             blueprint={spec.blueprint}
             canvas={spec.size ?? CANVAS_SIZE}
           />
+        ) : isStacked(sizeOf(spec)) ? (
+          <Stacked spec={spec} visualFirst={layout === 'split_right'} />
         ) : layout === 'top_bottom' ? (
           <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
             <TopHeader spec={spec} />
@@ -703,7 +884,7 @@ export async function renderCanvas(
                 display: 'flex',
                 position: 'absolute',
                 left: 104,
-                top: 480,
+                top: 480 + extra / 2,
                 width: 1840,
                 height: 500
               }}
@@ -720,7 +901,7 @@ export async function renderCanvas(
                 display: 'flex',
                 position: 'absolute',
                 left: 0,
-                top: 0,
+                top: extra / 2,
                 width: VISUAL_PANEL.width,
                 height: VISUAL_PANEL.height
               }}
@@ -736,7 +917,7 @@ export async function renderCanvas(
                 display: 'flex',
                 position: 'absolute',
                 left: VISUAL_PANEL.left,
-                top: VISUAL_PANEL.top,
+                top: VISUAL_PANEL.top + extra / 2,
                 width: VISUAL_PANEL.width,
                 height: VISUAL_PANEL.height
               }}

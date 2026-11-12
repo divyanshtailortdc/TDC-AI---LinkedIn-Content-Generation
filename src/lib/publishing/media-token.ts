@@ -45,6 +45,53 @@ export function verifyMediaToken(
   return Number(expires) > now ? draftId : null
 }
 
-/** The image's public link on `appUrl`. */
-export const mediaUrl = (appUrl: string, token: string) =>
-  new URL(`${MEDIA_PATH}/${encodeURIComponent(token)}`, appUrl).toString()
+/**
+ * How the image is served for a network that takes only some images
+ * (./buffer/image-variant.ts): `instagram` as a JPEG within Instagram's
+ * aspect ratios, `facebook` with WebP as JPEG. Not signed: it only changes
+ * how the one image the token opens is encoded.
+ */
+export const MEDIA_VARIANTS = ['facebook', 'instagram'] as const
+export type MediaVariant = (typeof MEDIA_VARIANTS)[number]
+export const MEDIA_VARIANT_PARAM = 'for'
+
+export const isMediaVariant = (value: unknown): value is MediaVariant =>
+  (MEDIA_VARIANTS as readonly unknown[]).includes(value)
+
+/**
+ * Whether only this computer or its network can open `origin` (localhost, a
+ * private or link-local address): Buffer's servers cannot fetch images there.
+ */
+export function isPrivateOrigin(origin: string): boolean {
+  let host: string
+  try {
+    host = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  } catch {
+    return true
+  }
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^f[cd][0-9a-f]{2}:/.test(host) ||
+    /^fe80:/.test(host)
+  )
+}
+
+/** The image's public link on `appUrl`, as `variant` when given. */
+export function mediaUrl(
+  appUrl: string,
+  token: string,
+  variant?: MediaVariant
+): string {
+  const url = new URL(`${MEDIA_PATH}/${encodeURIComponent(token)}`, appUrl)
+  if (variant) url.searchParams.set(MEDIA_VARIANT_PARAM, variant)
+  return url.toString()
+}

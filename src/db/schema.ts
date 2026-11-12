@@ -47,13 +47,6 @@ import {
   type PublicationTrigger
 } from '../lib/publishing/status'
 import { DEFAULT_PLATFORM_ID, type PlatformId } from '../lib/platforms'
-import {
-  ARTICLE_GENERATION_STATUSES,
-  ARTICLE_PUBLISH_STATUSES,
-  type ArticleGenerationStatus,
-  type ArticlePublishStatus
-} from '../lib/articles/status'
-import type { ArticleBlock } from '../lib/articles/blocks'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -706,16 +699,6 @@ export const postDraftsTable = pgTable('post_drafts', {
   payload: jsonb('payload').$type<Record<string, unknown> | null>(),
   // The post this one was rewritten from, when it was derived from a sibling.
   sourceDraftId: uuid('source_draft_id'),
-  // An article-link post: it shares a web page (usually where the article it
-  // was made from is hosted) as a link card with this title and description.
-  // Null for every other post. The platform does not read the page, so the
-  // card shows exactly these fields, with the post's image as its thumbnail.
-  articleId: uuid('article_id').references((): AnyPgColumn => articlesTable.id, {
-    onDelete: 'set null'
-  }),
-  linkUrl: text('link_url'),
-  linkTitle: text('link_title'),
-  linkDescription: text('link_description'),
   ...commonFieldDefs.dates
 },
   table => [
@@ -834,124 +817,6 @@ export const postMediaTable = pgTable('post_media', {
 },
   table => [
     index('post_media_draft_status_idx').on(table.draftId, table.status)
-  ]
-)
-
-// ---------------------------------------------------------------------------
-// 14b. Articles (1:1 with Idea) — long-form articles written from an idea
-// ---------------------------------------------------------------------------
-
-/** A source the article may draw on, as shown beside it. */
-export type ArticleSource = {
-  kind: 'evidence' | 'knowledge'
-  title: string
-  url?: string | null
-  claim?: string | null
-  /** The model said it relied on this one. */
-  used?: boolean
-}
-
-/** The article's text at one moment: as generated, or before a regeneration. */
-export type ArticleSnapshot = {
-  title: string
-  subtitle: string
-  content: ArticleBlock[]
-  callToAction?: string | null
-  /** When it was replaced, for a previous version. */
-  replacedAt?: string
-}
-
-/** The cover image the model suggests; the reviewer uploads, pastes or generates it. */
-export type ArticleCoverSuggestion = { concept: string; altText: string }
-
-// A long-form article written from an idea, the other format an idea can
-// take beside a post (post_drafts). One per idea: regenerating rewrites this
-// row (keeping the version it replaced), never adds a second. Generation runs
-// after the request answers, so its state is kept here (generation_status),
-// apart from where the article stands with the reviewer (status). Native
-// articles cannot be published through the platform's API, so `status` only
-// becomes 'published' when the reviewer marks it (docs/ARTICLES.md).
-export const articlesTable = pgTable(
-  'articles',
-  {
-    id: commonFieldDefs.id(),
-    accountId: uuid('account_id')
-      .notNull()
-      .references(() => accountsTable.id, { onDelete: 'cascade' }),
-    ideaId: uuid('idea_id')
-      .unique()
-      .references(() => ideasTable.id, { onDelete: 'set null' }),
-    platform: varchar('platform', { length: 30 })
-      .$type<PlatformId>()
-      .default(DEFAULT_PLATFORM_ID)
-      .notNull(),
-    generationStatus: varchar('generation_status', { length: 20 })
-      .$type<ArticleGenerationStatus>()
-      .default('generating')
-      .notNull(),
-    /** Why the last generation failed; null after one that worked. */
-    generationError: text('generation_error'),
-    /** When the current (or last) generation was claimed. */
-    generationStartedAt: commonFieldDefs.date('generation_started_at'),
-    generatedAt: commonFieldDefs.date('generated_at'),
-    /** Generations that finished, the first included. */
-    generationCount: integer('generation_count').default(0).notNull(),
-    /** The reviewer's direction for the latest regeneration, if any. */
-    guidance: text('guidance'),
-    status: varchar('status', { length: 20 })
-      .$type<ArticlePublishStatus>()
-      .default('draft')
-      .notNull(),
-    title: text('title').default('').notNull(),
-    subtitle: text('subtitle').default('').notNull(),
-    content: jsonb('content').$type<ArticleBlock[]>().default([]).notNull(),
-    callToAction: text('call_to_action'),
-    wordCount: integer('word_count').default(0).notNull(),
-    // storage://, a data URL or an https link, as post_media.image_url.
-    coverImageUrl: text('cover_image_url'),
-    coverImageAlt: text('cover_image_alt'),
-    coverSuggestion: jsonb('cover_suggestion').$type<ArticleCoverSuggestion | null>(),
-    /** A short post sharing the article, for an article-link post. */
-    promoPost: text('promo_post'),
-    sources: jsonb('sources').$type<ArticleSource[]>().default([]).notNull(),
-    lintFindings: jsonb('lint_findings')
-      .$type<
-        Array<{
-          rule: string
-          severity: 'error' | 'warning' | 'info'
-          message: string
-          passed: boolean
-        }>
-      >()
-      .default([])
-      .notNull(),
-    selfFlags: jsonb('self_flags').$type<string[]>().default([]).notNull(),
-    /** The model's output as last generated; edits never change it. */
-    original: jsonb('original').$type<ArticleSnapshot | null>(),
-    /** The text a regeneration replaced, so it can be restored. */
-    previousVersion: jsonb('previous_version').$type<ArticleSnapshot | null>(),
-    /**
-     * Everything generating this article has cost, every attempt included
-     * (src/lib/ai/usage.ts). Also recorded on the idea's run, which is what
-     * the usage summaries add up.
-     */
-    usage: jsonb('usage').$type<Record<string, number>>().default({}).notNull(),
-    model: varchar('model', { length: 100 }),
-    /** Where the reviewer published it, once marked published. */
-    publishedUrl: text('published_url'),
-    publishedAt: commonFieldDefs.date('published_at'),
-    ...commonFieldDefs.dates
-  },
-  table => [
-    check(
-      'articles_generation_status_check',
-      sql`${table.generationStatus} in (${sql.raw(ARTICLE_GENERATION_STATUSES.map(s => `'${s}'`).join(', '))})`
-    ),
-    check(
-      'articles_status_check',
-      sql`${table.status} in (${sql.raw(ARTICLE_PUBLISH_STATUSES.map(s => `'${s}'`).join(', '))})`
-    ),
-    index('articles_account_updated_idx').on(table.accountId, table.updatedAt)
   ]
 )
 
@@ -1703,8 +1568,6 @@ export type NewPostCitation = typeof postCitationsTable.$inferInsert
 export type PostMedia = typeof postMediaTable.$inferSelect
 export type NewPostMedia = typeof postMediaTable.$inferInsert
 
-export type Article = typeof articlesTable.$inferSelect
-export type NewArticle = typeof articlesTable.$inferInsert
 
 export type Schedule = typeof schedulesTable.$inferSelect
 export type NewSchedule = typeof schedulesTable.$inferInsert

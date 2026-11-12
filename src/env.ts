@@ -66,15 +66,30 @@ export const env = createEnv({
     // connects X in their own Buffer account; the app needs no X developer
     // app. On whenever TOKEN_ENCRYPTION_KEY is set; "off" hides it.
     X_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
+    // Facebook Pages and Instagram (professional accounts) through Buffer too
+    // (docs/PUBLISHING_FACEBOOK_INSTAGRAM.md), with the same Buffer app client.
+    FACEBOOK_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
+    INSTAGRAM_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     /** Buffer's GraphQL endpoint; only a test stub needs another. */
     BUFFER_API_URL: z.url().default('https://api.buffer.com'),
+    /**
+     * The public address Buffer downloads post images from; defaults to
+     * BETTER_AUTH_URL. Buffer cannot reach localhost, so in local development
+     * set it to a tunnel to the dev server (cloudflared tunnel --url
+     * http://localhost:3000) and keep signing in on localhost.
+     */
+    PUBLISHING_MEDIA_URL: z.url().optional(),
     // Buffer app client (Buffer → Settings → API → App Clients): customers
     // authorize their own Buffer account on Buffer's consent screen. Unset,
     // each user pastes a Buffer API key instead (testing). The secret is for
     // a confidential client only; leave it unset for a public one.
     BUFFER_CLIENT_ID: z.string().optional(),
     BUFFER_CLIENT_SECRET: z.string().optional(),
-    /** Defaults to {BETTER_AUTH_URL}/api/integrations/x/callback. Buffer requires HTTPS, even on localhost. */
+    /**
+     * X's callback; defaults to {BETTER_AUTH_URL}/api/integrations/x/callback.
+     * Facebook and Instagram use /api/integrations/{facebook,instagram}/callback
+     * on the same origin. Buffer requires HTTPS, even on localhost.
+     */
     BUFFER_REDIRECT_URI: z.url().optional(),
     /** Space-separated; offline_access gives the refresh token. */
     BUFFER_SCOPES: z
@@ -144,7 +159,10 @@ export const env = createEnv({
     LINKEDIN_PUBLISH_SCOPES: process.env.LINKEDIN_PUBLISH_SCOPES,
     LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
     X_PUBLISHING: process.env.X_PUBLISHING,
+    FACEBOOK_PUBLISHING: process.env.FACEBOOK_PUBLISHING,
+    INSTAGRAM_PUBLISHING: process.env.INSTAGRAM_PUBLISHING,
     BUFFER_API_URL: process.env.BUFFER_API_URL,
+    PUBLISHING_MEDIA_URL: process.env.PUBLISHING_MEDIA_URL,
     BUFFER_CLIENT_ID: process.env.BUFFER_CLIENT_ID,
     BUFFER_CLIENT_SECRET: process.env.BUFFER_CLIENT_SECRET,
     BUFFER_REDIRECT_URI: process.env.BUFFER_REDIRECT_URI,

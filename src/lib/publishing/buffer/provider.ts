@@ -1,8 +1,13 @@
-import { countChars, FORMATS } from '@/lib/formats'
-import { PLATFORMS } from '@/lib/platforms'
+import { countChars, FORMATS, type FormatId } from '@/lib/formats'
+import { PLATFORMS, type PlatformSpec } from '@/lib/platforms'
 import { PlatformApiError, PostImageError } from '../errors'
-import { createMediaToken, mediaUrl } from '../media-token'
-import { PUBLISHABLE_FORMATS } from '../platform'
+import {
+  createMediaToken,
+  isPrivateOrigin,
+  type MediaVariant,
+  mediaUrl
+} from '../media-token'
+import { type BufferPlatformId, PUBLISHABLE_FORMATS } from '../platform'
 import type {
   BufferConfig,
   CreatedPost,
@@ -15,7 +20,8 @@ import {
   type BufferPostState,
   createPost,
   getPost,
-  listXChannels
+  listChannels,
+  X_SERVICES
 } from './api'
 import {
   BUFFER_PUBLISH_SCOPE,
@@ -27,33 +33,113 @@ import {
 } from './oauth'
 
 /**
- * X as a publishing provider, through Buffer (./api). Each customer
- * authorizes their own Buffer account through Buffer's consent screen (the
- * app client, ./oauth), or, without one set up, pastes a Buffer API key
- * (testing). The connection's account id is the Buffer channel of their X
- * account; the app holds no X token.
+ * X, Facebook and Instagram as publishing providers, through Buffer (./api),
+ * one provider per network from the same code. Each customer authorizes
+ * their own Buffer account through Buffer's consent screen (the app client,
+ * ./oauth), once per network, or, without one set up, pastes a Buffer API
+ * key (testing). The connection's account id is the Buffer channel of their
+ * account on that network; the app holds no X or Meta token.
  *
- * A thread, and the reply under a post, go out as one Buffer post whose
- * thread holds every post in order (./api createPost).
+ *   x          An X thread, and the reply under a post, go out as one Buffer
+ *              post whose thread holds every post in order.
+ *   facebook   A Facebook Page post; its first comment goes out with it.
+ *   instagram  A feed post: the caption with its image, which Instagram
+ *              requires (sent as a JPEG within Instagram's aspect ratios).
  *
- * Buffer answers createPost before X has the post, so a post comes back
- * `pending` unless it is sent within the short wait below; the engine then
- * keeps it 'publishing' and follows it with checkPost until Buffer says sent
- * (with the post's X link) or error.
+ * Buffer answers createPost before the network has the post, so a post comes
+ * back `pending` unless it is sent within the short wait below; the engine
+ * then keeps it 'publishing' and follows it with checkPost until Buffer says
+ * sent (with the post's link) or error.
  */
 
-/** X takes images up to 5 MB. */
-const X_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MB = 1024 * 1024
+
+/** What differs between the networks Buffer publishes to. */
+type BufferNetwork = {
+  platform: PlatformSpec
+  /** Buffer's `service` names for this network's channels. */
+  services: ReadonlySet<string>
+  formats: FormatId[]
+  maxPostLength: number
+  measure: (text: string) => number
+  /**
+   * The largest image the network takes, checked before Buffer is called;
+   * null when the link re-encodes it smaller anyway (Instagram).
+   */
+  maxImageBytes: number | null
+  /** How the signed link serves the image (../media-token). */
+  imageVariant?: MediaVariant
+  threads?: boolean
+  commentInPost?: boolean
+  requiresImage?: boolean
+  /** The network's own createPost metadata. */
+  metadata?: (post: { comment?: string }) => Record<string, unknown>
+}
+
+const NETWORKS = {
+  x: {
+    platform: PLATFORMS.x,
+    services: X_SERVICES,
+    formats: PUBLISHABLE_FORMATS.x,
+    // A thread, and the reply under a post, go out in one Buffer post.
+    threads: true,
+    // A free X account's limit, as X counts it (a link 23, an emoji 2).
+    maxPostLength: FORMATS['x.post'].limits.maxChars,
+    measure: text => countChars(text, 'x_weighted'),
+    maxImageBytes: 5 * MB
+  },
+  facebook: {
+    platform: PLATFORMS.facebook,
+    services: new Set(['facebook']),
+    formats: PUBLISHABLE_FORMATS.facebook,
+    // Facebook's own limit; drafting aims far shorter (FORMATS).
+    maxPostLength: 63_206,
+    measure: text => countChars(text, 'utf16'),
+    maxImageBytes: 10 * MB,
+    imageVariant: 'facebook',
+    commentInPost: true,
+    metadata: ({ comment }) => ({
+      facebook: { type: 'post', ...(comment && { firstComment: comment }) }
+    })
+  },
+  instagram: {
+    platform: PLATFORMS.instagram,
+    services: new Set(['instagram']),
+    formats: PUBLISHABLE_FORMATS.instagram,
+    maxPostLength: FORMATS['instagram.caption'].limits.maxChars,
+    measure: text => countChars(text, 'utf16'),
+    maxImageBytes: null,
+    imageVariant: 'instagram',
+    requiresImage: true,
+    // A feed post, not a story or Reel. The caption's comment field is a
+    // link-in-bio note for the author: never posted.
+    metadata: () => ({ instagram: { type: 'post', shouldShareToFeed: true } })
+  }
+} satisfies Record<BufferPlatformId, BufferNetwork>
+
+/** The channels of `platform` that the Buffer account behind `ctx` can post to. */
+export const listPlatformChannels = (
+  ctx: Omit<BufferContext, 'platformName'>,
+  platform: BufferPlatformId
+) =>
+  listChannels(
+    { ...ctx, platformName: NETWORKS[platform].platform.name },
+    NETWORKS[platform].services
+  )
 
 
 /** How long Publish now waits for Buffer to send the post, looking every 2 s. */
 const INLINE_WAIT_MS = 6000
 const INLINE_CHECK_DELAY_MS = 2000
 
-const buffer = (ctx: ProviderContext<BufferConfig>): BufferContext => ({
+const contextOf = (
+  ctx: ProviderContext<BufferConfig>,
+  network: BufferNetwork
+): BufferContext => ({
   apiKey: ctx.accessToken,
   apiUrl: ctx.config.apiUrl,
-  fetchFn: ctx.fetchFn
+  fetchFn: ctx.fetchFn,
+  platformName: network.platform.name
 })
 
 const toCheck = (post: BufferPostState): PostCheck => ({
@@ -70,99 +156,119 @@ const toCheck = (post: BufferPostState): PostCheck => ({
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-export const bufferXProvider: PublishingProvider<BufferConfig> = {
-  platform: PLATFORMS.x,
-  connectWith: config => (config.oauth ? 'oauth' : 'api_key'),
-  via: 'Buffer',
-  oauth: {
-    authorizationUrl: (config, state, verifier) =>
-      buildAuthorizationUrl(config.oauth!, state, verifier),
-    exchangeCode: (config, code, verifier, fetchFn) =>
-      exchangeCode(config.oauth!, code, verifier, fetchFn),
-    // The first X channel the account can post to; Settings can switch it.
-    account: async (config, accessToken, fetchFn) => {
-      const channels = await listXChannels({
-        apiKey: accessToken,
-        apiUrl: config.apiUrl,
-        fetchFn
-      })
-      const channel = channels.find(c => !c.isLocked)
-      return channel
-        ? { memberId: channel.id, name: channel.name, pictureUrl: channel.avatar }
-        : null
+function bufferProvider(
+  network: BufferNetwork
+): PublishingProvider<BufferConfig> {
+  const name = network.platform.name
+  const buffer = (ctx: ProviderContext<BufferConfig>) =>
+    contextOf(ctx, network)
+  return {
+    platform: network.platform,
+    connectWith: config => (config.oauth ? 'oauth' : 'api_key'),
+    via: 'Buffer',
+    oauth: {
+      authorizationUrl: (config, state, verifier) =>
+        buildAuthorizationUrl(config.oauth!, state, verifier),
+      exchangeCode: (config, code, verifier, fetchFn) =>
+        exchangeCode(config.oauth!, code, verifier, fetchFn),
+      // The first of the network's channels the account can post to; Settings
+      // can switch it.
+      account: async (config, accessToken, fetchFn) => {
+        const channels = await listChannels(
+          { apiKey: accessToken, apiUrl: config.apiUrl, fetchFn, platformName: name },
+          network.services
+        )
+        const channel = channels.find(c => !c.isLocked)
+        return channel
+          ? { memberId: channel.id, name: channel.name, pictureUrl: channel.avatar }
+          : null
+      },
+      callbackErrorResult,
+      redirectUri: config => config.oauth?.redirectUri ?? ''
     },
-    callbackErrorResult,
-    redirectUri: config => config.oauth?.redirectUri ?? ''
-  },
-  publishScope: BUFFER_PUBLISH_SCOPE,
-  formats: PUBLISHABLE_FORMATS.x,
-  // A thread, and the reply under a post, go out in one Buffer post.
-  threads: true,
-  // Single-use refresh tokens: connection.ts refreshes under a row lock.
-  refreshAccessToken: (config, refreshToken, fetchFn, now) => {
-    if (!config.oauth) {
-      // The app client was removed from the server: connect again.
-      return Promise.reject(
-        new BufferOAuthError('Buffer is no longer set up for this app.', 401)
+    publishScope: BUFFER_PUBLISH_SCOPE,
+    formats: network.formats,
+    threads: network.threads,
+    commentInPost: network.commentInPost,
+    requiresImage: network.requiresImage,
+    // Single-use refresh tokens: connection.ts refreshes under a row lock.
+    refreshAccessToken: (config, refreshToken, fetchFn, now) => {
+      if (!config.oauth) {
+        // The app client was removed from the server: connect again.
+        return Promise.reject(
+          new BufferOAuthError('Buffer is no longer set up for this app.', 401)
+        )
+      }
+      return refreshAccessToken(config.oauth, refreshToken, fetchFn, now)
+    },
+    maxPostLength: network.maxPostLength,
+    measure: network.measure,
+    // Plain text: Buffer and the networks need no escaping.
+    toApiText: text => text,
+    // Posts are created on the Buffer channel.
+    authorIdOf: channelId => channelId,
+
+    // Buffer fetches the image itself, from a signed link to this app that
+    // serves this post's image for a day (src/app/api/publishing-media).
+    prepareImage: async (ctx, { draftId, image, now }) => {
+      // Buffer would only answer "Image could not be read from its URL".
+      if (isPrivateOrigin(ctx.config.appUrl)) {
+        throw new PostImageError(
+          `Buffer cannot download this post's image from ${new URL(ctx.config.appUrl).origin}, which only this computer can reach. Set PUBLISHING_MEDIA_URL to a public address of the app (in local development, a tunnel), then try again.`
+        )
+      }
+      const max = network.maxImageBytes
+      if (max !== null && image.bytes.length > max) {
+        throw new PostImageError(
+          `The post's image is larger than the ${max / MB} MB ${name} allows. Replace it with a smaller one.`
+        )
+      }
+      return mediaUrl(
+        ctx.config.appUrl,
+        createMediaToken(ctx.config.encryptionKey, draftId, now.getTime()),
+        network.imageVariant
       )
-    }
-    return refreshAccessToken(config.oauth, refreshToken, fetchFn, now)
-  },
-  // A free X account's limit, as X counts it (a link 23, an emoji 2).
-  maxPostLength: FORMATS['x.post'].limits.maxChars,
-  measure: text => countChars(text, 'x_weighted'),
-  // Plain text: Buffer and X need no escaping.
-  toApiText: text => text,
-  // Posts are created on the Buffer channel.
-  authorIdOf: channelId => channelId,
+    },
 
-  // Buffer fetches the image itself, from a signed link to this app that
-  // serves this post's image for a day (src/app/api/publishing-media).
-  prepareImage: async (ctx, { draftId, image, now }) => {
-    if (image.bytes.length > X_MAX_IMAGE_BYTES) {
-      throw new PostImageError(
-        "The post's image is larger than the 5 MB X allows. Replace it with a smaller one."
+    createPost: async (ctx, post): Promise<CreatedPost> => {
+      let state = await createPost(buffer(ctx), {
+        channelId: post.authorId,
+        text: post.text,
+        replies: post.replies,
+        image: post.image && { url: post.image.ref, altText: post.image.altText },
+        metadata: network.metadata?.({ comment: post.comment })
+      })
+      // Usually sent within seconds: wait a little so Publish now can say so.
+      // A failed look changes nothing; the engine follows a pending post.
+      const checks = Math.floor(
+        (ctx.config.inlineWaitMs ?? INLINE_WAIT_MS) / INLINE_CHECK_DELAY_MS
       )
-    }
-    return mediaUrl(
-      ctx.config.appUrl,
-      createMediaToken(ctx.config.encryptionKey, draftId, now.getTime())
-    )
-  },
+      for (let i = 0; i < checks && state.state === 'pending'; i++) {
+        await sleep(INLINE_CHECK_DELAY_MS)
+        state = await getPost(buffer(ctx), state.id).catch(() => state)
+      }
+      if (state.state === 'error') {
+        // Buffer gave up: the network did not publish it, so it is no unknown outcome.
+        throw new PlatformApiError(
+          state.error ?? `${name} did not take the post.`,
+          'rejected_by_platform'
+        )
+      }
+      return {
+        postId: state.id,
+        url: state.url,
+        pending: state.state === 'pending',
+        publishedAt: state.sentAt
+      }
+    },
 
-  createPost: async (ctx, post): Promise<CreatedPost> => {
-    let state = await createPost(buffer(ctx), {
-      channelId: post.authorId,
-      text: post.text,
-      replies: post.replies,
-      image: post.image && { url: post.image.ref, altText: post.image.altText }
-    })
-    // Usually sent within seconds: wait a little so Publish now can say so.
-    // A failed look changes nothing; the engine follows a pending post.
-    const checks = Math.floor(
-      (ctx.config.inlineWaitMs ?? INLINE_WAIT_MS) / INLINE_CHECK_DELAY_MS
-    )
-    for (let i = 0; i < checks && state.state === 'pending'; i++) {
-      await sleep(INLINE_CHECK_DELAY_MS)
-      state = await getPost(buffer(ctx), state.id).catch(() => state)
-    }
-    if (state.state === 'error') {
-      // Buffer gave up: X did not publish it, so it is no unknown outcome.
-      throw new PlatformApiError(
-        state.error ?? 'X did not take the post.',
-        'rejected_by_platform'
-      )
-    }
-    return {
-      postId: state.id,
-      url: state.url,
-      pending: state.state === 'pending',
-      publishedAt: state.sentAt
-    }
-  },
+    checkPost: async (ctx, postId) => toCheck(await getPost(buffer(ctx), postId)),
 
-  checkPost: async (ctx, postId) => toCheck(await getPost(buffer(ctx), postId)),
-
-  // Buffer's link to the post comes with it once sent; an id alone is not one.
-  postUrl: () => null
+    // Buffer's link to the post comes with it once sent; an id alone is not one.
+    postUrl: () => null
+  }
 }
+
+export const bufferXProvider = bufferProvider(NETWORKS.x)
+export const bufferFacebookProvider = bufferProvider(NETWORKS.facebook)
+export const bufferInstagramProvider = bufferProvider(NETWORKS.instagram)

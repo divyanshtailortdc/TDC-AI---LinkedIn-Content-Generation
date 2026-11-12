@@ -26,7 +26,13 @@ import {
 } from '@/lib/publishing/engine'
 import { REVIEWER_URL_SOURCE } from '@/lib/media/media-source'
 import { replaceActiveMedia } from '@/lib/media/replace-media'
-import { FORMATS, formatOf, isFormatId, overLimitMessage } from '@/lib/formats'
+import {
+  FORMATS,
+  formatOf,
+  isCreatableFormat,
+  isFormatId,
+  overLimitMessage
+} from '@/lib/formats'
 import { loadChannels } from '@/lib/channels'
 import { requireUser } from '@/lib/session'
 import { and, eq } from 'drizzle-orm'
@@ -174,6 +180,9 @@ export async function addPostVersion(draftId: string, formatId: string) {
       throw new Error('This post has no idea behind it to write another version from.')
     }
 
+    if (!isCreatableFormat(formatId)) {
+      throw new Error(`${FORMATS[formatId].label}s cannot be created here.`)
+    }
     if (!(await loadChannels(accountId)).enabledFormats.includes(formatId)) {
       throw new Error(
         `Turn on ${FORMATS[formatId].label}s under Identity → Preferences first.`

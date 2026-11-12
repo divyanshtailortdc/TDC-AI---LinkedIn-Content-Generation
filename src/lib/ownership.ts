@@ -1,4 +1,4 @@
-import { accountsTable, articlesTable, ideasTable, runsTable } from '@/db/schema'
+import { accountsTable, ideasTable, runsTable } from '@/db/schema'
 import { and, eq, getTableColumns } from 'drizzle-orm'
 import type { IdentityDb } from './identity-write'
 import { isUuid } from './ids'
@@ -68,20 +68,4 @@ export async function findOwnedIdea(
     .where(and(eq(ideasTable.id, ideaId), ownedByUser(userId)))
     .limit(1)
   return row?.idea
-}
-
-/** An article of the user's identity. */
-export async function findOwnedArticle(
-  database: IdentityDb,
-  userId: string,
-  articleId: unknown
-) {
-  if (!isUuid(articleId)) return undefined
-  const [row] = await database
-    .select({ article: getTableColumns(articlesTable) })
-    .from(articlesTable)
-    .innerJoin(accountsTable, eq(accountsTable.id, articlesTable.accountId))
-    .where(and(eq(articlesTable.id, articleId), ownedByUser(userId)))
-    .limit(1)
-  return row?.article
 }

@@ -620,3 +620,68 @@ describe('fixtures used above', () => {
     assert.ok(audience('A').name)
   })
 })
+
+describe('Instagram post with its picture', () => {
+  it('is the one format drafted with a picture besides LinkedIn, and says so', async () => {
+    const { FORMAT_IDS, FORMATS, formatHint } = await import('../src/lib/formats')
+    assert.deepStrictEqual(
+      FORMAT_IDS.filter(id => FORMATS[id].withImage),
+      ['instagram.caption']
+    )
+    assert.strictEqual(FORMATS['instagram.caption'].label, 'Instagram post')
+    assert.strictEqual(
+      formatHint('instagram.caption'),
+      'A picture with its caption, up to 2,200 characters'
+    )
+    assert.strictEqual(formatHint('x.post'), 'One post, up to 280 characters')
+  })
+})
+
+describe('image shape per post type', () => {
+  it("makes each platform's images in the shape its feed shows", async () => {
+    const { FORMATS } = await import('../src/lib/formats')
+    const { SHAPE_SIZES } = await import('../src/lib/media/canvas/spec')
+    assert.strictEqual(FORMATS['linkedin.post'].imageShape, '1.91:1')
+    assert.strictEqual(FORMATS['x.post'].imageShape, '16:9')
+    assert.strictEqual(FORMATS['x.thread'].imageShape, '16:9')
+    assert.strictEqual(FORMATS['facebook.post'].imageShape, '4:5')
+    assert.strictEqual(FORMATS['instagram.caption'].imageShape, '4:5')
+    // LinkedIn keeps the size it always had.
+    assert.deepStrictEqual(SHAPE_SIZES['1.91:1'], { width: 2048, height: 1072 })
+    for (const [shape, size] of Object.entries(SHAPE_SIZES)) {
+      const [w, h] = shape.split(':').map(Number)
+      assert.ok(Math.abs(size.width / size.height - w! / h!) < 0.01, shape)
+      // The image models need multiples of 16.
+      assert.strictEqual(size.width % 16, 0, shape)
+      assert.strictEqual(size.height % 16, 0, shape)
+    }
+  })
+})
+
+describe('formats posts can be created in', () => {
+  it('offers every format but Instagram Reels, from ideas and as a version', async () => {
+    const { CREATABLE_FORMATS, FORMAT_IDS, isCreatableFormat } = await import('../src/lib/formats')
+    assert.ok(!CREATABLE_FORMATS.includes('instagram.reel'))
+    assert.strictEqual(isCreatableFormat('instagram.reel'), false)
+    assert.strictEqual(isCreatableFormat('instagram.caption'), true)
+    assert.deepStrictEqual(
+      FORMAT_IDS.filter(id => !isCreatableFormat(id)),
+      ['instagram.reel']
+    )
+  })
+})
+
+describe('Reels turned on before', () => {
+  it('are dropped from what an identity drafts, so ideation and Preferences never see them', async () => {
+    const { resolveChannels } = await import('../src/lib/formats')
+    assert.deepStrictEqual(
+      resolveChannels({ enabledFormats: ['instagram.caption', 'instagram.reel'] }).enabledFormats,
+      ['instagram.caption']
+    )
+    // Only a Reel was on: back to the default, never an empty list.
+    assert.deepStrictEqual(
+      resolveChannels({ enabledFormats: ['instagram.reel'] }).enabledFormats,
+      ['linkedin.post']
+    )
+  })
+})

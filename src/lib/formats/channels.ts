@@ -1,4 +1,10 @@
-import { cleanFormats, FORMATS, isPlatformId, platformsOf } from './registry'
+import {
+  cleanFormats,
+  FORMATS,
+  isCreatableFormat,
+  isPlatformId,
+  platformsOf
+} from './registry'
 import { DEFAULT_STYLES, isContentStyle, type ContentStyle } from './styles'
 import { DEFAULT_FORMAT, type FormatId, type PlatformId } from './types'
 
@@ -65,7 +71,9 @@ export function resolveChannels(
     | null
     | undefined
 ): ResolvedChannels {
-  const enabled = cleanFormats(row?.enabledFormats)
+  // Reels are no longer written: one turned on before is dropped here, so
+  // ideation, Preferences and Add a version never see it.
+  const enabled = cleanFormats(row?.enabledFormats).filter(isCreatableFormat)
   const enabledFormats = enabled.length > 0 ? enabled : [DEFAULT_FORMAT]
   return {
     enabledFormats,

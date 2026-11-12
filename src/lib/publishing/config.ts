@@ -3,7 +3,11 @@ import 'server-only'
 import { db } from '@/db'
 import { env } from '~/env'
 import type { PublishDeps } from './engine'
-import type { PublishingPlatformId } from './platform'
+import {
+  BUFFER_PLATFORM_IDS,
+  type BufferPlatformId,
+  type PublishingPlatformId
+} from './platform'
 import {
   type BufferConfig,
   parseScopes,
@@ -40,37 +44,75 @@ export function linkedInConfig(): PublishingAppConfig | null {
   }
 }
 
+/** X_PUBLISHING, FACEBOOK_PUBLISHING or INSTAGRAM_PUBLISHING. */
+const bufferSwitch = (platform: BufferPlatformId) =>
+  ({
+    x: env.X_PUBLISHING,
+    facebook: env.FACEBOOK_PUBLISHING,
+    instagram: env.INSTAGRAM_PUBLISHING
+  })[platform]
+
 /**
- * X through Buffer, or null when it is off or there is no encryption key.
- * With a Buffer app client id (and its secret, for a confidential client),
- * customers connect through Buffer's consent screen; without one, each
- * pastes a Buffer API key.
+ * Where Buffer sends the user back after connecting `platform`. X keeps
+ * BUFFER_REDIRECT_URI as set; the others use their own callback on its
+ * origin. Each must be registered on the Buffer app client.
  */
-export function bufferConfig(): BufferConfig | null {
-  if (env.X_PUBLISHING === 'off' || !env.TOKEN_ENCRYPTION_KEY) return null
+function bufferRedirectUri(platform: BufferPlatformId): string {
+  if (platform === 'x' && env.BUFFER_REDIRECT_URI) return env.BUFFER_REDIRECT_URI
+  return new URL(
+    callbackPath(platform),
+    env.BUFFER_REDIRECT_URI ?? appUrl()
+  ).toString()
+}
+
+/**
+ * Publishing to `platform` (X, Facebook or Instagram) through Buffer, or null
+ * when it is off or there is no encryption key. With a Buffer app client id
+ * (and its secret, for a confidential client), customers connect through
+ * Buffer's consent screen; without one, each pastes a Buffer API key.
+ */
+export function bufferConfig(
+  platform: BufferPlatformId = 'x'
+): BufferConfig | null {
+  if (bufferSwitch(platform) === 'off' || !env.TOKEN_ENCRYPTION_KEY) {
+    return null
+  }
   return {
     oauth:
       env.BUFFER_CLIENT_ID
         ? {
             clientId: env.BUFFER_CLIENT_ID,
             clientSecret: env.BUFFER_CLIENT_SECRET,
-            redirectUri:
-              env.BUFFER_REDIRECT_URI ??
-              new URL(callbackPath('x'), appUrl()).toString(),
+            redirectUri: bufferRedirectUri(platform),
             scopes: parseScopes(env.BUFFER_SCOPES)
           }
         : null,
     apiUrl: env.BUFFER_API_URL,
-    appUrl: appUrl(),
+    // Where Buffer downloads post images from: a tunnel in local development.
+    appUrl: env.PUBLISHING_MEDIA_URL ?? appUrl(),
     encryptionKey: parseEncryptionKey(env.TOKEN_ENCRYPTION_KEY)
   }
 }
 
+/** Any Buffer platform's config: they share the key that signs image links. */
+export function anyBufferConfig(): BufferConfig | null {
+  for (const platform of BUFFER_PLATFORM_IDS) {
+    const config = bufferConfig(platform)
+    if (config) return config
+  }
+  return null
+}
+
 /** The config of every platform publishing is set up for. */
 export function publishConfigs(): PublishConfigs {
+  const configs: PublishConfigs = {}
   const linkedin = linkedInConfig()
-  const x = bufferConfig()
-  return { ...(linkedin && { linkedin }), ...(x && { x }) }
+  if (linkedin) configs.linkedin = linkedin
+  for (const platform of BUFFER_PLATFORM_IDS) {
+    const config = bufferConfig(platform)
+    if (config) configs[platform] = config
+  }
+  return configs
 }
 
 /**

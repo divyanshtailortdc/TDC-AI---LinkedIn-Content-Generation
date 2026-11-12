@@ -11,7 +11,8 @@ import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
- * Where the provider (LinkedIn, or Buffer for X) sends the user back. The
+ * Where the provider (LinkedIn, or Buffer for X, Facebook and Instagram)
+ * sends the user back. The
  * state must match the signed cookie this browser got from /connect, for this
  * same user and platform, within ten minutes; only then is the code exchanged
  * (on the server, with the secret and the PKCE verifier) and the connection
@@ -73,7 +74,7 @@ export async function GET(
     if (provider.publishScope && !tokens.scopes.includes(provider.publishScope))
       return back('missing_permission')
     const account = await oauth.account(config, tokens.accessToken)
-    // Buffer: no X channel in the Buffer account to publish to.
+    // Buffer: no channel of this platform in the Buffer account to publish to.
     if (!account) return back('no_account')
     await saveConnection(db, config, user.id, tokens, account, { platform })
   } catch (err) {

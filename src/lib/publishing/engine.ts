@@ -23,6 +23,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   inArray,
   isNotNull,
   isNull,
@@ -42,7 +43,6 @@ import {
 import { canPublishTo, PUBLISHING_PLATFORM_IDS } from './platform'
 import {
   type FetchFn,
-  type LinkCard,
   PlatformApiError,
   type PlatformConfig,
   type PostImage,
@@ -141,6 +141,7 @@ export class PublishRequestError extends Error {
       | 'wrong_platform'
       | 'not_configured'
       | 'not_supported'
+      | 'needs_image'
   ) {
     super(message)
     this.name = 'PublishRequestError'
@@ -203,10 +204,7 @@ async function findOwnedDraft(
       firstComment: postDraftsTable.firstComment,
       status: postDraftsTable.status,
       postedAt: postDraftsTable.postedAt,
-      formatId: postDraftsTable.formatId,
-      linkUrl: postDraftsTable.linkUrl,
-      linkTitle: postDraftsTable.linkTitle,
-      linkDescription: postDraftsTable.linkDescription
+      formatId: postDraftsTable.formatId
     })
     .from(postDraftsTable)
     .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
@@ -277,45 +275,27 @@ function assertPublishable(
       'too_long'
     )
   }
-  if (draft.linkUrl !== null) {
-    if (!provider.linkCards) {
-      throw new PublishRequestError(
-        `This post shares a link card, which ${name} posts cannot carry from here.`,
-        'wrong_platform'
-      )
-    }
-    if (articleLinkOf(draft) === null) {
-      throw new PublishRequestError(
-        'The link this post shares is not a valid https address, or has no title. Fix it and try again.',
-        'not_approved'
-      )
-    }
-  }
   return texts
 }
 
-/**
- * An article-link post's card (post_drafts.link_*), or null for any other
- * post, or for a link that is not a public http(s) address with a title.
- */
-function articleLinkOf(draft: {
-  linkUrl: string | null
-  linkTitle: string | null
-  linkDescription: string | null
-}): LinkCard | null {
-  if (!draft.linkUrl || !draft.linkTitle?.trim()) return null
-  try {
-    const url = new URL(draft.linkUrl)
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-  } catch {
-    return null
-  }
-  return {
-    source: draft.linkUrl,
-    title: draft.linkTitle.trim(),
-    description: draft.linkDescription?.trim() || null
-  }
-}
+/** The post's active image, if it has one: what loadPostImage loads. */
+const activeImageOf = (
+  database: PublishingDb,
+  draftId: string | typeof postDraftsTable.id
+) =>
+  database
+    .select({ one: sql`1` })
+    .from(postMediaTable)
+    .where(
+      and(
+        eq(postMediaTable.draftId, draftId),
+        eq(postMediaTable.status, 'active'),
+        isNotNull(postMediaTable.imageUrl)
+      )
+    )
+
+const needsImageMessage = (name: string) =>
+  `${name} posts need an image. Add one to this post, then publish it.`
 
 /**
  * Queues a post to publish at `scheduledAt` (now, for Publish now). Every
@@ -349,6 +329,12 @@ export async function requestPublication(
   if (!draft) throw new PublishRequestError('Post not found.', 'not_found')
   assertPublishable(draft)
   const name = nameOf(draft.platform)
+  if (
+    providerFor(draft.platform).requiresImage &&
+    (await activeImageOf(database, draft.id).limit(1)).length === 0
+  ) {
+    throw new PublishRequestError(needsImageMessage(name), 'needs_image')
+  }
   if (
     input.configuredPlatforms &&
     !input.configuredPlatforms.includes(draft.platform)
@@ -791,8 +777,10 @@ async function prepare(deps: PublishDeps, publication: Publication) {
     replies,
     // Only where the platform's posts carry one, added after the post.
     comment: provider.addComment ? draft.firstComment?.trim() || null : null,
-    // An article-link post's card (LinkedIn).
-    link: articleLinkOf(draft),
+    // Sent with the post itself (Facebook through Buffer).
+    inPostComment: provider.commentInPost
+      ? toPlainText(draft.firstComment).trim() || null
+      : null,
     connection,
     provider,
     ctx,
@@ -816,7 +804,7 @@ export async function executePublication(
       text,
       replies,
       comment,
-      link,
+      inPostComment,
       connection,
       provider,
       ctx,
@@ -826,6 +814,10 @@ export async function executePublication(
       const image = await (
         deps.loadImage ?? (id => loadPostImage(database, id))
       )(draftId)
+      // Removed since it was queued: nothing is sent.
+      if (!image && provider.requiresImage) {
+        throw new PostImageError(needsImageMessage(provider.platform.name))
+      }
       // An uploaded image's URN (LinkedIn), or a link the provider fetches (Buffer).
       const imageUrn = image
         ? await provider.prepareImage(ctx, {
@@ -861,19 +853,14 @@ export async function executePublication(
       }
       postRequested = true
 
-      // An article-link post shares its page as a card, the image as the
-      // card's thumbnail; any other post attaches the image itself.
       const created = await provider.createPost(ctx, {
         authorId: authorUrn,
         text: provider.toApiText(text),
         ...(replies.length > 0 && { replies: replies.map(provider.toApiText) }),
-        ...(link
-          ? { link: { ...link, thumbnailRef: imageUrn } }
-          : {
-              image: imageUrn
-                ? { ref: imageUrn, altText: image?.altText ?? null }
-                : undefined
-            })
+        ...(inPostComment && { comment: provider.toApiText(inPostComment) }),
+        image: imageUrn
+          ? { ref: imageUrn, altText: image?.altText ?? null }
+          : undefined
       })
 
       // Handed on, not out yet (Buffer): the row waits, with the post's id,
@@ -1394,6 +1381,10 @@ export async function queueAutoPublications(
             postDraftsTable.formatId,
             providerFor(connection.platform).formats
           ),
+          // Instagram: a post without an image would only fail.
+          providerFor(connection.platform).requiresImage
+            ? exists(activeImageOf(database, postDraftsTable.id))
+            : undefined,
           eq(postDraftsTable.status, 'approved'),
           isNull(postDraftsTable.postedAt),
           eq(postDraftsTable.plannedFor, due.day),

@@ -449,3 +449,194 @@ describe('X through Buffer', () => {
     )
   })
 })
+
+describe('Facebook and Instagram through Buffer', () => {
+  it("pads an image into Instagram's 4:5 to 1.91:1 range, never cropping", async () => {
+    const { instagramPadding } = await import('../src/lib/publishing/buffer/image-variant')
+    const sized = (width: number, height: number) => {
+      const p = instagramPadding(width, height)
+      return { width: width + p.left + p.right, height: height + p.top + p.bottom }
+    }
+    // Already within range: untouched.
+    assert.deepStrictEqual(instagramPadding(1080, 1080), { top: 0, bottom: 0, left: 0, right: 0 })
+    assert.deepStrictEqual(instagramPadding(1440, 754), { top: 0, bottom: 0, left: 0, right: 0 })
+    // The app's 2048x1072 canvas is a hair past 1.91:1.
+    const wide = sized(2048, 1072)
+    assert.ok(wide.width / wide.height <= 1.91 && wide.height - 1072 <= 1)
+    // A banner and a tall image land on the limits.
+    const banner = sized(3000, 1000)
+    assert.ok(banner.width / banner.height <= 1.91 && banner.width === 3000)
+    const tall = sized(400, 1000)
+    assert.deepStrictEqual(tall, { width: 800, height: 1000 })
+  })
+
+  it('serves Instagram a JPEG within its range, and Facebook WebP as JPEG', async () => {
+    const sharp = (await import('sharp')).default
+    const { imageForVariant } = await import('../src/lib/publishing/buffer/image-variant')
+    const png = await sharp({
+      create: { width: 2048, height: 1072, channels: 4, background: '#336699' }
+    })
+      .png()
+      .toBuffer()
+    const ig = await imageForVariant('instagram', { bytes: png, mediaType: 'image/png' })
+    assert.strictEqual(ig.mediaType, 'image/jpeg')
+    const meta = await sharp(ig.bytes).metadata()
+    assert.strictEqual(meta.format, 'jpeg')
+    assert.strictEqual(meta.width, 1440)
+    assert.ok(meta.width! / meta.height! <= 1.91 && meta.width! / meta.height! >= 0.8)
+
+    const fbPng = await imageForVariant('facebook', { bytes: png, mediaType: 'image/png' })
+    assert.strictEqual(fbPng.bytes, png, 'a PNG goes to Facebook as it is')
+    const webp = await sharp(png).webp().toBuffer()
+    const fbWebp = await imageForVariant('facebook', { bytes: webp, mediaType: 'image/webp' })
+    assert.strictEqual(fbWebp.mediaType, 'image/jpeg')
+    assert.strictEqual((await sharp(fbWebp.bytes).metadata()).format, 'jpeg')
+  })
+
+  it('names the variant in the signed image link only when there is one', async () => {
+    const { mediaUrl } = await import('../src/lib/publishing/media-token')
+    assert.strictEqual(
+      mediaUrl('https://app.example.com', 'T.1.S', 'instagram'),
+      'https://app.example.com/api/publishing-media/T.1.S?for=instagram'
+    )
+    assert.strictEqual(
+      mediaUrl('https://app.example.com', 'T.1.S'),
+      'https://app.example.com/api/publishing-media/T.1.S'
+    )
+  })
+
+  it("lists only the network's channels, and names it in Buffer's errors", async () => {
+    const { listPlatformChannels } = await import('../src/lib/publishing/buffer/provider')
+    const fetchFn = (async (_url: string | URL, init: RequestInit = {}) => {
+      const { query } = JSON.parse(String(init.body))
+      if (query.includes('organizations')) {
+        return Response.json({ data: { account: { organizations: [{ id: 'O1' }] } } })
+      }
+      return Response.json({
+        data: {
+          channels: [
+            { id: 'X1', name: 'qa', service: 'twitter', avatar: '' },
+            { id: 'F1', name: 'page', displayName: 'QA Page', service: 'facebook', avatar: 'https://cdn.example/a.png' },
+            { id: 'I1', name: 'qa.ig', service: 'instagram', avatar: '', isLocked: true },
+            { id: 'I2', name: 'old.ig', service: 'instagram', avatar: '', isDisconnected: true }
+          ]
+        }
+      })
+    }) as typeof fetch
+    const ctx = { apiKey: 'KEY', apiUrl: 'https://buffer.example/graphql', fetchFn }
+    assert.deepStrictEqual(await listPlatformChannels(ctx, 'facebook'), [
+      { id: 'F1', name: 'QA Page', avatar: 'https://cdn.example/a.png', isLocked: false }
+    ])
+    assert.deepStrictEqual(
+      (await listPlatformChannels(ctx, 'instagram')).map(c => [c.id, c.isLocked]),
+      [['I1', true]]
+    )
+
+    const refused = (async () =>
+      Response.json({ errors: [{ message: 'no', extensions: { code: 'UNAUTHORIZED' } }] })) as typeof fetch
+    const err = await listPlatformChannels({ ...ctx, fetchFn: refused }, 'instagram').catch(e => e)
+    assert.strictEqual(err.code, 'reauth_required')
+    assert.match(err.message, /Connect Instagram again/)
+  })
+
+  it('Facebook sends its first comment in the post; Instagram never sends one', async () => {
+    const { bufferFacebookProvider, bufferInstagramProvider } = await import(
+      '../src/lib/publishing/buffer/provider'
+    )
+    const inputs: any[] = []
+    const fetchFn = (async (_url: string | URL, init: RequestInit = {}) => {
+      inputs.push(JSON.parse(String(init.body)).variables.input)
+      return Response.json({
+        data: {
+          createPost: {
+            __typename: 'PostActionSuccess',
+            post: { id: 'P1', status: 'sent', externalLink: 'https://facebook.com/p/1', sentAt: null }
+          }
+        }
+      })
+    }) as typeof fetch
+    const ctx = {
+      accessToken: 'KEY',
+      fetchFn,
+      config: {
+        oauth: null,
+        apiUrl: 'https://buffer.example/graphql',
+        appUrl: 'https://app.example.com',
+        encryptionKey: key,
+        inlineWaitMs: 0
+      }
+    }
+    await bufferFacebookProvider.createPost(ctx, { authorId: 'F1', text: 'Hi', comment: 'Link: https://e.com' })
+    await bufferFacebookProvider.createPost(ctx, { authorId: 'F1', text: 'Hi' })
+    await bufferInstagramProvider.createPost(ctx, {
+      authorId: 'I1',
+      text: 'Caption',
+      image: { ref: 'https://app.example.com/i.jpg', altText: null }
+    })
+    assert.deepStrictEqual(inputs[0].metadata, {
+      facebook: { type: 'post', firstComment: 'Link: https://e.com' }
+    })
+    assert.deepStrictEqual(inputs[1].metadata, { facebook: { type: 'post' } })
+    assert.deepStrictEqual(inputs[2].metadata, {
+      instagram: { type: 'post', shouldShareToFeed: true }
+    })
+    assert.strictEqual(bufferFacebookProvider.commentInPost, true)
+    assert.strictEqual(bufferInstagramProvider.requiresImage, true)
+    assert.deepStrictEqual(bufferInstagramProvider.formats, ['instagram.caption'])
+  })
+})
+
+describe('image links Buffer can reach', () => {
+  it('knows which origins only this computer or its network can open', async () => {
+    const { isPrivateOrigin } = await import('../src/lib/publishing/media-token')
+    for (const origin of [
+      'http://localhost:3000',
+      'https://localhost:3000',
+      'http://app.localhost',
+      'http://127.0.0.1:3000',
+      'http://192.168.2.62:3000',
+      'http://10.0.0.5',
+      'http://172.20.1.1',
+      'http://[::1]:3000',
+      'not a url'
+    ]) {
+      assert.strictEqual(isPrivateOrigin(origin), true, origin)
+    }
+    for (const origin of [
+      'https://app.example.com',
+      'https://abc-def.trycloudflare.com',
+      'http://172.32.0.1',
+      'https://8.8.8.8'
+    ]) {
+      assert.strictEqual(isPrivateOrigin(origin), false, origin)
+    }
+  })
+
+  it('refuses an image post from localhost before Buffer is called, saying what to set', async () => {
+    const { bufferInstagramProvider } = await import('../src/lib/publishing/buffer/provider')
+    const { PostImageError } = await import('../src/lib/publishing/errors')
+    const config = {
+      oauth: null,
+      apiUrl: 'https://buffer.example/graphql',
+      appUrl: 'http://localhost:3000',
+      encryptionKey: key
+    }
+    const input = {
+      authorId: 'I1',
+      draftId: 'POST-1',
+      image: { bytes: Buffer.from('png'), mediaType: 'image/png', altText: null },
+      now: new Date()
+    }
+    const err = await bufferInstagramProvider
+      .prepareImage({ accessToken: 'KEY', config }, input)
+      .catch(e => e)
+    assert.ok(err instanceof PostImageError)
+    assert.match(err.message, /http:\/\/localhost:3000.*PUBLISHING_MEDIA_URL/)
+
+    const url = await bufferInstagramProvider.prepareImage(
+      { accessToken: 'KEY', config: { ...config, appUrl: 'https://abc.trycloudflare.com' } },
+      input
+    )
+    assert.match(url, /^https:\/\/abc\.trycloudflare\.com\/api\/publishing-media\/.+\?for=instagram$/)
+  })
+})

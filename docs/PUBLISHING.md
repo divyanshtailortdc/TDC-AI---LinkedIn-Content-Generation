@@ -1,6 +1,6 @@
 # Publishing
 
-How users connect a platform account for publishing, and how approved posts are published to it: now, at a scheduled time, or automatically. Two platforms have a publishing provider: **LinkedIn** (its own API, described on this page) and **X** (through Buffer, see [PUBLISHING_X.md](PUBLISHING_X.md)). The pipeline, states, retries and security below apply to both.
+How users connect a platform account for publishing, and how approved posts are published to it: now, at a scheduled time, or automatically. Four platforms have a publishing provider: **LinkedIn** (its own API, described on this page), **X** (through Buffer, see [PUBLISHING_X.md](PUBLISHING_X.md)), and **Facebook** and **Instagram** (through Buffer too, see [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md)). The pipeline, states, retries and security below apply to all of them.
 
 - [Platforms and providers](#platforms-and-providers)
 - [Sign-in and publishing are separate](#sign-in-and-publishing-are-separate)
@@ -112,20 +112,6 @@ executePublication   checks everything again, then:
 - **Auto-publishing** (Settings → Integrations, off by default, asks for confirmation when turned on): every approved post *planned for today* on the Schedule page is queued at the chosen time in the chosen zone. It never publishes posts in review, never sweeps up a slot that passed before it was turned on (each save restarts that clock), and never touches a post that already has any publication (failed, cancelled or done). A slot the worker missed (server down, no cron call) is caught up if it runs within 2 hours of it, even after midnight: a 23:30 slot caught at 00:30 still publishes that day's posts. Turning it on is the only way to publish without a click per post.
 
 A published post also gets `post_drafts.posted_at` (and a planned day if it had none), so the Schedule page shows it as Posted. Rejecting a post, or marking it posted on Schedule, cancels its scheduled publication; a post published (or being published) through the API cannot be rejected, and Schedule refuses "Not posted yet" for it. The text sent is exactly what Copy produces (`linkedInPostText`: the hook in Unicode bold, then body, call to action and hashtags), with LinkedIn's reserved characters escaped and hashtags kept as hashtags. Posts longer than 3,000 characters are refused before calling LinkedIn. WebP images are converted to PNG, since LinkedIn takes JPG, PNG and GIF.
-
-### Article-link posts and native articles
-
-A post with `post_drafts.link_url` set (made with **Share as a link post** on an
-article; see [ARTICLES.md](ARTICLES.md)) is published through this same pipeline.
-`createPost` sends `content.article` (`source`, `title`, `description`, and the
-post's uploaded image as `thumbnail`) instead of `content.media`. LinkedIn does not
-scrape the URL, so the card shows exactly those fields. Every other post's request
-is unchanged.
-
-Native long-form LinkedIn articles are **not** published through the API: the
-Posts API has no content type for them and `w_member_social` doesn't cover them.
-They are copied into LinkedIn's own article editor and marked published by hand,
-and nothing in `articles` ever reaches `linkedin_publications`.
 
 ### Deleting
 

@@ -106,7 +106,7 @@ export interface LintOptions {
  * Buzzwords that read as filler regardless of account. Account-specific banned
  * words arrive through `bannedWords` and are checked alongside these.
  */
-export const DEFAULT_BANNED_WORDS = [
+const DEFAULT_BANNED_WORDS = [
   'delve',
   'leverage',
   'unlock',
@@ -126,7 +126,7 @@ const KNOWN_ACRONYMS = new Set([
   'UX', 'UI', 'QA', 'ML', 'GPU', 'CPU', 'SEO'
 ])
 
-export const EMOJI_REGEX = /\p{Extended_Pictographic}/gu
+const EMOJI_REGEX = /\p{Extended_Pictographic}/gu
 
 /** A closing line that would fit any post, so it asks the reader nothing. */
 const GENERIC_CTA =
@@ -144,7 +144,7 @@ const WORD_CHAR = /[\p{L}\p{N}_]/u
  * would never match. The boundary is added on a side only when the term's edge
  * character is a word character; a term like "—" matches wherever it appears.
  */
-export function wholeTermPattern(term: string): RegExp {
+function wholeTermPattern(term: string): RegExp {
   const chars = Array.from(term)
   const before = WORD_CHAR.test(chars[0]!) ? '(?<![\\p{L}\\p{N}_])' : ''
   const after = WORD_CHAR.test(chars[chars.length - 1]!) ? '(?![\\p{L}\\p{N}_])' : ''

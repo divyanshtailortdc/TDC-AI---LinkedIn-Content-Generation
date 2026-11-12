@@ -12,6 +12,7 @@ import { requireUser } from '@/lib/session'
 import {
   cleanChannelSettings,
   cleanFormats,
+  isCreatableFormat,
   type ChannelSettings,
   type FormatId
 } from '@/lib/formats'
@@ -56,9 +57,9 @@ function validate(payload: PreferencesPayload) {
   }
 }
 
-/** Known formats only; refused when none are left. */
+/** Known formats that can be created (no Reels); refused when none are left. */
 function checkedFormats(values: string[]): FormatId[] {
-  const formats = cleanFormats(values)
+  const formats = cleanFormats(values).filter(isCreatableFormat)
   if (formats.length === 0) {
     throw new Error('Turn on at least one platform to write posts for.')
   }

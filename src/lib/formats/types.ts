@@ -19,6 +19,8 @@ export const FORMAT_IDS = [
   'threads.post',
   'facebook.post',
   'instagram.caption',
+  // Created no more (see CREATABLE_FORMATS); kept so Reels already written open.
+  'instagram.reel',
   'youtube.short'
 ] as const
 export type FormatId = (typeof FORMAT_IDS)[number]
@@ -32,6 +34,13 @@ export const DEFAULT_FORMAT: FormatId = 'linkedin.post'
  * emoji and most non-Latin characters as 2.
  */
 export type CountMode = 'utf16' | 'graphemes' | 'x_weighted'
+
+/**
+ * The shape a post's generated image is made in, to fill its platform's feed:
+ * LinkedIn's 1.91:1, X's 16:9, and the 4:5 portrait Instagram, Facebook and
+ * Threads show whole. src/lib/media draws each at its own size.
+ */
+export type ImageShape = '1.91:1' | '16:9' | '4:5'
 
 /** Where a link goes when it should not sit in the post itself. */
 export type LinkFallback = 'first_comment' | 'reply' | 'link_in_bio'
@@ -88,6 +97,13 @@ export interface FormatSpec {
   rules: string[]
   /** What the review screen calls the first comment field on this platform. */
   commentLabel: string
+  /**
+   * The post is a picture with its caption (an Instagram post): drafting
+   * makes the picture with the text, as it does for a LinkedIn post.
+   */
+  withImage?: boolean
+  /** The shape its generated images are made in. */
+  imageShape: ImageShape
   /** Where a format reads or opens unlike its platform's other formats (a video script). */
   register?: string
   opening?: string

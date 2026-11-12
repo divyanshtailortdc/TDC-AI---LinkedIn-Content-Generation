@@ -6,7 +6,9 @@ import { cn } from '@/lib/cn'
 import {
   FORMAT_IDS,
   FORMATS,
+  formatHint,
   formatOf,
+  isCreatableFormat,
   isFormatId,
   type FormatId
 } from '@/lib/formats'
@@ -16,23 +18,13 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { addPostVersion } from './actions'
 import type { PostDetail } from './posts-client'
 
-/** The enabled formats the post's idea has no post in yet. */
+/** The enabled formats the post's idea has no post in yet, that can be created (no Reels). */
 function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[] {
   const have = new Set(
     (post.ideaFormats?.length ? post.ideaFormats : [post.formatId ?? 'linkedin.post'])
       .filter(isFormatId)
   )
-  return enabledFormats.filter(f => !have.has(f))
-}
-
-/** What a format is, in a few words, for the menu. */
-function formatHint(id: FormatId): string {
-  const { structure, limits } = FORMATS[id]
-  if (structure === 'thread' && limits.parts) {
-    return `${limits.parts.min}–${limits.parts.max} posts, each up to ${limits.maxChars} characters`
-  }
-  if (structure === 'script') return 'A short video script and its caption'
-  return `One post, up to ${limits.maxChars.toLocaleString('en-US')} characters`
+  return enabledFormats.filter(f => !have.has(f) && isCreatableFormat(f))
 }
 
 /** Where a version stands, in a word. */
