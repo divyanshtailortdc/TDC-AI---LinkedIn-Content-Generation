@@ -4,13 +4,12 @@ import { RefreshOnBack } from '@/components/refresh-on-back'
 import { Sidebar } from '@/components/sidebar'
 import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
-import { accountsTable, ideasTable } from '@/db/schema'
-import { getIdentity } from '@/lib/identity'
+import { ideasTable } from '@/db/schema'
+import { getIdentity, listIdentities } from '@/lib/identity'
 import { publishConfigs } from '@/lib/publishing/config'
 import { getCurrentConnections } from '@/lib/publishing/current-connection'
 import { PUBLISHING_PLATFORM_IDS } from '@/lib/publishing/platform'
 import { providerFor } from '@/lib/publishing/provider'
-import { ownedByUser } from '@/lib/ownership'
 import { requireUser } from '@/lib/session'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import { and, count, eq } from 'drizzle-orm'
@@ -31,23 +30,33 @@ export default async function AppLayout({
     const config = configs[id]
     return config ? [{ id, config }] : []
   })
-  const [identity, [{ pending = 0 } = {}], cookieStore, connections] =
-    await Promise.all([
-      getIdentity(),
-      // The badge on Ideas: what the identity still has to approve. Found
-      // through the user's identity in the same query, so it does not wait
-      // for getIdentity first.
-      db
-        .select({ pending: count() })
-        .from(ideasTable)
-        .innerJoin(accountsTable, eq(accountsTable.id, ideasTable.accountId))
-        .where(and(ownedByUser(user.id), eq(ideasTable.status, 'proposed'))),
-      cookies(),
-      // For a post's Publish controls (usePlatformPublishing); never a token
-      // (and shared with Settings → Integrations). Skipped when publishing is not set up, so the
-      // app does not depend on its tables.
-      configuredPlatforms.length > 0 ? getCurrentConnections(user.id) : []
-    ])
+  // The identity being worked on; the user may own several.
+  const [identity, identities] = await Promise.all([
+    getIdentity(),
+    listIdentities()
+  ])
+  const [[{ pending = 0 } = {}], cookieStore, connections] = await Promise.all([
+    // The badge on Ideas: what the active identity still has to approve.
+    identity
+      ? db
+          .select({ pending: count() })
+          .from(ideasTable)
+          .where(
+            and(
+              eq(ideasTable.accountId, identity.id),
+              eq(ideasTable.status, 'proposed')
+            )
+          )
+      : [{ pending: 0 }],
+    cookies(),
+    // For a post's Publish controls (usePlatformPublishing): the active
+    // identity's connections, never a token (and shared with Settings →
+    // Integrations). Skipped when publishing is not set up, so the app does
+    // not depend on its tables.
+    configuredPlatforms.length > 0 && identity
+      ? getCurrentConnections(identity.id)
+      : []
+  ])
   const sidebarCollapsed =
     cookieStore.get(SIDEBAR_COLLAPSED_COOKIE)?.value === '1'
 
@@ -70,6 +79,13 @@ export default async function AppLayout({
         <div className="flex h-dvh">
           <Sidebar
             hasIdentity={Boolean(identity)}
+            identities={identities.map(({ id, name, handle, accountType }) => ({
+              id,
+              name,
+              handle,
+              accountType
+            }))}
+            activeIdentityId={identity?.id ?? null}
             ideasToReview={pending}
             initialCollapsed={sidebarCollapsed}
             user={{ name: user.name, email: user.email }}

@@ -91,9 +91,10 @@ export function assertCanPublish(
   }
 }
 
+/** The identity's connection to `platform`: each identity has its own. */
 export async function getConnection(
   database: PublishingDb,
-  userId: string,
+  accountId: string,
   platform: PlatformId = DEFAULT_PLATFORM_ID
 ): Promise<PlatformConnection | null> {
   const [row] = await database
@@ -101,7 +102,7 @@ export async function getConnection(
     .from(platformConnectionsTable)
     .where(
       and(
-        eq(platformConnectionsTable.userId, userId),
+        eq(platformConnectionsTable.accountId, accountId),
         eq(platformConnectionsTable.platform, platform)
       )
     )
@@ -109,10 +110,14 @@ export async function getConnection(
   return row ?? null
 }
 
+/** Who a connection is made by and for: the signed-in user, and their identity. */
+export type ConnectionOwner = { userId: string; accountId: string }
+
 /**
- * Saves the connection the callback (or a pasted key) just made, for
- * `userId` (the signed-in user who started it). Reconnecting replaces the
- * credential in place. Auto-publishing and scheduled posts survive a
+ * Saves the connection the callback (or a pasted key) just made, for the
+ * identity it was started from, by its owner (the signed-in user, whose id
+ * the tokens are encrypted for). Reconnecting replaces the credential in
+ * place. Auto-publishing and scheduled posts survive a
  * reconnect of the same account, but not a switch to a different one:
  * auto-publishing must be turned on again knowingly, and scheduled posts
  * for that platform are cancelled.
@@ -120,16 +125,17 @@ export async function getConnection(
 export async function saveConnection(
   database: PublishingDb,
   config: Pick<BaseConfig, 'encryptionKey'>,
-  userId: string,
+  owner: ConnectionOwner,
   tokens: Credentials,
   member: AccountInfo,
   options: { now?: Date; platform?: PlatformId } = {}
 ): Promise<PlatformConnection> {
   const now = options.now ?? new Date()
   const platform = options.platform ?? DEFAULT_PLATFORM_ID
+  const { userId, accountId } = owner
   const encrypt = (value: string | null) =>
     value === null ? null : encryptToken(value, config.encryptionKey, userId)
-  const previous = await getConnection(database, userId, platform)
+  const previous = await getConnection(database, accountId, platform)
   const sameMember = previous?.memberId === member.memberId
   const columns = {
     memberId: member.memberId,
@@ -149,9 +155,9 @@ export async function saveConnection(
   return database.transaction(async tx => {
     const [row] = await tx
       .insert(platformConnectionsTable)
-      .values({ userId, platform, ...columns })
+      .values({ userId, accountId, platform, ...columns })
       .onConflictDoUpdate({
-        target: [platformConnectionsTable.userId, platformConnectionsTable.platform],
+        target: [platformConnectionsTable.accountId, platformConnectionsTable.platform],
         set: columns
       })
       .returning()
@@ -160,7 +166,7 @@ export async function saveConnection(
     if (previous && !sameMember) {
       await cancelPendingPublications(
         tx,
-        { userId, platform },
+        { accountId, platform },
         {
           message: `Cancelled because a different ${messagesFor(platform).name} account was connected.`,
           code: 'not_connected'
@@ -177,12 +183,12 @@ export async function saveConnection(
  * off and the platform's posts waiting to be published are cancelled (in
  * flight too, until the post is sent), so connecting again later never
  * publishes something the user had forgotten about. The row stays (as
- * 'disconnected') so earlier publications keep their history. The user's
- * other platforms are untouched.
+ * 'disconnected') so earlier publications keep their history. The
+ * identity's other platforms, and the user's other identities, are untouched.
  */
 export async function disconnect(
   database: PublishingDb,
-  userId: string,
+  accountId: string,
   platform: PlatformId = DEFAULT_PLATFORM_ID,
   now = new Date()
 ): Promise<{ cancelled: number } | null> {
@@ -202,7 +208,7 @@ export async function disconnect(
       })
       .where(
         and(
-          eq(platformConnectionsTable.userId, userId),
+          eq(platformConnectionsTable.accountId, accountId),
           eq(platformConnectionsTable.platform, platform)
         )
       )
@@ -210,7 +216,7 @@ export async function disconnect(
     if (!row) return null
     const cancelled = await cancelPendingPublications(
       tx,
-      { userId, platform },
+      { accountId, platform },
       {
         message: `Cancelled because ${messagesFor(platform).name} was disconnected.`,
         code: 'not_connected'
@@ -365,7 +371,7 @@ class RefreshRefused extends Error {}
  */
 export async function changeAccount(
   database: PublishingDb,
-  userId: string,
+  accountId: string,
   platform: PlatformId,
   member: AccountInfo,
   now = new Date()
@@ -376,7 +382,7 @@ export async function changeAccount(
       .from(platformConnectionsTable)
       .where(
         and(
-          eq(platformConnectionsTable.userId, userId),
+          eq(platformConnectionsTable.accountId, accountId),
           eq(platformConnectionsTable.platform, platform),
           eq(platformConnectionsTable.status, 'connected')
         )
@@ -395,7 +401,7 @@ export async function changeAccount(
       })
       .where(
         and(
-          eq(platformConnectionsTable.userId, userId),
+          eq(platformConnectionsTable.accountId, accountId),
           eq(platformConnectionsTable.platform, platform)
         )
       )
@@ -403,7 +409,7 @@ export async function changeAccount(
     if (switched) {
       await cancelPendingPublications(
         tx,
-        { userId, platform },
+        { accountId, platform },
         {
           message: `Cancelled because a different ${messagesFor(platform).name} account was chosen.`,
           code: 'not_connected'

@@ -219,6 +219,9 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     now: extra.now
   })
 
+  /** A user and the identity a connection is made for. */
+  type Owner = { userId: string; accountId: string }
+
   /** A user who signed in with `provider`, with an identity. */
   const newUser = async (name: string, provider: 'google' | 'linkedin') => {
     const [user] = await database
@@ -273,8 +276,9 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     return draft!.id
   }
 
-  const connect = (userId: string, memberId: string, t = tokens()) =>
-    saveConnection(database, config, userId, t, {
+  /** Connects the identity `owner.accountId`, as its owner. */
+  const connect = (owner: Owner, memberId: string, t = tokens()) =>
+    saveConnection(database, config, owner, t, {
       memberId,
       name: `Member ${memberId}`,
       pictureUrl: null
@@ -333,7 +337,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       .from(schema.authAccountsTable)
       .where(eq(schema.authAccountsTable.userId, a.userId))
     const t = tokens()
-    await connect(a.userId, 'MEMBER_A', t)
+    await connect(a, 'MEMBER_A', t)
 
     // Stored encrypted; sign-in accounts untouched.
     const [raw] =
@@ -371,14 +375,14 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   })
 
   it('2. LinkedIn sign-in is not a publishing connection; connecting separately is', async () => {
-    assert.strictEqual(await getConnection(database, b.userId), null)
+    assert.strictEqual(await getConnection(database, b.accountId), null)
     const draft = await newPost(b.accountId)
     assert.strictEqual(
       await codeOf(publishNow(b.userId, draft)),
       'not_connected'
     )
 
-    await connect(b.userId, 'MEMBER_B')
+    await connect(b, 'MEMBER_B')
     const result = await publishNow(b.userId, draft)
     assert.strictEqual(result.status, 'published')
     assert.strictEqual(
@@ -676,7 +680,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   it('8. an expired token marks the connection expired and fails the post', async () => {
     const c = await newUser('c', 'google')
     await connect(
-      c.userId,
+      c,
       'MEMBER_C',
       tokens({ accessTokenExpiresAt: new Date(Date.now() - 1000) })
     )
@@ -685,7 +689,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     assert.strictEqual(result.status, 'failed')
     assert.strictEqual(result.errorCode, 'reauth_required')
     assert.strictEqual(
-      (await getConnection(database, c.userId))!.status,
+      (await getConnection(database, c.accountId))!.status,
       'expired'
     )
     assert.strictEqual(linkedIn.postCalls().length, 0)
@@ -698,12 +702,12 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
   it('8. a token LinkedIn revoked (401) marks the connection expired', async () => {
     const d = await newUser('d', 'google')
-    await connect(d.userId, 'MEMBER_D')
+    await connect(d, 'MEMBER_D')
     linkedIn.failNextPosts(() => new Response(null, { status: 401 }))
     const result = await publishNow(d.userId, await newPost(d.accountId))
     assert.strictEqual(result.errorCode, 'reauth_required')
     assert.strictEqual(
-      (await getConnection(database, d.userId))!.status,
+      (await getConnection(database, d.accountId))!.status,
       'expired'
     )
   })
@@ -711,7 +715,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   it('8. an expired token is refreshed when LinkedIn gave a refresh token', async () => {
     const e = await newUser('e', 'google')
     await connect(
-      e.userId,
+      e,
       'MEMBER_E',
       tokens({
         accessTokenExpiresAt: new Date(Date.now() - 1000),
@@ -726,17 +730,17 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
   it('4. disconnecting removes the tokens and cancels scheduled posts', async () => {
     const f = await newUser('f', 'linkedin')
-    await connect(f.userId, 'MEMBER_F')
+    await connect(f, 'MEMBER_F')
     const row = await requestPublication(database, {
       userId: f.userId,
       draftId: await newPost(f.accountId),
       trigger: 'scheduled',
       scheduledAt: new Date(Date.now() + 3600_000)
     })
-    assert.deepStrictEqual(await disconnect(database, f.userId), {
+    assert.deepStrictEqual(await disconnect(database, f.accountId), {
       cancelled: 1
     })
-    const connection = await getConnection(database, f.userId)
+    const connection = await getConnection(database, f.accountId)
     assert.strictEqual(connection!.status, 'disconnected')
     assert.strictEqual(connection!.accessToken, null)
     const [cancelled] = await database
@@ -756,7 +760,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     assert.strictEqual(signIn.length, 1)
 
     // 5. Reconnecting works again, in the same row.
-    const reconnected = await connect(f.userId, 'MEMBER_F')
+    const reconnected = await connect(f, 'MEMBER_F')
     assert.strictEqual(reconnected.id, connection!.id)
     assert.strictEqual(reconnected.status, 'connected')
     const result = await publishNow(f.userId, await newPost(f.accountId))
@@ -765,12 +769,12 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
   it('5. reconnecting as a different LinkedIn member turns auto-publishing off', async () => {
     const g = await newUser('g', 'google')
-    await connect(g.userId, 'MEMBER_G')
+    await connect(g, 'MEMBER_G')
     await database
       .update(schema.platformConnectionsTable)
       .set({ autoPublish: true, autoPublishEnabledAt: new Date() })
       .where(eq(schema.platformConnectionsTable.userId, g.userId))
-    assert.strictEqual((await connect(g.userId, 'MEMBER_G')).autoPublish, true)
+    assert.strictEqual((await connect(g, 'MEMBER_G')).autoPublish, true)
     const scheduled = await requestPublication(database, {
       userId: g.userId,
       draftId: await newPost(g.accountId),
@@ -778,7 +782,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       scheduledAt: new Date(Date.now() + 3600_000)
     })
     assert.strictEqual(
-      (await connect(g.userId, 'MEMBER_OTHER')).autoPublish,
+      (await connect(g, 'MEMBER_OTHER')).autoPublish,
       false
     )
     // Scheduled as MEMBER_G: it must not go out as MEMBER_OTHER.
@@ -792,7 +796,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   describe('deleting', () => {
     it('deletes a published post from LinkedIn; it stays published, so it never goes out again', async () => {
       const k = await newUser('k', 'google')
-      await connect(k.userId, 'MEMBER_K')
+      await connect(k, 'MEMBER_K')
       const draft = await newPost(k.accountId)
       const published = await publishNow(k.userId, draft)
 
@@ -822,15 +826,15 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     it("only the publisher can delete it, and only as the member it went out as", async () => {
       const l = await newUser('l', 'google')
       const m = await newUser('m', 'google')
-      await connect(l.userId, 'MEMBER_L')
-      await connect(m.userId, 'MEMBER_M')
+      await connect(l, 'MEMBER_L')
+      await connect(m, 'MEMBER_M')
       const published = await publishNow(l.userId, await newPost(l.accountId))
 
       assert.strictEqual(
         await codeOf(deletePublishedPost(deps(), m.userId, published.id)),
         'not_found'
       )
-      await connect(l.userId, 'MEMBER_L_OTHER')
+      await connect(l, 'MEMBER_L_OTHER')
       assert.strictEqual(
         await codeOf(deletePublishedPost(deps(), l.userId, published.id)),
         'missing_permission'
@@ -840,7 +844,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
     it('a LinkedIn error leaves it undeleted; a post LinkedIn no longer has counts as deleted', async () => {
       const n = await newUser('n', 'google')
-      await connect(n.userId, 'MEMBER_N')
+      await connect(n, 'MEMBER_N')
       const published = await publishNow(n.userId, await newPost(n.accountId))
 
       linkedIn.answerNextDeletes(
@@ -863,7 +867,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
     it('deleting the post from the app keeps its publication as the record', async () => {
       const o = await newUser('o', 'google')
-      await connect(o.userId, 'MEMBER_O')
+      await connect(o, 'MEMBER_O')
       const draft = await newPost(o.accountId)
       const published = await publishNow(o.userId, draft)
 
@@ -892,7 +896,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
     const setUp = async (name: string, enabledAt: Date) => {
       const u = await newUser(name, 'google')
-      await connect(u.userId, `MEMBER_${name}`)
+      await connect(u, `MEMBER_${name}`)
       await database
         .update(schema.platformConnectionsTable)
         .set({
@@ -989,15 +993,66 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         )
       assert.strictEqual(rows.length, 0)
     })
+
+    it("sweeps only its own identity's posts, not the owner's other identity's", async () => {
+      const u = await setUp('p', new Date(slot.getTime() - 24 * 3600_000))
+      const [persona] = await database
+        .insert(schema.accountsTable)
+        .values({ userId: u.userId, name: 'Persona', handle: `${tag}-persona`, headline: 'QA' })
+        .returning()
+      const own = await newPost(u.accountId, { plannedFor: day, updatedAt: before })
+      await newPost(persona!.id, { plannedFor: day, updatedAt: before })
+      await queueAutoPublications(database, today)
+      const rows = await database
+        .select()
+        .from(schema.publicationsTable)
+        .where(eq(schema.publicationsTable.userId, u.userId))
+      assert.deepStrictEqual(rows.map(r => r.draftId), [own])
+      assert.strictEqual(rows[0]!.accountId, u.accountId)
+    })
+  })
+
+  describe('several identities', () => {
+    it("publishes each identity's posts through its own connection only", async () => {
+      const q = await newUser('q', 'google')
+      const [persona] = await database
+        .insert(schema.accountsTable)
+        .values({ userId: q.userId, name: 'Persona', handle: `${tag}-q-persona`, headline: 'QA' })
+        .returning()
+      const second = { userId: q.userId, accountId: persona!.id }
+      await connect(q, 'MEMBER_Q_MAIN')
+
+      // The persona has no LinkedIn of its own: its post is not sent through
+      // the main identity's.
+      const personaDraft = await newPost(second.accountId)
+      assert.strictEqual(await codeOf(publishNow(q.userId, personaDraft)), 'not_connected')
+
+      await connect(second, 'MEMBER_Q_PERSONA')
+      const published = await publishNow(q.userId, personaDraft)
+      assert.strictEqual(published.status, 'published')
+      assert.strictEqual(published.accountId, second.accountId)
+      assert.strictEqual(
+        linkedIn.postCalls().at(-1)!.body.author,
+        'urn:li:person:MEMBER_Q_PERSONA'
+      )
+
+      // Disconnecting one identity leaves the other's connection alone.
+      await disconnect(database, second.accountId)
+      assert.strictEqual((await getConnection(database, q.accountId))!.status, 'connected')
+      assert.strictEqual(
+        (await getConnection(database, second.accountId))!.status,
+        'disconnected'
+      )
+    })
   })
   describe('X through Buffer', () => {
     let x: { userId: string; accountId: string }
     const apiKey = 'BUFFER-KEY-1234567890'
-    const connectX = (userId: string, channelId = 'CHANNEL_X', key = apiKey) =>
+    const connectX = (owner: Owner, channelId = 'CHANNEL_X', key = apiKey) =>
       saveConnection(
         database,
         xConfig,
-        userId,
+        owner,
         {
           accessToken: key,
           accessTokenExpiresAt: null,
@@ -1030,17 +1085,17 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     })
 
     it('X1. without X connected, an X post is refused; LinkedIn alone does not count', async () => {
-      await connect(x.userId, 'MEMBER_X')
+      await connect(x, 'MEMBER_X')
       const draft = await xPost()
       assert.strictEqual(await codeOf(publishNow(x.userId, draft)), 'not_connected')
       assert.strictEqual(buffer.calls.length + linkedIn.postCalls().length, 0)
     })
 
     it('X2. connected beside LinkedIn, an X post goes to Buffer as plain text, now', async () => {
-      await connectX(x.userId)
+      await connectX(x)
       // Both connections, one per platform.
-      assert.strictEqual((await getConnection(database, x.userId))!.memberId, 'MEMBER_X')
-      const connection = (await getConnection(database, x.userId, 'x'))!
+      assert.strictEqual((await getConnection(database, x.accountId))!.memberId, 'MEMBER_X')
+      const connection = (await getConnection(database, x.accountId, 'x'))!
       assert.strictEqual(connection.memberId, 'CHANNEL_X')
       assert.ok(connection.accessToken && !connection.accessToken.includes(apiKey), 'key encrypted')
 
@@ -1167,10 +1222,10 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       const r3 = await publishNow(x.userId, revoked)
       assert.strictEqual(r3.status, 'failed')
       assert.strictEqual(r3.errorCode, 'reauth_required')
-      assert.strictEqual((await getConnection(database, x.userId, 'x'))!.status, 'expired')
+      assert.strictEqual((await getConnection(database, x.accountId, 'x'))!.status, 'expired')
       // LinkedIn's connection is untouched.
-      assert.strictEqual((await getConnection(database, x.userId))!.status, 'connected')
-      await connectX(x.userId)
+      assert.strictEqual((await getConnection(database, x.accountId))!.status, 'connected')
+      await connectX(x)
     })
 
     it('X7. too long for X, as X counts it, is refused before Buffer is called', async () => {
@@ -1194,7 +1249,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.strictEqual(xRow.platform, 'x')
       assert.strictEqual(liRow.platform, 'linkedin')
       // Every X post waiting (this one, and the one X6 left to retry), no LinkedIn one.
-      assert.deepStrictEqual(await disconnect(database, x.userId, 'x'), { cancelled: 2 })
+      assert.deepStrictEqual(await disconnect(database, x.accountId, 'x'), { cancelled: 2 })
       assert.strictEqual((await rowOf(xRow.id)).status, 'cancelled')
       assert.strictEqual((await rowOf(liRow.id)).status, 'scheduled')
       await cancelPublication(database, x.userId, liRow.id)
@@ -1223,7 +1278,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       saveConnection(
         database,
         xConfig,
-        m.userId,
+        m,
         {
           accessToken: 'BUFFER-KEY-META-1234567890',
           accessTokenExpiresAt: null,
@@ -1373,9 +1428,9 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     })
 
     it('M5. each network keeps its own connection: disconnecting Instagram leaves Facebook alone', async () => {
-      assert.ok(await disconnect(database, m.userId, 'instagram'))
-      assert.strictEqual((await getConnection(database, m.userId, 'instagram'))!.status, 'disconnected')
-      assert.strictEqual((await getConnection(database, m.userId, 'facebook'))!.status, 'connected')
+      assert.ok(await disconnect(database, m.accountId, 'instagram'))
+      assert.strictEqual((await getConnection(database, m.accountId, 'instagram'))!.status, 'disconnected')
+      assert.strictEqual((await getConnection(database, m.accountId, 'facebook'))!.status, 'connected')
     })
   })
 })

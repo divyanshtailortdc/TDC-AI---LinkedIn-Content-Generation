@@ -182,10 +182,13 @@ export async function draftSelectedIdeas(options: {
         error: 'Select the approved ideas to turn into posts.'
       }
     }
-    const accountId = await requireIdentityId()
-    const runId = options.runId
-      ? (await requireOwnedRun(user.id, options.runId)).id
+    // From a run's page, the run's identity (the user may have switched to
+    // another since); otherwise the active one.
+    const run = options.runId
+      ? await requireOwnedRun(user.id, options.runId)
       : null
+    const accountId = run?.accountId ?? (await requireIdentityId())
+    const runId = run?.id ?? null
 
     if (options.formats !== undefined) {
       const formats = chosenFormats(options.formats)

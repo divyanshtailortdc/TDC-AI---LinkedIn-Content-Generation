@@ -82,8 +82,28 @@ describe('OAuth state (CSRF)', () => {
     assert.deepStrictEqual(
       verifyOAuthState(key, { cookie, state, userId: 'user-a' }),
       {
-        ok: true
+        ok: true,
+        accountId: null
       }
+    )
+  })
+
+  it('carries the identity the connection is for, and refuses it swapped', () => {
+    const { state, cookie } = createOAuthState(key, 'user-a', Date.now(), 'linkedin', 'identity-1')
+    assert.deepStrictEqual(
+      verifyOAuthState(key, { cookie, state, userId: 'user-a' }),
+      { ok: true, accountId: 'identity-1' }
+    )
+    // Another user, even with the same identity id, is refused.
+    assert.strictEqual(
+      verifyOAuthState(key, { cookie, state, userId: 'user-b' }).ok,
+      false
+    )
+    // Pointing the cookie at another identity breaks its signature.
+    const swapped = cookie.replace('identity-1', 'identity-2')
+    assert.deepStrictEqual(
+      verifyOAuthState(key, { cookie: swapped, state, userId: 'user-a' }),
+      { ok: false, reason: 'invalid' }
     )
   })
 

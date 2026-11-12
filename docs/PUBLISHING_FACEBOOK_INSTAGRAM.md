@@ -17,7 +17,7 @@ Facebook and Instagram posts are published the same way as X posts: through the 
 | Facebook | A **Facebook Page** | `facebook.post` | none |
 | Instagram | An Instagram **business or creator** account (Buffer cannot connect personal accounts) | `instagram.caption`, shown as **Instagram post**: a picture with its caption | `instagram.reel` (posts have no video) |
 
-This is set in `PUBLISHABLE_FORMATS` in `src/lib/publishing/platform.ts`. Each platform has its own connection (one row per user and platform in `linkedin_connections`), its own Buffer authorization, its own auto-publishing time, and its own **Change account** for picking another Page or Instagram account in the same Buffer account. Disconnecting one leaves the others alone.
+This is set in `PUBLISHABLE_FORMATS` in `src/lib/publishing/platform.ts`. Each platform has its own connection (one row per identity and platform in `linkedin_connections`), its own Buffer authorization, its own auto-publishing time, and its own **Change account** for picking another Page or Instagram account in the same Buffer account. Disconnecting one leaves the others alone.
 
 ## What is sent to Buffer
 

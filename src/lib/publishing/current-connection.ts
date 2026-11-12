@@ -24,17 +24,17 @@ const SUMMARY_COLUMNS = {
 }
 
 /**
- * The user's publishing connections as the browser may see them, one per
- * platform they ever connected. Read once per request: the app layout (for
- * a post's Publish controls) and Settings → Integrations both ask while
+ * The identity's publishing connections as the browser may see them, one per
+ * platform it ever connected. Read once per request: the app layout (for a
+ * post's Publish controls) and Settings → Integrations both ask while
  * rendering the same page.
  */
 export const getCurrentConnections = cache(
-  async (userId: string): Promise<ConnectionSummary[]> => {
+  async (accountId: string): Promise<ConnectionSummary[]> => {
     const rows = await db
       .select(SUMMARY_COLUMNS)
       .from(platformConnectionsTable)
-      .where(eq(platformConnectionsTable.userId, userId))
+      .where(eq(platformConnectionsTable.accountId, accountId))
     // Only the selected columns are read from them.
     return rows.map(row => toConnectionSummary(row as PlatformConnection))
   }

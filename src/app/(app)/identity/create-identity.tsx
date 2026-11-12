@@ -88,7 +88,12 @@ type Notes = Partial<Record<PlatformId, PlatformCardNote>>
 const stylesFor = (platforms: PlatformId[], chosen: Styles): Record<string, ContentStyle> =>
   Object.fromEntries(platforms.map(p => [p, chosen[p] ?? DEFAULT_STYLES[p]]))
 
-export function CreateIdentity() {
+export function CreateIdentity({
+  another = false
+}: {
+  /** The user already has an identity and is adding one. */
+  another?: boolean
+} = {}) {
   // Every visit starts blank: suggestions left by an earlier visit that was
   // never saved are dropped before anything reads them. A lazy initializer
   // runs once per mount, during the first render.
@@ -158,8 +163,12 @@ export function CreateIdentity() {
   return (
     <SetupFrame
       stepIndex={0}
-      title="Create Your Identity"
-      description="Three quick steps: where you post, a few words about you, then check what we filled in."
+      title={another ? 'Create Another Identity' : 'Create Your Identity'}
+      description={
+        another
+          ? 'A separate persona or brand with its own voice, goals and connected accounts. Your other identities stay as they are.'
+          : 'Three quick steps: where you post, a few words about you, then check what we filled in.'
+      }
       identity={
         <Link
           href="/"

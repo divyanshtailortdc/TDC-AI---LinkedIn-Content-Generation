@@ -1,6 +1,10 @@
 'use client'
 
 import { useMobileNav } from '@/components/mobile-nav'
+import {
+  IdentitySwitcher,
+  type SwitcherIdentity
+} from '@/components/identity-switcher'
 import { UserMenu } from '@/components/user-menu'
 import logoDark from '@/img/tdccommercelogo-dark.webp'
 import logoLight from '@/img/tdccommercelogo.webp'
@@ -361,12 +365,18 @@ function NavGroup({
 
 export function Sidebar({
   hasIdentity,
+  identities = [],
+  activeIdentityId = null,
   ideasToReview = 0,
   initialCollapsed = false,
   user
 }: {
   /** The signed-in user has set up their identity. */
   hasIdentity: boolean
+  /** Every identity the user owns, oldest first, for the switcher. */
+  identities?: SwitcherIdentity[]
+  /** The one the app is working on. */
+  activeIdentityId?: string | null
   /** Ideas of the identity still waiting for approval. */
   ideasToReview?: number
   /** The collapse preference from its cookie, for the server render. */
@@ -486,6 +496,17 @@ export function Sidebar({
             )}
           </button>
         </div>
+
+        {/* Which identity everything below belongs to, and switching */}
+        {identities.length > 0 && (
+          <div className={cn('border-sidebar-border border-b py-3', collapsed ? 'px-2' : 'px-3')}>
+            <IdentitySwitcher
+              identities={identities}
+              activeId={activeIdentityId}
+              collapsed={collapsed}
+            />
+          </div>
+        )}
 
         {/* Nav */}
         <nav className="flex-1 space-y-1.5 overflow-x-visible overflow-y-auto px-3 py-5">

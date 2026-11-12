@@ -84,16 +84,13 @@ export const commonFieldDefs = {
 
 export const accountsTable = pgTable('accounts', {
   id: commonFieldDefs.id(),
-  // The signed-in user who owns this identity; each user has at most one.
-  // Null only for identities made before sign-in existed: those are hidden
-  // from everyone until they are assigned to their owner
-  // (docs/AUTHENTICATION.md, "Legacy identities"). Postgres allows any number
-  // of nulls under the unique constraint.
-  userId: uuid('user_id')
-    .unique()
-    .references(() => authUsersTable.id, {
-      onDelete: 'cascade'
-    }),
+  // The signed-in user who owns this identity. A user can own several and
+  // works on one at a time (src/lib/identity.ts). Null only for identities
+  // made before sign-in existed: those are hidden from everyone until they
+  // are assigned to their owner (docs/AUTHENTICATION.md, "Legacy identities").
+  userId: uuid('user_id').references(() => authUsersTable.id, {
+    onDelete: 'cascade'
+  }),
   name: text('name').notNull(),
   handle: text('handle').notNull(),
   headline: text('headline').notNull(),
@@ -111,7 +108,9 @@ export const accountsTable = pgTable('accounts', {
   // that were off.
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
-})
+},
+  table => [index('accounts_user_idx').on(table.userId)]
+)
 
 // ---------------------------------------------------------------------------
 // 2. Voice Configs (1:1 with Account) — tone, style, banned words
@@ -1321,10 +1320,17 @@ export const platformConnectionsTable = pgTable(
   'linkedin_connections',
   {
     id: commonFieldDefs.id(),
-    // One per user and platform: reconnecting updates this row in place.
+    // Who connected it: the owner of its identity, and what its tokens are
+    // encrypted for.
     userId: uuid('user_id')
       .notNull()
       .references(() => authUsersTable.id, { onDelete: 'cascade' }),
+    // The identity it publishes for: one per identity and platform, and
+    // reconnecting updates this row in place. Null only for a connection made
+    // before its owner had an identity; their first identity takes it on.
+    accountId: uuid('account_id').references(() => accountsTable.id, {
+      onDelete: 'cascade'
+    }),
     // The platform it publishes to (src/lib/platforms). Rows from before X
     // was added are LinkedIn's.
     platform: varchar('platform', { length: 30 })
@@ -1364,10 +1370,11 @@ export const platformConnectionsTable = pgTable(
     ...commonFieldDefs.dates
   },
   table => [
-    unique('linkedin_connections_user_platform_unique').on(
-      table.userId,
+    unique('linkedin_connections_account_platform_unique').on(
+      table.accountId,
       table.platform
     ),
+    index('linkedin_connections_user_idx').on(table.userId),
     check(
       'linkedin_connections_status_check',
       sql`${table.status} in (${sqlList(CONNECTION_STATUSES)})`
@@ -1391,6 +1398,12 @@ export const publicationsTable = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => authUsersTable.id, { onDelete: 'cascade' }),
+    // The identity whose post it is, and so whose connection publishes it.
+    // Null for a row whose post was deleted before identities had their own
+    // connections.
+    accountId: uuid('account_id').references(() => accountsTable.id, {
+      onDelete: 'cascade'
+    }),
     // Null once the post is deleted from the app: the row stays as the record
     // of what was published (and where), but no longer belongs to a post.
     draftId: uuid('draft_id').references(() => postDraftsTable.id, {

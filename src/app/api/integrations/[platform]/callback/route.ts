@@ -1,4 +1,6 @@
 import { db } from '@/db'
+import { getIdentity } from '@/lib/identity'
+import { findOwnedAccount } from '@/lib/ownership'
 import { configFor } from '@/lib/publishing/config'
 import { saveConnection } from '@/lib/publishing/connection'
 import { pkceVerifier, verifyOAuthState } from '@/lib/publishing/oauth-state'
@@ -65,6 +67,13 @@ export async function GET(
   const code = params.get('code')
   if (!code) return back('failed')
 
+  // The identity the flow was started for, still the user's; a state signed
+  // before identities had their own connections falls back to the active one.
+  const account = check.accountId
+    ? await findOwnedAccount(db, user.id, check.accountId)
+    : await getIdentity()
+  if (!account) return back('no_identity')
+
   try {
     const tokens = await oauth.exchangeCode(
       config,
@@ -73,10 +82,17 @@ export async function GET(
     )
     if (provider.publishScope && !tokens.scopes.includes(provider.publishScope))
       return back('missing_permission')
-    const account = await oauth.account(config, tokens.accessToken)
+    const member = await oauth.account(config, tokens.accessToken)
     // Buffer: no channel of this platform in the Buffer account to publish to.
-    if (!account) return back('no_account')
-    await saveConnection(db, config, user.id, tokens, account, { platform })
+    if (!member) return back('no_account')
+    await saveConnection(
+      db,
+      config,
+      { userId: user.id, accountId: account.id },
+      tokens,
+      member,
+      { platform }
+    )
   } catch (err) {
     console.error(`Could not connect ${name} for user ${user.id}:`, err)
     return back('failed')

@@ -26,15 +26,15 @@ export const postRequested = sql`${publicationsTable.metadata} ? 'postRequestedA
  */
 export async function cancelPendingPublications(
   database: PublishingDb,
-  scope: { userId?: string; draftId?: string; platform?: PlatformId },
+  scope: { accountId?: string; draftId?: string; platform?: PlatformId },
   reason: { message: string; code: PublicationErrorCode },
   options: { includeUnsentInFlight?: boolean; now?: Date } = {}
 ): Promise<number> {
   const filters: SQL[] = []
-  if (scope.userId) filters.push(eq(publicationsTable.userId, scope.userId))
+  if (scope.accountId) filters.push(eq(publicationsTable.accountId, scope.accountId))
   if (scope.draftId) filters.push(eq(publicationsTable.draftId, scope.draftId))
   if (filters.length === 0) throw new Error('cancelPendingPublications needs a scope.')
-  // Narrows a user's scope to one platform (a disconnect of X leaves LinkedIn's).
+  // Narrows an identity's scope to one platform (a disconnect of X leaves LinkedIn's).
   if (scope.platform) filters.push(eq(publicationsTable.platform, scope.platform))
 
   const pending = options.includeUnsentInFlight

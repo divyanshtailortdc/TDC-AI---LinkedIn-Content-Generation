@@ -1,8 +1,8 @@
 'use server'
 
 import { db } from '@/db'
-import { isUniqueViolation } from '@/lib/db-errors'
-import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
+import { accountsTable, platformConnectionsTable } from '@/db/schema'
+import { IDENTITY_PATH, setActiveIdentity } from '@/lib/identity'
 import {
   cleanChannelSettings,
   isPlatformId,
@@ -17,9 +17,10 @@ import {
   parseAccountType
 } from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
-import { findOwnedAccount } from '@/lib/ownership'
+import { findOwnedAccount, ownedByUser } from '@/lib/ownership'
 import { requireUser } from '@/lib/session'
 import { AccountIdSchema } from '@/lib/setup-payloads'
+import { and, eq, gt, isNull } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
@@ -118,15 +119,17 @@ function channelsFromFormData(formData: FormData): {
   }
 }
 
+/** A create repeated within this long (a second click, a retried request) makes nothing. */
+const REPEAT_CREATE_MS = 60_000
+
 /**
- * Creates the signed-in user's identity. Each user has one: when it already
- * exists (a second click, a retried request, another tab), nothing is
- * inserted and the user is sent to it. UNIQUE(accounts.user_id) settles a
- * race between two creates.
+ * Creates an identity for the signed-in user and makes it the active one. A
+ * user can own several. The same name created again within a minute is
+ * taken as the same create repeated (a second click, a retried request,
+ * another tab), so nothing is inserted and the user is sent to that one.
  */
 export async function createAccount(formData: FormData) {
   const user = await requireUser()
-  if (await getIdentity()) return { redirectTo: IDENTITY_PATH }
 
   const accountType = parseAccountType(formData.get('accountType'))
   const parsed = IdentityProfileSchema.safeParse(profileFromFormData(formData))
@@ -135,30 +138,51 @@ export async function createAccount(formData: FormData) {
   }
   const data = parsed.data
 
-  try {
-    // The account, its offering and audience, and where it posts are written
-    // together.
-    await insertIdentity(
-      db,
-      {
-        userId: user.id,
-        name: data.name,
-        accountType,
-        handle: extractAndSanitizeHandle(data.linkedinUrl, data.name),
-        headline: deriveHeadline(data),
-        bio: data.description,
-        company: data.company || null,
-        industry: data.industry,
-        linkedinUrl: data.linkedinUrl || null,
-        websiteUrl: data.websiteUrl || null
-      },
-      data,
-      channelsFromFormData(formData)
+  const repeated = await db.query.accountsTable.findFirst({
+    where: and(
+      ownedByUser(user.id),
+      eq(accountsTable.name, data.name),
+      gt(accountsTable.createdAt, new Date(Date.now() - REPEAT_CREATE_MS))
     )
-  } catch (err) {
-    if (isUniqueViolation(err)) return { redirectTo: IDENTITY_PATH }
-    throw err
+  })
+  if (repeated) {
+    await setActiveIdentity(repeated.id)
+    revalidatePath('/', 'layout')
+    return { redirectTo: IDENTITY_PATH }
   }
+
+  // The account, its offering and audience, and where it posts are written
+  // together.
+  const created = await insertIdentity(
+    db,
+    {
+      userId: user.id,
+      name: data.name,
+      accountType,
+      handle: extractAndSanitizeHandle(data.linkedinUrl, data.name),
+      headline: deriveHeadline(data),
+      bio: data.description,
+      company: data.company || null,
+      industry: data.industry,
+      linkedinUrl: data.linkedinUrl || null,
+      websiteUrl: data.websiteUrl || null
+    },
+    data,
+    channelsFromFormData(formData)
+  )
+  // A connection made before the user had any identity belongs to none; this
+  // one takes it on (at most one per platform: they were one per user).
+  await db
+    .update(platformConnectionsTable)
+    .set({ accountId: created.id })
+    .where(
+      and(
+        eq(platformConnectionsTable.userId, user.id),
+        isNull(platformConnectionsTable.accountId)
+      )
+    )
+  // Every page from here on works on the new identity.
+  await setActiveIdentity(created.id)
 
   // The sidebar and every identity-scoped page change once it exists.
   revalidatePath('/', 'layout')
@@ -239,4 +263,18 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       error: error?.message || 'Failed to update identity'
     }
   }
+}
+
+/**
+ * Makes one of the user's identities the active one: every page and action
+ * works on it from the next request. Someone else's identity reads as not
+ * found.
+ */
+export async function switchIdentity(rawAccountId: string) {
+  const user = await requireUser()
+  const account = await findOwnedAccount(db, user.id, rawAccountId)
+  if (!account) return { success: false as const, error: 'Identity not found' }
+  await setActiveIdentity(account.id)
+  revalidatePath('/', 'layout')
+  return { success: true as const }
 }

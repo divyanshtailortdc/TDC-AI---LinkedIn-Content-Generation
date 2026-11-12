@@ -21,7 +21,7 @@ Two layers keep the app independent of any one platform:
 | Platform registry | `src/lib/platforms/index.ts` | Every platform posts can be written for: name, length limits, fold, plain-text rules, link policy. Prompts, the linter, Copy, the preview and the UI read a post's platform (`post_drafts.platform`) from here. |
 | Publishing providers | `src/lib/publishing/linkedin/`, `src/lib/publishing/buffer/` | Each platform's API client, connection method and text format, behind one shape (`PublishingProvider`). Generic code finds one with `providerFor(platform)` in `src/lib/publishing/provider.ts`. |
 
-`src/lib/publishing/platform.ts` lists the platforms the engine publishes to. A post is published to the platform it was written for (`post_drafts.platform`); each publication records it (`linkedin_publications.platform`), and each user has one connection per platform (`linkedin_connections.platform`, unique with `user_id`). The tables keep their original names. Every message, route and settings screen takes the platform's name from the registry.
+`src/lib/publishing/platform.ts` lists the platforms the engine publishes to. A post is published to the platform it was written for (`post_drafts.platform`); each publication records it (`linkedin_publications.platform`), and each identity has one connection per platform (`linkedin_connections.platform`, unique with `account_id` since `0044_many_identities`): a user's professional identity and their persona connect separate accounts, and each identity's posts go out only through its own connection. The tables keep their original names. Every message, route and settings screen takes the platform's name from the registry.
 
 **Adding a platform** (Instagram, Facebook, …):
 
@@ -86,7 +86,7 @@ Settings → "Connect LinkedIn"
   → 303 /settings/integrations?connection=connected
 ```
 
-One connection per user and platform (`UNIQUE (user_id, platform)`). Reconnecting replaces the tokens in the same row. Reconnecting as a *different* LinkedIn member turns auto-publishing off and cancels the user's scheduled publications (and in-flight ones whose create request was not sent yet), so nothing queued for the old member goes out as the new one.
+One connection per identity and platform (`UNIQUE (account_id, platform)`); `user_id` stays as its owner and is what the tokens are encrypted for. A connection is made for the active identity (the OAuth state signs in which one, so switching identity in another tab mid-flow changes nothing). Reconnecting replaces the tokens in the same row. Reconnecting as a *different* LinkedIn member turns auto-publishing off and cancels that identity's scheduled publications (and in-flight ones whose create request was not sent yet), so nothing queued for the old member goes out as the new one.
 
 **Disconnecting** deletes the tokens, turns auto-publishing off and cancels every `scheduled` publication for that platform (another platform's are untouched). The row stays as `disconnected` so earlier publications keep their history. Sign-in is untouched. TDC AI cannot revoke the grant on LinkedIn's side for a member app, so the page tells the user where to remove it (LinkedIn Settings → Data privacy → Permitted services).
 
@@ -96,7 +96,7 @@ All three ways go through one pipeline:
 
 ```
 requestPublication   checks: post is the user's (via accounts.user_id), approved, not posted;
-                     connection exists and is not expired → INSERT status 'scheduled'
+                     its identity's connection exists and is not expired → INSERT status 'scheduled'
 claimPublication     UPDATE … SET status='publishing', attempts+1 WHERE status='scheduled' AND due
 executePublication   checks everything again, then:
                        token (refreshed or marked expired)
@@ -144,7 +144,7 @@ Creating a LinkedIn post is not idempotent, and a member token cannot read posts
 - **Tokens** are encrypted with AES-256-GCM (`TOKEN_ENCRYPTION_KEY`), each with a fresh IV, and with the owning user's id bound in as associated data: a ciphertext copied to another user's row fails to decrypt. They are decrypted only in the server-side publishing code, and never sent to the browser (pages get `ConnectionSummary`, which has no token fields).
 - **The client secret** is used only in the server-side token request body, never in a URL or the browser.
 - **CSRF on the callback**: the state is random, kept in an httpOnly cookie that is HMAC-signed together with the user id and an expiry, and is single-use (the callback always deletes it). A callback is refused when the state differs from the cookie, the cookie is missing, forged or expired, or it belongs to another user. That last case covers an attacker sending a victim their own callback link to attach the attacker's LinkedIn to the victim's account.
-- **Ownership**: every action takes only a post or publication id. The owner is always the session user, the post must belong to that user's identity, and the connection is looked up by that user's id, never by an id from the request. The worker checks the same at publish time, so even a row forged directly into the database cannot publish another user's post or use another user's connection (`tests/publishing.test.ts`, scenario 12).
+- **Ownership**: every action takes only a post or publication id. The owner is always the session user, the post must belong to one of that user's identities, and the connection is that identity's, never one named in the request. The worker checks the same at publish time, so even a row forged directly into the database cannot publish another user's post or use another user's connection (`tests/publishing.test.ts`, scenario 12).
 - **Remote images** (stock or reviewer-pasted links) are fetched with `safeFetch`, which refuses private and internal addresses on every redirect.
 - New actions and routes follow [the rules for new code](AUTHENTICATION.md#rules-for-new-code); `tests/auth-guards.test.ts` covers them.
 
@@ -171,7 +171,7 @@ The publishing app's id and secret identify **TDC AI**, not any member. Every us
 
 ### 3. Database
 
-Apply migrations `0036_linkedin_publishing` (two new tables and their indexes) and `0041_x_publishing` (a `platform` column on both, one connection per user and platform):
+Apply migrations `0036_linkedin_publishing` (two new tables and their indexes), `0041_x_publishing` (a `platform` column on both) and `0044_many_identities` (one connection per identity and platform; existing connections go to their owner's oldest identity):
 
 ```bash
 npm run db:migrate

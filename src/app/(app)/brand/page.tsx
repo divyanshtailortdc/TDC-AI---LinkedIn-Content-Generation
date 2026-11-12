@@ -37,7 +37,9 @@ export default async function BrandThemePage() {
       identityName={identity.name}
       initialTheme={theme}
       initialLogo={
-        row?.hasLogo ? `/api/brand/logo?v=${row.updatedAt.getTime()}` : null
+        row?.hasLogo
+          ? `/api/brand/logo?a=${identity.id}&v=${row.updatedAt.getTime()}`
+          : null
       }
     />
   )

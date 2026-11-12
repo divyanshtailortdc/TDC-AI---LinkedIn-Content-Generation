@@ -146,11 +146,22 @@ describe(
       )
     })
 
-    it('lets a user own only one identity', async () => {
-      await assert.rejects(
-        makeAccount(ids.userA, `${tag}-second`),
-        (err: any) => (err?.code ?? err?.cause?.code) === '23505'
-      )
+    it('lets a user own several identities, and finds each as theirs alone', async () => {
+      const second = await makeAccount(ids.userA, `${tag}-second`)
+      try {
+        assert.strictEqual(
+          (await findOwnedAccount(database, ids.userA, second))?.id,
+          second
+        )
+        assert.strictEqual(
+          await findOwnedAccount(database, ids.userB, second),
+          undefined
+        )
+      } finally {
+        await database
+          .delete(schema.accountsTable)
+          .where(eq(schema.accountsTable.id, second))
+      }
     })
 
     it('allows any number of unowned legacy identities', async () => {

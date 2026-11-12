@@ -1,3 +1,4 @@
+import { getIdentity } from '@/lib/identity'
 import {
   callbackMessage,
   isCallbackResult
@@ -7,7 +8,6 @@ import { getCurrentConnections } from '@/lib/publishing/current-connection'
 import { PUBLISHING_PLATFORM_IDS } from '@/lib/publishing/platform'
 import { providerFor } from '@/lib/publishing/provider'
 import { PLATFORM_PARAM, RESULT_PARAM } from '@/lib/publishing/routes'
-import { requireUser } from '@/lib/session'
 import type { Metadata } from 'next'
 import { ConnectionSection } from './connection-section'
 
@@ -22,12 +22,13 @@ export default async function IntegrationsSettingsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const user = await requireUser()
+  // Each identity connects its own accounts: these are the active one's.
+  const identity = await getIdentity()
   const configs = publishConfigs()
   const anyConfigured = Object.keys(configs).length > 0
   const [connections, query] = await Promise.all([
     // One read with the layout's when both render; none when not set up.
-    anyConfigured ? getCurrentConnections(user.id) : [],
+    anyConfigured && identity ? getCurrentConnections(identity.id) : [],
     searchParams
   ])
   // The outcome of an OAuth callback, as a message on its platform's card
@@ -37,6 +38,17 @@ export default async function IntegrationsSettingsPage({
   const resultPlatform = query[PLATFORM_PARAM] ?? 'linkedin'
   return (
     <div className="space-y-6">
+      <p className="text-muted text-xs leading-relaxed">
+        {identity ? (
+          <>
+            Accounts that <span className="text-foreground font-medium">{identity.name}</span>{' '}
+            publishes to. Each of your identities connects its own; switch
+            identity in the sidebar to manage another&apos;s.
+          </>
+        ) : (
+          'Set up an identity first: each identity connects its own accounts.'
+        )}
+      </p>
       {PUBLISHING_PLATFORM_IDS.map(id => {
         const provider = providerFor(id)
         const config = configs[id]

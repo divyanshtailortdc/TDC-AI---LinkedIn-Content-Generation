@@ -708,7 +708,7 @@ describe(
         )
       })
 
-      it('never creates a second identity, whatever the form says', async () => {
+      it("creates another identity for the caller only, whatever the form says", async () => {
         const form = new FormData()
         for (const [key, value] of Object.entries({
           name: `Created ${tag}`,
@@ -721,18 +721,19 @@ describe(
         })) {
           form.set(key, value)
         }
-        // Alice already has her identity, so she is sent to it instead.
+        // Alice already has an identity; this adds a second one, hers, and
+        // never one for the user the form names.
         const res = await callActionAsAlice('createAccount', [form])
-        assert.match(
-          res.text,
-          /"redirectTo":"\/identity"/,
-          res.text.slice(0, 300)
-        )
+        assert.match(res.text, /"redirectTo":"\/identity/, res.text.slice(0, 300))
         const created = await db
           .select()
           .from(schema.accountsTable)
           .where(eq(schema.accountsTable.name, `Created ${tag}`))
-        assert.strictEqual(created.length, 0)
+        assert.strictEqual(created.length, 1)
+        assert.strictEqual(created[0]!.userId, a.userId)
+        await db
+          .delete(schema.accountsTable)
+          .where(eq(schema.accountsTable.id, created[0]!.id))
       })
 
       it('still lets owners use the same actions on their own data', async () => {

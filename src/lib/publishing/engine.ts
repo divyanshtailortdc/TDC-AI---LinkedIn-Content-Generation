@@ -185,8 +185,9 @@ async function contextFor(
 }
 
 /**
- * The user's own post, through the identity that owns it. A post of another
- * user's identity is not found, exactly like one that does not exist.
+ * The user's own post, through the identity that owns it (any of theirs). A
+ * post of another user's identity is not found, exactly like one that does
+ * not exist. Its identity's connection is the one that publishes it.
  */
 async function findOwnedDraft(
   database: PublishingDb,
@@ -196,6 +197,7 @@ async function findOwnedDraft(
   const [draft] = await database
     .select({
       id: postDraftsTable.id,
+      accountId: postDraftsTable.accountId,
       platform: postDraftsTable.platform,
       hook: postDraftsTable.hook,
       body: postDraftsTable.body,
@@ -378,7 +380,7 @@ export async function requestPublication(
   }
   try {
     assertCanPublish(
-      await getConnection(database, input.userId, draft.platform),
+      await getConnection(database, draft.accountId, draft.platform),
       draft.platform
     )
   } catch (err) {
@@ -391,6 +393,7 @@ export async function requestPublication(
       .insert(publicationsTable)
       .values({
         userId: input.userId,
+        accountId: draft.accountId,
         draftId: draft.id,
         platform: draft.platform,
         trigger: input.trigger,
@@ -412,6 +415,32 @@ export async function requestPublication(
     }
     throw err
   }
+}
+
+/**
+ * The connection a publication goes out (or went out) through: its
+ * identity's. A row from before identities had their own connections, whose
+ * post was deleted since, names no identity: its owner's one connection to
+ * that platform stands in, and none when there are several to choose from.
+ */
+async function connectionFor(
+  database: PublishingDb,
+  publication: Pick<Publication, 'accountId' | 'userId' | 'platform'>
+) {
+  if (publication.accountId) {
+    return getConnection(database, publication.accountId, publication.platform)
+  }
+  const rows = await database
+    .select()
+    .from(platformConnectionsTable)
+    .where(
+      and(
+        eq(platformConnectionsTable.userId, publication.userId),
+        eq(platformConnectionsTable.platform, publication.platform)
+      )
+    )
+    .limit(2)
+  return rows.length === 1 ? rows[0]! : null
 }
 
 /** Calls off a publication that has not started. Null when there is none to cancel. */
@@ -491,11 +520,7 @@ export async function deletePublishedPost(
     )
   }
   try {
-    const connection = await getConnection(
-      database,
-      userId,
-      publication.platform
-    )
+    const connection = await connectionFor(database, publication)
     assertCanPublish(connection, publication.platform)
     // Only its author can delete it, and the platform's 404 for anyone else
     // would read as "already deleted".
@@ -742,8 +767,8 @@ const heldClaim = (publication: Publication) =>
 /**
  * Every rule again, then what publishing needs. The post may have been
  * rejected, posted by hand or moved to someone else since it was queued.
- * Its owner is the user who queued it, and the connection is that same
- * user's: never another's.
+ * Its owner is the user who queued it, and the connection is that of the
+ * post's identity: never another identity's, or another user's.
  */
 async function prepare(deps: PublishDeps, publication: Publication) {
   const { database } = deps
@@ -765,7 +790,7 @@ async function prepare(deps: PublishDeps, publication: Publication) {
   const provider = providerFor(publication.platform)
   const connection = await getConnection(
     database,
-    publication.userId,
+    draft.accountId,
     publication.platform
   )
   assertCanPublish(connection, publication.platform)
@@ -1174,11 +1199,7 @@ export async function confirmPendingPublications(
       CONFIRM_TIMEOUT_MS
     try {
       const provider = providerFor(publication.platform)
-      const connection = await getConnection(
-        database,
-        publication.userId,
-        publication.platform
-      )
+      const connection = await connectionFor(database, publication)
       const check = provider.checkPost
       if (!check || !connection?.accessToken || connection.status !== 'connected') {
         await giveUp(
@@ -1361,6 +1382,9 @@ export async function queueAutoPublications(
     )
   let queued = 0
   for (const connection of connections) {
+    // One made before its owner had an identity publishes nothing yet.
+    const accountId = connection.accountId
+    if (!accountId) continue
     const due = dueAutoSlot(connection, now)
     if (!due) continue
     const slotKey = `${connection.autoPublishEnabledAt!.getTime()}:${due.day}`
@@ -1370,10 +1394,11 @@ export async function queueAutoPublications(
     const drafts = await database
       .select({ id: postDraftsTable.id })
       .from(postDraftsTable)
-      .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
       .where(
         and(
-          eq(accountsTable.userId, connection.userId),
+          // Only its own identity's posts: another identity of the same user
+          // publishes through its own connection.
+          eq(postDraftsTable.accountId, accountId),
           // Each connection publishes the posts written for its platform, in
           // a format its provider publishes.
           eq(postDraftsTable.platform, connection.platform),
@@ -1405,6 +1430,7 @@ export async function queueAutoPublications(
         .values(
           drafts.map(draft => ({
             userId: connection.userId,
+            accountId,
             draftId: draft.id,
             platform: connection.platform,
             trigger: 'auto' as const,

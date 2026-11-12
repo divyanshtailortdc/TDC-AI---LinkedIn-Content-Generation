@@ -1,4 +1,10 @@
 import { NoIdentity } from '@/components/no-identity'
+import { OtherIdentityNotice } from '@/components/other-identity-notice'
+import { db } from '@/db'
+import { accountsTable, postDraftsTable } from '@/db/schema'
+import { ownedByUser } from '@/lib/ownership'
+import { requireUser } from '@/lib/session'
+import { and, eq } from 'drizzle-orm'
 import { loadChannels } from '@/lib/channels'
 import { getIdentity } from '@/lib/identity'
 import { notFound } from 'next/navigation'
@@ -41,8 +47,21 @@ export default async function PostPage({
     loadBrandTheme(identity.id),
     loadChannels(identity.id)
   ])
-  // Another identity's post, or one that is gone, is not found here.
-  if (!found) notFound()
+  if (!found) {
+    // One of the user's other identities' posts opens after a switch;
+    // anyone else's, or one that is gone, is not found.
+    const user = await requireUser()
+    const [owner] = await db
+      .select({ id: accountsTable.id, name: accountsTable.name })
+      .from(postDraftsTable)
+      .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
+      .where(and(eq(postDraftsTable.id, id), ownedByUser(user.id)))
+      .limit(1)
+    if (owner && owner.id !== identity.id) {
+      return <OtherIdentityNotice identity={owner} what="post" />
+    }
+    notFound()
+  }
 
   return (
     // Keyed by post, so opening another version starts from its own state.

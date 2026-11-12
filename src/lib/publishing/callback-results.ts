@@ -16,7 +16,9 @@ const MESSAGES = {
     `No ${name} account is connected in your Buffer account. Connect ${name} in Buffer as a channel, then connect again here.`,
   failed: (name: string) => `${name} could not be connected. Please try again.`,
   not_configured: (name: string) =>
-    `Publishing to ${name} is not set up on this server.`
+    `Publishing to ${name} is not set up on this server.`,
+  no_identity: (name: string) =>
+    `${name} was not connected: set up an identity first. Each identity connects its own accounts.`
 } as const
 
 export type CallbackResult = keyof typeof MESSAGES

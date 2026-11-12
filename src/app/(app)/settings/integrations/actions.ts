@@ -24,6 +24,7 @@ import {
   PUBLISHING_PLATFORM_IDS
 } from '@/lib/publishing/platform'
 import { isValidTimeZone, parseTimeOfDay } from '@/lib/schedule-time'
+import { requireIdentityId } from '@/lib/identity'
 import { requireUser } from '@/lib/session'
 import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
 import { and, eq } from 'drizzle-orm'
@@ -46,7 +47,8 @@ export async function disconnectPlatform(platform: string) {
   }
   const name = getPlatform(platform).name
   try {
-    const result = await disconnect(db, user.id, platform)
+    // The active identity's connection; its other identities keep theirs.
+    const result = await disconnect(db, await requireIdentityId(), platform)
     if (!result)
       return { success: false as const, error: `${name} is not connected.` }
     revalidatePath(INTEGRATIONS_SETTINGS_PATH)
@@ -91,6 +93,7 @@ export async function saveAutoPublish(input: {
       }
     }
     const { platform, enabled, time, timezone } = parsed.data
+    const accountId = await requireIdentityId()
     const now = new Date()
     const [row] = await db
       .update(platformConnectionsTable)
@@ -103,7 +106,7 @@ export async function saveAutoPublish(input: {
       })
       .where(
         and(
-          eq(platformConnectionsTable.userId, user.id),
+          eq(platformConnectionsTable.accountId, accountId),
           eq(platformConnectionsTable.platform, platform),
           // Only a working connection can be set to publish by itself.
           enabled ? eq(platformConnectionsTable.status, 'connected') : undefined
@@ -227,7 +230,8 @@ export async function connectWithBuffer(
     await saveConnection(
       db,
       config,
-      user.id,
+      // For the identity being worked on: each has its own connections.
+      { userId: user.id, accountId: await requireIdentityId() },
       {
         accessToken: apiKey,
         // An API key does not run out; Buffer refusing it marks it expired.
@@ -257,7 +261,7 @@ export async function connectWithBuffer(
  * The accounts of `platform` in the user's own Buffer account, through their
  * connection.
  */
-async function bufferChannelsOf(userId: string, platform: BufferPlatformId) {
+async function bufferChannelsOf(accountId: string, platform: BufferPlatformId) {
   const config = bufferConfig(platform)
   if (!config) {
     throw new ConnectionError(
@@ -265,7 +269,7 @@ async function bufferChannelsOf(userId: string, platform: BufferPlatformId) {
       'not_connected'
     )
   }
-  const connection = await getConnection(db, userId, platform)
+  const connection = await getConnection(db, accountId, platform)
   assertCanPublish(connection, platform)
   const accessToken = await usableAccessToken(db, config, connection)
   const channels = await listPlatformChannels(
@@ -290,7 +294,10 @@ export async function listBufferAccounts(platform: string): Promise<
     return { success: false, error: 'Unknown platform.' }
   }
   try {
-    const { connection, channels } = await bufferChannelsOf(user.id, platform)
+    const { connection, channels } = await bufferChannelsOf(
+      await requireIdentityId(),
+      platform
+    )
     return {
       success: true,
       channels: channels.map(({ id, name, avatar }) => ({ id, name, avatar })),
@@ -325,7 +332,8 @@ export async function switchBufferAccount(platform: string, channelId: string) {
         error: `Pick the ${platformName} account to publish as.`
       }
     }
-    const { channels } = await bufferChannelsOf(user.id, platform)
+    const accountId = await requireIdentityId()
+    const { channels } = await bufferChannelsOf(accountId, platform)
     const channel = channels.find(c => c.id === channelId)
     if (!channel) {
       return {
@@ -333,7 +341,7 @@ export async function switchBufferAccount(platform: string, channelId: string) {
         error: `That ${platformName} account is no longer in your Buffer account.`
       }
     }
-    const row = await changeAccount(db, user.id, platform, {
+    const row = await changeAccount(db, accountId, platform, {
       memberId: channel.id,
       name: channel.name,
       pictureUrl: channel.avatar

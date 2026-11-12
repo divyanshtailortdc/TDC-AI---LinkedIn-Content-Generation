@@ -4,3 +4,6 @@
  * server-only.
  */
 export const IDENTITY_PATH = '/identity'
+
+/** Where a user who already has an identity creates another. */
+export const NEW_IDENTITY_PATH = `${IDENTITY_PATH}/new`

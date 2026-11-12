@@ -1,3 +1,4 @@
+import { getIdentity } from '@/lib/identity'
 import { configFor } from '@/lib/publishing/config'
 import { pkceVerifier, createOAuthState, STATE_TTL_MS } from '@/lib/publishing/oauth-state'
 import { canPublishTo } from '@/lib/publishing/platform'
@@ -43,11 +44,16 @@ export async function GET(
     return settingsRedirect('not_configured', platform)
   }
 
+  // Connections are per identity: this one is for the identity active now,
+  // whatever is active when the provider sends the user back.
+  const identity = await getIdentity()
+  if (!identity) return settingsRedirect('no_identity', platform)
   const { state, cookie } = createOAuthState(
     config.encryptionKey,
     user.id,
     Date.now(),
-    platform
+    platform,
+    identity.id
   )
   const response = NextResponse.redirect(
     provider.oauth!.authorizationUrl(
