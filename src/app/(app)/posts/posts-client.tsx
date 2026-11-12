@@ -1594,10 +1594,10 @@ function PostCard(props: PostItemProps) {
           <Thumbnail
             mediaId={post.media.id}
             alt={post.media.altText || post.hook}
-            className="aspect-[5/2] w-full rounded-lg"
+            className="aspect-5/2 w-full rounded-lg"
           />
         ) : (
-          <div className="bg-surface-hover text-muted flex aspect-[5/2] w-full flex-col items-center justify-center gap-1.5 rounded-lg">
+          <div className="bg-surface-hover text-muted flex aspect-5/2 w-full flex-col items-center justify-center gap-1.5 rounded-lg">
             {spec.structure === 'script' ? (
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white">
                 <Play className="ml-0.5 h-4 w-4 fill-current" />

@@ -279,7 +279,7 @@ function SenderSubscription({
 }) {
   return (
     <div className="border-border flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t pt-3">
-      <p className="text-muted min-w-0 flex-1 text-xs break-words">
+      <p className="text-muted min-w-0 flex-1 text-xs wrap-break-wod">
         {sender.unsubscribed
           ? `You unsubscribed from ${sender.address}. Its stories stay in your Knowledge base but are not used for ideas, and new emails from it are not read.`
           : `Unsubscribed from ${sender.address}? Its stories stay in your Knowledge base but stop being used for ideas.`}
@@ -311,7 +311,7 @@ function Story({
         {number}.
       </span>
       <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-foreground text-sm font-medium break-words">
+        <p className="text-foreground text-sm font-medium wrap-break-wod">
           {isWebUrl(story.url) ? (
             <a
               href={story.url}
@@ -335,7 +335,7 @@ function Story({
           )}
         </p>
         {story.blurb && (
-          <p className="text-muted text-xs leading-relaxed break-words">
+          <p className="text-muted text-xs leading-relaxed wrap-break-wod">
             {story.blurb}
           </p>
         )}
@@ -367,7 +367,7 @@ function ArticleInfo({
   }
   if (article.status === 'skipped' || article.status === 'failed') {
     return (
-      <p className="text-muted text-[11px] break-words">
+      <p className="text-muted text-[11px] wrap-break-wod">
         Could not read the article{host ? ` on ${host}` : ''}
         {article.note ? `: ${article.note}` : '.'}
       </p>
@@ -382,12 +382,12 @@ function ArticleInfo({
           ` · ${formatAbsoluteDate(article.publishedAt)}`}
       </p>
       {article.summary && (
-        <p className="text-foreground/90 text-xs leading-relaxed break-words">
+        <p className="text-foreground/90 text-xs leading-relaxed wrap-break-wod">
           {article.summary}
         </p>
       )}
       {article.claims.length > 0 && (
-        <ul className="text-muted list-disc space-y-0.5 pl-4 text-xs break-words">
+        <ul className="text-muted list-disc space-y-0.5 pl-4 text-xs wrap-break-wod">
           {article.claims.map((claim, i) => (
             <li key={i}>{claim}</li>
           ))}
