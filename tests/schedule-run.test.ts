@@ -16,11 +16,12 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
   const client = postgres(url!, { max: 4, prepare: false })
   const database = drizzle(client, { schema })
   const tag = `qa-sched-${Date.now().toString(36)}`
-  const ids = { a: '', b: '', c: '', d: '', one: '', two: '', unpicked: '', paused: '', only: '', fri: '', sat: '' }
+  const ids = { a: '', b: '', c: '', d: '', e: '', one: '', two: '', unpicked: '', paused: '', only: '', fri: '', sat: '', linkedInOnly: '', everywhere: '' }
   let scheduleId = ''
   let emptyScheduleId = ''
   let legacyScheduleId = ''
   let lateScheduleId = ''
+  let instagramScheduleId = ''
 
   // Fridays and Saturdays at 09:00 UTC, saved long before the slots below.
   // The scheduler's tick at 09:05 starts the 09:00 slot.
@@ -42,10 +43,15 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
       .returning()
     return row!.id
   }
-  const makeGoal = async (accountId: string, title: string, isActive = true) => {
+  const makeGoal = async (
+    accountId: string,
+    title: string,
+    isActive = true,
+    platforms: string[] = []
+  ) => {
     const [row] = await database
       .insert(schema.goalsTable)
-      .values({ accountId, title, keyMessage: `${title} message`, isActive })
+      .values({ accountId, title, keyMessage: `${title} message`, isActive, platforms })
       .returning()
     return row!.id
   }
@@ -118,6 +124,20 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
       })
       .returning()
     lateScheduleId = late!.id
+    // Fridays plan Instagram ideas only; one goal is for LinkedIn alone.
+    ids.e = await makeAccount('e')
+    ids.linkedInOnly = await makeGoal(ids.e, 'LinkedIn goal', true, ['linkedin'])
+    ids.everywhere = await makeGoal(ids.e, 'Everywhere goal')
+    const [instagram] = await database
+      .insert(schema.schedulesTable)
+      .values({
+        accountId: ids.e,
+        ...base,
+        dayGoals: null,
+        dayPlatforms: { '5': 'instagram' }
+      })
+      .returning()
+    instagramScheduleId = instagram!.id
   })
 
   after(async () => {
@@ -161,6 +181,14 @@ describe('a scheduled run generates ideas for the chosen goals', { skip: !url },
     assert.equal(runs.length, 2)
     const latest = runs.sort((x, y) => +y.createdAt - +x.createdAt)[0]!
     assert.deepEqual(latest.goalIds, [ids.unpicked])
+  })
+
+  it('a day for one platform plans for it, with only the goals meant for it', async () => {
+    await run(await schedule(instagramScheduleId), friday)
+    const runs = await runsOf(ids.e)
+    assert.equal(runs.length, 1)
+    assert.equal(runs[0]!.channel, 'instagram')
+    assert.deepEqual(runs[0]!.goalIds, [ids.everywhere])
   })
 
   it('a schedule with no per-day goals serves every active goal', async () => {

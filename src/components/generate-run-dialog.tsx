@@ -2,6 +2,7 @@
 
 import { triggerNewRun } from '@/app/(app)/runs/actions'
 import { Pagination } from '@/components/pagination'
+import { PlatformMark } from '@/components/platform-mark'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { ideaTarget } from '@/lib/ai/idea-selection'
 import { cn } from '@/lib/cn'
@@ -53,7 +54,8 @@ export function GenerateRunDialog({
   onClose,
   picker,
   initialSelected,
-  lockSelection = false
+  lockSelection = false,
+  initialChannel = null
 }: {
   open: boolean
   onClose: () => void
@@ -62,6 +64,8 @@ export function GenerateRunDialog({
   initialSelected?: string[]
   /** When true, only shows the selected goals without checkboxes to pick/unpick other goals. */
   lockSelection?: boolean
+  /** The platform the run starts out planning for (the one being viewed); null for all. */
+  initialChannel?: PlatformId | null
 }) {
   if (!open) return null
   // Mounted fresh each time it opens, so the ticks start from initialSelected.
@@ -71,6 +75,7 @@ export function GenerateRunDialog({
       picker={picker}
       initialSelected={initialSelected}
       lockSelection={lockSelection}
+      initialChannel={initialChannel}
     />
   )
 }
@@ -90,12 +95,14 @@ function PickerDialog({
   onClose,
   picker,
   initialSelected,
-  lockSelection = false
+  lockSelection = false,
+  initialChannel = null
 }: {
   onClose: () => void
   picker: RunPickerData
   initialSelected?: string[]
   lockSelection?: boolean
+  initialChannel?: PlatformId | null
 }) {
   const router = useRouter()
   const titleId = useId()
@@ -109,8 +116,11 @@ function PickerDialog({
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const platforms = picker.platforms ?? []
-  // Null plans for every platform the identity posts on.
-  const [channel, setChannel] = useState<PlatformId | null>(null)
+  // Null plans for every platform the identity posts on. A platform the
+  // identity no longer posts on is not offered, so it starts on all.
+  const [channel, setChannel] = useState<PlatformId | null>(
+    initialChannel && platforms.includes(initialChannel) ? initialChannel : null
+  )
   // A run for one platform serves only the goals meant for it. Ticks on the
   // others are kept, so picking every platform again brings them back.
   const fitsChannel = (goal: RunGoalOption) =>
@@ -356,12 +366,13 @@ function PickerDialog({
                       aria-pressed={on}
                       onClick={() => setChannel(option)}
                       className={cn(
-                        'h-7 rounded-full border px-3 text-xs font-medium transition-colors',
+                        'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors',
                         on
                           ? 'border-brand/50 bg-brand/10 text-foreground'
                           : 'border-border text-muted hover:text-foreground'
                       )}
                     >
+                      {option && <PlatformMark platform={option} className="h-3.5 w-3.5" />}
                       {option ? PLATFORMS[option].label : 'All my platforms'}
                     </button>
                   )

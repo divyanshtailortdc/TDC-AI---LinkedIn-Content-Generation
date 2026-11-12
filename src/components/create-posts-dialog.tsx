@@ -28,6 +28,7 @@ export function CreatePostsDialog({
   title,
   description,
   suggested,
+  initialPlatforms,
   confirmLabel,
   onCancel,
   onConfirm
@@ -36,6 +37,8 @@ export function CreatePostsDialog({
   description: React.ReactNode
   /** The formats ideation judged the ideas suit, marked as suggested. */
   suggested?: readonly string[]
+  /** Picked when it opens (the platform whose ideas are shown); still changeable. */
+  initialPlatforms?: readonly PlatformId[]
   confirmLabel: string
   onCancel: () => void
   /** The chosen formats, one per platform, in the registry's order. */
@@ -48,8 +51,20 @@ export function CreatePostsDialog({
     CREATABLE_FORMATS.filter(f => FORMATS[f].platform === platform)
   const isSuggested = (id: string) => suggested?.includes(id) ?? false
 
-  const [chosen, setChosen] = useState<PlatformId[]>([])
-  const [types, setTypes] = useState<Partial<Record<PlatformId, FormatId>>>({})
+  const [chosen, setChosen] = useState<PlatformId[]>(() =>
+    platforms.filter(p => initialPlatforms?.includes(p))
+  )
+  // A platform picked at the start with one type has it chosen too.
+  const [types, setTypes] = useState<Partial<Record<PlatformId, FormatId>>>(() =>
+    Object.fromEntries(
+      platforms
+        .filter(p => initialPlatforms?.includes(p))
+        .flatMap(p => {
+          const only = formatsOf(p)
+          return only.length === 1 ? [[p, only[0]!]] : []
+        })
+    )
+  )
 
   const togglePlatform = (platform: PlatformId) => {
     if (chosen.includes(platform)) {

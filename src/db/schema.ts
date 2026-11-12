@@ -840,6 +840,10 @@ export const schedulesTable = pgTable('schedules', {
   // The goals each chosen day's run serves, by weekday (0 is Sunday). A day
   // with no entry, or null here, serves every active goal.
   dayGoals: jsonb('day_goals').$type<Record<string, string[]> | null>(),
+  // The one platform (src/lib/formats) each chosen day's run plans ideas
+  // for, by weekday; a day with no entry, or null here, plans for every
+  // platform the identity posts on.
+  dayPlatforms: jsonb('day_platforms').$type<Record<string, string> | null>(),
   enabled: boolean('enabled').default(false).notNull(),
   // The slot the last scheduled run was claimed for (its scheduled time, not
   // the tick that started it), so it counts for the day it was planned on.

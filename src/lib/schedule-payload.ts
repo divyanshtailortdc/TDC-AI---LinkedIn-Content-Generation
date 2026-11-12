@@ -1,4 +1,5 @@
 import { MAX_GOALS_PER_RUN } from '@/jobs/run-goals'
+import { isPlatformId, type PlatformId } from '@/lib/platforms'
 import {
   isValidTimeZone,
   parseTimeOfDay,
@@ -14,6 +15,11 @@ export type SchedulePayload = {
    * out, every day serves every active goal.
    */
   dayGoals?: Record<string, string[]>
+  /**
+   * The one platform each chosen day's run plans ideas for, by weekday. A
+   * day left out plans for every platform the identity posts on.
+   */
+  dayPlatforms?: Record<string, string>
   /** The viewer's IANA zone; kept as saved before when left out. */
   timezone?: string
 }
@@ -27,6 +33,7 @@ export type SchedulePayload = {
 export function checkSchedulePayload(payload: SchedulePayload): {
   daysOfWeek: number[]
   dayGoals: Record<string, string[]> | null
+  dayPlatforms: Record<string, PlatformId> | null
 } {
   const daysOfWeek = Array.from(new Set(payload.daysOfWeek))
   if (
@@ -41,7 +48,8 @@ export function checkSchedulePayload(payload: SchedulePayload): {
   if (payload.timezone !== undefined && !isValidTimeZone(payload.timezone)) {
     throw new Error('That time zone is not valid.')
   }
-  if (!payload.dayGoals) return { daysOfWeek, dayGoals: null }
+  const dayPlatforms = checkDayPlatforms(daysOfWeek, payload.dayPlatforms)
+  if (!payload.dayGoals) return { daysOfWeek, dayGoals: null, dayPlatforms }
 
   // An entry for a day that is not chosen is dropped rather than kept.
   const dayGoals: Record<string, string[]> = {}
@@ -57,5 +65,35 @@ export function checkSchedulePayload(payload: SchedulePayload): {
     }
     dayGoals[String(day)] = ids
   }
-  return { daysOfWeek, dayGoals }
+  return { daysOfWeek, dayGoals, dayPlatforms }
+}
+
+/**
+ * Each chosen day's platform, when it has one; days not chosen are dropped.
+ * Null when no day is limited to a platform.
+ */
+function checkDayPlatforms(
+  daysOfWeek: number[],
+  value: Record<string, string> | undefined
+): Record<string, PlatformId> | null {
+  if (!value) return null
+  const out: Record<string, PlatformId> = {}
+  for (const day of daysOfWeek) {
+    const platform = value[String(day)]
+    if (platform === undefined || platform === null) continue
+    if (!isPlatformId(platform)) {
+      throw new Error(`Pick a platform you post on for ${WEEKDAY_NAMES[day]}.`)
+    }
+    out[String(day)] = platform
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/** The one platform a weekday's scheduled run plans for, or null for every platform. */
+export function scheduledChannel(
+  schedule: { dayPlatforms?: Record<string, string> | null },
+  weekday: number
+): PlatformId | null {
+  const platform = schedule.dayPlatforms?.[String(weekday)]
+  return isPlatformId(platform) ? platform : null
 }

@@ -40,7 +40,8 @@ import {
   Globe,
   Link2,
   Loader2,
-  Sparkles
+  Sparkles,
+  UsersRound
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -225,6 +226,7 @@ export function CreateIdentity({
             platforms={platforms}
             onChange={setPlatforms}
             onNext={() => setStep('about')}
+            another={another}
           />
         )}
         {step === 'about' && (
@@ -290,11 +292,14 @@ const inputClass =
 function WhereStep({
   platforms,
   onChange,
-  onNext
+  onNext,
+  another = false
 }: {
   platforms: PlatformId[]
   onChange: (next: PlatformId[]) => void
   onNext: () => void
+  /** The user already has an identity and is adding a separate one. */
+  another?: boolean
 }) {
   const toggle = (platform: PlatformId) =>
     onChange(
@@ -305,9 +310,13 @@ function WhereStep({
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-foreground text-base font-semibold">Where do you post?</h2>
+        <h2 className="text-foreground text-base font-semibold">
+          {another ? 'Where does this identity post?' : 'Where do you post?'}
+        </h2>
         <p className="text-muted mt-0.5 text-sm">
-          Pick every platform you want posts for. You can change this later in
+          Pick every platform this identity posts on. Each one gets its own
+          style (professional on LinkedIn, fun on Instagram), and goals and
+          ideas can be kept to one platform. You can change this later in
           Preferences.
         </p>
       </div>
@@ -351,6 +360,31 @@ function WhereStep({
             </button>
           )
         })}
+      </div>
+      <div className="border-border bg-surface-hover/40 flex items-start gap-3 rounded-xl border px-4 py-3">
+        <UsersRound aria-hidden className="text-accent mt-0.5 h-4 w-4 shrink-0" />
+        <p className="text-muted text-xs leading-relaxed">
+          {another ? (
+            <>
+              <span className="text-foreground font-medium">
+                This is a separate identity:
+              </span>{' '}
+              its own profile, voice, goals, ideas and connected accounts. Your
+              other identities are not changed, and you switch between them in
+              the sidebar.
+            </>
+          ) : (
+            <>
+              <span className="text-foreground font-medium">
+                Same you, different platforms?
+              </span>{' '}
+              Pick them all here. Posting somewhere as a different person or
+              brand (a separate persona on Instagram, say)? Create a separate
+              identity for it later from the sidebar, with its own voice,
+              goals and connected accounts.
+            </>
+          )}
+        </p>
       </div>
       <div className="flex items-center justify-end gap-3">
         {platforms.length === 0 && (

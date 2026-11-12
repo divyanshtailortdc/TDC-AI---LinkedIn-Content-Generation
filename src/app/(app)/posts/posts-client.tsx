@@ -10,6 +10,7 @@ import {
 } from '@/lib/formats'
 import { MobileNavButton } from '@/components/mobile-nav'
 import { PlatformMark } from '@/components/platform-mark'
+import { PlatformTabs } from '@/components/platform-tabs'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { showToast } from '@/components/toast-notification'
@@ -257,30 +258,6 @@ function statusOf(post: PostDetail): Exclude<StatusFilter, 'all'> {
   if (post.status === 'rejected') return 'rejected'
   if (post.status === 'draft') return 'draft'
   return 'awaiting_review'
-}
-
-/** A platform's own colour on its tab when picked. */
-const PLATFORM_TINTS: Partial<Record<PlatformId, { tab: string; count: string }>> = {
-  linkedin: {
-    tab: 'border-[#0a66c2]/60 bg-[#0a66c2]/10',
-    count: 'bg-[#0a66c2]/20 text-foreground'
-  },
-  instagram: {
-    tab: 'border-[#e1306c]/60 bg-[#e1306c]/10',
-    count: 'bg-[#e1306c]/20 text-foreground'
-  },
-  facebook: {
-    tab: 'border-[#1877f2]/60 bg-[#1877f2]/10',
-    count: 'bg-[#1877f2]/20 text-foreground'
-  },
-  youtube: {
-    tab: 'border-[#ff0033]/60 bg-[#ff0033]/10',
-    count: 'bg-[#ff0033]/20 text-foreground'
-  }
-}
-const NEUTRAL_TINT = {
-  tab: 'border-foreground/30 bg-surface-hover',
-  count: 'bg-foreground/10 text-foreground'
 }
 
 /** Short platform names for "Live on …". */
@@ -882,49 +859,17 @@ export function PostsClientInner({
           </div>
 
           {/* PLATFORM TABS: one platform's posts, or every platform's */}
-          <div
-            role="group"
-            aria-label="Show posts for one platform"
-            className="border-border flex flex-wrap gap-2 border-b pb-3"
-          >
-            {[null, ...platformOptions].map(option => {
-              const active = platformFilter === option
-              const tint = option ? (PLATFORM_TINTS[option] ?? NEUTRAL_TINT) : NEUTRAL_TINT
-              const count = option
-                ? (platformCounts.counts.get(option) ?? 0)
-                : platformCounts.all
-              return (
-                <button
-                  key={option ?? 'all'}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setFilters({ platform: option })}
-                  className={`flex h-8 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors ${
-                    active
-                      ? `${tint.tab} text-foreground font-semibold`
-                      : 'border-border bg-surface text-muted hover:text-foreground hover:bg-surface-hover'
-                  }`}
-                >
-                  {option ? (
-                    <PlatformMark platform={option} colored className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <LayoutGrid className="h-4 w-4 shrink-0" />
-                  )}
-                  {option
-                    ? option === 'x'
-                      ? 'Twitter/X'
-                      : getPlatform(option).name
-                    : 'All platforms'}
-                  <span
-                    className={`rounded-md px-1.5 text-[11px] leading-5 font-medium tabular-nums ${
-                      active ? tint.count : 'bg-surface-hover text-muted'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="border-border border-b pb-3">
+            <PlatformTabs
+              label="Show posts for one platform"
+              options={platformOptions}
+              value={platformFilter}
+              onChange={option => setFilters({ platform: option })}
+              counts={{
+                all: platformCounts.all,
+                byPlatform: Object.fromEntries(platformCounts.counts)
+              }}
+            />
           </div>
 
           {/* STATUS CHIPS, then search, Filters, Sort and the view */}

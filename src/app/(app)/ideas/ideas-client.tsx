@@ -13,10 +13,12 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, SquareCheck, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, SquareCheck, Wand2, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
-import type { FormatId } from '@/lib/formats'
+import { PLATFORMS, type FormatId, type PlatformId } from '@/lib/formats'
+import { GenerateRunDialog, type RunPickerData } from '@/components/generate-run-dialog'
+import { PlatformTabs } from '@/components/platform-tabs'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
@@ -70,7 +72,11 @@ export function IdeasClient({
   statusCounts,
   proposedIds,
   approvedIds,
-  identity
+  identity,
+  platform = null,
+  platformOptions = [],
+  platformCounts,
+  picker
 }: {
   /** One page of the ideas the status filter shows; pageInfo says which. */
   initialIdeas: ClientIdeaData[]
@@ -82,6 +88,14 @@ export function IdeasClient({
   /** Every approved idea not yet drafted, on any page. */
   approvedIds: string[]
   identity: IdentitySummary
+  /** The one platform whose ideas are shown; null for every platform. */
+  platform?: PlatformId | null
+  /** The platforms with a tab: those posted on, or with ideas. */
+  platformOptions?: PlatformId[]
+  /** How many ideas each platform tab holds under the status filter. */
+  platformCounts?: { all: number; byPlatform: Partial<Record<PlatformId, number>> }
+  /** For Generate ideas: the goals and platforms a run can be for. */
+  picker?: RunPickerData
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -121,13 +135,34 @@ export function IdeasClient({
   // while that page loads.
   const [isFiltering, startFiltering] = useTransition()
   const [selectedStatus, setSelectedStatus] = useOptimistic(status)
+  const [selectedPlatform, setSelectedPlatform] = useOptimistic(platform)
+  // Status and platform both live in the URL. Defaults ('all', every
+  // platform) are left out, and a new filter starts on its first page.
+  const filterQuery = (next: { status: StatusFilter; platform: PlatformId | null }) => {
+    const query: Record<string, string> = {}
+    if (next.status !== 'all') query.status = next.status
+    if (next.platform) query.platform = next.platform
+    return query
+  }
+  const pushFilters = (next: { status: StatusFilter; platform: PlatformId | null }) => {
+    const query = new URLSearchParams(filterQuery(next)).toString()
+    router.push(query ? `${pathname}?${query}` : pathname)
+  }
   const changeStatus = (next: StatusFilter) =>
     startFiltering(() => {
       setSelectedStatus(next)
-      // The default ('all') is left out of the URL, and a new filter starts
-      // on its first page.
-      router.push(next === 'all' ? pathname : `${pathname}?status=${next}`)
+      pushFilters({ status: next, platform })
     })
+  const changePlatform = (next: PlatformId | null) =>
+    startFiltering(() => {
+      setSelectedPlatform(next)
+      // A selection made on one platform's ideas does not carry over.
+      setTicked([])
+      pushFilters({ status, platform: next })
+    })
+  const platformLabel = platform ? PLATFORMS[platform].label : null
+  // Generate ideas opens the run picker, starting on the platform shown.
+  const [generateOpen, setGenerateOpen] = useState(false)
   const [isActionBusy, setIsActionBusy] = useState(false)
   const draftingRef = useRef(false)
   const [ideaActionBusyId, setIdeaActionBusyId] = useState<string | null>(null)
@@ -507,7 +542,7 @@ export function IdeasClient({
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Idea Review & Approval"
-        description={`Review post ideas for ${identity.name}`}
+        description={`Review ${platformLabel ? `${platformLabel} ` : ''}post ideas for ${identity.name}`}
         actions={
           isDrafting ? (
             <span
@@ -575,10 +610,28 @@ export function IdeasClient({
             </>
           ) : (
             <>
+              {picker && (
+                <button
+                  type="button"
+                  onClick={() => setGenerateOpen(true)}
+                  aria-label={platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
+                  className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
+                >
+                  <Wand2 className="text-accent h-3.5 w-3.5" />
+                  {/* Icon only on phones, so the header's buttons stay on one row. */}
+                  <span className="hidden sm:inline">
+                    {platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
+                  </span>
+                </button>
+              )}
               {allProposedIds.length > 0 && (
                 <ConfirmPopover
-                  title={`Approve all ${allProposedIds.length} ideas?`}
-                  description="Every idea waiting for review moves to Approved. No posts are written until you select ideas and create them."
+                  title={`Approve all ${allProposedIds.length} ${platformLabel ? `${platformLabel} ` : ''}ideas?`}
+                  description={
+                    platformLabel
+                      ? `Every ${platformLabel} idea waiting for review moves to Approved; other platforms' ideas are left alone. No posts are written until you select ideas and create them.`
+                      : 'Every idea waiting for review moves to Approved. No posts are written until you select ideas and create them.'
+                  }
                   confirmLabel="Approve all"
                   tone="neutral"
                   onConfirm={handleApproveAll}
@@ -612,31 +665,42 @@ export function IdeasClient({
         }
         bottomContent={
           showGeneratingOnly ? undefined : (
-            <div className="flex items-center gap-3">
-              <StatusFilterMenu
-                value={selectedStatus}
-                options={STATUS_TABS}
-                label={statusLabel}
-                counts={statusCounts}
-                onChange={changeStatus}
-              />
-              {selectableShown.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    allShownTicked
-                      ? setTicked((prev) => prev.filter((id) => !selectableShown.includes(id)))
-                      : setTicked((prev) => [...new Set([...prev, ...selectableShown])])
-                  }
-                  className="text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors"
-                >
-                  <SquareCheck className="h-3.5 w-3.5" />
-                  {allShownTicked ? 'Unselect shown' : 'Select shown'}
-                </button>
+            <div className="space-y-3">
+              {platformOptions.length > 1 && (
+                <PlatformTabs
+                  label="Show ideas for one platform"
+                  options={platformOptions}
+                  value={selectedPlatform}
+                  onChange={changePlatform}
+                  counts={platformCounts}
+                />
               )}
-              <p className="text-muted hidden shrink-0 text-xs md:block">
-                Posts are written only from selected ideas that are approved.
-              </p>
+              <div className="flex items-center gap-3">
+                <StatusFilterMenu
+                  value={selectedStatus}
+                  options={STATUS_TABS}
+                  label={statusLabel}
+                  counts={statusCounts}
+                  onChange={changeStatus}
+                />
+                {selectableShown.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      allShownTicked
+                        ? setTicked((prev) => prev.filter((id) => !selectableShown.includes(id)))
+                        : setTicked((prev) => [...new Set([...prev, ...selectableShown])])
+                    }
+                    className="text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors"
+                  >
+                    <SquareCheck className="h-3.5 w-3.5" />
+                    {allShownTicked ? 'Unselect shown' : 'Select shown'}
+                  </button>
+                )}
+                <p className="text-muted hidden shrink-0 text-xs md:block">
+                  Posts are written only from selected ideas that are approved.
+                </p>
+              </div>
             </div>
           )
         }
@@ -666,18 +730,44 @@ export function IdeasClient({
             >
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted" />
               <h3 className="text-sm font-semibold text-foreground">
-                {EMPTY_STATE[status].title}
+                {platformLabel
+                  ? `${EMPTY_STATE[status].title} for ${platformLabel}`
+                  : EMPTY_STATE[status].title}
               </h3>
               <p className="mx-auto mt-1 mb-5 max-w-sm text-xs leading-relaxed text-muted">
-                {EMPTY_STATE[status].body}
+                {platformLabel && (status === 'all' || status === 'proposed')
+                  ? `Generate ideas made for ${platformLabel} and what works there, or look at every platform's ideas.`
+                  : EMPTY_STATE[status].body}
               </p>
-              <Link
-                href="/runs"
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background transition-colors hover:bg-accent-hover"
-              >
-                View Runs
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {picker && (
+                  <button
+                    type="button"
+                    onClick={() => setGenerateOpen(true)}
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background transition-colors hover:bg-accent-hover"
+                  >
+                    <Wand2 className="h-3.5 w-3.5" />
+                    {platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
+                  </button>
+                )}
+                {platform ? (
+                  <button
+                    type="button"
+                    onClick={() => changePlatform(null)}
+                    className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
+                  >
+                    All platforms
+                  </button>
+                ) : (
+                  <Link
+                    href="/runs"
+                    className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
+                  >
+                    View Runs
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              </div>
             </div>
           ) : (
             <div
@@ -717,12 +807,21 @@ export function IdeasClient({
               <Pagination
                 {...pageInfo}
                 noun="ideas"
-                query={status === 'all' ? {} : { status }}
+                query={filterQuery({ status, platform })}
               />
             </div>
           )}
         </div>
       </div>
+
+      {picker && (
+        <GenerateRunDialog
+          open={generateOpen}
+          onClose={() => setGenerateOpen(false)}
+          picker={picker}
+          initialChannel={platform}
+        />
+      )}
 
       {createDialog && (
         <CreatePostsDialog
@@ -739,6 +838,7 @@ export function IdeasClient({
           suggested={ideas
             .filter((i) => dialogTargetIds.includes(i.id))
             .flatMap((i) => i.formatFit ?? [])}
+          initialPlatforms={platform ? [platform] : undefined}
           confirmLabel={
             createDialog.kind === 'approve' ? 'Approve & create' : 'Create posts'
           }

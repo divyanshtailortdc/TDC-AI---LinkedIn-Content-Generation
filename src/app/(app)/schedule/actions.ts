@@ -8,6 +8,7 @@ import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { isPublishingConfigured } from '@/lib/publishing/config'
 import { getPlatform } from '@/lib/platforms'
+import { goalServes, PLATFORMS } from '@/lib/formats'
 import {
   cancelPendingPublications,
   hasLivePublication
@@ -23,9 +24,9 @@ import { DrizzleQueryError } from 'drizzle-orm/errors'
 import { revalidatePath } from 'next/cache'
 
 /**
- * How many ideas a run produces lives in Preferences; this is only when, and
- * for which goals. Saved runs only generate ideas: nothing is written into a
- * post or published by the schedule.
+ * How many ideas a run produces lives in Preferences; this is only when, for
+ * which goals and, day by day, for which platform. Saved runs only generate
+ * ideas: nothing is written into a post or published by the schedule.
  */
 export async function saveSchedule(
   rawAccountId: string,
@@ -36,13 +37,18 @@ export async function saveSchedule(
     const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
     await requireOwnedAccount(user.id, accountId)
 
-    const { daysOfWeek, dayGoals } = checkSchedulePayload(payload)
+    const { daysOfWeek, dayGoals, dayPlatforms } = checkSchedulePayload(payload)
 
-    // Only this identity's active goals can be scheduled.
+    // Only this identity's active goals can be scheduled, and a day for one
+    // platform only with goals meant for it.
     const allIds = Array.from(new Set(Object.values(dayGoals ?? {}).flat()))
     if (allIds.length > 0) {
       const owned = await db
-        .select({ id: goalsTable.id })
+        .select({
+          id: goalsTable.id,
+          title: goalsTable.title,
+          platforms: goalsTable.platforms
+        })
         .from(goalsTable)
         .where(
           and(
@@ -54,6 +60,16 @@ export async function saveSchedule(
       if (owned.length !== allIds.length) {
         throw new Error('One of the goals is no longer available.')
       }
+      for (const [day, platform] of Object.entries(dayPlatforms ?? {})) {
+        const misfit = owned.find(
+          g => dayGoals?.[day]?.includes(g.id) && !goalServes(g, platform)
+        )
+        if (misfit) {
+          throw new Error(
+            `"${misfit.title}" is not a goal for ${PLATFORMS[platform].label}. Untick it, or plan that day for every platform.`
+          )
+        }
+      }
     }
 
     const columns = {
@@ -61,6 +77,7 @@ export async function saveSchedule(
       timeOfDay: payload.timeOfDay,
       enabled: payload.enabled,
       dayGoals,
+      dayPlatforms,
       // A schedule keeps the zone it was saved with unless the viewer sends one.
       ...(payload.timezone ? { timezone: payload.timezone } : {}),
       // A new plan starts clean; the next attempt reports for itself.

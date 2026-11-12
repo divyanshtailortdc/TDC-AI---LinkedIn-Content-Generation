@@ -1,6 +1,8 @@
 import cron from 'node-cron'
 import { db } from '@/db'
 import { goalsTable, schedulesTable } from '@/db/schema'
+import { goalServes, PLATFORMS } from '@/lib/formats'
+import { scheduledChannel } from '@/lib/schedule-payload'
 import { dueSlot, WEEKDAY_NAMES } from '@/lib/schedule-time'
 import { and, desc, eq } from 'drizzle-orm'
 import { runPublishing } from './publishing'
@@ -25,15 +27,16 @@ type Schedule = typeof schedulesTable.$inferSelect
 
 /**
  * The goals a scheduled run serves on one weekday: the ones the schedule names
- * for that day (every active goal when it names none) that still exist and are
- * active, newest first.
+ * for that day (every active goal when it names none) that still exist, are
+ * active and, on a day for one platform, are meant for it; newest first.
  */
 async function scheduledGoalIds(
   schedule: Schedule,
   weekday: number
 ): Promise<string[]> {
+  const channel = scheduledChannel(schedule, weekday)
   const goals = await db
-    .select({ id: goalsTable.id })
+    .select({ id: goalsTable.id, platforms: goalsTable.platforms })
     .from(goalsTable)
     .where(
       and(
@@ -44,6 +47,7 @@ async function scheduledGoalIds(
     .orderBy(desc(goalsTable.createdAt))
   const picked = schedule.dayGoals?.[String(weekday)]
   return goals
+    .filter(g => !channel || goalServes(g, channel))
     .map(g => g.id)
     .filter(id => !picked || picked.includes(id))
     .slice(0, MAX_GOALS_PER_RUN)
@@ -73,7 +77,8 @@ export async function runScheduleIfDue(sched: Schedule, now = new Date()) {
         await enqueueRun({
           accountId: sched.accountId,
           goalIds,
-          trigger: 'schedule'
+          trigger: 'schedule',
+          channel: scheduledChannel(sched, due.weekday)
         })
       }
     } catch (err) {
@@ -102,7 +107,10 @@ export async function runScheduleIfDue(sched: Schedule, now = new Date()) {
     // below must not give the slot back: the next tick would queue it again.
     if (goalIds.length === 0) {
       // Not worth retrying: it stays so until the user picks a goal.
-      const message = `No goals to write for on ${WEEKDAY_NAMES[due.weekday]}: pick at least one active goal for that day.`
+      const channel = scheduledChannel(sched, due.weekday)
+      const message = channel
+        ? `No goals to write for on ${WEEKDAY_NAMES[due.weekday]}: pick at least one active goal for ${PLATFORMS[channel].label} that day.`
+        : `No goals to write for on ${WEEKDAY_NAMES[due.weekday]}: pick at least one active goal for that day.`
       console.warn(
         `Skipped the scheduled run for account ${sched.accountId}: ${message}`
       )

@@ -9,6 +9,7 @@ import {
   schedulesTable
 } from '@/db/schema'
 import { monthGridRange, type Month } from '@/lib/calendar'
+import { loadChannels } from '@/lib/channels'
 import type { PlatformId } from '@/lib/platforms'
 import { inKnownFormat } from '@/lib/known-formats'
 import { isPublishingConfigured } from '@/lib/publishing/config'
@@ -119,7 +120,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
   const ofAccount = and(eq(postDraftsTable.accountId, accountId), inKnownFormat())
   const publishingOn = isPublishingConfigured()
 
-  const [planned, unscheduled, [unscheduledTotal], schedule, goals] =
+  const [planned, unscheduled, [unscheduledTotal], schedule, goals, channels] =
     await Promise.all([
       selectPosts(
         and(
@@ -159,7 +160,8 @@ export async function loadSchedulePage(accountId: string, month: Month) {
         .select({
           id: goalsTable.id,
           title: goalsTable.title,
-          objective: goalsTable.objective
+          objective: goalsTable.objective,
+          platforms: goalsTable.platforms
         })
         .from(goalsTable)
         .where(
@@ -168,7 +170,9 @@ export async function loadSchedulePage(accountId: string, month: Month) {
             eq(goalsTable.isActive, true)
           )
         )
-        .orderBy(desc(goalsTable.createdAt))
+        .orderBy(desc(goalsTable.createdAt)),
+      // The platforms a day's run can be planned for.
+      loadChannels(accountId)
     ])
 
   return {
@@ -177,6 +181,7 @@ export async function loadSchedulePage(accountId: string, month: Month) {
     unscheduledTotal: unscheduledTotal?.n ?? 0,
     schedule: schedule ?? null,
     nextRun: nextRunOf(schedule),
-    goals
+    goals,
+    platforms: channels.platforms
   }
 }

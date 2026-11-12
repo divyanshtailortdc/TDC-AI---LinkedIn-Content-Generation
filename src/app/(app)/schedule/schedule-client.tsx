@@ -16,7 +16,7 @@ import {
 } from '@/lib/calendar'
 import { cn } from '@/lib/cn'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { getPlatform } from '@/lib/platforms'
+import { getPlatform, type PlatformId } from '@/lib/platforms'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import {
   ArrowRight,
@@ -80,7 +80,8 @@ export function ScheduleClient({
   unscheduledTotal,
   schedule,
   nextRun,
-  goals
+  goals,
+  platforms
 }: {
   accountId: string
   month: Month
@@ -93,6 +94,8 @@ export function ScheduleClient({
   nextRun: NextRun | null
   /** The goals a scheduled run can serve. */
   goals: ScheduleGoal[]
+  /** The platforms the identity posts on: a day's run can plan for one. */
+  platforms: PlatformId[]
 }) {
   const router = useRouter()
   const mounted = useHasMounted()
@@ -462,6 +465,7 @@ export function ScheduleClient({
             initialSchedule={schedule}
             nextRun={nextRun}
             goals={goals}
+            platforms={platforms}
           />
         </div>
       </div>

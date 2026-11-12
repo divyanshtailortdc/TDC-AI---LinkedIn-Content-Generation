@@ -2,9 +2,17 @@
 
 import { Button } from '@/components/button'
 import { Pagination } from '@/components/pagination'
+import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
 import type { Schedule } from '@/db/schema'
 import { cn } from '@/lib/cn'
+import {
+  goalPlatformsLabel,
+  goalServes,
+  isPlatformId,
+  PLATFORMS,
+  type PlatformId
+} from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
@@ -27,6 +35,8 @@ export type ScheduleGoal = {
   id: string
   title: string
   objective: string
+  /** The platforms its posts go on; empty or absent is every platform. */
+  platforms?: string[]
 }
 
 const DAYS = [
@@ -41,6 +51,8 @@ const DAYS = [
 
 /** Goals by weekday, for the days the schedule runs on. */
 type DayGoals = Record<number, string[]>
+/** The one platform a weekday's run plans for; absent is every platform. */
+type DayPlatforms = Record<number, PlatformId>
 
 /** A goal's category as a quiet coloured label; unknown ones stay neutral. */
 const OBJECTIVE_STYLES: Record<string, string> = {
@@ -69,15 +81,17 @@ function gmtOffset(zone: string): string {
 }
 
 /**
- * When runs start on their own, and for which goals on each day. A scheduled
- * run only generates ideas, which wait for review like any other run: choosing
- * the day a post goes out is the calendar above, and nothing is published.
+ * When runs start on their own, and on each day for which goals and which
+ * platform. A scheduled run only generates ideas, which wait for review like
+ * any other run: choosing the day a post goes out is the calendar above, and
+ * nothing is published.
  */
 export function ScheduleForm({
   accountId,
   initialSchedule,
   nextRun,
-  goals
+  goals,
+  platforms = []
 }: {
   accountId: string
   initialSchedule: Schedule | null
@@ -85,6 +99,8 @@ export function ScheduleForm({
   nextRun: NextRun | null
   /** The goals a scheduled run can serve. */
   goals: ScheduleGoal[]
+  /** The platforms the identity posts on: a day's run can plan for one. */
+  platforms?: PlatformId[]
 }) {
   const mounted = useHasMounted()
   const browserZone = mounted
@@ -92,17 +108,30 @@ export function ScheduleForm({
     : null
   const availableIds = goals.map(g => g.id)
   const initialDays = (initialSchedule?.daysOfWeek as number[]) || [1, 3, 5]
+  const initialDayPlatforms: DayPlatforms = Object.fromEntries(
+    initialDays.flatMap(day => {
+      const saved = initialSchedule?.dayPlatforms?.[String(day)]
+      return isPlatformId(saved) ? [[day, saved]] : []
+    })
+  )
+  /** The goals a day can serve: those meant for its platform, if it has one. */
+  const goalIdsFor = (platform: PlatformId | undefined) =>
+    goals.filter(g => !platform || goalServes(g, platform)).map(g => g.id)
   // A day the schedule has no goals for yet (one saved before days had their
-  // own) serves every goal, as it did; a goal deleted since is dropped.
+  // own) serves every goal it can, as it did; a goal deleted since is dropped.
   const initialDayGoals: DayGoals = Object.fromEntries(
     initialDays.map(day => {
       const saved = initialSchedule?.dayGoals?.[String(day)]
-      return [
-        day,
-        saved ? availableIds.filter(id => saved.includes(id)) : availableIds
-      ]
+      const fit = goalIdsFor(initialDayPlatforms[day])
+      return [day, saved ? fit.filter(id => saved.includes(id)) : fit]
     })
   )
+  // Platforms a day can be planned for: those the identity posts on, and one
+  // a day was saved with before it was turned off.
+  const platformChoices = [
+    ...platforms,
+    ...Object.values(initialDayPlatforms).filter(p => !platforms.includes(p))
+  ]
 
   const [isSaving, setIsSaving] = useState(false)
   const [enabled, setEnabled] = useState<boolean>(
@@ -110,6 +139,8 @@ export function ScheduleForm({
   )
   const [selectedDays, setSelectedDays] = useState<number[]>(initialDays)
   const [dayGoals, setDayGoals] = useState<DayGoals>(initialDayGoals)
+  const [dayPlatforms, setDayPlatforms] =
+    useState<DayPlatforms>(initialDayPlatforms)
   // The day whose goals are shown below the days.
   const [focusDay, setFocusDay] = useState<number | null>(
     initialDays[0] ?? null
@@ -150,6 +181,24 @@ export function ScheduleForm({
   const setGoalsOf = (dayId: number, ids: string[]) =>
     setDayGoals(prev => ({ ...prev, [dayId]: ids }))
 
+  /**
+   * Plans a day for one platform (or every one, with null). Goals not meant
+   * for it are unticked, since its run would leave them out anyway.
+   */
+  const setPlatformOf = (dayId: number, platform: PlatformId | null) => {
+    setDayPlatforms(prev => {
+      const { [dayId]: _old, ...rest } = prev
+      return platform ? { ...rest, [dayId]: platform } : rest
+    })
+    if (platform) {
+      const fit = goalIdsFor(platform)
+      setDayGoals(prev => ({
+        ...prev,
+        [dayId]: (prev[dayId] ?? []).filter(id => fit.includes(id))
+      }))
+    }
+  }
+
   const toggleGoal = (dayId: number, goalId: string) =>
     setDayGoals(prev => {
       const current = prev[dayId] ?? []
@@ -167,6 +216,7 @@ export function ScheduleForm({
     enabled: boolean
     days: number[]
     perDay: DayGoals
+    platformOf: DayPlatforms
     time: string
     zone: string | null
   }) =>
@@ -174,6 +224,7 @@ export function ScheduleForm({
       enabled: v.enabled,
       days: [...v.days].sort(),
       goals: [...v.days].sort().map(d => [d, [...(v.perDay[d] ?? [])].sort()]),
+      platforms: [...v.days].sort().map(d => [d, v.platformOf[d] ?? null]),
       time: v.time,
       zone: v.zone
     })
@@ -182,6 +233,7 @@ export function ScheduleForm({
       enabled,
       days: selectedDays,
       perDay: dayGoals,
+      platformOf: dayPlatforms,
       time: timeOfDay,
       zone
     }) !==
@@ -189,6 +241,7 @@ export function ScheduleForm({
       enabled: initialSchedule?.enabled ?? false,
       days: initialDays,
       perDay: initialDayGoals,
+      platformOf: initialDayPlatforms,
       time: initialSchedule?.timeOfDay || '09:00',
       zone: savedZone
     })
@@ -211,6 +264,12 @@ export function ScheduleForm({
         enabled,
         dayGoals: Object.fromEntries(
           selectedDays.map(d => [String(d), dayGoals[d] ?? []])
+        ),
+        dayPlatforms: Object.fromEntries(
+          selectedDays.flatMap(d => {
+            const platform = dayPlatforms[d]
+            return platform ? [[String(d), platform]] : []
+          })
         ),
         timezone
       })
@@ -249,6 +308,7 @@ export function ScheduleForm({
     setEnabled(initialSchedule?.enabled ?? false)
     setSelectedDays(initialDays)
     setDayGoals(initialDayGoals)
+    setDayPlatforms(initialDayPlatforms)
     setFocusDay(initialDays[0] ?? null)
     setTimeOfDay(initialSchedule?.timeOfDay || '09:00')
     setZone(savedZone)
@@ -258,9 +318,14 @@ export function ScheduleForm({
 
   const focusLabel = DAYS.find(d => d.id === focusDay)?.name ?? ''
   const focusGoals = focusDay === null ? [] : (dayGoals[focusDay] ?? [])
+  const focusPlatform = focusDay === null ? undefined : dayPlatforms[focusDay]
+  // The goals the day being viewed can serve: all, or its platform's.
+  const focusFit = goalIdsFor(focusPlatform)
   const goalTitle = (id: string) => goals.find(g => g.id === id)?.title ?? ''
-  const allSelected = goals.length > 0 && focusGoals.length === goals.length
+  const allSelected = focusFit.length > 0 && focusGoals.length === focusFit.length
   const someSelected = focusGoals.length > 0 && !allSelected
+  // A day can be planned for one platform once there are several to choose from.
+  const choosePlatform = platformChoices.length > 1
 
   const shownZone =
     zone ??
@@ -407,6 +472,7 @@ export function ScheduleForm({
               const isSelected = selectedDays.includes(day.id)
               const isFocused = isSelected && focusDay === day.id
               const count = (dayGoals[day.id] ?? []).length
+              const dayPlatform = isSelected ? dayPlatforms[day.id] : undefined
               return (
                 <span
                   key={day.id}
@@ -423,10 +489,13 @@ export function ScheduleForm({
                   <button
                     type="button"
                     aria-pressed={isSelected}
-                    aria-label={`${day.name}${isSelected ? `, ${count} goals` : ', not scheduled'}`}
+                    aria-label={`${day.name}${isSelected ? `, ${count} goals${dayPlatform ? `, ${PLATFORMS[dayPlatform].label} ideas` : ''}` : ', not scheduled'}`}
                     onClick={() => openDay(day.id)}
                     className="flex min-w-12 cursor-pointer items-center justify-center gap-1.5 px-3"
                   >
+                    {dayPlatform && (
+                      <PlatformMark platform={dayPlatform} className="h-3.5 w-3.5 shrink-0" />
+                    )}
                     {day.label}
                     {isSelected && (
                       <span className="rounded bg-white/20 px-1.5 text-[10px] leading-4 tabular-nums">
@@ -451,8 +520,9 @@ export function ScheduleForm({
           </div>
 
           <p className="text-muted text-xs">
-            Click a day to add it and switch to its goals. The number is how
-            many goals it writes for; ✕ removes the day.
+            {choosePlatform
+              ? 'Click a day to add it and switch to its platform and goals. The number is how many goals it writes for, the icon the one platform it plans for; ✕ removes the day.'
+              : 'Click a day to add it and switch to its goals. The number is how many goals it writes for; ✕ removes the day.'}
           </p>
         </section>
 
@@ -467,7 +537,7 @@ export function ScheduleForm({
               className="text-foreground flex items-center gap-2.5 text-sm font-semibold"
             >
               <StepNumber n={2} />
-              Goals for each day
+              {choosePlatform ? 'Platform and goals for each day' : 'Goals for each day'}
             </h3>
             <Link
               href="/goals"
@@ -504,6 +574,43 @@ export function ScheduleForm({
               aria-label={`Goals for ${focusLabel}`}
               className="border-border scroll-mt-4 overflow-hidden rounded-xl border"
             >
+              {choosePlatform && (
+                <fieldset className="border-border min-w-0 border-b px-4 py-3">
+                  <legend className="sr-only">Ideas on {focusLabel} are for</legend>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-muted mr-1 text-xs font-medium">
+                      Ideas on {focusLabel} for
+                    </span>
+                    {[null, ...platformChoices].map(option => {
+                      const on = (focusPlatform ?? null) === option
+                      return (
+                        <button
+                          key={option ?? 'all'}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => setPlatformOf(focusDay, option)}
+                          className={cn(
+                            'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors',
+                            on
+                              ? 'border-brand/50 bg-brand/10 text-foreground'
+                              : 'border-border text-muted hover:text-foreground'
+                          )}
+                        >
+                          {option && (
+                            <PlatformMark platform={option} className="h-3.5 w-3.5" />
+                          )}
+                          {option ? PLATFORMS[option].label : 'All my platforms'}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-muted mt-1.5 text-[11px] leading-relaxed">
+                    {focusPlatform
+                      ? `This day's run plans ${PLATFORMS[focusPlatform].label} ideas only, for the goals meant for it.`
+                      : 'Each idea is aimed at the platforms it suits.'}
+                  </p>
+                </fieldset>
+              )}
               <div className="bg-surface-hover/50 border-border flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
                 <label
                   className={cn(
@@ -517,9 +624,9 @@ export function ScheduleForm({
                       if (el) el.indeterminate = someSelected
                     }}
                     checked={allSelected}
-                    disabled={goals.length === 0}
+                    disabled={focusFit.length === 0}
                     onChange={e =>
-                      setGoalsOf(focusDay, e.target.checked ? availableIds : [])
+                      setGoalsOf(focusDay, e.target.checked ? focusFit : [])
                     }
                     aria-label={`All goals on ${focusLabel}`}
                     title="All goals"
@@ -539,7 +646,7 @@ export function ScheduleForm({
                           : 'bg-brand/10 text-brand-strong'
                       )}
                     >
-                      {focusGoals.length} of {goals.length} selected
+                      {focusGoals.length} of {focusFit.length} selected
                     </span>
                     <button
                       type="button"
@@ -575,18 +682,25 @@ export function ScheduleForm({
                   className="divide-border max-h-80 divide-y overflow-y-auto"
                 >
                   {goalRows.map(goal => {
-                    const checked = focusGoals.includes(goal.id)
+                    const fits = focusFit.includes(goal.id)
+                    const checked = fits && focusGoals.includes(goal.id)
+                    const where = goalPlatformsLabel(goal.platforms)
                     return (
                       <li key={goal.id}>
                         <label
                           className={cn(
-                            'flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors',
-                            checked ? 'bg-brand/5' : 'hover:bg-surface-hover/60'
+                            'flex items-start gap-3 px-4 py-3 transition-colors',
+                            !fits
+                              ? 'cursor-not-allowed opacity-50'
+                              : checked
+                                ? 'bg-brand/5 cursor-pointer'
+                                : 'hover:bg-surface-hover/60 cursor-pointer'
                           )}
                         >
                           <input
                             type="checkbox"
                             checked={checked}
+                            disabled={!fits}
                             onChange={() => toggleGoal(focusDay, goal.id)}
                             className="accent-brand mt-0.5 h-4 w-4 shrink-0"
                           />
@@ -603,6 +717,17 @@ export function ScheduleForm({
                             >
                               {goal.objective.replace(/_/g, ' ')}
                             </span>
+                            {!fits && focusPlatform ? (
+                              <span className="text-muted ml-2 text-[11px]">
+                                Not for {PLATFORMS[focusPlatform].label}
+                              </span>
+                            ) : (
+                              where && (
+                                <span className="border-border text-muted ml-2 rounded-full border px-1.5 py-px text-[10px] font-medium">
+                                  {where}
+                                </span>
+                              )
+                            )}
                           </span>
                         </label>
                       </li>
@@ -730,6 +855,8 @@ export function ScheduleForm({
                       {(dayGoals[nextRun.weekday] ?? [])
                         .map(goalTitle)
                         .join(', ') || 'no goals'}
+                      {dayPlatforms[nextRun.weekday] &&
+                        ` · ${PLATFORMS[dayPlatforms[nextRun.weekday]!].label} ideas only`}
                     </p>
                   </div>
                 </div>

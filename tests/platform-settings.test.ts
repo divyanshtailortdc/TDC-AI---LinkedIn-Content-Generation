@@ -31,6 +31,7 @@ import {
 } from '../src/lib/ai/skills/profile-setup/schema'
 import { buildPrompt as buildVoicePrompt } from '../src/lib/ai/skills/voice-analysis/prompt'
 import { runLinter } from '../src/lib/lint/run-linter'
+import { checkSchedulePayload, scheduledChannel } from '../src/lib/schedule-payload'
 import { buildGoalPayload } from '../src/lib/settings-merge'
 import {
   GoalPayloadSchema,
@@ -317,5 +318,40 @@ describe('a style learned from each platform', () => {
   it('tells the analysis which platform the posts are from', () => {
     assert.match(buildVoicePrompt('A post', 'Instagram'), /^Here are real sample posts the author wrote for Instagram\./)
     assert.match(buildVoicePrompt('A post'), /^Here are real sample posts from the author:/)
+  })
+})
+
+describe('a scheduled day for one platform', () => {
+  const ok = {
+    daysOfWeek: [1, 5],
+    timeOfDay: '09:00',
+    enabled: true,
+    dayGoals: { '1': ['a'], '5': ['b'] }
+  }
+
+  it('keeps each chosen day its platform, and drops days that are not chosen', () => {
+    const saved = checkSchedulePayload({
+      ...ok,
+      dayPlatforms: { '1': 'instagram', '3': 'x' }
+    })
+    assert.deepStrictEqual(saved.dayPlatforms, { '1': 'instagram' })
+    // No day limited: every platform, as before.
+    assert.strictEqual(checkSchedulePayload(ok).dayPlatforms, null)
+    assert.strictEqual(checkSchedulePayload({ ...ok, dayPlatforms: {} }).dayPlatforms, null)
+  })
+
+  it('refuses a platform that is not one', () => {
+    assert.throws(
+      () => checkSchedulePayload({ ...ok, dayPlatforms: { '5': 'myspace' } }),
+      /Pick a platform you post on for Friday/
+    )
+  })
+
+  it("plans that day's run for its platform, and every other day for all", () => {
+    const schedule = { dayPlatforms: { '1': 'instagram', '5': 'nope' } }
+    assert.strictEqual(scheduledChannel(schedule, 1), 'instagram')
+    assert.strictEqual(scheduledChannel(schedule, 5), null)
+    assert.strictEqual(scheduledChannel(schedule, 3), null)
+    assert.strictEqual(scheduledChannel({ dayPlatforms: null }, 1), null)
   })
 })
