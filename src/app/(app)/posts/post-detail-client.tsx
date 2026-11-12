@@ -27,6 +27,7 @@ import {
 } from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { initialsOf } from '@/lib/initials'
+import { SHAPE_SIZES } from '@/lib/media/canvas/spec'
 import {
   IMAGE_PROMPT_MAX_WORDS,
   IMAGE_TYPE_CHOICES,
@@ -602,7 +603,8 @@ export function PostDetailClient({
   const handleGenerateFromPrompt = async () => {
     if (!activePost || isMediaLoading) return
 
-    // With a reference image the post supplies the subject, so words are optional.
+    // A reference image is enough on its own, so words are optional. Either
+    // way only what was typed and attached is used, never the post.
     const guidedByReference = Boolean(referenceImage) && !referenceMediaId
     const promptProblem =
       guidedByReference && !imagePrompt.trim()
@@ -616,10 +618,10 @@ export function PostDetailClient({
     await startMediaRequest(
       activePost.id,
       guidedByReference
-        ? 'Rebuilding your reference with this post’s words and your brand colours, then checking it against the reference. This takes a minute or two.'
+        ? `Generating a new image from your reference${imagePrompt.trim() ? ' and description' : ''}, sized for ${activePlatform.name}...`
         : referenceMediaId
-          ? 'Editing your image in HD...'
-          : 'Generating your image in HD...',
+          ? `Editing your image in HD, sized for ${activePlatform.name}...`
+          : `Generating your image in HD, sized for ${activePlatform.name}...`,
       {
         prompt: imagePrompt.trim(),
         ...(referenceMediaId
@@ -640,7 +642,7 @@ export function PostDetailClient({
     if (!activePost || isMediaLoading) return
     await startMediaRequest(
       activePost.id,
-      'Designing a visual from the post, then checking its text and branding. This takes about a minute.',
+      `Designing a visual from the post, sized for ${activePlatform.name}, then checking its text and branding. This takes about a minute.`,
       {
         fromPost: true,
         prompt: imagePrompt.trim(),
@@ -1370,16 +1372,17 @@ export function PostDetailClient({
   // user has typed something, so an untouched field is not shown as an error.
   const promptError = validateImagePrompt(imagePrompt)
   const showPromptError = imagePrompt.trim().length > 0 && promptError !== null
-  // With nothing typed, the main button designs an image from the post text
-  // (a new concept each time) instead of sitting disabled waiting for a prompt.
+  // With nothing typed and no reference, the main button designs an image
+  // from the post text (a new concept each time). Anything typed or attached
+  // is used on its own instead, without the post.
   const regenerateFromPost = !imagePrompt.trim() && !referenceImage
-  // An uploaded reference also designs from the post, so a prompt is optional
-  // and unsaved edits would make the image miss the post.
+  // An uploaded reference is enough by itself, so a prompt is optional. It
+  // does not read the post, so unsaved edits do not hold it up.
   const guidedByReference = Boolean(referenceImage) && !referenceMediaId
   const mainButtonBlocked = regenerateFromPost
     ? isEditing
     : guidedByReference
-      ? isEditing || showPromptError
+      ? showPromptError
       : promptError !== null
   const stockQueryError = validateStockQuery(stockSearchQuery)
   const customUrlError = validateImageUrl(customImageUrl)
@@ -1424,6 +1427,21 @@ export function PostDetailClient({
   }
 
   const activeFormat = formatOf(activePost.formatId)
+  // The shape its platform shows images in (LinkedIn 1.91:1, X 16:9,
+  // Instagram and Facebook 4:5). Every generated image is made at it; one
+  // made for another platform, or found or pasted, is flagged so it can be
+  // regenerated to fit.
+  const platformShape = FORMATS[activeFormat].imageShape
+  const shapeSize = SHAPE_SIZES[platformShape]
+  const mediaWidth = activePost.media?.width
+  const mediaHeight = activePost.media?.height
+  const imageOffShape =
+    Boolean(mediaWidth && mediaHeight) &&
+    Math.abs(
+      Math.log(
+        mediaWidth! / mediaHeight! / (shapeSize.width / shapeSize.height)
+      )
+    ) > 0.06
   // The app publishes this format itself; a Reel or a video script is copied
   // out and posted by hand.
   const canPublish = canPublishFormat(activePost.platform, activeFormat)
@@ -1584,30 +1602,35 @@ export function PostDetailClient({
             <span className="hidden sm:inline">All posts</span>
           </Link>
         }
+        // The platform's logo beside the title and its byline, which line
+        // up under each other (PageHeader's description would sit under
+        // the back link instead).
         title={
-          <h1 className="text-foreground flex min-w-0 items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl">
+          <div className="flex min-w-0 items-center gap-3">
             <PlatformMark
               platform={activePost.platform}
               colored
-              className="h-5 w-5 shrink-0"
+              className="h-9 w-9 shrink-0"
             />
-            <span className="truncate">{FORMATS[activeFormat].label}</span>
-            {activePost.hiddenAt && (
-              <span className="border-border bg-surface-hover text-muted shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold">
-                Hidden
-              </span>
-            )}
-          </h1>
-        }
-        description={
-          <>
-            {activePost.accountName} · Drafted{' '}
-            <span title={formatAbsoluteDateTime(activePost.createdAt)}>
-              {hasMounted
-                ? formatRelativeDate(activePost.createdAt)
-                : formatAbsoluteDate(activePost.createdAt)}
-            </span>
-          </>
+            <div className="min-w-0">
+              <h1 className="text-foreground flex min-w-0 items-center gap-2 text-lg leading-tight font-bold tracking-tight">
+                <span className="truncate">{FORMATS[activeFormat].label}</span>
+                {activePost.hiddenAt && (
+                  <span className="border-border bg-surface-hover text-muted shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold">
+                    Hidden
+                  </span>
+                )}
+              </h1>
+              <p className="text-muted mt-0.5 truncate text-xs sm:text-sm">
+                {activePost.accountName} · Drafted{' '}
+                <span title={formatAbsoluteDateTime(activePost.createdAt)}>
+                  {hasMounted
+                    ? formatRelativeDate(activePost.createdAt)
+                    : formatAbsoluteDate(activePost.createdAt)}
+                </span>
+              </p>
+            </div>
+          </div>
         }
         actions={
           // Fragments, so every control wraps in the bar's own row.
@@ -1691,10 +1714,10 @@ export function PostDetailClient({
       {/* Full width, 16px in from each side (24px from sm), lined up with
           the top bar's title. Sized by its own width (the
           sidebar takes part of the screen), so the columns use @-variants.
-          With two columns, each scrolls on its own inside the screen's
+          With two columns, each card scrolls on its own inside the screen's
           height, so no card runs past the bottom of the screen. */}
       <div className="bg-surface-hover/30 @container flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 sm:px-6 @4xl:overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 sm:px-6 @3xl:overflow-hidden">
           {/* The idea's versions (LinkedIn, X…), and Add a version */}
           <IdeaVersions
             post={activePost}
@@ -1705,26 +1728,29 @@ export function PostDetailClient({
             onAdded={handleVersionAdded}
             className="shrink-0"
           />
-          {/* Left: how the post will look. Right: its image. */}
-          <div className="grid grid-cols-1 items-start gap-4 @4xl:min-h-0 @4xl:flex-1 @4xl:grid-cols-12 @4xl:grid-rows-[minmax(0,1fr)] @4xl:items-stretch">
+          {/* Left: how the post will look. Right: its image, in a narrower
+              panel. Two rows from @3xl: the header rows share the first
+              (each column is a subgrid), so the two cards always start level
+              in the second, even when a header wraps. */}
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 @3xl:min-h-0 @3xl:flex-1 @3xl:grid-cols-[minmax(0,1fr)_clamp(18rem,32%,32rem)] @3xl:grid-rows-[auto_minmax(0,1fr)] @6xl:gap-x-8">
             {/* LEFT COLUMN: the post as it will appear, and its text */}
-            <div className="space-y-3 @4xl:col-span-7 @4xl:min-h-0 @4xl:overflow-y-auto">
-              <div className="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 py-1">
+            <div className="flex min-w-0 flex-col gap-3 @3xl:row-span-2 @3xl:grid @3xl:grid-rows-subgrid">
+              <div className="relative flex min-h-8 flex-wrap items-center justify-between gap-x-6 gap-y-1 px-1">
                 <span className="text-muted text-xs font-semibold tracking-wider uppercase">
                   {formatOf(activePost.formatId) === 'linkedin.post'
                     ? `${activePlatform.name} preview`
                     : previewTitle(activePost.formatId)}
                 </span>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 whitespace-nowrap">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 whitespace-nowrap">
                   <button
                     type="button"
                     onClick={handleCopyPost}
-                    className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium"
+                    className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium"
                   >
                     {copiedPost ? (
-                      <Check className="h-3.5 w-3.5" />
+                      <Check className="h-4 w-4" />
                     ) : (
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="h-4 w-4" />
                     )}
                     <span>{copiedPost ? 'Copied' : 'Copy text'}</span>
                   </button>
@@ -1734,12 +1760,12 @@ export function PostDetailClient({
                       <button
                         type="button"
                         onClick={handleCopyComment}
-                        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium"
+                        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium"
                       >
                         {copiedComment ? (
-                          <Check className="h-3.5 w-3.5" />
+                          <Check className="h-4 w-4" />
                         ) : (
-                          <MessageSquare className="h-3.5 w-3.5" />
+                          <MessageSquare className="h-4 w-4" />
                         )}
                         <span>
                           {copiedComment
@@ -1748,18 +1774,22 @@ export function PostDetailClient({
                         </span>
                       </button>
                     )}
-                  <RegenerateControl
-                    key={activePost.id}
-                    post={activePost}
-                    disabled={isEditing || isSaving}
-                    onDone={replacePostText}
-                  />
+                  {/* A published post (or one marked posted) keeps the text
+                      that went out; regenerateDraft refuses it too. */}
+                  {!activePublished && !activePost.postedAt && (
+                    <RegenerateControl
+                      key={activePost.id}
+                      post={activePost}
+                      disabled={isEditing || isSaving}
+                      onDone={replacePostText}
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() => setIsEditing(!isEditing)}
-                    className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
+                    className="text-accent inline-flex cursor-pointer items-center gap-2 text-sm font-medium hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
                   >
-                    <Edit2 className="h-3.5 w-3.5" />
+                    <Edit2 className="h-4 w-4" />
                     <span>
                       {isEditing ? 'View Feed Preview' : 'Edit Post Text'}
                     </span>
@@ -1767,854 +1797,909 @@ export function PostDetailClient({
                 </div>
               </div>
 
-              {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
-              <PostTextEditor
-                // A new version (regenerate, restore) starts the editor afresh.
-                key={`${activePost.id}-${activePost.versionCount ?? 0}`}
-                ref={editorRef}
-                post={activePost}
-                open={isEditing}
-                saving={isSaving}
-                onDirtyChange={setHasUnsavedEdits}
-                onSave={handleSaveEdits}
-                onClose={() => setIsEditing(false)}
-              />
-              {!isEditing &&
-                formatOf(activePost.formatId) !== 'linkedin.post' && (
-                  <div className="flex w-full justify-center">
-                    <VariantPreview
+              {/* The column's scrolling part; the card is centred in it at a
+                  feed-like width. */}
+              <div className="min-h-0 @3xl:overflow-y-auto">
+                <div className="mx-auto w-full max-w-4xl space-y-3">
+                  {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
+                  <PostTextEditor
+                    // A new version (regenerate, restore) starts the editor afresh.
+                    key={`${activePost.id}-${activePost.versionCount ?? 0}`}
+                    ref={editorRef}
+                    post={activePost}
+                    open={isEditing}
+                    saving={isSaving}
+                    onDirtyChange={setHasUnsavedEdits}
+                    onSave={handleSaveEdits}
+                    onClose={() => setIsEditing(false)}
+                  />
+                  {!isEditing &&
+                    formatOf(activePost.formatId) !== 'linkedin.post' && (
+                      <div className="flex w-full justify-center">
+                        <VariantPreview
+                          key={activePost.id}
+                          formatId={formatOf(activePost.formatId)}
+                          authorName={activePost.accountName}
+                          authorInitials={authorInitials}
+                          hook={activePost.hook || ''}
+                          body={activePost.body || ''}
+                          cta={activePost.cta}
+                          hashtags={activePost.hashtags}
+                          firstComment={activePost.firstComment}
+                          payload={activePost.payload}
+                          mediaUrl={activePost.media?.imageUrl}
+                          mediaAltText={activePost.media?.altText}
+                          onMediaClick={
+                            activePost.media?.imageUrl
+                              ? () => setIsImageZoomOpen(true)
+                              : undefined
+                          }
+                        />
+                      </div>
+                    )}
+                  {!isEditing &&
+                    formatOf(activePost.formatId) === 'linkedin.post' && (
+                      <div className="flex w-full justify-center">
+                        <PostPreview
+                          key={activePost.id}
+                          platform={activePlatform}
+                          authorName={activePost.accountName}
+                          authorHeadline={activePost.accountHeadline}
+                          authorInitials={authorInitials}
+                          hook={activePost.hook || ''}
+                          body={activePost.body || ''}
+                          cta={activePost.cta}
+                          hashtags={activePost.hashtags}
+                          mediaUrl={activePost.media?.imageUrl}
+                          mediaAltText={activePost.media?.altText}
+                          onMediaClick={
+                            activePost.media?.imageUrl
+                              ? () => setIsImageZoomOpen(true)
+                              : undefined
+                          }
+                          // Swapping the hook edits the post, so it's offered only while active.
+                          hookOptions={
+                            hookOptions.length > 1 ? hookOptions : []
+                          }
+                          onSelectHook={handleSwapHook}
+                          hookSwapDisabled={isSaving}
+                          firstComment={activePost.firstComment || ''}
+                          onCopyFirstComment={handleCopyComment}
+                          firstCommentCopied={copiedComment}
+                        />
+                      </div>
+                    )}
+                  {!isEditing && (
+                    <VersionHistory
                       key={activePost.id}
-                      formatId={formatOf(activePost.formatId)}
-                      authorName={activePost.accountName}
-                      authorInitials={authorInitials}
-                      hook={activePost.hook || ''}
-                      body={activePost.body || ''}
-                      cta={activePost.cta}
-                      hashtags={activePost.hashtags}
-                      firstComment={activePost.firstComment}
-                      payload={activePost.payload}
-                      mediaUrl={activePost.media?.imageUrl}
-                      mediaAltText={activePost.media?.altText}
-                      onMediaClick={
-                        activePost.media?.imageUrl
-                          ? () => setIsImageZoomOpen(true)
-                          : undefined
-                      }
+                      post={activePost}
+                      disabled={isSaving}
+                      onRestored={replacePostText}
                     />
-                  </div>
-                )}
-              {!isEditing &&
-                formatOf(activePost.formatId) === 'linkedin.post' && (
-                  <div className="flex w-full justify-center">
-                    <PostPreview
-                      key={activePost.id}
-                      platform={activePlatform}
-                      authorName={activePost.accountName}
-                      authorHeadline={activePost.accountHeadline}
-                      authorInitials={authorInitials}
-                      hook={activePost.hook || ''}
-                      body={activePost.body || ''}
-                      cta={activePost.cta}
-                      hashtags={activePost.hashtags}
-                      mediaUrl={activePost.media?.imageUrl}
-                      mediaAltText={activePost.media?.altText}
-                      onMediaClick={
-                        activePost.media?.imageUrl
-                          ? () => setIsImageZoomOpen(true)
-                          : undefined
-                      }
-                      // Swapping the hook edits the post, so it's offered only while active.
-                      hookOptions={hookOptions.length > 1 ? hookOptions : []}
-                      onSelectHook={handleSwapHook}
-                      hookSwapDisabled={isSaving}
-                      firstComment={activePost.firstComment || ''}
-                      onCopyFirstComment={handleCopyComment}
-                      firstCommentCopied={copiedComment}
-                    />
-                  </div>
-                )}
-              {!isEditing && (
-                <VersionHistory
-                  key={activePost.id}
-                  post={activePost}
-                  disabled={isSaving}
-                  onRestored={replacePostText}
-                />
-              )}
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* RIGHT COLUMN: the image */}
-            <div className="space-y-3 @4xl:col-span-5 @4xl:min-h-0 @4xl:overflow-y-auto">
-              {/* Zoom viewer — portals to <body>, so its position here is irrelevant */}
-              {isImageZoomOpen && activePost.media?.imageUrl && (
-                <ImageLightbox
-                  src={activePost.media.imageUrl}
-                  alt={activePost.media.altText || 'Post image'}
-                  width={activePost.media.width || 2048}
-                  height={activePost.media.height || 1072}
-                  onClose={() => setIsImageZoomOpen(false)}
-                />
-              )}
-
-              {/* ERROR BANNER */}
-              {mediaError && (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400">
-                  <span>{mediaError}</span>
-                  <button
-                    type="button"
-                    onClick={() => setMediaError(null)}
-                    className="cursor-pointer p-1 hover:text-rose-700 dark:hover:text-rose-300"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-
-              {/* NEUTRAL NOTICE (e.g. generation stopped) */}
-              {mediaNotice && (
-                <div className="border-border bg-surface-hover text-muted flex items-center justify-between gap-2 rounded-xl border p-3 text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <Info className="h-3.5 w-3.5 shrink-0" />
-                    {mediaNotice}
+            {/* RIGHT COLUMN: the image. Its header shares the preview
+                header's row. */}
+            <div className="flex min-w-0 flex-col gap-3 @3xl:row-span-2 @3xl:grid @3xl:grid-rows-subgrid">
+              <div className="flex min-h-8 items-center justify-between gap-2 px-1">
+                <span className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
+                  <ImageIcon className="h-4 w-4" />
+                  Image
+                </span>
+                {activePost.media?.imageUrl && isUserPromptedMedia ? (
+                  <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
+                    <Sparkles className="h-3 w-3" />
+                    {reviewerMediaLabel}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setMediaNotice(null)}
-                    className="hover:text-foreground cursor-pointer p-1"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
+                ) : activePost.media?.imageUrl ? null : activePost.media ? (
+                  <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
+                    {activeImageLoadError
+                      ? 'Image not loaded'
+                      : 'Loading image'}
+                  </span>
+                ) : (
+                  <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
+                    Text Only
+                  </span>
+                )}
+              </div>
 
-              {/* MEDIA RELEVANCE WARNING (if weak or unrelated). An image the
+              <div className="min-h-0 @3xl:overflow-y-auto">
+                {/* Zoom viewer — portals to <body>, so its position here is irrelevant */}
+                {isImageZoomOpen && activePost.media?.imageUrl && (
+                  <ImageLightbox
+                    src={activePost.media.imageUrl}
+                    alt={activePost.media.altText || 'Post image'}
+                    width={activePost.media.width || 2048}
+                    height={activePost.media.height || 1072}
+                    onClose={() => setIsImageZoomOpen(false)}
+                  />
+                )}
+                {/* IMAGE CARD: the post's image, and making a new one with AI.
+                  Its notices sit inside it, so the card never drops below
+                  the preview's top edge. */}
+                <div className="border-border bg-surface space-y-4 rounded-2xl border p-4 shadow-sm">
+                  {isMediaLoading && !mediaBusyHere && (
+                    <p className="text-muted text-[11px]">
+                      An image for another post is still being processed. Media
+                      actions here unlock when it finishes.
+                    </p>
+                  )}
+
+                  {/* ERROR BANNER */}
+                  {mediaError && (
+                    <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400">
+                      <span>{mediaError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setMediaError(null)}
+                        className="cursor-pointer p-1 hover:text-rose-700 dark:hover:text-rose-300"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* NEUTRAL NOTICE (e.g. generation stopped) */}
+                  {mediaNotice && (
+                    <div className="border-border bg-surface-hover text-muted flex items-center justify-between gap-2 rounded-xl border p-3 text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        {mediaNotice}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMediaNotice(null)}
+                        className="hover:text-foreground cursor-pointer p-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* MEDIA RELEVANCE WARNING (if weak or unrelated). An image the
                       reviewer described is not scored, but its lettering is. */}
-              {activePost.media?.imageUrl &&
-                (isUserPromptedMedia
-                  ? Boolean(activePost.media.issues?.length)
-                  : !relevanceInfo.isPass) && (
-                  <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
-                    <div className="flex items-start gap-2 font-medium text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                      <div>
-                        <p className="font-semibold">
-                          {activePost.media.issues?.length
-                            ? 'Check this image before posting'
-                            : 'Media may not match this post'}
-                        </p>
-                        {/* Every problem the checks found, not just the first: a
+                  {activePost.media?.imageUrl &&
+                    (isUserPromptedMedia
+                      ? Boolean(activePost.media.issues?.length)
+                      : !relevanceInfo.isPass) && (
+                      <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
+                        <div className="flex items-start gap-2 font-medium text-amber-700 dark:text-amber-400">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          <div>
+                            <p className="font-semibold">
+                              {activePost.media.issues?.length
+                                ? 'Check this image before posting'
+                                : 'Media may not match this post'}
+                            </p>
+                            {/* Every problem the checks found, not just the first: a
                                 misspelt label and a covered headline need different fixes. */}
-                        {activePost.media.issues?.length ? (
-                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                            {activePost.media.issues.map(issue => (
-                              <li key={issue}>{issue}</li>
-                            ))}
-                          </ul>
+                            {activePost.media.issues?.length ? (
+                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
+                                {activePost.media.issues.map(issue => (
+                                  <li key={issue}>{issue}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
+                                {relevanceInfo.warningMessage ||
+                                  'Generated media appears to introduce a different topic.'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={() => {
+                              setShowStockInput(true)
+                              setShowCustomUrlInput(false)
+                            }}
+                            className="border-border bg-surface hover:bg-surface-hover h-7 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                          >
+                            Change media
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={handleRemoveMedia}
+                            className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
+                          >
+                            Use text only
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                  {mediaBusyHere ? (
+                    <div className="border-border bg-surface-hover/50 text-muted flex animate-pulse flex-col items-center justify-center space-y-2 rounded-xl border py-6 text-xs">
+                      <Loader2 className="text-accent h-5 w-5 animate-spin" />
+                      <p className="text-foreground font-medium">
+                        {mediaLoadingText || 'Processing media asset...'}
+                      </p>
+                    </div>
+                  ) : activePost.media?.imageUrl ? (
+                    <div className="space-y-4">
+                      <button
+                        type="button"
+                        onClick={() => setIsImageZoomOpen(true)}
+                        aria-label="Zoom image"
+                        className="group border-border relative block w-full cursor-zoom-in overflow-hidden rounded-xl border bg-neutral-900"
+                      >
+                        <Image
+                          src={activePost.media.imageUrl}
+                          alt={activePost.media.altText || 'Generated visual'}
+                          width={activePost.media.width || 2048}
+                          height={activePost.media.height || 1072}
+                          className="h-auto max-h-72 w-full object-contain"
+                          unoptimized
+                        />
+                        <span className="pointer-events-none absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                          <ZoomIn className="h-3 w-3" />
+                          Zoom
+                        </span>
+                      </button>
+                      {/* Which image this is, and what to do with it */}
+                      <div className="border-border text-muted flex flex-wrap items-center gap-x-2 gap-y-1 border-b pb-4 text-[13px]">
+                        <span className="text-foreground font-medium">
+                          Media v{activePost.media.version || 1}
+                        </span>
+                        <span>·</span>
+                        {activePost.media.width && activePost.media.height ? (
+                          <span className="font-mono text-xs">
+                            {activePost.media.width} × {activePost.media.height}{' '}
+                            HD
+                          </span>
                         ) : (
-                          <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                            {relevanceInfo.warningMessage ||
-                              'Generated media appears to introduce a different topic.'}
-                          </p>
+                          <span className="capitalize">
+                            {activePost.media.mode.replace('_', ' ')}
+                          </span>
                         )}
+                        {activePost.media.workflow === 'edit' && (
+                          <>
+                            <span>·</span>
+                            <span>edited</span>
+                          </>
+                        )}
+                        <span className="ml-auto flex items-center gap-4">
+                          <button
+                            type="button"
+                            onClick={handleDownloadMedia}
+                            className="text-foreground hover:text-accent inline-flex cursor-pointer items-center gap-1.5 font-medium hover:underline"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download image
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={handleRemoveMedia}
+                            className="text-muted inline-flex cursor-pointer items-center gap-1.5 font-medium hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Remove
+                          </button>
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 pt-1">
+                  ) : isActiveImageLoading ? (
+                    <div className="border-border bg-surface-hover/50 text-muted flex items-center justify-center gap-2 rounded-xl border py-6 text-xs">
+                      <Loader2 className="text-accent h-4 w-4 animate-spin" />
+                      <span>Loading image...</span>
+                    </div>
+                  ) : activeImageLoadError ? (
+                    // The image is still attached; only this load failed.
+                    <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                      <span className="flex items-center gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        Couldn&apos;t load this post&apos;s image:{' '}
+                        {activeImageLoadError}
+                      </span>
                       <button
                         type="button"
-                        disabled={isMediaLoading}
-                        onClick={() => {
-                          setShowStockInput(true)
-                          setShowCustomUrlInput(false)
-                        }}
-                        className="border-border bg-surface hover:bg-surface-hover h-7 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                        onClick={retryImageLoad}
+                        className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
                       >
-                        Change media
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isMediaLoading}
-                        onClick={handleRemoveMedia}
-                        className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
-                      >
-                        Use text only
+                        Retry
                       </button>
                     </div>
-                  </div>
-                )}
-
-              {/* IMAGE CARD: the post's image, and making a new one with AI */}
-              <div className="border-border bg-surface space-y-2 rounded-2xl border p-3 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
-                    <ImageIcon className="text-accent h-3.5 w-3.5" />
-                    Image
-                  </span>
-                  {activePost.media?.imageUrl && isUserPromptedMedia ? (
-                    <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
-                      <Sparkles className="h-3 w-3" />
-                      {reviewerMediaLabel}
-                    </span>
-                  ) : activePost.media?.imageUrl ? null : activePost.media ? (
-                    <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                      {activeImageLoadError
-                        ? 'Image not loaded'
-                        : 'Loading image'}
-                    </span>
-                  ) : (
-                    <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                      Text Only
-                    </span>
-                  )}
-                </div>
-
-                {isMediaLoading && !mediaBusyHere && (
-                  <p className="text-muted text-[11px]">
-                    An image for another post is still being processed. Media
-                    actions here unlock when it finishes.
-                  </p>
-                )}
-
-                {mediaBusyHere ? (
-                  <div className="border-border bg-surface-hover/50 text-muted flex animate-pulse flex-col items-center justify-center space-y-2 rounded-xl border py-6 text-xs">
-                    <Loader2 className="text-accent h-5 w-5 animate-spin" />
-                    <p className="text-foreground font-medium">
-                      {mediaLoadingText || 'Processing media asset...'}
-                    </p>
-                  </div>
-                ) : activePost.media?.imageUrl ? (
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsImageZoomOpen(true)}
-                      aria-label="Zoom image"
-                      className="group border-border relative block w-full cursor-zoom-in overflow-hidden rounded-xl border bg-neutral-900"
-                    >
-                      <Image
-                        src={activePost.media.imageUrl}
-                        alt={activePost.media.altText || 'Generated visual'}
-                        width={activePost.media.width || 2048}
-                        height={activePost.media.height || 1072}
-                        className="h-auto max-h-[clamp(8rem,calc(100dvh-33rem),35dvh)] w-full object-contain"
-                        unoptimized
-                      />
-                      <span className="pointer-events-none absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                        <ZoomIn className="h-3 w-3" />
-                        Zoom
-                      </span>
-                    </button>
-                    {/* Which image this is, and what to do with it */}
-                    <div className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                      <span>Media v{activePost.media.version || 1}</span>
-                      <span>•</span>
-                      {activePost.media.width && activePost.media.height ? (
-                        <span className="text-foreground font-medium">
-                          {activePost.media.width} × {activePost.media.height}{' '}
-                          HD
-                        </span>
-                      ) : (
-                        <span className="capitalize">
-                          {activePost.media.mode.replace('_', ' ')}
-                        </span>
-                      )}
-                      {activePost.media.workflow === 'edit' && (
-                        <>
-                          <span>•</span>
-                          <span>edited</span>
-                        </>
-                      )}
-                      <span className="ml-auto flex items-center gap-2.5">
-                        <button
-                          type="button"
-                          onClick={handleDownloadMedia}
-                          className="text-accent inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:underline"
-                        >
-                          <Download className="h-3 w-3" />
-                          Download image
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isMediaLoading}
-                          onClick={handleRemoveMedia}
-                          className="text-muted inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:text-rose-600 dark:hover:text-rose-400"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          Remove
-                        </button>
-                      </span>
-                    </div>
-                  </div>
-                ) : isActiveImageLoading ? (
-                  <div className="border-border bg-surface-hover/50 text-muted flex items-center justify-center gap-2 rounded-xl border py-6 text-xs">
-                    <Loader2 className="text-accent h-4 w-4 animate-spin" />
-                    <span>Loading image...</span>
-                  </div>
-                ) : activeImageLoadError ? (
-                  // The image is still attached; only this load failed.
-                  <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                    <span className="flex items-center gap-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                      Couldn&apos;t load this post&apos;s image:{' '}
-                      {activeImageLoadError}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={retryImageLoad}
-                      className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : activePost.mediaFailure ? (
-                  // Drafting tried to make an image for this post and could not.
-                  <div className="flex items-start gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      The image for this post could not be made during drafting:{' '}
-                      {activePost.mediaFailure} Generate one below.
-                    </span>
-                  </div>
-                ) : null}
-
-                {/* Generate / Change media: first, so they stay in view on short screens */}
-                <div className="flex items-center gap-2 pt-1">
-                  {isGenerating && mediaBusyHere ? (
-                    <button
-                      type="button"
-                      onClick={handleStopGeneration}
-                      className="flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
-                    >
-                      <CircleStop className="h-3.5 w-3.5" />
-                      <span>Stop generating</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isMediaLoading || mainButtonBlocked}
-                      onClick={
-                        regenerateFromPost
-                          ? handleGenerateFromPost
-                          : handleGenerateFromPrompt
-                      }
-                      title={
-                        (regenerateFromPost || guidedByReference) && isEditing
-                          ? 'Save your edits first so the image matches the post'
-                          : undefined
-                      }
-                      className="bg-accent hover:bg-accent-hover text-background flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {mediaBusyHere ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3.5 w-3.5" />
-                      )}
+                  ) : activePost.mediaFailure ? (
+                    // Drafting tried to make an image for this post and could not.
+                    <div className="flex items-start gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
-                        {activePost.media?.imageUrl
-                          ? 'Regenerate image'
-                          : 'Generate image'}
+                        The image for this post could not be made during
+                        drafting: {activePost.mediaFailure} Generate one below.
                       </span>
-                    </button>
-                  )}
+                    </div>
+                  ) : null}
 
-                  <div className="relative">
-                    <button
-                      type="button"
-                      disabled={isMediaLoading}
-                      onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
-                      className="border-border hover:bg-surface-hover text-foreground flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <span>Change media</span>
-                      <ChevronDown className="text-muted h-3.5 w-3.5" />
-                    </button>
+                  {/* An image in another platform's shape (made before, or
+                      found or pasted): the platform would crop or pad it. */}
+                  {activePost.media?.imageUrl &&
+                    imageOffShape &&
+                    !mediaBusyHere && (
+                      <div className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-700 dark:text-sky-300">
+                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          This image is {mediaWidth} × {mediaHeight}, not{' '}
+                          {activePlatform.name}&apos;s{' '}
+                          {platformShape === '4:5' ? 'portrait' : 'landscape'}{' '}
+                          {platformShape} shape, so it may be cropped there.
+                          Regenerate it to get one sized for{' '}
+                          {activePlatform.name}.
+                        </span>
+                      </div>
+                    )}
 
-                    {mediaMenuOpen && (
-                      <div className="border-border bg-surface animate-in fade-in zoom-in-95 absolute right-0 z-20 mt-1 w-52 rounded-xl border py-1.5 text-xs shadow-xl duration-100">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMediaMenuOpen(false)
-                            setShowStockInput(true)
-                            setShowCustomUrlInput(false)
-                          }}
-                          className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
-                        >
-                          <Search className="h-3.5 w-3.5 text-blue-500" />
-                          <span>Find stock image</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMediaMenuOpen(false)
-                            setShowCustomUrlInput(true)
-                            setShowStockInput(false)
-                          }}
-                          className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
-                          <span>Use custom image URL</span>
-                        </button>
-                        {activePost.media && (
+                  {/* Generate / Change media: first, so they stay in view on
+                      short screens. The main button takes the spare width;
+                      when the panel is too narrow for both labels, they wrap
+                      onto two full-width rows instead of breaking a label. */}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {isGenerating && mediaBusyHere ? (
+                      <button
+                        type="button"
+                        onClick={handleStopGeneration}
+                        className="flex h-9 flex-[999_1_auto] cursor-pointer items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 text-sm font-semibold whitespace-nowrap text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
+                      >
+                        <CircleStop className="h-4 w-4" />
+                        <span>Stop generating</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isMediaLoading || mainButtonBlocked}
+                        onClick={
+                          regenerateFromPost
+                            ? handleGenerateFromPost
+                            : handleGenerateFromPrompt
+                        }
+                        title={
+                          regenerateFromPost && isEditing
+                            ? 'Save your edits first so the image matches the post'
+                            : undefined
+                        }
+                        className="bg-accent hover:bg-accent-hover text-background flex h-9 flex-[999_1_auto] cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold whitespace-nowrap shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {mediaBusyHere ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        <span>
+                          {activePost.media?.imageUrl
+                            ? 'Regenerate image'
+                            : 'Generate image'}
+                        </span>
+                      </button>
+                    )}
+
+                    <div className="relative flex-[1_1_auto]">
+                      <button
+                        type="button"
+                        disabled={isMediaLoading}
+                        onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
+                        className="border-border hover:bg-surface-hover text-foreground flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span>Change media</span>
+                        <ChevronDown className="text-muted h-4 w-4" />
+                      </button>
+
+                      {mediaMenuOpen && (
+                        <div className="border-border bg-surface animate-in fade-in zoom-in-95 absolute right-0 z-20 mt-1 w-56 rounded-xl border py-1.5 text-sm shadow-xl duration-100">
                           <button
                             type="button"
                             onClick={() => {
                               setMediaMenuOpen(false)
-                              handleRemoveMedia()
+                              setShowStockInput(true)
+                              setShowCustomUrlInput(false)
                             }}
-                            className="border-border mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+                            className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            <span>Text only (remove media)</span>
+                            <Search className="h-3.5 w-3.5 text-blue-500" />
+                            <span>Find stock image</span>
                           </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Stock search input */}
-                {showStockInput && !mediaBusyHere && (
-                  <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
-                    <label className="text-foreground block text-[11px] font-semibold">
-                      Search Stock Imagery
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={stockSearchQuery}
-                        onChange={e => setStockSearchQuery(e.target.value)}
-                        placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
-                        className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                        aria-invalid={
-                          stockSearchQuery.trim().length > 0 &&
-                          stockQueryError !== null
-                        }
-                        onKeyDown={e =>
-                          e.key === 'Enter' &&
-                          !stockQueryError &&
-                          handleSearchStockMedia()
-                        }
-                      />
-                      <button
-                        type="button"
-                        disabled={isMediaLoading || stockQueryError !== null}
-                        onClick={handleSearchStockMedia}
-                        className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Search
-                      </button>
-                    </div>
-                    {stockSearchQuery.trim().length > 0 && stockQueryError && (
-                      <p className="text-[11px] text-rose-600 dark:text-rose-400">
-                        {stockQueryError}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Custom URL input */}
-                {showCustomUrlInput && !mediaBusyHere && (
-                  <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
-                    <label className="text-foreground block text-[11px] font-semibold">
-                      Direct Image URL
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        value={customImageUrl}
-                        onChange={e => setCustomImageUrl(e.target.value)}
-                        placeholder="https://images.unsplash.com/..."
-                        className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                        aria-invalid={
-                          customImageUrl.trim().length > 0 &&
-                          customUrlError !== null
-                        }
-                        onKeyDown={e =>
-                          e.key === 'Enter' &&
-                          !customUrlError &&
-                          handleApplyCustomUrl()
-                        }
-                      />
-                      <button
-                        type="button"
-                        disabled={isMediaLoading || customUrlError !== null}
-                        onClick={handleApplyCustomUrl}
-                        className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                    {customImageUrl.trim().length > 0 && customUrlError && (
-                      <p className="text-[11px] text-rose-600 dark:text-rose-400">
-                        {customUrlError}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Prompt-driven generation */}
-                {!mediaBusyHere && (
-                  <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
-                    <div className="flex items-center justify-between">
-                      <label
-                        htmlFor="image-prompt"
-                        className="text-foreground block text-[11px] font-semibold"
-                      >
-                        {referenceMediaId
-                          ? 'Describe the change you want'
-                          : referenceImage
-                            ? 'Add direction (optional)'
-                            : 'Describe the image you want'}
-                        {!referenceImage && (
-                          <span className="text-muted font-normal">
-                            {' '}
-                            · or leave it empty to design one from the post
-                          </span>
-                        )}
-                      </label>
-                      {(imagePrompt || referenceImage) && (
-                        <button
-                          type="button"
-                          onClick={clearPromptAndReference}
-                          className="text-muted hover:text-foreground cursor-pointer text-[11px] font-medium"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <textarea
-                      id="image-prompt"
-                      value={imagePrompt}
-                      onChange={e => setImagePrompt(e.target.value)}
-                      onPaste={handleReferencePaste}
-                      // Enter does what the main button does; Shift+Enter
-                      // starts a new line.
-                      onKeyDown={e => {
-                        if (
-                          e.key !== 'Enter' ||
-                          e.shiftKey ||
-                          e.nativeEvent.isComposing
-                        ) {
-                          return
-                        }
-                        e.preventDefault()
-                        if (isMediaLoading || mainButtonBlocked) return
-                        void (regenerateFromPost
-                          ? handleGenerateFromPost()
-                          : handleGenerateFromPrompt())
-                      }}
-                      rows={3}
-                      placeholder={
-                        referenceMediaId
-                          ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
-                          : referenceImage
-                            ? 'e.g. Show the moment the team first sees the results'
-                            : 'e.g. A minimal isometric illustration of two paths splitting, lots of negative space'
-                      }
-                      aria-invalid={showPromptError}
-                      aria-describedby="image-prompt-hint"
-                      className="border-border bg-surface text-foreground focus:border-accent w-full resize-y rounded-lg border px-2.5 py-2 text-xs outline-none aria-invalid:border-rose-500"
-                    />
-                    <div
-                      id="image-prompt-hint"
-                      className="flex items-start justify-between gap-2 text-[11px]"
-                    >
-                      {showPromptError ? (
-                        <span className="text-rose-600 dark:text-rose-400">
-                          {promptError}
-                        </span>
-                      ) : null}
-                      <span
-                        className={`shrink-0 tabular-nums ${
-                          countWords(imagePrompt) > IMAGE_PROMPT_MAX_WORDS
-                            ? 'text-rose-600 dark:text-rose-400'
-                            : 'text-muted'
-                        }`}
-                      >
-                        {countWords(imagePrompt)}/{IMAGE_PROMPT_MAX_WORDS} words
-                      </span>
-                    </div>
-
-                    {referenceImage ? (
-                      <div className="border-border bg-surface flex items-center gap-2.5 rounded-lg border p-2">
-                        <Image
-                          src={referenceImage}
-                          alt="Reference"
-                          width={40}
-                          height={40}
-                          className="border-border h-10 w-10 shrink-0 rounded border object-cover"
-                          unoptimized
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-foreground truncate text-[11px] font-medium">
-                            {referenceImageName}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={clearReferenceImage}
-                          title="Remove reference image"
-                          className="text-muted hover:text-foreground cursor-pointer p-1"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <button
-                          type="button"
-                          onClick={() => referenceInputRef.current?.click()}
-                          className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium"
-                        >
-                          <Paperclip className="h-3 w-3" />
-                          Attach a reference image to copy its layout
-                        </button>
-                        {activePost.media?.imageUrl && (
                           <button
                             type="button"
-                            onClick={useCurrentImageAsReference}
-                            className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium hover:underline"
+                            onClick={() => {
+                              setMediaMenuOpen(false)
+                              setShowCustomUrlInput(true)
+                              setShowStockInput(false)
+                            }}
+                            className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
                           >
-                            <ImageIcon className="h-3 w-3" />
-                            Use current image
+                            <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
+                            <span>Use custom image URL</span>
                           </button>
-                        )}
-                      </div>
-                    )}
-
-                    <input
-                      ref={referenceInputRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0]
-                        if (file) loadReferenceImage(file)
-                        // Reset so choosing the same file again still fires onChange.
-                        e.target.value = ''
-                      }}
-                    />
+                          {activePost.media && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMediaMenuOpen(false)
+                                handleRemoveMedia()
+                              }}
+                              className="border-border mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Text only (remove media)</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
 
-                {/* Generation from the post's own text, the typed words
-                        only as direction. With nothing typed, or a reference
-                        attached, the main button already does this. */}
-                {!mediaBusyHere &&
-                  !guidedByReference &&
-                  !regenerateFromPost && (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        disabled={isEditing || isMediaLoading}
-                        onClick={handleGenerateFromPost}
-                        title={
-                          isEditing
-                            ? 'Save your edits first so the image matches the post'
-                            : undefined
-                        }
-                        className="border-accent/40 text-accent hover:bg-accent/10 flex h-7 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <FileText className="h-3.5 w-3.5" />
-                        <span>Design from the post text instead</span>
-                      </button>
-                      <p className="text-muted text-[10px]">
-                        {isEditing
-                          ? 'Save your edits first so the image matches the post.'
-                          : null}
-                      </p>
+                  {/* Stock search input */}
+                  {showStockInput && !mediaBusyHere && (
+                    <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
+                      <label className="text-foreground block text-[11px] font-semibold">
+                        Search Stock Imagery
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={stockSearchQuery}
+                          onChange={e => setStockSearchQuery(e.target.value)}
+                          placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
+                          className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                          aria-invalid={
+                            stockSearchQuery.trim().length > 0 &&
+                            stockQueryError !== null
+                          }
+                          onKeyDown={e =>
+                            e.key === 'Enter' &&
+                            !stockQueryError &&
+                            handleSearchStockMedia()
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={isMediaLoading || stockQueryError !== null}
+                          onClick={handleSearchStockMedia}
+                          className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Search
+                        </button>
+                      </div>
+                      {stockSearchQuery.trim().length > 0 &&
+                        stockQueryError && (
+                          <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                            {stockQueryError}
+                          </p>
+                        )}
                     </div>
                   )}
 
-                {/* Image type, background and website: set once and
-                        rarely changed, so folded away until asked for. */}
-                {!mediaBusyHere && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvancedMedia(open => !open)}
-                    aria-expanded={showAdvancedMedia}
-                    className="border-border text-muted hover:text-foreground flex w-full cursor-pointer items-center justify-between border-t pt-3 text-[11px] font-semibold"
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <SlidersHorizontal className="h-3.5 w-3.5" />
-                      Image options
-                      <span className="font-normal">
-                        · type, background, website
-                      </span>
-                    </span>
-                    <ChevronDown
-                      className={`h-3.5 w-3.5 transition-transform ${showAdvancedMedia ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-                )}
-                {showAdvancedMedia && (
-                  <>
-                    {/* Optional image type for a design from the post; an
-                        edit of the current image keeps its own. */}
-                    {!mediaBusyHere && !referenceMediaId && (
-                      <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
-                        <div className="flex items-baseline justify-between">
-                          <span
-                            id="image-type-label"
-                            className="text-foreground text-[11px] font-semibold"
-                          >
-                            Image type
-                          </span>
-                          <span className="text-muted text-[10px]">
-                            Optional
-                          </span>
-                        </div>
-                        <div
-                          role="radiogroup"
-                          aria-labelledby="image-type-label"
-                          className="flex flex-wrap gap-1.5"
+                  {/* Custom URL input */}
+                  {showCustomUrlInput && !mediaBusyHere && (
+                    <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
+                      <label className="text-foreground block text-[11px] font-semibold">
+                        Direct Image URL
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={customImageUrl}
+                          onChange={e => setCustomImageUrl(e.target.value)}
+                          placeholder="https://images.unsplash.com/..."
+                          className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                          aria-invalid={
+                            customImageUrl.trim().length > 0 &&
+                            customUrlError !== null
+                          }
+                          onKeyDown={e =>
+                            e.key === 'Enter' &&
+                            !customUrlError &&
+                            handleApplyCustomUrl()
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={isMediaLoading || customUrlError !== null}
+                          onClick={handleApplyCustomUrl}
+                          className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {IMAGE_TYPE_OPTIONS.map(option => {
-                            const active = imageType === option.value
-                            const Icon = option.icon
-                            return (
-                              <button
-                                key={option.label}
-                                type="button"
-                                role="radio"
-                                aria-checked={active}
-                                title={option.description}
-                                // A reference image sets the structure itself.
-                                disabled={Boolean(referenceImage)}
-                                onClick={() => setImageType(option.value)}
-                                className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                  active
-                                    ? 'border-accent bg-accent/10 text-foreground font-semibold'
-                                    : 'border-border bg-surface text-muted hover:text-foreground'
-                                }`}
-                              >
-                                <Icon
-                                  className={`h-3 w-3 ${active ? 'text-accent' : ''}`}
-                                />
-                                {option.label}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        <p className="text-muted text-[10px]">
-                          {referenceImage
-                            ? null
-                            : imagePrompt.trim()
-                              ? 'Generate image follows your description below. The type is used by "Generate from post text".'
-                              : IMAGE_TYPE_OPTIONS.find(
-                                  o => o.value === imageType
-                                )?.description}
-                        </p>
-
-                        <div className="border-border space-y-2 border-t pt-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span
-                              id="image-background-label"
-                              className="text-foreground text-[11px] font-semibold"
-                            >
-                              Background
-                            </span>
-                            <div
-                              role="radiogroup"
-                              aria-labelledby="image-background-label"
-                              className="flex gap-1.5"
-                            >
-                              {BACKGROUND_PATTERNS.map(pattern => {
-                                const active = imagePattern === pattern.value
-                                return (
-                                  <button
-                                    key={pattern.value}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={active}
-                                    // A reference image brings its own background.
-                                    disabled={Boolean(referenceImage)}
-                                    onClick={() =>
-                                      !active &&
-                                      handleSaveImageSettings({
-                                        pattern: pattern.value,
-                                        footer: savedFooter
-                                      })
-                                    }
-                                    className={`inline-flex h-6 cursor-pointer items-center rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                      active
-                                        ? 'border-accent bg-accent/10 text-foreground font-semibold'
-                                        : 'border-border bg-surface text-muted hover:text-foreground'
-                                    }`}
-                                  >
-                                    {pattern.label}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <label
-                              htmlFor="image-footer"
-                              className="text-foreground shrink-0 text-[11px] font-semibold"
-                            >
-                              Website
-                            </label>
-                            <input
-                              id="image-footer"
-                              value={footerDraft}
-                              maxLength={FOOTER_MAX_LENGTH}
-                              placeholder={`e.g. ${brand.website || 'yourcompany.com'}`}
-                              onChange={e => setFooterDraft(e.target.value)}
-                              onBlur={() => {
-                                const footer = footerDraft.trim()
-                                setFooterDraft(footer)
-                                if (footer !== savedFooter)
-                                  handleSaveImageSettings({
-                                    pattern: imagePattern,
-                                    footer
-                                  })
-                              }}
-                              onKeyDown={e =>
-                                e.key === 'Enter' && e.currentTarget.blur()
-                              }
-                              className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-[11px] outline-none"
-                            />
-                          </div>
-                        </div>
+                          Apply
+                        </button>
                       </div>
-                    )}
+                      {customImageUrl.trim().length > 0 && customUrlError && (
+                        <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                          {customUrlError}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
-                    {/* Every generated image gets these; set on the Brand Theme page */}
-                    {!mediaBusyHere && (
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        {brand.hasLogo || brand.colors.length > 0 ? (
-                          <span className="text-muted inline-flex min-w-0 items-center gap-1.5">
-                            {brand.colors.map((color, i) => (
-                              <span
-                                key={`${i}-${color}`}
-                                aria-hidden
-                                className="border-border h-3 w-3 shrink-0 rounded-full border"
-                                style={{ background: color }}
-                              />
-                            ))}
-                            <span className="truncate">
-                              {brand.hasLogo && brand.colors.length > 0
-                                ? 'Your logo and brand colours go on every image.'
-                                : brand.hasLogo
-                                  ? 'Your logo goes on every image.'
-                                  : 'Your brand colours go into every image.'}
+                  {/* Prompt-driven generation */}
+                  {!mediaBusyHere && (
+                    <div className="border-border bg-surface-hover/50 space-y-3 rounded-xl border p-3.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <label
+                          htmlFor="image-prompt"
+                          className="text-foreground block text-sm font-medium"
+                        >
+                          {referenceMediaId
+                            ? 'Describe the change you want'
+                            : referenceImage
+                              ? 'Add direction (optional)'
+                              : 'Describe the image you want'}
+                          {!referenceImage && (
+                            <span
+                              title="With nothing typed, a new image is designed from the post"
+                              className="text-muted text-[13px] font-normal"
+                            >
+                              {' '}
+                              · or leave empty
                             </span>
-                          </span>
-                        ) : (
-                          <span className="text-muted">
-                            No logo or brand colours yet.
+                          )}
+                        </label>
+                        {(imagePrompt || referenceImage) && (
+                          <button
+                            type="button"
+                            onClick={clearPromptAndReference}
+                            className="text-muted hover:text-foreground cursor-pointer text-xs font-medium"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        id="image-prompt"
+                        value={imagePrompt}
+                        onChange={e => setImagePrompt(e.target.value)}
+                        onPaste={handleReferencePaste}
+                        // Enter does what the main button does; Shift+Enter
+                        // starts a new line.
+                        onKeyDown={e => {
+                          if (
+                            e.key !== 'Enter' ||
+                            e.shiftKey ||
+                            e.nativeEvent.isComposing
+                          ) {
+                            return
+                          }
+                          e.preventDefault()
+                          if (isMediaLoading || mainButtonBlocked) return
+                          void (regenerateFromPost
+                            ? handleGenerateFromPost()
+                            : handleGenerateFromPrompt())
+                        }}
+                        rows={2}
+                        placeholder={
+                          referenceMediaId
+                            ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
+                            : referenceImage
+                              ? 'e.g. Keep this layout, but about faster order approvals'
+                              : 'e.g. A minimal isometric illustration of two paths splitting, lots of negative space'
+                        }
+                        aria-invalid={showPromptError}
+                        aria-describedby={
+                          showPromptError
+                            ? 'image-prompt-error image-prompt-hint'
+                            : 'image-prompt-hint'
+                        }
+                        // Grows with what is typed (and the placeholder), so a
+                        // narrow panel never cuts the example off.
+                        className="border-border bg-background text-foreground placeholder:text-muted focus:border-accent field-sizing-content max-h-48 min-h-16 w-full resize-y rounded-lg border px-3 py-2.5 text-sm outline-none aria-invalid:border-rose-500"
+                      />
+                      {showPromptError && (
+                        <p
+                          id="image-prompt-error"
+                          className="text-xs text-rose-600 dark:text-rose-400"
+                        >
+                          {promptError}
+                        </p>
+                      )}
+
+                      {referenceImage && (
+                        <div className="border-border bg-surface flex items-center gap-2.5 rounded-lg border p-2">
+                          <Image
+                            src={referenceImage}
+                            alt="Reference"
+                            width={40}
+                            height={40}
+                            className="border-border h-10 w-10 shrink-0 rounded border object-cover"
+                            unoptimized
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-foreground truncate text-xs font-medium">
+                              {referenceImageName}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={clearReferenceImage}
+                            title="Remove reference image"
+                            className="text-muted hover:text-foreground cursor-pointer p-1"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* The word count, and the ways to guide it with an image */}
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+                        <span
+                          id="image-prompt-hint"
+                          className={`font-mono tabular-nums ${
+                            countWords(imagePrompt) > IMAGE_PROMPT_MAX_WORDS
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-muted'
+                          }`}
+                        >
+                          {countWords(imagePrompt)}/{IMAGE_PROMPT_MAX_WORDS}{' '}
+                          words
+                        </span>
+                        {!referenceImage && (
+                          <span className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => referenceInputRef.current?.click()}
+                              title="Attach an image: the new one is made from it and your words, not the post"
+                              className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 font-medium"
+                            >
+                              <Paperclip className="h-3.5 w-3.5" />
+                              Attach reference
+                            </button>
+                            {activePost.media?.imageUrl && (
+                              <button
+                                type="button"
+                                onClick={useCurrentImageAsReference}
+                                title="Edit the current image instead of designing a new one"
+                                className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 font-medium"
+                              >
+                                <ImageIcon className="h-3.5 w-3.5" />
+                                Use current
+                              </button>
+                            )}
                           </span>
                         )}
-                        <Link
-                          href={BRAND_THEME_PATH}
-                          className="text-accent inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
+                      </div>
+
+                      <input
+                        ref={referenceInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]
+                          if (file) loadReferenceImage(file)
+                          // Reset so choosing the same file again still fires onChange.
+                          e.target.value = ''
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Generation from the post's own text, the typed words
+                        only as direction. With nothing typed, or a reference
+                        attached, the main button already does this. */}
+                  {!mediaBusyHere &&
+                    !guidedByReference &&
+                    !regenerateFromPost && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={isEditing || isMediaLoading}
+                          onClick={handleGenerateFromPost}
+                          title={
+                            isEditing
+                              ? 'Save your edits first so the image matches the post'
+                              : undefined
+                          }
+                          className="border-accent/40 text-accent hover:bg-accent/10 flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <Palette className="h-3 w-3" />
-                          Brand Theme
-                        </Link>
+                          <FileText className="h-4 w-4" />
+                          <span>Design from the post text instead</span>
+                        </button>
+                        <p className="text-muted text-[10px]">
+                          {isEditing
+                            ? 'Save your edits first so the image matches the post.'
+                            : null}
+                        </p>
                       </div>
                     )}
-                  </>
-                )}
+
+                  {/* Image type, background and website: set once and
+                        rarely changed, so folded away until asked for. */}
+                  {!mediaBusyHere && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedMedia(open => !open)}
+                      aria-expanded={showAdvancedMedia}
+                      className="border-border text-foreground/85 hover:text-foreground flex w-full cursor-pointer items-center justify-between gap-2 border-t pt-4 text-sm font-medium"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          Image options
+                          <span className="text-muted font-normal">
+                            {' '}
+                            · type, background, website
+                          </span>
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={`text-muted h-4 w-4 shrink-0 transition-transform ${showAdvancedMedia ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  )}
+                  {showAdvancedMedia && (
+                    <>
+                      {/* Optional image type for a design from the post; an
+                        edit of the current image keeps its own. */}
+                      {!mediaBusyHere && !referenceMediaId && (
+                        <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
+                          <div className="flex items-baseline justify-between">
+                            <span
+                              id="image-type-label"
+                              className="text-foreground text-[11px] font-semibold"
+                            >
+                              Image type
+                            </span>
+                            <span className="text-muted text-[10px]">
+                              Optional
+                            </span>
+                          </div>
+                          <div
+                            role="radiogroup"
+                            aria-labelledby="image-type-label"
+                            className="flex flex-wrap gap-1.5"
+                          >
+                            {IMAGE_TYPE_OPTIONS.map(option => {
+                              const active = imageType === option.value
+                              const Icon = option.icon
+                              return (
+                                <button
+                                  key={option.label}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={active}
+                                  title={option.description}
+                                  // A reference image sets the structure itself.
+                                  disabled={Boolean(referenceImage)}
+                                  onClick={() => setImageType(option.value)}
+                                  className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    active
+                                      ? 'border-accent bg-accent/10 text-foreground font-semibold'
+                                      : 'border-border bg-surface text-muted hover:text-foreground'
+                                  }`}
+                                >
+                                  <Icon
+                                    className={`h-3 w-3 ${active ? 'text-accent' : ''}`}
+                                  />
+                                  {option.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <p className="text-muted text-[10px]">
+                            {referenceImage
+                              ? null
+                              : imagePrompt.trim()
+                                ? 'Generate image follows your description below. The type is used by "Generate from post text".'
+                                : IMAGE_TYPE_OPTIONS.find(
+                                    o => o.value === imageType
+                                  )?.description}
+                          </p>
+
+                          <div className="border-border space-y-2 border-t pt-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                id="image-background-label"
+                                className="text-foreground text-[11px] font-semibold"
+                              >
+                                Background
+                              </span>
+                              <div
+                                role="radiogroup"
+                                aria-labelledby="image-background-label"
+                                className="flex flex-wrap justify-end gap-1.5"
+                              >
+                                {BACKGROUND_PATTERNS.map(pattern => {
+                                  const active = imagePattern === pattern.value
+                                  return (
+                                    <button
+                                      key={pattern.value}
+                                      type="button"
+                                      role="radio"
+                                      aria-checked={active}
+                                      // A reference image brings its own background.
+                                      disabled={Boolean(referenceImage)}
+                                      onClick={() =>
+                                        !active &&
+                                        handleSaveImageSettings({
+                                          pattern: pattern.value,
+                                          footer: savedFooter
+                                        })
+                                      }
+                                      className={`inline-flex h-6 cursor-pointer items-center rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                        active
+                                          ? 'border-accent bg-accent/10 text-foreground font-semibold'
+                                          : 'border-border bg-surface text-muted hover:text-foreground'
+                                      }`}
+                                    >
+                                      {pattern.label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <label
+                                htmlFor="image-footer"
+                                className="text-foreground shrink-0 text-[11px] font-semibold"
+                              >
+                                Website
+                              </label>
+                              <input
+                                id="image-footer"
+                                value={footerDraft}
+                                maxLength={FOOTER_MAX_LENGTH}
+                                placeholder={`e.g. ${brand.website || 'yourcompany.com'}`}
+                                onChange={e => setFooterDraft(e.target.value)}
+                                onBlur={() => {
+                                  const footer = footerDraft.trim()
+                                  setFooterDraft(footer)
+                                  if (footer !== savedFooter)
+                                    handleSaveImageSettings({
+                                      pattern: imagePattern,
+                                      footer
+                                    })
+                                }}
+                                onKeyDown={e =>
+                                  e.key === 'Enter' && e.currentTarget.blur()
+                                }
+                                className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-[11px] outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Every generated image gets these; set on the Brand Theme page */}
+                      {!mediaBusyHere && (
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          {brand.hasLogo || brand.colors.length > 0 ? (
+                            <span className="text-muted inline-flex min-w-0 items-center gap-1.5">
+                              {brand.colors.map((color, i) => (
+                                <span
+                                  key={`${i}-${color}`}
+                                  aria-hidden
+                                  className="border-border h-3 w-3 shrink-0 rounded-full border"
+                                  style={{ background: color }}
+                                />
+                              ))}
+                              <span className="truncate">
+                                {brand.hasLogo && brand.colors.length > 0
+                                  ? 'Your logo and brand colours go on every image.'
+                                  : brand.hasLogo
+                                    ? 'Your logo goes on every image.'
+                                    : 'Your brand colours go into every image.'}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted">
+                              No logo or brand colours yet.
+                            </span>
+                          )}
+                          <Link
+                            href={BRAND_THEME_PATH}
+                            className="text-accent inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
+                          >
+                            <Palette className="h-3 w-3" />
+                            Brand Theme
+                          </Link>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>

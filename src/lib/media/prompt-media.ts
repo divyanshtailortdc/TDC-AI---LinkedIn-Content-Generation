@@ -7,7 +7,6 @@ import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { FORMATS, formatOf } from '@/lib/formats'
-import { postFullText } from '@/lib/post-text'
 import { loadBrandRendering } from './brand-assets'
 import {
   loadImageDataUrl,
@@ -44,11 +43,12 @@ export interface PromptMediaRecord {
 }
 
 /**
- * Generates a visual from a user-authored prompt, or edits one of the post's
- * own images with it, and makes the result the post's active media. Either way
- * the brand colours are the default palette and the logo is laid over it.
- * (An uploaded reference image goes through createPostMedia instead: it
- * guides a new image designed from the post.)
+ * Generates a visual from what the reviewer gave (a prompt, an uploaded
+ * reference image, or both), or edits one of the post's own images with a
+ * prompt, and makes the result the post's active media. The post's text plays
+ * no part: only its platform, whose shape the image is made at. The brand
+ * colours are the default palette and the logo is laid over it. (An image
+ * designed from the post goes through createPostMedia.)
  *
  * The provider call runs before any database write, and the abort signal is
  * checked again right before saving, so a failed or stopped generation leaves the
@@ -58,22 +58,29 @@ export async function createPromptMediaForDraft(input: {
   draftId: string
   /** The identity the request is made as; the post must belong to it. */
   accountId: string
+  /** Optional with a reference image, which is then enough on its own. */
   prompt: string
   /**
    * "Use current image": one of this post's own images, edited as it was
    * generated, before the logo went on, so the logo is never redrawn.
    */
   referenceMediaId?: string
+  /**
+   * An image the reviewer uploaded (a validated data URL): the new image is
+   * made from it and the prompt alone. Ignored with referenceMediaId.
+   */
+  referenceImage?: string
   abortSignal?: AbortSignal
 }): Promise<PromptMediaOutcome> {
   // The same check every other post action makes: a post of someone else's
   // identity is reported as not found, so nothing is generated or billed for it.
+  // Only its format is read: it decides the image's shape.
   const draft = await db.query.postDraftsTable.findFirst({
     where: and(
       eq(postDraftsTable.id, input.draftId),
       eq(postDraftsTable.accountId, input.accountId)
     ),
-    columns: { id: true, hook: true, body: true, cta: true, formatId: true }
+    columns: { id: true, formatId: true }
   })
   if (!draft) return { status: 'draft_not_found' }
 
@@ -102,6 +109,12 @@ export async function createPromptMediaForDraft(input: {
     await loadBrandTheme(input.accountId)
   )
 
+  // An uploaded image guides a new one; with "Use current image" it is unused.
+  const referenceImage = editImage ? undefined : input.referenceImage
+  const summary = referenceImage
+    ? 'Image from reviewer reference image (post review)'
+    : 'Image from reviewer prompt (post review)'
+
   // Every image the provider billed is charged to the post's run, including
   // ones that fail, are discarded, or finish after the reviewer cancelled.
   let spent: CallUsage = EMPTY_USAGE
@@ -110,8 +123,10 @@ export async function createPromptMediaForDraft(input: {
     generated = await generateCustomImage({
       prompt: input.prompt,
       editImage,
+      referenceImage,
       brand,
-      postText: postFullText(draft),
+      // No postText: the image is checked against what the reviewer asked
+      // for, not the post.
       // The shape the post's platform shows (X 16:9, Instagram 4:5…).
       shape: FORMATS[formatOf(draft.formatId)].imageShape,
       allowedText,
@@ -122,14 +137,12 @@ export async function createPromptMediaForDraft(input: {
     })
   } catch (err) {
     await recordReviewMediaSpend(input.draftId, spent, {
-      summary: 'Image from reviewer prompt (post review)',
+      summary,
       error: err instanceof Error ? err.message : 'Image generation failed'
     })
     throw err
   }
-  await recordReviewMediaSpend(input.draftId, spent, {
-    summary: 'Image from reviewer prompt (post review)'
-  })
+  await recordReviewMediaSpend(input.draftId, spent, { summary })
 
   if (input.abortSignal?.aborted) return { status: 'aborted' }
 
@@ -190,6 +203,7 @@ export async function createPromptMediaForDraft(input: {
           mediaType: generated.mediaType,
           bytes: generated.bytes,
           referenceImageCount: generated.referenceImageCount,
+          ...(referenceImage ? { usedReference: true } : {}),
           seed: generated.seed,
           logo: generated.logo,
           // Shown with the image; the subject is the reviewer's own choice.
