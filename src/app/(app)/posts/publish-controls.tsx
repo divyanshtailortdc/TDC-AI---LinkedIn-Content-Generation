@@ -351,10 +351,6 @@ function PublishControlsInner({
       <>
         {/* Two rows: what happened, then when, the link to it and Delete. */}
         <span className="inline-flex flex-col items-start gap-0.5 text-[12px]">
-          <span className="inline-flex gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            Published on {name}
-          </span>
           {((mounted && publication.publishedAt) || links.length > 0) && (
             // Right-aligned under the first row.
             <span className="inline-flex items-center gap-1.5 self-end">

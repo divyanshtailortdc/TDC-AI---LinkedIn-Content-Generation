@@ -88,12 +88,12 @@ export function RegenerateControl({
         disabled={disabled || running}
         aria-expanded={open}
         aria-controls={panelId}
-        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium disabled:cursor-wait disabled:opacity-60"
+        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium disabled:cursor-wait disabled:opacity-60"
       >
         {running ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Wand2 className="h-3.5 w-3.5" />
+          <Wand2 className="h-4 w-4" />
         )}
         <span>{running ? 'Writing a new version…' : 'Regenerate'}</span>
       </button>

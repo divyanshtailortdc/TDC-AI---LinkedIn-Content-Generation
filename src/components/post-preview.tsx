@@ -16,6 +16,7 @@ import {
 import Image from 'next/image'
 import type { PlatformSpec } from '@/lib/platforms'
 import { formatHashtags, toPlatformText } from '@/lib/post-text'
+import { MEDIA_FRAME } from '@/components/variant-preview'
 
 /**
  * A post as it will look in its platform's feed: the author, the hook above the
@@ -86,6 +87,10 @@ export function PostPreview({
   const isHookLongerThanFold = cleanHook.length > foldCharLimit
   const visibleHookBeforeFold = cleanHook.slice(0, foldCharLimit)
   const hookOverflowAfterFold = cleanHook.slice(foldCharLimit)
+  // More than four lines of body (line-clamp-4) is folded until expanded.
+  const isBodyLong =
+    shownBody.length > 280 || shownBody.split('\n').length > 4
+  const isBodyFolded = isBodyLong && !showFullPost
 
   return (
     <div className="w-full  rounded-xl border border-[#e0e0e0] dark:border-border bg-white dark:bg-surface shadow-sm font-sans text-neutral-900 dark:text-neutral-100 overflow-hidden text-sm">
@@ -199,11 +204,12 @@ export function PostPreview({
           </div>
         )}
 
-        {/* Post Body & CTA */}
+        {/* Post Body & CTA: a long body is folded to a few lines, so the card
+            keeps a fixed length; "Expand full post" shows the rest. */}
         {(!isHookLongerThanFold || showFullPost) && (
           <div className="mt-3 space-y-3 text-neutral-800 dark:text-neutral-200">
-            <div>{shownBody}</div>
-            {shownCta && <div className="font-medium text-neutral-900 dark:text-neutral-100">{shownCta}</div>}
+            <div className={isBodyFolded ? 'line-clamp-4' : undefined}>{shownBody}</div>
+            {shownCta && !isBodyFolded && <div className="font-medium text-neutral-900 dark:text-neutral-100">{shownCta}</div>}
           </div>
         )}
 
@@ -222,7 +228,7 @@ export function PostPreview({
         )}
 
         {/* Toggle see more / collapse */}
-        {isHookLongerThanFold && (
+        {(isHookLongerThanFold || isBodyLong) && (
           <button
             type="button"
             onClick={() => setShowFullPost(!showFullPost)}
@@ -235,20 +241,30 @@ export function PostPreview({
 
       {/* Media Attachment Preview */}
       {mediaUrl && (
-        <div className="mt-2 border-y border-neutral-200 dark:border-border bg-neutral-100 dark:bg-surface-hover/60 relative">
+        // One fixed height for every image shape (MEDIA_FRAME, as the other
+        // platforms' previews), so the card keeps one length.
+        <div className={`mt-2 border-y border-neutral-200 dark:border-border bg-neutral-100 dark:bg-surface-hover/60 relative overflow-hidden ${MEDIA_FRAME}`}>
+          {/* The image's own colours, blurred, fill the sides of a narrower one. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={mediaUrl}
+            alt=""
+            aria-hidden
+            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl"
+          />
           {onMediaClick ? (
             <button
               type="button"
               onClick={onMediaClick}
               aria-label="Zoom image"
-              className="group block w-full cursor-zoom-in"
+              className="group relative block h-full w-full cursor-zoom-in"
             >
               <Image
                 src={mediaUrl}
                 alt={mediaAltText || 'Post illustration'}
                 width={1200}
                 height={630}
-                className="mx-auto h-auto max-h-[45vh] w-full object-contain"
+                className="mx-auto h-full w-full object-contain"
                 unoptimized
               />
               <span className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
@@ -262,7 +278,7 @@ export function PostPreview({
               alt={mediaAltText || 'Post illustration'}
               width={1200}
               height={630}
-              className="mx-auto h-auto max-h-[45vh] w-full object-contain"
+              className="relative mx-auto h-full w-full object-contain"
               unoptimized
             />
           )}

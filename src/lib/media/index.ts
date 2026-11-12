@@ -58,6 +58,7 @@ import {
   type CanvasVisual
 } from './canvas/spec'
 import { describeImageFailure, isAccountFailure } from './image-errors'
+import { buildReferencePrompt, shapeWords } from './reference-prompt'
 
 export { describeImageFailure }
 
@@ -1065,15 +1066,25 @@ export interface CustomImageRequest {
   prompt: string
   /**
    * "Use current image": one of the post's own images, as a data URL, before
-   * its logo went on. Its presence switches to edit mode. (A reference image
-   * the reviewer uploads goes through createMediaPlan instead.)
+   * its logo went on. Its presence switches to edit mode.
    */
   editImage?: string
+  /**
+   * An image the reviewer uploaded, as a data URL: a new image is made from
+   * it alone (its layout, composition and style), with the prompt as
+   * direction when there is one; the post plays no part. Ignored with
+   * editImage.
+   */
+  referenceImage?: string
   /** The brand colours as a default, and the logo laid over the result. */
   brand?: BrandRendering
-  /** The post the image goes with, for the lettering check. */
+  /** What the lettering check reads the image against; the prompt when unset. */
   postText?: string
-  /** The post's image shape: a new image is generated at SHAPE_SIZES[shape]. */
+  /**
+   * The post's platform shape (LinkedIn 1.91:1, X 16:9, Instagram and
+   * Facebook 4:5): every image, an edit included, is made at
+   * SHAPE_SIZES[shape], so it fits where it is posted.
+   */
   shape?: ImageShape
   /**
    * The only words the image should carry: what the reviewer put in quotes,
@@ -1125,18 +1136,6 @@ export interface CustomImageResult {
  * took a quoted instruction for text to render: "create the image based on the
  * post" became the image's headline, misspelt.
  */
-/** "a wide 1.91:1 landscape" for 2048x1072; the shapes the canvas draws at. */
-function shapeWords(size: { width: number; height: number }): string {
-  const ratio = size.width / size.height
-  return ratio > 1.85
-    ? 'a wide 1.91:1 landscape'
-    : ratio > 1.3
-      ? 'a wide 16:9 landscape'
-      : ratio > 0.9
-        ? 'a square 1:1'
-        : 'a tall 4:5 portrait'
-}
-
 function buildEditPrompt(
   instruction: string,
   target: { width: number; height: number }
@@ -1158,12 +1157,16 @@ function buildEditPrompt(
 }
 
 /**
- * Two workflows over one entry point:
+ * Three workflows over one entry point:
  *
  * - generate: a prompt alone produces a new HD image, with the brand colours
  *   as its default palette.
+ * - generate from a reference: an uploaded image, and the prompt if any, make
+ *   a new image in its layout and style (see buildReferencePrompt).
  * - edit: a prompt plus the post's own image modifies that image in place,
  *   preserving the original design (see buildEditPrompt).
+ *
+ * Each is made at the post's platform shape. None of them uses the post.
  *
  * Unlike createMediaPlan this skips the brief and the review — the user stated
  * what they want, so the prompt is honoured as written. It never falls back to
@@ -1174,18 +1177,24 @@ export async function generateCustomImage(
   req: CustomImageRequest
 ): Promise<CustomImageResult> {
   const prompt = (req.prompt || '').trim()
-  if (!prompt) {
+  const edit = req.editImage?.trim() || ''
+  // An uploaded image to build a new one on; an edit takes precedence.
+  const guide = edit ? '' : req.referenceImage?.trim() || ''
+  if (!prompt && !guide) {
     throw new Error('Describe the image you want before generating.')
   }
+  // What the image is of, for its alt text and the lettering check.
+  const description = prompt || 'A new image based on the reviewer’s reference image.'
 
-  const references = req.editImage?.trim() ? [req.editImage] : []
-  const workflow: 'generate' | 'edit' =
-    references.length > 0 ? 'edit' : 'generate'
+  const references = edit ? [edit] : guide ? [guide] : []
+  const workflow: 'generate' | 'edit' = edit ? 'edit' : 'generate'
   const seed = req.seed ?? randomSeed()
-  // An edit keeps its image's shape: one built on a reference may be square
-  // or tall. A new image, or one of an unknown size, takes the post's shape.
+  // Every image takes its post's platform shape, an edit included (the edit
+  // prompt reframes an image of another shape), so an Instagram post never
+  // gets a LinkedIn-shaped image. Only without a shape does an edit keep its
+  // image's own size, when it is one the models hold.
   const editImage =
-    workflow === 'edit' ? decodeImageDataUrl(references[0]!) : null
+    workflow === 'edit' && !req.shape ? decodeImageDataUrl(references[0]!) : null
   const editSize = editImage ? readImageDimensions(editImage.buffer) : null
   const target =
     editSize &&
@@ -1196,10 +1205,14 @@ export async function generateCustomImage(
       : SHAPE_SIZES[req.shape ?? '1.91:1']
 
   let finalPrompt =
-    workflow === 'edit' ? buildEditPrompt(prompt, target) : prompt
+    workflow === 'edit'
+      ? buildEditPrompt(prompt, target)
+      : guide
+        ? buildReferencePrompt(prompt, target)
+        : prompt
   if (workflow === 'generate' && req.brand) {
     const logoPlan = await planLogo(req.brand, target)
-    finalPrompt = `${prompt}\n\n${imagePromptSuffix({
+    finalPrompt = `${finalPrompt}\n\n${imagePromptSuffix({
       theme: req.brand.theme,
       clearSpace: logoPlan?.clearSpace,
       userPrompt: true
@@ -1210,7 +1223,7 @@ export async function generateCustomImage(
   try {
     rendered = await renderImage({
       prompt: finalPrompt,
-      references: workflow === 'edit' ? references : undefined,
+      references: references.length > 0 ? references : undefined,
       target,
       seed,
       abortSignal: req.abortSignal,
@@ -1222,7 +1235,9 @@ export async function generateCustomImage(
     throw new Error(
       workflow === 'edit'
         ? `Could not edit the reference image. ${reason}`
-        : `Could not generate an image from your prompt. ${reason}`
+        : guide
+          ? `Could not generate an image from your reference image. ${reason}`
+          : `Could not generate an image from your prompt. ${reason}`
     )
   }
 
@@ -1237,8 +1252,8 @@ export async function generateCustomImage(
   const review = await reviewImage({
     image: await downscaleForReview(branded.buffer),
     mediaType: 'image/jpeg',
-    postText: req.postText || prompt,
-    concept: prompt,
+    postText: req.postText || description,
+    concept: description,
     headline: allowedText,
     logoCorner: branded.logo
       ? cornerWords(LOGO_PLACEMENT).replace('-', ' ')
@@ -1256,8 +1271,8 @@ export async function generateCustomImage(
   return {
     image: { buffer: branded.buffer, mediaType: branded.mediaType },
     baseImage: 'base' in branded ? branded.base : undefined,
-    altText: prompt.slice(0, 300),
-    promptOrQuery: prompt,
+    altText: description.slice(0, 300),
+    promptOrQuery: description,
     workflow,
     modelId: rendered.modelId,
     width: rendered.width,

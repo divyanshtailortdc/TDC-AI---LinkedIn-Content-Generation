@@ -89,11 +89,15 @@ export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
             </div>
           ) : (
             // The post's preview beside its image.
-            <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-12">
-              <div className="@4xl:col-span-7">
-                <Card lines={8} />
+            <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 @3xl:grid-cols-[minmax(0,1fr)_clamp(18rem,32%,32rem)] @6xl:gap-x-8">
+              <div className="min-w-0 space-y-3">
+                <Bar className="h-8 w-64 max-w-full" />
+                <div className="mx-auto w-full max-w-4xl">
+                  <Card lines={8} />
+                </div>
               </div>
-              <div className="@4xl:col-span-5">
+              <div className="min-w-0 space-y-3">
+                <Bar className="h-8 w-24" />
                 <Card lines={4} />
               </div>
             </div>

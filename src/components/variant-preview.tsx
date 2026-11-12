@@ -16,6 +16,7 @@ import {
   Heart,
   ImageOff,
   MessageCircle,
+  MoreHorizontal,
   Repeat2,
   Send,
   ThumbsUp,
@@ -55,16 +56,25 @@ function Avatar({ initials, round = true }: { initials: string; round?: boolean 
   )
 }
 
+/**
+ * The height every preview image is shown at, whatever its shape (LinkedIn's
+ * preview uses the same), so a post's card has a fixed length.
+ */
+export const MEDIA_FRAME = 'h-[min(30rem,45vh)]'
+
 function Media({
   url,
   alt,
   onClick,
-  square
+  square,
+  flush
 }: {
   url?: string | null
   alt?: string | null
   onClick?: () => void
   square?: boolean
+  /** Edge to edge across the card, as Instagram and Facebook show it. */
+  flush?: boolean
 }) {
   if (!url) return null
   return (
@@ -72,16 +82,26 @@ function Media({
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className={`group relative block w-full overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-border dark:bg-surface-hover/60 ${onClick ? 'cursor-zoom-in' : 'cursor-default'}`}
+      // One fixed height for every image shape, so the card keeps one length.
+      className={`group relative block ${MEDIA_FRAME} w-full overflow-hidden bg-neutral-100 dark:bg-surface-hover/60 ${flush ? '' : 'rounded-xl border border-neutral-200 dark:border-border'} ${onClick ? 'cursor-zoom-in' : 'cursor-default'}`}
     >
+      {/* The image's own colours, blurred, fill the sides of a narrower one. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt=""
+        aria-hidden
+        className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl"
+      />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}
         alt={alt || 'Post image'}
-        className={`w-full max-h-[45vh] ${square ? 'aspect-square object-cover' : 'h-auto object-contain'}`}
+        // Shown whole, at the frame's height (a 4:5 image narrower than it).
+        className={`relative h-full w-full ${square ? 'object-cover' : 'object-contain'}`}
       />
       {onClick && (
-        <ZoomIn className="absolute right-2 bottom-2 h-5 w-5 rounded-full bg-black/50 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100" />
+        <ZoomIn className="absolute right-3 bottom-3 h-7 w-7 rounded-full bg-black/55 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100" />
       )}
     </button>
   )
@@ -282,33 +302,37 @@ export function VariantPreview(props: VariantPreviewProps) {
     const visualIdea =
       typeof props.payload?.visualIdea === 'string' ? props.payload.visualIdea : null
     return (
-      <div className={`${shell} max-w-[470px]`}>
-        <div className="flex items-center gap-2.5 p-3">
+      <div className={shell}>
+        <div className="flex items-center gap-3 p-4">
           <Avatar initials={props.authorInitials} />
-          <span className="truncate text-sm font-semibold">{props.authorName}</span>
+          <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{props.authorName}</span>
+          <MoreHorizontal className="h-5 w-5 shrink-0 text-neutral-400" />
         </div>
         {props.mediaUrl ? (
           // Its own shape, as the feed shows it (4:5 portrait), not cropped square.
-          <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} />
+          <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} flush />
         ) : (
-          <div className="flex aspect-[4/5] max-h-[45vh] w-full flex-col items-center justify-center gap-2 bg-neutral-100 p-6 text-center text-xs text-neutral-500 dark:bg-surface-hover dark:text-neutral-400">
+          <div className={`flex ${MEDIA_FRAME} w-full flex-col items-center justify-center gap-2 bg-neutral-100 p-6 text-center text-xs text-neutral-500 dark:bg-surface-hover dark:text-neutral-400`}>
             <ImageOff className="h-6 w-6" />
             <span className="font-semibold">Instagram needs an image</span>
             {visualIdea && <span className="max-w-xs leading-snug">Suggested: {visualIdea}</span>}
           </div>
         )}
-        <div className="flex gap-4 px-3 pt-3 text-neutral-800 dark:text-neutral-200">
-          <Heart className="h-5 w-5" />
-          <MessageCircle className="h-5 w-5" />
-          <Send className="h-5 w-5" />
-          <Bookmark className="ml-auto h-5 w-5" />
+        <div className="flex gap-5 px-5 pt-3.5 text-neutral-800 dark:text-neutral-200">
+          <Heart className="h-6 w-6" />
+          <MessageCircle className="h-6 w-6" />
+          <Send className="h-6 w-6" />
+          <Bookmark className="ml-auto h-6 w-6" />
         </div>
-        <div className="px-3 pt-2 pb-4 text-sm leading-snug wrap-break-word">
+        <div className="px-5 pt-3 pb-5 text-[15px] leading-relaxed wrap-break-word">
           <span className="mr-1.5 font-semibold">{props.authorName}</span>
           <Folded text={caption} fold={spec.limits.foldChars} />
-          {tags && <p className="mt-2 text-[#00376b] dark:text-sky-300">{tags}</p>}
+          {tags && <p className="mt-3 text-[#00376b] dark:text-blue-400">{tags}</p>}
           {visualIdea && props.mediaUrl && (
-            <p className="mt-3 text-[11px] text-neutral-500">Visual idea: {visualIdea}</p>
+            <p className="mt-4 rounded-xl border border-neutral-200 p-4 text-sm leading-relaxed text-neutral-500 dark:border-border dark:text-neutral-400">
+              <span className="font-medium text-neutral-900 dark:text-neutral-100">Visual idea:</span>{' '}
+              {visualIdea}
+            </p>
           )}
         </div>
       </div>
@@ -330,7 +354,7 @@ export function VariantPreview(props: VariantPreviewProps) {
         <Folded text={text} fold={spec.limits.foldChars} />
         {tags && <p className="mt-2 text-[#1877f2]">{tags}</p>}
       </div>
-      <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} />
+      <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} flush />
       <div className="flex justify-around border-t border-neutral-100 py-2 text-xs font-semibold text-neutral-500 dark:border-border">
         <span className="inline-flex items-center gap-1.5"><ThumbsUp className="h-4 w-4" /> Like</span>
         <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-4 w-4" /> Comment</span>

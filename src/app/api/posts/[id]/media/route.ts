@@ -18,13 +18,16 @@ import { z } from 'zod'
  * Image generation for a post draft from the reviewer's own input:
  *
  * - fromPost (prompt optional, as direction): a new image designed from the
- *   post's own text, in the image type the reviewer picked, if any;
- * - a reference image (prompt optional): a new image designed from the post,
- *   built on the reference's structure, in the brand's colours;
+ *   post's own text, in the image type the reviewer picked, if any. The page
+ *   sends this when nothing is typed and no reference is attached;
+ * - a reference image (prompt optional): a new image made from the reference
+ *   and the prompt alone, in its layout and style and the brand's colours;
  * - referenceMediaId ("Use current image") and a prompt: that image edited;
  * - a prompt alone: an image of exactly that, in the brand's colours.
  *
- * Every one gets the brand logo. A route handler rather than a server action
+ * Only fromPost uses the post's text. Every one is made at the post's
+ * platform shape (LinkedIn 1.91:1, X 16:9, Instagram and Facebook 4:5) and
+ * gets the brand logo. A route handler rather than a server action
  * because generation must be stoppable: when the browser aborts its fetch,
  * `request.signal` fires and the provider calls are cancelled before anything
  * is saved. Server actions expose no such signal.
@@ -167,27 +170,11 @@ export async function POST(
     }
   }
 
+  // An uploaded reference is only checked here: the image model is given it
+  // as sent, with the prompt, and never the post.
   if (upload) {
     const reference = decodeReference(upload)
     if ('error' in reference) return fail(400, reference.error)
-    try {
-      const outcome = await createPostMedia({
-        draftId: id,
-        accountId,
-        mode: 'ai_generated',
-        customPrompt: prompt || undefined,
-        referenceImage: reference.bytes,
-        abortSignal: request.signal
-      })
-      if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
-      if (outcome.status === 'aborted') return fail(499, 'Image generation was stopped.')
-      if (outcome.status === 'failed') return fail(502, outcome.error)
-      return Response.json({ success: true, media: outcome.media })
-    } catch (err: any) {
-      if (request.signal.aborted) return fail(499, 'Image generation was stopped.')
-      console.error('Error generating post media from a reference image:', err)
-      return fail(502, err?.message || 'Failed to generate image.')
-    }
   }
 
   try {
@@ -196,6 +183,7 @@ export async function POST(
       accountId,
       prompt,
       referenceMediaId,
+      referenceImage: upload,
       abortSignal: request.signal
     })
 
@@ -211,7 +199,12 @@ export async function POST(
     if (err instanceof ImageGenerationAbortedError || request.signal.aborted) {
       return fail(499, 'Image generation was stopped.')
     }
-    console.error('Error generating post media from prompt:', err)
+    console.error(
+      upload
+        ? 'Error generating post media from a reference image:'
+        : 'Error generating post media from prompt:',
+      err
+    )
     return fail(502, err?.message || 'Failed to generate image.')
   }
 }
