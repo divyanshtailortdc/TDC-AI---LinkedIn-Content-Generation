@@ -2,8 +2,6 @@ import { PostsClient } from './posts-client'
 import { countPosts, loadPostsPage } from './posts-data'
 import { getIdentity, toIdentitySummary } from '@/lib/identity'
 import { NoIdentity } from '@/components/no-identity'
-import { loadBrandTheme } from '~/lib/ai/context'
-import { brandColors, displayWebsite } from '~/lib/brand/theme'
 import { z } from 'zod'
 import { loadChannels } from '@/lib/channels'
 
@@ -17,7 +15,7 @@ export default async function PostsPage({
   const identity = await getIdentity()
 
   if (!identity) {
-    return <NoIdentity title="Post Review & Approval" />
+    return <NoIdentity title="Posts" />
   }
 
   // Opened from a run (?runId=): that run's posts are loaded along with the
@@ -27,10 +25,9 @@ export default async function PostsPage({
     ? (rawRunId as string)
     : null
 
-  const [{ posts, nextCursor }, total, brand, channels] = await Promise.all([
+  const [{ posts, nextCursor }, total, channels] = await Promise.all([
     loadPostsPage(identity.id, { runId }),
     countPosts(identity.id),
-    loadBrandTheme(identity.id),
     loadChannels(identity.id)
   ])
 
@@ -45,13 +42,6 @@ export default async function PostsPage({
       totalCount={total}
       identity={toIdentitySummary(identity)}
       enabledFormats={channels.enabledFormats}
-      brand={{
-        hasLogo: brand.hasLogo,
-        colors: brandColors(brand).map(c => c.hex),
-        pattern: brand.backgroundPattern,
-        footerText: brand.footerText,
-        website: displayWebsite(identity.websiteUrl)
-      }}
     />
   )
 }

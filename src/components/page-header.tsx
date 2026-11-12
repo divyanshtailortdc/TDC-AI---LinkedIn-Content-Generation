@@ -13,6 +13,11 @@ export interface PageHeaderProps {
    * bar itself is the same height on every page.
    */
   bottomContent?: React.ReactNode
+  /**
+   * Many actions: they move to a row of their own whenever they do not fit
+   * beside the title, which keeps room to stay readable (AppHeaderBar's `wrap`).
+   */
+  wrapActions?: boolean
 }
 
 /** A route's title bar: the shared header, with the page's own actions. */
@@ -22,12 +27,17 @@ export function PageHeader({
   description,
   preTitle,
   actions,
-  bottomContent
+  bottomContent,
+  wrapActions = false
 }: PageHeaderProps) {
   return (
     <div className="z-10 w-full flex-none">
-      <AppHeaderBar actions={actions}>
-        <div className="min-w-0 flex-1">
+      <AppHeaderBar actions={actions} wrap={wrapActions}>
+        <div
+          className={
+            wrapActions ? 'min-w-0 flex-[1_1_14rem]' : 'min-w-0 flex-1'
+          }
+        >
           <div className="flex min-w-0 items-center gap-3">
             {preTitle && <div className="shrink-0">{preTitle}</div>}
             {typeof title === 'string' ? (

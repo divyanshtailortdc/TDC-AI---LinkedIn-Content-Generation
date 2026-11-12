@@ -43,8 +43,8 @@ export default async function AppLayout({
         .innerJoin(accountsTable, eq(accountsTable.id, ideasTable.accountId))
         .where(and(ownedByUser(user.id), eq(ideasTable.status, 'proposed'))),
       cookies(),
-      // For the header's publishing button; never a token (and shared with
-      // Settings → Integrations). Skipped when publishing is not set up, so the
+      // For a post's Publish controls (usePlatformPublishing); never a token
+      // (and shared with Settings → Integrations). Skipped when publishing is not set up, so the
       // app does not depend on its tables.
       configuredPlatforms.length > 0 ? getCurrentConnections(user.id) : []
     ])
@@ -67,7 +67,7 @@ export default async function AppLayout({
           })
         }}
       >
-        <div className="flex h-full min-h-screen">
+        <div className="flex h-dvh">
           <Sidebar
             hasIdentity={Boolean(identity)}
             ideasToReview={pending}

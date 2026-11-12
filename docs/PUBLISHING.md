@@ -26,7 +26,7 @@ Two layers keep the app independent of any one platform:
 **Adding a platform** (Instagram, Facebook, …):
 
 1. Add its id to `PLATFORM_IDS` and its spec to `PLATFORMS` in `src/lib/platforms/index.ts`, and its mark to `src/components/platform-mark.tsx`. Posts can then be written, previewed, checked and copied for it.
-2. To publish through its API as well, add a provider folder beside `src/lib/publishing/linkedin/` that exports a `PublishingProvider`, add it to `PROVIDERS` in `src/lib/publishing/provider.ts` and its id to `src/lib/publishing/platform.ts`, and add its config to `src/env.ts` and `src/lib/publishing/config.ts`. Settings → Integrations, the header, Posts and the worker pick it up from there.
+2. To publish through its API as well, add a provider folder beside `src/lib/publishing/linkedin/` that exports a `PublishingProvider`, add it to `PROVIDERS` in `src/lib/publishing/provider.ts` and its id to `src/lib/publishing/platform.ts`, and add its config to `src/env.ts` and `src/lib/publishing/config.ts`. Settings → Integrations, a post's Publish controls on Posts (which offer Connect when it is not connected) and the worker pick it up from there.
 
 ## Sign-in and publishing are separate
 
@@ -117,7 +117,7 @@ A published post also gets `post_drafts.posted_at` (and a planned day if it had 
 
 - **Delete from LinkedIn** (beside "View post", while connected): asks for confirmation, then sends `DELETE /rest/posts/{urn}` with the same connection. Only the member the post went out as can delete it; after a reconnect as another member it is refused before calling LinkedIn. A 404 or 410 counts as already deleted. The publication sets `deleted_at` but stays `published`, so the one-live-publication index still keeps the post from going out again, and the post stays in the app as Posted.
 - **Delete** on Posts deletes the post from the app for good. Its scheduled publication is cancelled, and the delete is refused while it is being published. For a published post the dialog can also delete it from LinkedIn first; if that fails, nothing is deleted. Its publications are not deleted: `linkedin_publications.draft_id` is `ON DELETE SET NULL`, so they stay as the record of what was published and where.
-- **Hide** on Posts (`post_drafts.hidden_at`) only takes the post out of the review queue, under the Hidden filter. A scheduled publication still goes out.
+- **Hide** on Posts (`post_drafts.hidden_at`) only takes the post out of the Posts list (Filters → Hidden posts shows it). A scheduled publication still goes out.
 
 ## Duplicates, retries and failures
 

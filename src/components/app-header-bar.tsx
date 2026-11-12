@@ -1,4 +1,3 @@
-import { PublishingHeaderButton } from '@/components/publishing-header-button'
 import { MobileNavButton } from '@/components/mobile-nav'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { ReactNode } from 'react'
@@ -17,13 +16,15 @@ import type { ReactNode } from 'react'
 export function AppHeaderBar({
   children,
   actions,
-  wide = false
+  wide = false,
+  wrap = false
 }: {
   children: ReactNode
   /**
-   * The page's own buttons. They sit to the left of the publishing and theme
-   * buttons, which the bar always draws itself as the last items at the right
-   * end, so they are in the same place on every route.
+   * The page's own buttons. They sit to the left of the theme button, which
+   * the bar always draws itself as the last item at the right end, so it is
+   * in the same place on every route. Publishing connections are managed in
+   * Settings → Integrations, and a post's Publish controls offer to connect.
    */
   actions?: ReactNode
   /**
@@ -31,21 +32,29 @@ export function AppHeaderBar({
    * with the buttons. Without it, one row is enough from 42rem.
    */
   wide?: boolean
+  /**
+   * Never one fixed row: the actions move to a row of their own whenever they
+   * do not fit beside the title, instead of squeezing it (a post's publish
+   * controls).
+   */
+  wrap?: boolean
 }) {
   return (
     <header className="border-border bg-surface @container w-full border-b px-4 py-3 shadow-xs sm:px-6 sm:py-5">
       <div
         className={`flex w-full flex-wrap items-center gap-x-6 gap-y-3 sm:min-h-[4.2rem] ${
-          wide
-            ? '@min-[56rem]:h-[4.2rem] @min-[56rem]:flex-nowrap'
-            : '@2xl:h-[4.2rem] @2xl:flex-nowrap'
+          wrap
+            ? ''
+            : wide
+              ? '@min-[56rem]:h-[4.2rem] @min-[56rem]:flex-nowrap'
+              : '@2xl:h-[4.2rem] @2xl:flex-nowrap'
         }`}
       >
         <MobileNavButton />
         {children}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        {/* Never wider than the bar: on a narrow one, the buttons wrap. */}
+        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
           {actions}
-          <PublishingHeaderButton />
           <ThemeToggle />
         </div>
       </div>

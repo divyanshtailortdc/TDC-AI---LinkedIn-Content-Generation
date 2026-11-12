@@ -12,6 +12,7 @@ import {
   type RunPickerData
 } from '@/components/generate-run-dialog'
 import { PageHeader } from '@/components/page-header'
+import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import { triggerNewRun } from '@/app/(app)/runs/actions'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
@@ -25,6 +26,7 @@ import {
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
 import type { StyleMix } from '@/lib/formats/styles'
 import { cn } from '@/lib/cn'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
   Check,
   CheckSquare,
@@ -326,6 +328,23 @@ export function GoalsClient({
       : 'first_comment') as GoalPayload['linkStrategy'],
     isActive: g.isActive
   }))
+
+  // The goals, newest first, a page at a time. A new goal lands at the top,
+  // so the list goes back to its first page to show it. A page emptied by a
+  // deletion shows the last page.
+  const [goalPage, setGoalPage] = useState(1)
+  const newestGoalId = initialGoals[0]?.id
+  const [shownNewestGoalId, setShownNewestGoalId] = useState(newestGoalId)
+  if (newestGoalId !== shownNewestGoalId) {
+    setShownNewestGoalId(newestGoalId)
+    setGoalPage(1)
+  }
+  const { rows: pageGoals, pageInfo: goalPageInfo } = paginate(
+    parsedGoals,
+    goalPage,
+    PAGE_SIZE
+  )
+  const goalListRef = useRef<HTMLDivElement>(null)
 
   const handleEdit = (goal: (typeof parsedGoals)[number]) => {
     setTitle(goal.displayTitle)
@@ -716,7 +735,7 @@ export function GoalsClient({
 
           {/* Goals List — hidden while editing */}
           {!isEditing && (
-            <div className="space-y-4">
+            <div ref={goalListRef} className="scroll-mt-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
                 <div className="flex items-center gap-3">
                   <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
@@ -780,8 +799,8 @@ export function GoalsClient({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4 pb-16">
-                  {parsedGoals.map(g => {
+                <div className="space-y-4 pb-20">
+                  {pageGoals.map(g => {
                     const isSelected = selectedGoalIds.includes(g.id)
                     return (
                       <div
@@ -950,6 +969,12 @@ export function GoalsClient({
                       </div>
                     )
                   })}
+                  <Pagination
+                    {...goalPageInfo}
+                    noun="goals"
+                    onPageChange={setGoalPage}
+                    scrollTarget={goalListRef}
+                  />
                 </div>
               )}
             </div>

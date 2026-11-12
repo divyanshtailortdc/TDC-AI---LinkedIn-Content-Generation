@@ -72,13 +72,13 @@ function Media({
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className={`group relative block w-full overflow-hidden rounded-xl border border-neutral-200 dark:border-border ${onClick ? 'cursor-zoom-in' : 'cursor-default'}`}
+      className={`group relative block w-full overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-border dark:bg-surface-hover/60 ${onClick ? 'cursor-zoom-in' : 'cursor-default'}`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}
         alt={alt || 'Post image'}
-        className={`w-full ${square ? 'aspect-square object-cover' : 'h-auto'}`}
+        className={`w-full max-h-[45vh] ${square ? 'aspect-square object-cover' : 'h-auto object-contain'}`}
       />
       {onClick && (
         <ZoomIn className="absolute right-2 bottom-2 h-5 w-5 rounded-full bg-black/50 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100" />
@@ -291,7 +291,7 @@ export function VariantPreview(props: VariantPreviewProps) {
           // Its own shape, as the feed shows it (4:5 portrait), not cropped square.
           <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} />
         ) : (
-          <div className="flex aspect-[4/5] w-full flex-col items-center justify-center gap-2 bg-neutral-100 p-6 text-center text-xs text-neutral-500 dark:bg-surface-hover dark:text-neutral-400">
+          <div className="flex aspect-[4/5] max-h-[45vh] w-full flex-col items-center justify-center gap-2 bg-neutral-100 p-6 text-center text-xs text-neutral-500 dark:bg-surface-hover dark:text-neutral-400">
             <ImageOff className="h-6 w-6" />
             <span className="font-semibold">Instagram needs an image</span>
             {visualIdea && <span className="max-w-xs leading-snug">Suggested: {visualIdea}</span>}

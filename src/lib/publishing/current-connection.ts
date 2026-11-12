@@ -26,8 +26,8 @@ const SUMMARY_COLUMNS = {
 /**
  * The user's publishing connections as the browser may see them, one per
  * platform they ever connected. Read once per request: the app layout (for
- * the header) and Settings → Integrations both ask while rendering the same
- * page.
+ * a post's Publish controls) and Settings → Integrations both ask while
+ * rendering the same page.
  */
 export const getCurrentConnections = cache(
   async (userId: string): Promise<ConnectionSummary[]> => {

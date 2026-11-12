@@ -18,7 +18,7 @@ import {
   type ReactNode
 } from 'react'
 
-/** The signed-in user's connection to one platform, as the header shows it. */
+/** The signed-in user's connection to one platform, as Publish controls use it. */
 export type PlatformPublishingStatus = {
   platform: PlatformSpec
   /** The consent screen (OAuth), or a key pasted in Settings (through Buffer). */
@@ -34,7 +34,7 @@ export type PublishingHeaderStatus = {
 
 const PublishingStatusContext = createContext<PublishingHeaderStatus | null>(null)
 
-/** Set once by the app layout, so every page's header can show it. */
+/** Set once by the app layout, so a post's Publish controls can read it. */
 export function PublishingStatusProvider({
   value,
   children

@@ -148,11 +148,15 @@ export async function getRunDetails(runId: string, accountId?: string) {
       where: eq(runStepsTable.runId, runId),
       orderBy: [desc(runStepsTable.createdAt)]
     }),
+    // A stable order: the run page shows them a page at a time, and a reload
+    // must not move them between pages.
     db.query.researchFindingsTable.findMany({
-      where: eq(researchFindingsTable.runId, runId)
+      where: eq(researchFindingsTable.runId, runId),
+      orderBy: [asc(researchFindingsTable.createdAt), asc(researchFindingsTable.id)]
     }),
     db.query.ideasTable.findMany({
-      where: eq(ideasTable.runId, runId)
+      where: eq(ideasTable.runId, runId),
+      orderBy: [asc(ideasTable.createdAt), asc(ideasTable.id)]
     }),
     accountId ? goalsOf(accountId) : Promise.resolve(null)
   ])

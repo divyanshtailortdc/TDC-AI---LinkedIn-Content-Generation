@@ -223,7 +223,7 @@ export function AddVersionMenu({
         <div
           id={panelId}
           role="menu"
-          className="border-border bg-surface absolute top-full left-0 z-40 mt-1.5 w-72 rounded-xl border p-1.5 shadow-lg"
+          className="border-border bg-surface absolute top-full left-0 z-40 mt-1.5 max-h-[min(30rem,calc(100dvh-14rem))] w-72 overflow-y-auto rounded-xl border p-1.5 shadow-lg"
         >
           <p className="text-muted px-2 pt-1 pb-2 text-[11px] leading-snug">
             Write this idea for another platform, from the same evidence. It

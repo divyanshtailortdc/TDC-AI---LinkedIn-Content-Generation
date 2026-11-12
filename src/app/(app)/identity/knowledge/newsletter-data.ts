@@ -7,13 +7,12 @@ import {
   mailMessagesTable
 } from '@/db/schema'
 import { MAX_NEWSLETTER_QUERY_LENGTH } from '@/lib/knowledge-path'
-import { loadPage } from '@/lib/pagination'
+import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { and, asc, count, desc, eq, or, sql } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '~/lib/ai/context-blocks'
 import type { ArticleStatus, StoryUse } from '~/lib/intel/status'
 import { inboxSearchQuery } from '~/lib/mail/search'
 
-const PAGE_SIZE = 20
 /** Claims shown under an article; the rest stay in the article. */
 const SHOWN_CLAIMS = 3
 

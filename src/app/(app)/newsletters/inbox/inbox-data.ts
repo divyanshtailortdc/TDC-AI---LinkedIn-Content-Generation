@@ -9,7 +9,7 @@ import {
   type MailAttachmentMeta
 } from '@/db/schema'
 import { MAX_INBOX_QUERY_LENGTH } from '@/lib/inbox-path'
-import { loadPage } from '@/lib/pagination'
+import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm'
 import type {
   ArticleStatus,
@@ -17,9 +17,6 @@ import type {
   ExtractionStatus
 } from '~/lib/intel/status'
 import { inboxSearchQuery } from '~/lib/mail/search'
-
-/** Emails are one-line rows, so a page holds more of them than other lists. */
-const INBOX_PAGE_SIZE = 20
 
 export type InboxListItem = {
   id: string
@@ -72,7 +69,7 @@ export function loadInboxPage(
   )
   return loadPage<InboxListItem>({
     page,
-    pageSize: INBOX_PAGE_SIZE,
+    pageSize: PAGE_SIZE,
     count: async () => {
       const [row] = await db.select({ n: count() }).from(messages).where(where)
       return row?.n ?? 0

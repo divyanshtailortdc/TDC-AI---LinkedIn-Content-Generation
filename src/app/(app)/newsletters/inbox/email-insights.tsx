@@ -2,10 +2,18 @@
 
 import { Button } from '@/components/button'
 import { FormAlert } from '@/components/form-alert'
+import { Pagination } from '@/components/pagination'
 import { formatAbsoluteDate } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { ChevronDown, ExternalLink, Loader2, Sparkles } from 'lucide-react'
-import { useCallback, useEffect, useState, useTransition } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition
+} from 'react'
 import type { DigestKind } from '~/lib/intel/status'
 import {
   getInboxInsights,
@@ -61,6 +69,9 @@ export function EmailInsights({ messageId }: { messageId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [retrying, startRetry] = useTransition()
   const [changingSender, startSenderChange] = useTransition()
+  // The email's stories, a page at a time (an email can carry 25).
+  const [storyPage, setStoryPage] = useState(1)
+  const storyListRef = useRef<HTMLOListElement>(null)
 
   const show = useCallback(
     (res: Awaited<ReturnType<typeof getInboxInsights>> | null) => {
@@ -121,6 +132,11 @@ export function EmailInsights({ messageId }: { messageId: string }) {
   }
 
   const { status, kind, summary, topics, stories, newerVersion } = insights
+  const { rows: pageStories, pageInfo: storyPageInfo } = paginate(
+    stories,
+    storyPage,
+    PAGE_SIZE
+  )
   return (
     <details
       open
@@ -209,16 +225,28 @@ export function EmailInsights({ messageId }: { messageId: string }) {
                 </p>
               )
             ) : (
-              <ol className="space-y-3">
-                {stories.map((story, i) => (
-                  <Story
-                    key={story.id}
-                    story={story}
-                    number={i + 1}
-                    hasMounted={hasMounted}
-                  />
-                ))}
-              </ol>
+              <>
+                <ol ref={storyListRef} className="space-y-3">
+                  {pageStories.map((story, i) => (
+                    <Story
+                      key={story.id}
+                      story={story}
+                      number={
+                        (storyPageInfo.page - 1) * storyPageInfo.pageSize +
+                        i +
+                        1
+                      }
+                      hasMounted={hasMounted}
+                    />
+                  ))}
+                </ol>
+                <Pagination
+                  {...storyPageInfo}
+                  noun="stories"
+                  onPageChange={setStoryPage}
+                  scrollTarget={storyListRef}
+                />
+              </>
             )}
           </>
         )}

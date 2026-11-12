@@ -1,6 +1,7 @@
 'use client'
 
 import { PageHeader } from '@/components/page-header'
+import { Pagination } from '@/components/pagination'
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
 import type { Schedule } from '@/db/schema'
@@ -14,6 +15,7 @@ import {
   type Month
 } from '@/lib/calendar'
 import { cn } from '@/lib/cn'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { getPlatform } from '@/lib/platforms'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import {
@@ -31,7 +33,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useId, useState, useTransition } from 'react'
+import { useEffect, useId, useRef, useState, useTransition } from 'react'
 import { planPost, setPostPosted } from './actions'
 import type { NextRun, PlannedPost } from './schedule-data'
 import { ScheduleForm, type ScheduleGoal } from './schedule-form'
@@ -84,7 +86,7 @@ export function ScheduleClient({
   month: Month
   /** Posts planned on the days the month grid shows. */
   planned: PlannedPost[]
-  /** Posts not planned yet, newest first (at most a page of them). */
+  /** Posts not planned yet, newest first (up to a limit, not all of them). */
   unscheduled: PlannedPost[]
   unscheduledTotal: number
   schedule: Schedule | null
@@ -113,6 +115,9 @@ export function ScheduleClient({
   const [dropDay, setDropDay] = useState<string | null>(null)
   // Days whose cell shows every post rather than the first few.
   const [expanded, setExpanded] = useState<string[]>([])
+  // The "Not planned yet" list, a page at a time.
+  const [unplannedPage, setUnplannedPage] = useState(1)
+  const unplannedRef = useRef<HTMLElement>(null)
 
   const weeks = monthGrid(month)
   const inMonth = (day: string) => day.startsWith(monthParam(month))
@@ -122,6 +127,11 @@ export function ScheduleClient({
     byDay.set(post.plannedFor, [...(byDay.get(post.plannedFor) ?? []), post])
   }
   const notPlanned = posts.filter(p => !p.plannedFor)
+  const { rows: unplannedRows, pageInfo: unplannedPageInfo } = paginate(
+    notPlanned,
+    unplannedPage,
+    PAGE_SIZE
+  )
   const openPost = posts.find(p => p.id === openId) ?? null
 
   const goToMonth = (next: Month) =>
@@ -355,8 +365,9 @@ export function ScheduleClient({
 
             {/* Posts not planned yet */}
             <section
+              ref={unplannedRef}
               aria-labelledby="unplanned-heading"
-              className="border-border bg-surface rounded-2xl border shadow-xs"
+              className="border-border bg-surface scroll-mt-4 rounded-2xl border shadow-xs"
             >
               <div className="border-border border-b px-4 py-3">
                 <h2
@@ -381,8 +392,11 @@ export function ScheduleClient({
                   </Link>
                 </div>
               ) : (
-                <ul className="divide-border max-h-[32rem] divide-y overflow-y-auto">
-                  {notPlanned.map(post => (
+                <ul
+                  key={unplannedPageInfo.page}
+                  className="divide-border max-h-[32rem] divide-y overflow-y-auto"
+                >
+                  {unplannedRows.map(post => (
                     <li
                       key={post.id}
                       draggable
@@ -423,6 +437,16 @@ export function ScheduleClient({
                     </li>
                   ))}
                 </ul>
+              )}
+              {unplannedPageInfo.pageCount > 1 && (
+                <div className="border-border border-t px-4 py-2.5">
+                  <Pagination
+                    {...unplannedPageInfo}
+                    noun="posts"
+                    onPageChange={setUnplannedPage}
+                    scrollTarget={unplannedRef}
+                  />
+                </div>
               )}
               {unscheduledTotal > notPlanned.length && (
                 <p className="text-muted border-border border-t px-4 py-2 text-[11px]">

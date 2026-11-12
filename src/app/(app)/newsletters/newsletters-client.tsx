@@ -4,6 +4,7 @@ import { Button, buttonClassName } from '@/components/button'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { FormAlert } from '@/components/form-alert'
 import { PageHeader } from '@/components/page-header'
+import { Pagination } from '@/components/pagination'
 import { StatusFilterMenu } from '@/components/status-filter-menu'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
@@ -17,6 +18,7 @@ import {
   type NewsletterCategory,
   type NewsletterStatus
 } from '@/lib/newsletters/status'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
   Bookmark,
   BookmarkCheck,
@@ -141,6 +143,12 @@ export function NewslettersClient({
   }
 
   const [filter, setFilter] = useState<Filter>('all')
+  // A page of the filtered list; a new filter starts again at its first page.
+  const [page, setPage] = useState(1)
+  const changeFilter = (value: Filter) => {
+    setFilter(value)
+    setPage(1)
+  }
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoverError, setDiscoverError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -159,6 +167,8 @@ export function NewslettersClient({
         return
       }
       const { found, added } = result.summary
+      // Back to the best fits, where the newly found ones rank among them.
+      setPage(1)
       showToast(
         found === 0
           ? {
@@ -226,6 +236,7 @@ export function NewslettersClient({
     newsletters,
     FILTERS.find(f => f.value === filter)!
   )
+  const { rows: pageNewsletters, pageInfo } = paginate(shown, page, PAGE_SIZE)
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -250,7 +261,7 @@ export function NewslettersClient({
               options={FILTER_VALUES}
               label={filterLabel}
               counts={counts}
-              onChange={setFilter}
+              onChange={changeFilter}
             />
           ) : undefined
         }
@@ -323,18 +334,25 @@ export function NewslettersClient({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-2">
-              {shown.map(n => (
-                <NewsletterCard
-                  key={n.id}
-                  newsletter={n}
-                  busy={pendingId === n.id}
-                  askHowItWent={openedIds.includes(n.id)}
-                  onAction={action => handleAction(n.id, action)}
-                  onOpenedSignup={() => handleOpenedSignup(n.id)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-2">
+                {pageNewsletters.map(n => (
+                  <NewsletterCard
+                    key={n.id}
+                    newsletter={n}
+                    busy={pendingId === n.id}
+                    askHowItWent={openedIds.includes(n.id)}
+                    onAction={action => handleAction(n.id, action)}
+                    onOpenedSignup={() => handleOpenedSignup(n.id)}
+                  />
+                ))}
+              </div>
+              <Pagination
+                {...pageInfo}
+                noun="newsletters"
+                onPageChange={setPage}
+              />
+            </>
           )}
         </div>
       </div>

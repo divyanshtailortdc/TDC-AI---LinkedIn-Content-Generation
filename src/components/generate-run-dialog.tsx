@@ -1,9 +1,11 @@
 'use client'
 
 import { triggerNewRun } from '@/app/(app)/runs/actions'
+import { Pagination } from '@/components/pagination'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { ideaTarget } from '@/lib/ai/idea-selection'
 import { cn } from '@/lib/cn'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { PLATFORMS, type PlatformId } from '@/lib/formats'
 import {
   AlertCircle,
@@ -104,6 +106,16 @@ function PickerDialog({
   const [channel, setChannel] = useState<PlatformId | null>(null)
 
   const selectedGoals = active.filter(g => selected.includes(g.id))
+  // Both goal lists, ten at a time. Ticks are kept across pages, and Select
+  // all still ticks every active goal.
+  const [goalPage, setGoalPage] = useState(1)
+  const { rows: pageSelectedGoals, pageInfo: selectedGoalsPageInfo } =
+    paginate(selectedGoals, goalPage, PAGE_SIZE)
+  const { rows: pageActiveGoals, pageInfo: activeGoalsPageInfo } = paginate(
+    active,
+    goalPage,
+    PAGE_SIZE
+  )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -193,7 +205,7 @@ function PickerDialog({
                 <span>Selected Goals ({selectedGoals.length})</span>
               </div>
               <ul className="space-y-2">
-                {selectedGoals.map(goal => (
+                {pageSelectedGoals.map(goal => (
                   <li
                     key={goal.id}
                     className="border-brand/40 bg-brand/5 flex items-start gap-3 rounded-xl border p-3"
@@ -219,6 +231,11 @@ function PickerDialog({
                   </li>
                 ))}
               </ul>
+              <Pagination
+                {...selectedGoalsPageInfo}
+                noun="goals"
+                onPageChange={setGoalPage}
+              />
             </div>
           ) : (
             <fieldset>
@@ -241,7 +258,7 @@ function PickerDialog({
                 </button>
               </legend>
               <ul className="space-y-2">
-                {active.map(goal => {
+                {pageActiveGoals.map(goal => {
                   const checked = selected.includes(goal.id)
                   return (
                     <li key={goal.id}>
@@ -279,6 +296,15 @@ function PickerDialog({
                   )
                 })}
               </ul>
+              {activeGoalsPageInfo.pageCount > 1 && (
+                <div className="mt-3">
+                  <Pagination
+                    {...activeGoalsPageInfo}
+                    noun="goals"
+                    onPageChange={setGoalPage}
+                  />
+                </div>
+              )}
               {pausedCount > 0 && (
                 <p className="text-muted mt-3 text-[11px]">
                   {pausedCount} paused goal{pausedCount === 1 ? ' is' : 's are'}{' '}

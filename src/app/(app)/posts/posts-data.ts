@@ -291,6 +291,42 @@ export async function loadPostsPage(
   return { posts: fullPosts, nextCursor }
 }
 
+/**
+ * One of the account's posts, for its own page, with every version of its
+ * idea (itself included) for the Versions bar. Null when the account has no
+ * such post.
+ */
+export async function loadPostWithVersions(
+  accountId: string,
+  postId: string
+): Promise<{ post: PostDetail; versions: PostDetail[] } | null> {
+  const [row] = await db
+    .select({ id: postDraftsTable.id, ideaId: postDraftsTable.ideaId })
+    .from(postDraftsTable)
+    .where(
+      and(eq(postDraftsTable.id, postId), eq(postDraftsTable.accountId, accountId))
+    )
+    .limit(1)
+  if (!row) return null
+
+  const ids = row.ideaId
+    ? (
+        await db
+          .select({ id: postDraftsTable.id })
+          .from(postDraftsTable)
+          .where(
+            and(
+              eq(postDraftsTable.ideaId, row.ideaId),
+              eq(postDraftsTable.accountId, accountId)
+            )
+          )
+      ).map(r => r.id)
+    : [row.id]
+  const { posts } = await loadPostsPage(accountId, { ids })
+  const post = posts.find(p => p.id === postId)
+  return post ? { post, versions: posts } : null
+}
+
 export async function countPosts(accountId: string) {
   const [row] = await db
     .select({ total: count() })

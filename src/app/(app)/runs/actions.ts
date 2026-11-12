@@ -15,7 +15,7 @@ import { isUuid } from '@/lib/ids'
 import { findOwnedRun, ownedByUser } from '@/lib/ownership'
 import { PAGE_SIZE } from '@/lib/pagination'
 import { requireUser } from '@/lib/session'
-import { and, desc, eq, getTableColumns, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, inArray } from 'drizzle-orm'
 import { after } from 'next/server'
 import { enqueueRun, getRunDetails } from '~/jobs/queue'
 import { runsJobsHere } from '~/jobs/role'
@@ -232,6 +232,8 @@ export async function pollRunProgress(runId: string, needFindings: boolean) {
             .where(
               and(eq(researchFindingsTable.runId, runId), ownedByUser(user.id))
             )
+            // The same order as getRunDetails, so the paged sources hold still.
+            .orderBy(asc(researchFindingsTable.createdAt), asc(researchFindingsTable.id))
             .then(rows => rows.map(row => row.finding))
         : Promise.resolve(null)
     ])

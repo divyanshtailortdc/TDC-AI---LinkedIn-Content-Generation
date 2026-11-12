@@ -50,11 +50,15 @@ import { deleteDraftImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
 import { loadPostsPage } from './posts-data'
 
-/** The next page of the identity's posts, after the post with `cursorId`. */
-export async function loadMorePosts(cursorId: string) {
+/**
+ * The next page of the identity's posts, after the post with `cursorId`, or
+ * the newest page when it is null (the list lost its place, e.g. the post it
+ * named was deleted; it skips the posts it already has).
+ */
+export async function loadMorePosts(cursorId: string | null) {
   await requireUser()
   try {
-    if (!z.string().uuid().safeParse(cursorId).success) {
+    if (cursorId !== null && !z.string().uuid().safeParse(cursorId).success) {
       return { success: false as const, error: 'Invalid page reference.' }
     }
     const accountId = await requireIdentityId()

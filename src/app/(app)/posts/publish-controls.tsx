@@ -2,7 +2,10 @@
 
 import { PlatformMark } from '@/components/platform-mark'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { usePlatformPublishing } from '@/components/publishing-header-button'
+import {
+  usePlatformPublishing,
+  type PlatformPublishingStatus
+} from '@/components/publishing-header-button'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import { formatAbsoluteDateTime as formatDateTime } from '@/lib/format-date'
@@ -11,6 +14,8 @@ import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { getPlatform, type PlatformId } from '@/lib/platforms'
 import type { PublicationSummary } from '@/lib/publishing/engine'
 import { SENDS_FIRST_COMMENT } from '@/lib/publishing/platform'
+import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
+import Link from 'next/link'
 import {
   AlertTriangle,
   CalendarClock,
@@ -39,6 +44,45 @@ function inAnHour(): string {
     .slice(0, 16)
 }
 
+/**
+ * Connect (or Reconnect) the account a post is published to, in place of
+ * Publish now while it is not connected. A platform signed into on its own
+ * consent screen goes straight there; an expired connection, or one made with
+ * a key pasted in Settings, opens Settings → Integrations.
+ */
+function ConnectButton({
+  publishing
+}: {
+  publishing: PlatformPublishingStatus
+}) {
+  const { platform, connectWith, status } = publishing
+  const expired = status === 'expired'
+  const className = `${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`
+  const content = (
+    <>
+      <PlatformMark platform={platform.id} className="h-3.5 w-3.5" />
+      {expired ? `Reconnect ${platform.name}` : `Connect ${platform.name}`}
+    </>
+  )
+  const title = expired
+    ? `The ${platform.name} connection expired. Reconnect it to publish.`
+    : `Connect the ${platform.name} account approved posts are published to.`
+  return !expired && connectWith === 'oauth' ? (
+    // A plain link: the route redirects to the platform's consent screen.
+    <a
+      href={`/api/integrations/${platform.id}/connect`}
+      title={title}
+      className={className}
+    >
+      {content}
+    </a>
+  ) : (
+    <Link href={INTEGRATIONS_SETTINGS_PATH} title={title} className={className}>
+      {content}
+    </Link>
+  )
+}
+
 /** The viewer's own zone: a published post is marked posted on its day there. */
 const viewerZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -47,8 +91,8 @@ const POLL_MS = 15_000
 
 /**
  * Codes that mean the connection itself is no longer usable (the server has
- * marked it expired, or it was disconnected elsewhere). The header's status
- * comes from the layout, so it is reloaded to show "Reconnect".
+ * marked it expired, or it was disconnected elsewhere). The connection status
+ * comes from the layout, so it is reloaded, and Publish now becomes Reconnect.
  */
 const CONNECTION_LOST = new Set(['reauth_required', 'not_connected'])
 
@@ -252,8 +296,9 @@ function PublishControlsInner({
       })
     )
 
-  // Not set up, not connected or expired: the header's publishing link handles
-  // that, so there is nothing to offer here but the publication's state.
+  // Not connected, or the connection expired: Connect (or Reconnect) takes the
+  // place of Publish now and Schedule. Not set up on this server (publishing
+  // is null): nothing to offer here but the publication's state.
   const canPublish = publishing?.status === 'connected'
 
   // Deleted from the platform: still the record of it, and it stays published so
@@ -383,6 +428,9 @@ function PublishControlsInner({
             · last attempt failed
           </span>
         )}
+        {/* Scheduled, but the connection has since expired: it would fail
+            when due unless it is reconnected first. */}
+        {publishing && !canPublish && <ConnectButton publishing={publishing} />}
         <button
           type="button"
           disabled={busy}
@@ -415,14 +463,14 @@ function PublishControlsInner({
 
   // No publication yet, or the last one failed or was cancelled.
   const lastFailed = publication?.status === 'failed'
-  // Without canPublish there is nothing to offer here but the last failure.
-  if (!lastFailed && !canPublish) return null
+  // Publishing not set up on this server: nothing to offer but the last failure.
+  if (!lastFailed && !canPublish && !publishing) return null
   return (
     <>
       <span className="inline-flex flex-wrap items-center gap-2">
         {lastFailed && (
           <span
-            className="inline-flex max-w-xs items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400"
+            className="inline-flex max-w-40 items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400"
             title={publication.error ?? undefined}
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -431,7 +479,9 @@ function PublishControlsInner({
             </span>
           </span>
         )}
-        {!canPublish ? null : scheduling ? (
+        {!canPublish ? (
+          publishing && <ConnectButton publishing={publishing} />
+        ) : scheduling ? (
           <form
             onSubmit={e => {
               e.preventDefault()

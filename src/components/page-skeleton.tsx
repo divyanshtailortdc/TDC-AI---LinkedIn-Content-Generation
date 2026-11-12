@@ -11,7 +11,14 @@ import { AppHeaderBar } from '@/components/app-header-bar'
  * so the swap to the real page does not jump.
  */
 
-type Layout = 'list' | 'split' | 'stages' | 'calendar'
+type Layout =
+  | 'list'
+  | 'split'
+  | 'stages'
+  | 'calendar'
+  // The Posts list and a post's page: full width, 16px in (24px from sm).
+  | 'posts'
+  | 'post'
 
 function Bar({ className = '' }: { className?: string }) {
   return <div className={`bg-surface-hover animate-pulse rounded ${className}`} />
@@ -29,20 +36,70 @@ function Card({ lines = 2 }: { lines?: number }) {
 }
 
 export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
+  const fullWidth = layout === 'posts' || layout === 'post'
   return (
     <div
       role="status"
       aria-label="Loading"
-      className="flex h-[calc(100vh-4rem)] flex-col"
+      // The full-width pages fill the app's main area, as they do loaded.
+      className={
+        fullWidth
+          ? 'flex min-h-0 flex-1 flex-col'
+          : 'flex h-[calc(100vh-4rem)] flex-col'
+      }
     >
-      <AppHeaderBar>
-        <div className="min-w-0 flex-1 space-y-2">
-          <Bar className="h-6 w-48" />
-          <Bar className="h-3 w-72 max-w-full" />
-        </div>
-      </AppHeaderBar>
+      {/* The Posts list draws its title in the page, not in the bar. */}
+      {layout !== 'posts' && (
+        <AppHeaderBar>
+          <div className="min-w-0 flex-1 space-y-2">
+            <Bar className="h-6 w-48" />
+            <Bar className="h-3 w-72 max-w-full" />
+          </div>
+        </AppHeaderBar>
+      )}
 
-      {layout === 'split' ? (
+      {fullWidth ? (
+        <div
+          className={`@container min-h-0 flex-1 overflow-hidden ${layout === 'posts' ? 'px-4 pt-4 pb-6 sm:px-6' : 'px-4 py-4 sm:px-6'}`}
+        >
+          {layout === 'posts' ? (
+            // Title, platform tabs, the status and tools row, then cards in
+            // the list's own columns.
+            <div className="space-y-4">
+              <div className="space-y-2 pt-2">
+                <Bar className="h-8 w-40" />
+                <Bar className="h-4 w-[32rem] max-w-full" />
+              </div>
+              <Bar className="h-8 w-[36rem] max-w-full" />
+              <Bar className="h-10 w-full" />
+              <Bar className="h-4 w-64" />
+              <div className="grid grid-cols-1 gap-4 pt-2 @xl:grid-cols-2 @min-[54rem]:grid-cols-3 @min-[68rem]:grid-cols-4 @min-[92rem]:grid-cols-5">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div
+                    key={i}
+                    className="border-border bg-surface space-y-3 rounded-2xl border p-4 shadow-xs"
+                  >
+                    <Bar className="h-5 w-1/2" />
+                    <Bar className="aspect-[5/2] w-full rounded-lg" />
+                    <Bar className="h-4 w-4/5" />
+                    <Bar className="h-3 w-full" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            // The post's preview beside its image.
+            <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-12">
+              <div className="@4xl:col-span-7">
+                <Card lines={8} />
+              </div>
+              <div className="@4xl:col-span-5">
+                <Card lines={4} />
+              </div>
+            </div>
+          )}
+        </div>
+      ) : layout === 'split' ? (
         // The posts queue beside the post under review.
         <div className="flex flex-1 overflow-hidden">
           <aside className="border-border bg-surface hidden w-[320px] shrink-0 flex-col gap-3 border-r p-4 lg:flex">

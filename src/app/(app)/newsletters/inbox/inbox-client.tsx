@@ -132,6 +132,9 @@ function IdentityInbox({
   const [details, setDetails] = useState<Record<string, InboxMessage>>({})
   const [detailError, setDetailError] = useState<string | null>(null)
   const latestSelection = useRef<string | null>(null)
+  // The pager sits outside the list's scroll box, so it is told what to bring
+  // into view on a page change.
+  const emailListRef = useRef<HTMLUListElement>(null)
   const selected = selectedId ? details[selectedId] : undefined
 
   // Polls a small action, not the page: every few seconds while a pass runs,
@@ -293,7 +296,7 @@ function IdentityInbox({
             {messages.length === 0 ? (
               <EmptyList syncing={syncing} query={query} address={address} />
             ) : (
-              <ul className="space-y-1">
+              <ul ref={emailListRef} className="space-y-1">
                 {messages.map(message => {
                   const active = message.id === selectedId
                   return (
@@ -362,6 +365,7 @@ function IdentityInbox({
                 {...pageInfo}
                 noun="emails"
                 query={query ? { q: query } : {}}
+                scrollTarget={emailListRef}
               />
             </div>
           )}

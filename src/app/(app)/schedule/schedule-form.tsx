@@ -1,10 +1,12 @@
 'use client'
 
 import { Button } from '@/components/button'
+import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import type { Schedule } from '@/db/schema'
 import { cn } from '@/lib/cn'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
   AlertTriangle,
   CalendarClock,
@@ -16,7 +18,7 @@ import {
   X
 } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { saveSchedule } from './actions'
 import type { NextRun } from './schedule-data'
 
@@ -112,6 +114,14 @@ export function ScheduleForm({
   const [focusDay, setFocusDay] = useState<number | null>(
     initialDays[0] ?? null
   )
+  // The goals list, a page at a time; the same page for every day.
+  const [goalPage, setGoalPage] = useState(1)
+  const { rows: goalRows, pageInfo: goalPageInfo } = paginate(
+    goals,
+    goalPage,
+    PAGE_SIZE
+  )
+  const goalListRef = useRef<HTMLDivElement>(null)
   const [timeOfDay, setTimeOfDay] = useState<string>(
     initialSchedule?.timeOfDay || '09:00'
   )
@@ -489,9 +499,10 @@ export function ScheduleForm({
             </div>
           ) : (
             <div
+              ref={goalListRef}
               role="group"
               aria-label={`Goals for ${focusLabel}`}
-              className="border-border overflow-hidden rounded-xl border"
+              className="border-border scroll-mt-4 overflow-hidden rounded-xl border"
             >
               <div className="bg-surface-hover/50 border-border flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
                 <label
@@ -559,8 +570,11 @@ export function ScheduleForm({
                   </Link>
                 </div>
               ) : (
-                <ul className="divide-border max-h-80 divide-y overflow-y-auto">
-                  {goals.map(goal => {
+                <ul
+                  key={goalPageInfo.page}
+                  className="divide-border max-h-80 divide-y overflow-y-auto"
+                >
+                  {goalRows.map(goal => {
                     const checked = focusGoals.includes(goal.id)
                     return (
                       <li key={goal.id}>
@@ -595,6 +609,16 @@ export function ScheduleForm({
                     )
                   })}
                 </ul>
+              )}
+              {goalPageInfo.pageCount > 1 && (
+                <div className="border-border border-t px-4 py-2.5">
+                  <Pagination
+                    {...goalPageInfo}
+                    noun="goals"
+                    onPageChange={setGoalPage}
+                    scrollTarget={goalListRef}
+                  />
+                </div>
               )}
 
               {goals.length > 0 && needsGoal && (

@@ -1,7 +1,9 @@
 'use client'
 
+import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
+import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import { ChevronDown, History, Loader2, RotateCcw, Wand2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { loadPostVersions, regeneratePost, restorePostVersion } from './actions'
@@ -77,7 +79,9 @@ export function RegenerateControl({
   }
 
   return (
-    <div className="relative" ref={wrapper}>
+    // Below sm the panel anchors to the toolbar row (relative there), not the
+    // button, so it stays on a phone's screen.
+    <div className="sm:relative" ref={wrapper}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -177,6 +181,9 @@ export function VersionHistory({
   const [error, setError] = useState<string | null>(null)
   const [restoring, setRestoring] = useState<string | null>(null)
   const count = post.versionCount ?? 0
+  // Ten versions at a time, newest first; a new version starts at page 1.
+  const [page, setPage] = useState(1)
+  const sectionRef = useRef<HTMLElement>(null)
 
   // Loaded when opened, and again when the post gains a version while open.
   useEffect(() => {
@@ -187,6 +194,7 @@ export function VersionHistory({
         if (cancelled) return
         if (res.success) {
           setVersions(res.versions)
+          setPage(1)
           setError(null)
         } else setError(res.error || 'Could not load earlier versions.')
       },
@@ -200,6 +208,12 @@ export function VersionHistory({
   }, [open, count, post.id])
 
   if (count === 0) return null
+
+  const { rows: pageVersions, pageInfo } = paginate(
+    versions ?? [],
+    page,
+    PAGE_SIZE
+  )
 
   const restore = async (version: Version) => {
     setRestoring(version.id)
@@ -225,7 +239,7 @@ export function VersionHistory({
   }
 
   return (
-    <section className="border-border bg-surface rounded-xl border">
+    <section ref={sectionRef} className="border-border bg-surface rounded-xl border">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -248,7 +262,7 @@ export function VersionHistory({
           )}
           {versions && (
             <ol className="space-y-3">
-              {versions.map(version => (
+              {pageVersions.map(version => (
                 <li key={version.id} className="min-w-0">
                   <div className="flex items-baseline gap-2">
                     <span className="text-foreground text-xs font-semibold">
@@ -282,6 +296,16 @@ export function VersionHistory({
                 </li>
               ))}
             </ol>
+          )}
+          {versions && pageInfo.pageCount > 1 && (
+            <div className="mt-3">
+              <Pagination
+                {...pageInfo}
+                noun="versions"
+                onPageChange={setPage}
+                scrollTarget={sectionRef}
+              />
+            </div>
           )}
         </div>
       )}

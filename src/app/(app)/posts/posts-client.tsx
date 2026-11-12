@@ -1,143 +1,69 @@
 'use client'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { PostPreview } from '@/components/post-preview'
-import { FormatBadge } from '@/components/format-chips'
-import { VariantPreview, previewTitle } from '@/components/variant-preview'
 import {
   copyText,
   FORMATS,
   formatOf,
-  PLATFORMS,
   videoScriptOf,
   type FormatId
 } from '@/lib/formats'
-import { IdeaVersions } from './add-version-menu'
-import { RegenerateControl, VersionHistory } from './post-versions'
-import { PageHeader } from '@/components/page-header'
-import { Pagination } from '@/components/pagination'
+import { MobileNavButton } from '@/components/mobile-nav'
+import { PlatformMark } from '@/components/platform-mark'
+import { markDataChanged } from '@/components/refresh-on-back'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
 import type { IdentitySummary } from '@/lib/identity'
-import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { getPlatform, type PlatformId } from '@/lib/platforms'
-import { platformPostText, toPlatformText } from '@/lib/post-text'
-import {
-  IMAGE_PROMPT_MAX_WORDS,
-  IMAGE_TYPE_CHOICES,
-  countWords,
-  type ImageTypeChoice,
-  validateImagePrompt,
-  validateImageUrl,
-  validateReferenceDimensions,
-  validateReferenceFile,
-  validateStockQuery
-} from '@/lib/media/image-input'
-import {
-  isReviewerChosenSource,
-  reviewerSourceLabel
-} from '@/lib/media/media-source'
-import { getUserFacingRelevance } from '@/lib/media/relevance-label'
-import {
-  BACKGROUND_PATTERNS,
-  BRAND_THEME_PATH,
-  FOOTER_MAX_LENGTH,
-  type BackgroundPattern
-} from '@/lib/brand/theme'
+import { PAGE_SIZE, pageNumbers, paginate, parsePage } from '@/lib/pagination'
+import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
+import { platformPostText } from '@/lib/post-text'
+import { canPublishFormat } from '@/lib/publishing/platform'
+import type { BackgroundPattern } from '@/lib/brand/theme'
 import Link from 'next/link'
 import {
-  AlertTriangle,
-  Check,
-  CheckCircle2,
+  ArrowRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  CircleStop,
-  Columns2,
+  Clock,
   Copy,
-  Download,
-  Edit2,
-  ExternalLink,
   Eye,
   EyeOff,
   FileCheck,
-  FileText,
+  Funnel,
   Image as ImageIcon,
-  Info,
-  Layers,
+  ImageOff,
   LayoutGrid,
-  ListFilter,
+  List,
   Loader2,
-  MessageSquare,
-  Network,
-  Palette,
-  Paperclip,
-  PenTool,
-  Quote,
+  MoreVertical,
+  Play,
+  Plus,
   Search,
-  Sparkles,
   Trash2,
-  Workflow,
-  X,
-  ZoomIn
+  X
 } from 'lucide-react'
-import dynamic from 'next/dynamic'
-import Image from 'next/image'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import {
   Suspense,
   useDeferredValue,
   useEffect,
-  useEffectEvent,
-  useImperativeHandle,
   useMemo,
   useRef,
-  useState,
-  type Dispatch,
-  type Ref,
-  type SetStateAction
+  useState
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  approveDraft,
   deleteDraft,
   loadMorePosts,
-  regeneratePostMediaAction,
-  rejectDraft,
-  removePostMediaAction,
-  saveImageSettings,
-  setDraftHidden,
-  updateDraft,
-  updatePostMediaAction
+  setDraftHidden
 } from './actions'
-import { initialsOf } from '@/lib/initials'
 import type { PublicationSummary } from '@/lib/publishing/engine'
-import { PublishControls } from './publish-controls'
-import { VideoScriptCard } from '@/components/video-script-card'
-import { canPublishFormat } from '@/lib/publishing/platform'
-import { getPostPublication } from './publish-actions'
-import {
-  currentMediaJob,
-  startMediaJob,
-  trackPostsPage,
-  type MediaJobOutcome
-} from './media-jobs'
-import {
-  formatAbsoluteDate,
-  formatAbsoluteDateTime,
-  formatRelativeDate
-} from '@/lib/format-date'
+import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
-// Every change below is called out with markDataChanged(): the actions no
-// longer revalidate the page (see RefreshOnBack).
-import { markDataChanged } from '@/components/refresh-on-back'
-
-// Only shown when an image is zoomed, so it loads then.
-const ImageLightbox = dynamic(
-  () => import('@/components/image-lightbox').then(m => m.ImageLightbox),
-  { ssr: false }
-)
+import { LIST_PARAMS } from './list-params'
+import { PostStatusPill } from './post-status'
 
 export interface PostDetail {
   id: string
@@ -258,41 +184,109 @@ function getHumanRuleLabel(rule: string, formatId?: string | null): string {
     .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-// The image type picker: Auto (null) lets the art director choose per post.
-const IMAGE_TYPE_OPTIONS = [
-  {
-    value: null,
-    label: 'Auto',
-    description: 'Picks the type that fits the post best.',
-    icon: Sparkles
-  },
-  ...IMAGE_TYPE_CHOICES.map(choice => ({
-    ...choice,
-    icon: {
-      hub_spoke: Network,
-      flow: Workflow,
-      stack: Layers,
-      cards: LayoutGrid,
-      comparison: Columns2,
-      illustration: PenTool
-    }[choice.value]
-  }))
-]
-
+/**
+ * The status chips. Each post is in exactly one, so they add up to All:
+ * Published is live on its platform; Approved is approved and not live yet
+ * (waiting, scheduled or publishing).
+ */
 type StatusFilter =
   | 'all'
   | 'awaiting_review'
   | 'approved'
+  | 'published'
   | 'rejected'
-  | 'hidden'
+  | 'draft'
 type SortOrder = 'newest' | 'oldest'
+type ViewMode = 'grid' | 'list'
 
-const STATUS_LABELS: Record<StatusFilter, string> = {
-  all: 'All statuses',
-  awaiting_review: 'Awaiting review',
-  approved: 'Approved',
-  rejected: 'Rejected',
-  hidden: 'Hidden'
+const STATUS_FILTERS: StatusFilter[] = [
+  'all',
+  'awaiting_review',
+  'approved',
+  'published',
+  'rejected',
+  'draft'
+]
+
+/** Each status chip's label, dot, and look when picked (as on PostStatusPill). */
+const STATUS_CHIPS: Record<
+  StatusFilter,
+  { label: string; dot: string | null; active: string }
+> = {
+  all: {
+    label: 'All',
+    dot: null,
+    active: 'border-foreground/25 bg-surface-hover text-foreground'
+  },
+  awaiting_review: {
+    label: 'Awaiting review',
+    dot: 'bg-amber-500',
+    active:
+      'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+  },
+  approved: {
+    label: 'Approved',
+    dot: 'bg-indigo-500',
+    active:
+      'border-indigo-500/50 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
+  },
+  published: {
+    label: 'Published',
+    dot: 'bg-emerald-500',
+    active:
+      'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+  },
+  rejected: {
+    label: 'Rejected',
+    dot: 'bg-rose-500',
+    active: 'border-rose-500/50 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+  },
+  draft: {
+    label: 'Drafts',
+    dot: 'bg-zinc-400',
+    active: 'border-zinc-400/50 bg-zinc-400/10 text-foreground'
+  }
+}
+
+/** Which status chip a post is under. */
+function statusOf(post: PostDetail): Exclude<StatusFilter, 'all'> {
+  if (post.postedAt || post.publication?.status === 'published') {
+    return 'published'
+  }
+  if (post.status === 'approved') return 'approved'
+  if (post.status === 'rejected') return 'rejected'
+  if (post.status === 'draft') return 'draft'
+  return 'awaiting_review'
+}
+
+/** A platform's own colour on its tab when picked. */
+const PLATFORM_TINTS: Partial<Record<PlatformId, { tab: string; count: string }>> = {
+  linkedin: {
+    tab: 'border-[#0a66c2]/60 bg-[#0a66c2]/10',
+    count: 'bg-[#0a66c2]/20 text-foreground'
+  },
+  instagram: {
+    tab: 'border-[#e1306c]/60 bg-[#e1306c]/10',
+    count: 'bg-[#e1306c]/20 text-foreground'
+  },
+  facebook: {
+    tab: 'border-[#1877f2]/60 bg-[#1877f2]/10',
+    count: 'bg-[#1877f2]/20 text-foreground'
+  },
+  youtube: {
+    tab: 'border-[#ff0033]/60 bg-[#ff0033]/10',
+    count: 'bg-[#ff0033]/20 text-foreground'
+  }
+}
+const NEUTRAL_TINT = {
+  tab: 'border-foreground/30 bg-surface-hover',
+  count: 'bg-foreground/10 text-foreground'
+}
+
+/** Short platform names for "Live on …". */
+const LIVE_ON: Partial<Record<PlatformId, string>> = {
+  instagram: 'IG',
+  facebook: 'FB'
 }
 
 const DAY_MS = 86_400_000
@@ -322,24 +316,21 @@ function inDateRange(value: Date | string, from: string, to: string): boolean {
 }
 
 /**
- * The queue as shown: posts already narrowed by everything but status, with
- * the status filter applied, in the chosen order. Hidden posts show only
- * under Hidden, whatever their status.
+ * The list as shown: posts already narrowed by platform, dates and search,
+ * with the hidden and status filters applied, in the chosen order. Hidden
+ * posts show only when Filters asks for them.
  */
 function queueOf(
   scoped: PostDetail[],
   status: StatusFilter,
-  sort: SortOrder,
-  /** A post kept in the queue whatever its status: the one just acted on. */
-  keep: string | null = null
+  hidden: boolean,
+  sort: SortOrder
 ): PostDetail[] {
   return scoped
     .filter(
       p =>
-        p.id === keep ||
-        (status === 'hidden'
-          ? Boolean(p.hiddenAt)
-          : !p.hiddenAt && (status === 'all' || p.status === status))
+        Boolean(p.hiddenAt) === hidden &&
+        (status === 'all' || statusOf(p) === status)
     )
     .sort((a, b) => {
       const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
@@ -347,13 +338,6 @@ function queueOf(
     })
 }
 
-const STATUS_FILTERS: StatusFilter[] = [
-  'all',
-  'awaiting_review',
-  'approved',
-  'rejected',
-  'hidden'
-]
 const DAY_PARAM = /^\d{4}-\d{2}-\d{2}$/
 
 /**
@@ -374,22 +358,26 @@ function realDay(value: string): string {
 }
 
 /**
- * The filters live in the URL (?status=&from=&to=&sort=&q=) so they survive a
- * reload and can be shared as a link. Unknown or malformed values fall back
- * to the defaults, which are left out of the URL.
+ * The filters live in the URL (?status=&hidden=&from=&to=&sort=&view=&q=) so
+ * they survive a reload and can be shared as a link. Unknown or malformed
+ * values fall back to the defaults, which are left out of the URL. An older
+ * link's ?status=hidden is read as ?hidden=1.
  */
 function filtersFromParams(params: URLSearchParams) {
-  const status = params.get('status') as StatusFilter | null
+  const rawStatus = params.get('status')
+  const status = STATUS_FILTERS.find(s => s === rawStatus) ?? 'all'
   let from = realDay(params.get('from') ?? '')
   let to = realDay(params.get('to') ?? '')
   // A reversed range matches nothing; the popover never writes one.
   if (from && to && from > to) from = to = ''
   return {
-    status: status && STATUS_FILTERS.includes(status) ? status : 'all',
+    status,
+    hidden: params.get('hidden') === '1' || rawStatus === 'hidden',
     from,
     to,
-    sort: params.get('sort') === 'oldest' ? 'oldest' : 'newest'
-  } satisfies { status: StatusFilter; from: string; to: string; sort: SortOrder }
+    sort: (params.get('sort') === 'oldest' ? 'oldest' : 'newest') as SortOrder,
+    view: (params.get('view') === 'list' ? 'list' : 'grid') as ViewMode
+  }
 }
 
 /**
@@ -419,50 +407,75 @@ function toDayInput(date: Date): string {
 
 /**
  * Stable grouping key. Group boundaries are derived from this rather than from
- * the display label, so swapping "16 Sep" for "Today" after mount never
- * reshuffles the list.
+ * the display label. The server's time zone is not the viewer's, so until the
+ * page is mounted (`local` false) days are UTC days, the same on both sides.
  */
-function dayKey(value: Date | string): string {
+function dayKey(value: Date | string, local = true): string {
   const date = toDate(value)
   if (Number.isNaN(date.getTime())) return 'unknown'
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+  return local
+    ? `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+    : `${date.getUTCFullYear()}-${date.getUTCMonth()}-${date.getUTCDate()}`
 }
 
-/** Day header text. Relative wording is only used once mounted. */
-function bucketLabel(value: Date | string, relative: boolean): string {
-  const absolute = formatAbsoluteDate(value)
-  if (!relative) return absolute
+/** "6h ago", "1d ago", "3d ago", then the date. Call only once mounted. */
+function shortAgo(value: Date | string): string {
+  return formatRelativeDate(value).replace(/^yesterday$/, '1d ago')
+}
 
+/**
+ * A day's heading: "Today · Nov 11", "Yesterday · Nov 10", "Wed · Nov 5".
+ * The viewer's own calendar is only known once mounted; before that, none
+ * (the server's would not match it).
+ */
+function dayHeading(value: Date | string, mounted: boolean): string {
+  if (!mounted) return ''
+  const date = toDate(value)
+  const day = date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric'
+  })
   const today = new Date()
-  if (dayKey(value) === dayKey(today)) return 'Today'
-  if (dayKey(value) === dayKey(new Date(today.getTime() - DAY_MS))) {
-    return 'Yesterday'
+  if (dayKey(date) === dayKey(today)) return `Today · ${day}`
+  if (dayKey(date) === dayKey(new Date(today.getTime() - DAY_MS))) {
+    return `Yesterday · ${day}`
   }
-  return absolute
+  return `${date.toLocaleDateString(undefined, { weekday: 'short' })} · ${day}`
 }
 
-function countLintErrors(findings: LintFinding[] | undefined): number {
-  return (findings || []).filter(f => f.severity === 'error' && !f.passed).length
+/** Posts on one page of the list: the app's page size, 10 like every list. */
+const LIST_PAGE_SIZE = PAGE_SIZE
+
+/** The post's text as it is pasted on its platform, for Copy text. */
+function postTextOf(post: PostDetail): string {
+  const format = formatOf(post.formatId)
+  return format === 'linkedin.post'
+    ? platformPostText(post, getPlatform(post.platform))
+    : copyText(format, post)
 }
 
+/**
+ * Every post, as a list (/posts), laid out as cards or rows. Platform tabs,
+ * status chips, search, Filters (dates, hidden posts) and Sort narrow and
+ * order it; opening a post goes to its own page (/posts/[id]), where it is
+ * reviewed, given an image and published. All of it lives in the URL, so the
+ * post's "All posts" link and Back return to the list as it was.
+ */
 export function PostsClientInner({
   initialPosts,
   initialNextCursor,
   totalCount,
   identity,
-  brand,
   enabledFormats = ['linkedin.post']
 }: {
-  /** The formats the identity has turned on, for "Add a version". */
-  enabledFormats?: FormatId[]
   initialPosts: PostDetail[]
-  /** Where the next page starts; null when every post is already loaded. */
+  /** Where the next batch starts; null when every post is already loaded. */
   initialNextCursor: string | null
   totalCount: number
   identity: IdentitySummary
-  brand: BrandSummary
+  /** The formats the identity has turned on: their platforms get a tab. */
+  enabledFormats?: FormatId[]
 }) {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const filterRunId = searchParams.get('runId')
   const hasMounted = useHasMounted()
@@ -470,13 +483,18 @@ export function PostsClientInner({
   const [posts, setPosts] = useState<PostDetail[]>(initialPosts)
   const [nextCursor, setNextCursor] = useState(initialNextCursor)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  // Posts deleted here, taken off the server's total.
+  const [deletedCount, setDeletedCount] = useState(0)
 
-  // Older posts come in a page at a time; the newest are shown first.
+  // Older posts come in a batch at a time; the newest are shown first.
+  // nextCursor: null when every post is loaded; '' when the post it named was
+  // deleted with none loaded before it, so the next batch starts from the newest
+  // (posts already loaded are skipped).
   const loadMore = async () => {
-    if (!nextCursor || isLoadingMore) return
+    if (nextCursor === null || isLoadingMore) return
     setIsLoadingMore(true)
     try {
-      const res = await loadMorePosts(nextCursor)
+      const res = await loadMorePosts(nextCursor || null)
       if (res.success) {
         setPosts(prev => {
           const have = new Set(prev.map(p => p.id))
@@ -490,36 +508,29 @@ export function PostsClientInner({
       setIsLoadingMore(false)
     }
   }
-  const [selectedPostId, setSelectedPostId] = useState<string>(
-    initialPosts.find(p => !filterRunId || p.runId === filterRunId)?.id ||
-      initialPosts[0]?.id ||
-      ''
-  )
-  // yyyy-mm-dd from the date inputs; empty means that end is open.
+
   const {
     status: statusFilter,
+    hidden: showHidden,
     from: dateFrom,
     to: dateTo,
-    sort: sortOrder
+    sort: sortOrder,
+    view
   } = filtersFromParams(searchParams)
+  // One platform's posts only (?platform=x); null shows every platform.
+  const platformParam = searchParams.get('platform')
+  const platformFilter = PLATFORM_IDS.find(id => id === platformParam) ?? null
+  const page = parsePage(searchParams.get('page') ?? undefined)
+
   // Typed into on every keystroke, so it is local state that is copied into
   // the URL (replace, not push: each letter is not a Back step).
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') ?? '')
-  // One platform's posts only; null shows every format.
-  const [formatFilter, setFormatFilter] = useState<FormatId | null>(null)
-  // The formats the loaded posts are in, for the filter chips and badges.
-  const postFormats = useMemo(
-    () => Array.from(new Set(posts.map(p => formatOf(p.formatId)))),
-    [posts]
-  )
-  const showFormats = postFormats.length > 1 || enabledFormats.length > 1
-  // The box shows each letter at once; the queue is filtered against this
-  // copy, which React catches up in the background, so typing never waits on
-  // the list.
+  // The list is filtered against this copy, which React catches up in the
+  // background, so typing never waits on the list.
   const deferredQuery = useDeferredValue(searchQuery)
   const changeSearch = (value: string) => {
     setSearchQuery(value)
-    writeParams({ q: value.trim() ? value : null }, 'replace')
+    writeParams({ q: value.trim() ? value : null, page: null }, 'replace')
   }
   // Back and Forward change the URL without typing, so the box follows it.
   useEffect(() => {
@@ -529,20 +540,34 @@ export function PostsClientInner({
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  // Active post editing state
-  // Posts matching everything except the status facet, so the status counts can
-  // show what switching to another status would actually reveal. All posts
-  // here already belong to the active account (scoped server-side), so there
-  // is no identity facet to filter on. Worked out again only when the posts
-  // or a filter change, not on every render.
-  const scopedPosts = useMemo(() => {
+  // ⌘K (Ctrl+K elsewhere) jumps to the search box.
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+  const isMac =
+    hasMounted && /Mac|iPhone|iPad/.test(window.navigator.userAgent)
+
+  // A filter change starts the list again from its first page.
+  const setFilters = (changes: Record<string, string | null>) =>
+    writeParams({ ...changes, page: null }, 'push')
+
+  // Posts matching the run, the dates and the search: what the platform tabs
+  // and status chips then narrow. All posts here already belong to the
+  // active identity (scoped server-side).
+  const basePosts = useMemo(() => {
     const query = deferredQuery.trim().toLowerCase()
     return posts.filter(p => {
       if (filterRunId && p.runId !== filterRunId) return false
-      if (formatFilter && formatOf(p.formatId) !== formatFilter) return false
-
       if (!inDateRange(p.createdAt, dateFrom, dateTo)) return false
-
       if (query) {
         // Tags are searched as shown in the preview (#tag), whether or not they
         // were stored with the #, so "#tag" and "tag" both find them.
@@ -551,2024 +576,516 @@ export function PostsClientInner({
           `${p.hook} ${p.body} ${p.accountName} ${tags.join(' ')}`.toLowerCase()
         if (!haystack.includes(query)) return false
       }
-
       return true
     })
-  }, [posts, filterRunId, formatFilter, dateFrom, dateTo, deferredQuery])
+  }, [posts, filterRunId, dateFrom, dateTo, deferredQuery])
 
-  const statusCounts = useMemo(() => {
-    // Hidden posts count only under Hidden, as queueOf shows them.
-    const shown = scopedPosts.filter(p => !p.hiddenAt)
-    return {
-      all: shown.length,
-      awaiting_review: shown.filter(p => p.status === 'awaiting_review').length,
-      approved: shown.filter(p => p.status === 'approved').length,
-      rejected: shown.filter(p => p.status === 'rejected').length,
-      hidden: scopedPosts.length - shown.length
-    }
-  }, [scopedPosts])
-
-  // The post just approved or rejected stays open, and in the queue, even
-  // when its new status no longer matches the filter, until the reviewer
-  // opens another post or changes a filter.
-  const [keptPostId, setKeptPostId] = useState<string | null>(null)
-  const filteredPosts = useMemo(
-    () => queueOf(scopedPosts, statusFilter, sortOrder, keptPostId),
-    [scopedPosts, statusFilter, sortOrder, keptPostId]
+  const platformPosts = useMemo(
+    () =>
+      platformFilter
+        ? basePosts.filter(p => p.platform === platformFilter)
+        : basePosts,
+    [basePosts, platformFilter]
   )
+
+  // Each chip's and tab's count has the other row's choice applied, so it
+  // says what picking it would show.
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusFilter, number> = {
+      all: 0,
+      awaiting_review: 0,
+      approved: 0,
+      published: 0,
+      rejected: 0,
+      draft: 0
+    }
+    for (const p of platformPosts) {
+      if (Boolean(p.hiddenAt) !== showHidden) continue
+      counts.all++
+      counts[statusOf(p)]++
+    }
+    return counts
+  }, [platformPosts, showHidden])
+
+  const platformCounts = useMemo(() => {
+    const shown = queueOf(basePosts, statusFilter, showHidden, sortOrder)
+    const counts = new Map<PlatformId, number>()
+    for (const p of shown) counts.set(p.platform, (counts.get(p.platform) ?? 0) + 1)
+    return { all: shown.length, counts }
+  }, [basePosts, statusFilter, showHidden, sortOrder])
+
+  // A tab for every platform with posts, or turned on for this identity.
+  const platformOptions = useMemo(() => {
+    const have = new Set<PlatformId>([
+      ...posts.map(p => p.platform),
+      ...enabledFormats.map(f => FORMATS[f].platform)
+    ])
+    return PLATFORM_IDS.filter(id => have.has(id))
+  }, [posts, enabledFormats])
+
+  const filteredPosts = useMemo(
+    () => queueOf(platformPosts, statusFilter, showHidden, sortOrder),
+    [platformPosts, statusFilter, showHidden, sortOrder]
+  )
+  const { rows: pagePosts, pageInfo } = paginate(
+    filteredPosts,
+    page,
+    LIST_PAGE_SIZE
+  )
+  // The page's posts under their day: Today, Yesterday, Wed · Nov 5…
+  const dayGroups: { key: string; date: Date | string; posts: PostDetail[] }[] = []
+  for (const post of pagePosts) {
+    const key = dayKey(post.createdAt, hasMounted)
+    const last = dayGroups[dayGroups.length - 1]
+    if (last && last.key === key) last.posts.push(post)
+    else dayGroups.push({ key, date: post.createdAt, posts: [post] })
+  }
 
   const hasActiveFilters =
     Boolean(dateFrom || dateTo) ||
+    showHidden ||
     sortOrder !== 'newest' ||
     statusFilter !== 'all' ||
+    platformFilter !== null ||
     searchQuery.trim().length > 0
 
-  // Also leaves a run's posts (?runId=), back to every post.
+  // Also leaves a run's posts (?runId=), back to every post. The view stays.
   const clearFilters = () => {
     setSearchQuery('')
     writeParams(
-      { runId: null, status: null, from: null, to: null, sort: null, q: null },
+      Object.fromEntries(
+        LIST_PARAMS.filter(key => key !== 'view').map(key => [key, null])
+      ),
       'push'
     )
   }
 
-  // Any change to the filters, search or order opens the first post of the
-  // new queue, so the post on screen always matches the list beside it.
-  // Adjusted during render (not in an effect) so the old post never paints.
-  // Keyed on the deferred search, the one the queue was filtered with.
-  const filterKey = [
-    filterRunId,
-    dateFrom,
-    dateTo,
-    statusFilter,
-    deferredQuery,
-    sortOrder
-  ].join('|')
-  const [shownFilterKey, setShownFilterKey] = useState(filterKey)
-  if (filterKey !== shownFilterKey) {
-    setShownFilterKey(filterKey)
-    setKeptPostId(null)
-    setSelectedPostId(filteredPosts[0]?.id ?? '')
-  }
+  // A post's page carries the list's params, so its "All posts" link comes
+  // back to the list as it is now.
+  const listQuery = searchParams.toString()
+  const postHref = (id: string) =>
+    `/posts/${id}${listQuery ? `?${listQuery}` : ''}`
 
-  // The open post always comes from the filtered queue, so changing a filter
-  // cannot leave a post on screen that is no longer in the list.
-  const activePost =
-    filteredPosts.find(p => p.id === selectedPostId) || filteredPosts[0]
-  // Where the open post goes out: its preview, copy and wording follow it.
-  const activePlatform = getPlatform(activePost?.platform)
-  // Published on its platform (or going out now): it can no longer be rejected,
-  // matching rejectDraft on the server.
-  const activePublished =
-    activePost?.publication?.status === 'published' ||
-    activePost?.publication?.status === 'publishing'
-  const [isEditing, setIsEditing] = useState(false)
-  // The edit buffer lives in PostTextEditor, so a keystroke there re-renders
-  // the editor alone. The page only hears whether it holds unsaved edits, and
-  // reaches in through the ref for the hook swap and the copy notice.
-  const editorRef = useRef<PostTextEditorHandle>(null)
-  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
+  // ---- Acting on posts from the list: the card menu ----
 
-  // Copy feedback
-  const [copiedPost, setCopiedPost] = useState(false)
-  const [copiedComment, setCopiedComment] = useState(false)
-  const [copiedImage, setCopiedImage] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-
-  // Media management state. A generation started before this page opened
-  // (the reviewer left the page and came back) is still running: the page
-  // starts from it, read once so its state and its outcome agree.
-  const [resumedJob] = useState(currentMediaJob)
-  const [isMediaLoading, setIsMediaLoading] = useState(() => resumedJob !== null)
-  // The post the running media job is for. Only one job runs at a time (they
-  // share the Stop button's abort controller), but its progress belongs to
-  // that post alone, not to whichever post is open now.
-  const [mediaPostId, setMediaPostId] = useState<string | null>(
-    () => resumedJob?.postId ?? null
-  )
-  // Progress and Stop show on the post the media job is for; on any other post
-  // the media actions just stay disabled until it finishes.
-  const mediaBusyHere = isMediaLoading && mediaPostId === activePost?.id
-  const [mediaLoadingText, setMediaLoadingText] = useState(
-    () => resumedJob?.loadingText ?? ''
-  )
-  const [mediaError, setMediaError] = useState<string | null>(null)
-  const [showStockInput, setShowStockInput] = useState(false)
-  const [stockSearchQuery, setStockSearchQuery] = useState('')
-  const [showCustomUrlInput, setShowCustomUrlInput] = useState(false)
-  const [customImageUrl, setCustomImageUrl] = useState('')
-  const [showPostRejection, setShowPostRejection] = useState(false)
-  const [postRejectionReason, setPostRejectionReason] = useState('')
-  // The Delete dialog, and its "also delete it from the platform" choice.
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [alsoDeleteFromPlatform, setAlsoDeleteFromPlatform] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  // Posts deleted here, taken off the server's total.
-  const [deletedCount, setDeletedCount] = useState(0)
-  const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
-  const [isImageZoomOpen, setIsImageZoomOpen] = useState(false)
-  // A post's image bytes are loaded on demand; see the loader below.
-  const [imageLoadFailure, setImageLoadFailure] = useState<{
-    mediaId: string
-    error: string
-  } | null>(null)
-  const [imageLoadAttempt, setImageLoadAttempt] = useState(0)
-
-  // Prompt-driven image generation
-  const [imagePrompt, setImagePrompt] = useState('')
-  const [referenceImage, setReferenceImage] = useState<string | null>(null)
-  const [referenceImageName, setReferenceImageName] = useState<string | null>(
-    null
-  )
-  // "Use current image" sends this id, and the server edits that image as it
-  // was before its logo went on, so the edit never redraws the logo. Without
-  // it, an attached image is a reference: a new image designed from the post
-  // copies its structure.
-  const [referenceMediaId, setReferenceMediaId] = useState<string | null>(null)
-  const referenceInputRef = useRef<HTMLInputElement>(null)
-  // Optional, and kept across posts like a preference; null is Auto.
-  const [imageType, setImageType] = useState<ImageTypeChoice | null>(null)
-  // The background and website on every new image: saved for the identity,
-  // so the images made while drafting use them too.
-  const [imagePattern, setImagePattern] = useState(brand.pattern)
-  const [savedFooter, setSavedFooter] = useState(brand.footerText ?? '')
-  const [footerDraft, setFooterDraft] = useState(brand.footerText ?? '')
-  // The saves in order (see handleSaveImageSettings), and what the server
-  // last confirmed, for a failed one to fall back to.
-  const settingsSaveRef = useRef<Promise<void>>(Promise.resolve())
-  const settingsSeqRef = useRef(0)
-  const confirmedSettingsRef = useRef({
-    pattern: brand.pattern,
-    footer: brand.footerText ?? ''
-  })
-  const [isGenerating, setIsGenerating] = useState(() =>
-    Boolean(resumedJob?.controller)
-  )
-  const [mediaNotice, setMediaNotice] = useState<string | null>(null)
-  const generationAbortRef = useRef<AbortController | null>(
-    resumedJob?.controller ?? null
-  )
-  // Leaving the page does not stop a generation (see ./media-jobs); a page
-  // that has closed just no longer shows its outcome.
-  const mountedRef = useRef(false)
-
-  // The edit buffer (PostTextEditor is keyed by post) and the per-post panels
-  // are reset whenever a different post opens, however that happens: a click,
-  // J/K, a filter change or a status change.
-  const activePostId = activePost?.id
-  const [bufferPostId, setBufferPostId] = useState(activePostId)
-  if (activePostId !== bufferPostId) {
-    setBufferPostId(activePostId)
-    setHasUnsavedEdits(false)
-    setIsEditing(false)
-    setShowStockInput(false)
-    setShowCustomUrlInput(false)
-    setShowPostRejection(false)
-    setPostRejectionReason('')
-    setMediaMenuOpen(false)
-    setMediaError(null)
-    setMediaNotice(null)
-    setImagePrompt('')
-    setReferenceImage(null)
-    setReferenceImageName(null)
-    setReferenceMediaId(null)
-    setImageLoadFailure(null)
-  }
-
-  // A media job outlives the post it started on: the user can open another
-  // post while it runs. The error, notice and input resets below are the open
-  // post's panel, so a job's outcome only goes there while its post is open.
-  const activePostIdRef = useRef(activePostId)
-  useEffect(() => {
-    activePostIdRef.current = activePostId
-  })
-  const isPostOpen = (postId: string) => activePostIdRef.current === postId
-  const reportMediaError = (postId: string, message: string) => {
-    if (isPostOpen(postId)) setMediaError(message)
-    else showToast({ type: 'error', title: 'Media update failed', message })
-  }
-
-  // A generation's outcome, applied on whichever page is open when it lands,
-  // and once: the page that started it and a remounted one both wait on it.
-  const appliedOutcomeRef = useRef<MediaJobOutcome | null>(null)
-  const finishMediaJob = (outcome: MediaJobOutcome) => {
-    if (appliedOutcomeRef.current === outcome) return
-    appliedOutcomeRef.current = outcome
-    const { postId } = outcome
-    if (outcome.status === 'created') {
-      setPosts(prev =>
-        prev.map(p => (p.id === postId ? { ...p, media: outcome.media } : p))
-      )
-    } else if (outcome.status === 'failed') {
-      reportMediaError(postId, outcome.error)
-    } else if (isPostOpen(postId)) {
-      setMediaNotice('Generation stopped. Edit your prompt and try again.')
-    }
-    generationAbortRef.current = null
-    setIsGenerating(false)
-    setIsMediaLoading(false)
-    setMediaPostId(null)
-    setMediaLoadingText('')
-  }
-
-  useEffect(() => {
-    mountedRef.current = true
-    const untrack = trackPostsPage()
-    // A generation started before this page opened lands here when it ends,
-    // even if it ended between the first render and now.
-    void resumedJob?.done.then(outcome => {
-      if (mountedRef.current) finishMediaJob(outcome)
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set())
+  const markBusy = (ids: string[], busy: boolean) =>
+    setBusyIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (busy) next.add(id)
+        else next.delete(id)
+      }
+      return next
     })
-    return () => {
-      mountedRef.current = false
-      untrack()
+
+  const removePosts = (ids: string[]) => {
+    const gone = new Set(ids)
+    // Older posts load from after the cursor post, which must still exist:
+    // the nearest earlier post still loaded takes its place.
+    if (nextCursor && gone.has(nextCursor)) {
+      const index = posts.findIndex(p => p.id === nextCursor)
+      const before = posts.slice(0, index).reverse().find(p => !gone.has(p.id))
+      setNextCursor(before?.id ?? '')
     }
-    // Once per page: the job and its outcome outlive any one render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // The preview and Copy show the saved post, which is what Approve saves (the
-  // preview is hidden while the editor is open). Showing unsaved edits there
-  // meant copying or approving one text while another was stored.
-  // Copy, like Approve, takes the saved comment, in the form the preview shows.
-  const copyableComment = toPlatformText(activePost?.firstComment, activePlatform)
-  // What the format calls it: "First comment" on LinkedIn, "Reply" on X.
-  const activeCommentLabel = activePost
-    ? FORMATS[formatOf(activePost.formatId)].commentLabel
-    : 'First comment'
-
-  // Asks before unsaved edits are thrown away. True when it is fine to go on.
-  const confirmDiscardEdits = (what: string) =>
-    !hasUnsavedEdits ||
-    window.confirm(
-      `You have unsaved changes to this post. ${what} will discard them. Continue?`
-    )
-
-  // Closing or reloading the tab, and following a link to another page, would
-  // drop the edits without a word.
-  useEffect(() => {
-    if (!hasUnsavedEdits) return
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    const onLinkClick = (event: MouseEvent) => {
-      const link = (event.target as HTMLElement | null)?.closest?.('a[href]')
-      if (!(link instanceof HTMLAnchorElement)) return
-      if (link.target === '_blank' || event.metaKey || event.ctrlKey) return
-      const url = new URL(link.href, window.location.href)
-      if (url.origin !== window.location.origin) return
-      if (url.pathname === window.location.pathname) return
-      if (!window.confirm('You have unsaved changes to this post. Leave this page and discard them?')) {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    document.addEventListener('click', onLinkClick, true)
-    return () => {
-      window.removeEventListener('beforeunload', onBeforeUnload)
-      document.removeEventListener('click', onLinkClick, true)
-    }
-  }, [hasUnsavedEdits])
-
-  // The file input's own value is DOM state, so it is cleared after render.
-  useEffect(() => {
-    if (referenceInputRef.current) referenceInputRef.current.value = ''
-  }, [activePostId])
-
-  // The page ships media metadata without the image bytes; load them for the
-  // post being viewed. Only a successful load is kept: a failure is recorded
-  // separately (the media record still exists, so it is not "Text only") and
-  // is retried when the post is reopened or Retry is pressed.
-  const activeMediaId = activePost?.media?.id
-  const activeMediaHasImage = Boolean(activePost?.media?.imageUrl)
-  const activeImageLoadError =
-    activeMediaId && imageLoadFailure?.mediaId === activeMediaId
-      ? imageLoadFailure.error
-      : null
-  const isActiveImageLoading =
-    Boolean(activeMediaId) && !activeMediaHasImage && !activeImageLoadError
-
-  useEffect(() => {
-    if (!activeMediaId || activeMediaHasImage) return
-
-    let cancelled = false
-    // A GET, not a Server Action: the browser runs actions one at a time, so
-    // the image would wait behind an approve or an edit made just before.
-    void fetch(`/api/media/${activeMediaId}`)
-      .then(async (response): Promise<
-        { success: true; imageUrl: string } | { success: false; error: string }
-      > => {
-        const body = await response.json().catch(() => null)
-        return body?.success && typeof body.imageUrl === 'string'
-          ? { success: true, imageUrl: body.imageUrl }
-          : { success: false, error: body?.error || 'Failed to load image' }
-      })
-      .catch((err: any) => ({
-        success: false as const,
-        error: err?.message || 'Failed to load image'
-      }))
-      .then(res => {
-        if (res.success) {
-          // Keyed by media id, so a load that finishes after the reviewer moved
-          // on still fills in the right post, and never a replaced image.
-          setPosts(prev =>
-            prev.map(p =>
-              p.media && p.media.id === activeMediaId && !p.media.imageUrl
-                ? { ...p, media: { ...p.media, imageUrl: res.imageUrl } }
-                : p
-            )
-          )
-        } else if (!cancelled) {
-          setImageLoadFailure({ mediaId: activeMediaId, error: res.error })
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeMediaId, activeMediaHasImage, imageLoadAttempt])
-
-  const retryImageLoad = () => {
-    setImageLoadFailure(null)
-    setImageLoadAttempt(n => n + 1)
+    setPosts(list => list.filter(p => !gone.has(p.id)))
+    setDeletedCount(n => n + ids.length)
   }
 
-  // Collapsible drawers (all collapsed by default as requested)
-  const [showQualityChecks, setShowQualityChecks] = useState(false)
-  const [showAdvancedMedia, setShowAdvancedMedia] = useState(false)
-
-  const currentIndex = filteredPosts.findIndex(p => p.id === activePost?.id)
-  const totalPosts = filteredPosts.length
-
-  const clearReferenceImage = () => {
-    setReferenceImage(null)
-    setReferenceImageName(null)
-    setReferenceMediaId(null)
-    if (referenceInputRef.current) referenceInputRef.current.value = ''
-  }
-
-  // Opening a post is all it takes: the buffer resets above.
-  const handleSelectPost = (post: PostDetail) => {
-    if (post.id !== activePost?.id && !confirmDiscardEdits('Opening another post')) {
-      return
-    }
-    if (post.id !== keptPostId) setKeptPostId(null)
-    setSelectedPostId(post.id)
-  }
-
-  const handlePrevPost = () => {
-    const prev = filteredPosts[currentIndex - 1]
-    if (currentIndex > 0 && prev) {
-      handleSelectPost(prev)
-    }
-  }
-
-  const handleNextPost = () => {
-    const next = filteredPosts[currentIndex + 1]
-    if (currentIndex < totalPosts - 1 && next) {
-      handleSelectPost(next)
-    }
-  }
-
-  // The queue rail shows a page at a time: the page holding the open post, so
-  // J/K, auto-advance and a new filter carry the page along. Picking a page
-  // opens its first post.
-  const queuePage =
-    currentIndex >= 0 ? Math.floor(currentIndex / PAGE_SIZE) + 1 : 1
-  const { rows: queuePagePosts, pageInfo: queuePageInfo } = paginate(
-    filteredPosts,
-    queuePage,
-    PAGE_SIZE
-  )
-  const openQueuePage = (page: number) => {
-    const first = filteredPosts[(page - 1) * PAGE_SIZE]
-    if (first) handleSelectPost(first)
-  }
-  // A new page opens at its top, or at its open post when K stepped back
-  // onto its last one.
-  const queueListRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const list = queueListRef.current
-    if (!list) return
-    list.scrollTo({ top: 0 })
-    list
-      .querySelector<HTMLElement>('[aria-current="true"]')
-      ?.scrollIntoView({ block: 'nearest' })
-  }, [queuePage])
-
-  // Reviewing a long queue is mostly next/next/next, so keep hands on the keyboard.
-  // An Effect Event always sees the latest queue and edits, so the listener is
-  // added once rather than again on every render.
-  const onQueueKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return
-
-    const target = event.target as HTMLElement | null
-    const tag = target?.tagName
-    if (
-      tag === 'INPUT' ||
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT' ||
-      target?.isContentEditable
-    ) {
-      return
-    }
-
-    // Letters match with Shift or Caps Lock on too.
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
-    if (key === 'j' || key === 'ArrowDown') {
-      event.preventDefault()
-      handleNextPost()
-    } else if (key === 'k' || key === 'ArrowUp') {
-      event.preventDefault()
-      handlePrevPost()
-    }
-  })
-  useEffect(() => {
-    window.addEventListener('keydown', onQueueKeyDown)
-    return () => window.removeEventListener('keydown', onQueueKeyDown)
-  }, [])
-
-  const loadReferenceImage = (file: File) => {
-    const fileError = validateReferenceFile(file)
-    if (fileError) {
-      setMediaError(fileError)
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = String(reader.result)
-      // The MIME type only says what the file claims to be; decoding proves it is
-      // a real image and tells us whether it is large enough to guide an HD edit.
-      // `window.Image` because `Image` in this module is next/image.
-      const probe = new window.Image()
-      probe.onload = () => {
-        const sizeError = validateReferenceDimensions(
-          probe.naturalWidth,
-          probe.naturalHeight
-        )
-        if (sizeError) {
-          setMediaError(sizeError)
-          return
-        }
-        setReferenceImage(dataUrl)
-        setReferenceImageName(file.name || 'Pasted image')
-        setReferenceMediaId(null)
-        setMediaError(null)
-      }
-      probe.onerror = () =>
-        setMediaError('That image could not be read — the file may be corrupt.')
-      probe.src = dataUrl
-    }
-    reader.onerror = () => setMediaError('Could not read that image file.')
-    reader.readAsDataURL(file)
-  }
-
-  // Lets the user iterate on the image already attached to the post ("make this
-  // warmer") without downloading and re-uploading it.
-  const useCurrentImageAsReference = () => {
-    const current = activePost?.media?.imageUrl
-    if (!current) return
-    setReferenceImage(current)
-    setReferenceImageName(`Current image (v${activePost?.media?.version || 1})`)
-    setReferenceMediaId(activePost?.media?.id ?? null)
-    setMediaError(null)
-  }
-
-  const clearPromptAndReference = () => {
-    setImagePrompt('')
-    clearReferenceImage()
-    setMediaError(null)
-  }
-
-  const handleReferencePaste = (
-    e: React.ClipboardEvent<HTMLTextAreaElement>
-  ) => {
-    const image = Array.from(e.clipboardData.files).find(f =>
-      f.type.startsWith('image/')
-    )
-    if (image) {
-      e.preventDefault()
-      loadReferenceImage(image)
-    }
-  }
-
-  // Every generation goes through the media route, so the Stop button can
-  // end it, and runs as a job, so leaving the page does not.
-  const startMediaRequest = async (
-    postId: string,
-    loadingText: string,
-    payload: Record<string, unknown>
-  ) => {
-    const controller = new AbortController()
-    generationAbortRef.current = controller
-    setIsMediaLoading(true)
-    setMediaPostId(postId)
-    setIsGenerating(true)
-    setMediaLoadingText(loadingText)
-    setMediaError(null)
-    setMediaNotice(null)
-    setMediaMenuOpen(false)
-
-    // A website or background changed just before is saved first, so the
-    // new image already has it.
-    const settingsSaved = settingsSaveRef.current
-    const body = JSON.stringify(payload)
-    const job = startMediaJob(
-      { postId, loadingText, controller },
-      async (): Promise<MediaJobOutcome> => {
-        try {
-          await settingsSaved
-          const response = await fetch(`/api/posts/${postId}/media`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body,
-            signal: controller.signal
-          })
-          const res = await response.json().catch(() => null)
-          return response.ok && res?.success && res.media
-            ? { postId, status: 'created', media: res.media }
-            : {
-                postId,
-                status: 'failed',
-                error:
-                  res?.error ||
-                  `Image generation failed (HTTP ${response.status}).`
-              }
-        } catch (err: any) {
-          if (controller.signal.aborted) return { postId, status: 'stopped' }
-          return {
-            postId,
-            status: 'failed',
-            error: err?.message
-              ? `Could not reach the server: ${err.message}`
-              : 'Could not reach the server. Check your connection and try again.'
-          }
-        }
-      }
-    )
-    const outcome = await job.done
-    if (mountedRef.current) finishMediaJob(outcome)
-  }
-
-  const handleGenerateFromPrompt = async () => {
-    if (!activePost || isMediaLoading) return
-
-    // With a reference image the post supplies the subject, so words are optional.
-    const guidedByReference = Boolean(referenceImage) && !referenceMediaId
-    const promptProblem =
-      guidedByReference && !imagePrompt.trim()
-        ? null
-        : validateImagePrompt(imagePrompt)
-    if (promptProblem) {
-      setMediaError(promptProblem)
-      return
-    }
-
-    await startMediaRequest(
-      activePost.id,
-      guidedByReference
-        ? 'Rebuilding your reference with this post’s words and your brand colours, then checking it against the reference. This takes a minute or two.'
-        : referenceMediaId
-          ? 'Editing your image in HD...'
-          : 'Generating your image in HD...',
-      {
-        prompt: imagePrompt.trim(),
-        ...(referenceMediaId
-          ? { referenceMediaId }
-          : { referenceImages: referenceImage ? [referenceImage] : undefined })
-      }
-    )
-  }
-
-  // Aborting the fetch closes the request, which cancels generation server-side.
-  const handleStopGeneration = () => {
-    generationAbortRef.current?.abort()
-  }
-
-  // The server reads the saved post, writes an image brief from its text and
-  // generates from that. A typed prompt is passed along as direction only.
-  const handleGenerateFromPost = async () => {
-    if (!activePost || isMediaLoading) return
-    await startMediaRequest(
-      activePost.id,
-      'Designing a visual from the post, then checking its text and branding. This takes about a minute.',
-      {
-        fromPost: true,
-        prompt: imagePrompt.trim(),
-        visualType: imageType ?? undefined
-      }
-    )
-  }
-
-  // Shown as chosen at once. Saves run one after another, so the last one
-  // wins; a failed one puts back what the server last confirmed, unless a
-  // later save has already replaced it.
-  const handleSaveImageSettings = (next: {
-    pattern: BackgroundPattern
-    footer: string
-  }) => {
-    setImagePattern(next.pattern)
-    setSavedFooter(next.footer)
-    const seq = ++settingsSeqRef.current
-    const save = settingsSaveRef.current.then(async () => {
-      const res = await saveImageSettings({
-        backgroundPattern: next.pattern,
-        footerText: next.footer || null
-      }).catch((err: any) => ({
-        success: false as const,
-        error: err?.message || 'Could not save the image settings.'
-      }))
-      if (res.success) {
-        confirmedSettingsRef.current = next
-      } else {
-        if (seq === settingsSeqRef.current) {
-          setImagePattern(confirmedSettingsRef.current.pattern)
-          setSavedFooter(confirmedSettingsRef.current.footer)
-        }
-        showToast({
-          type: 'error',
-          title: 'Image settings not saved',
-          message: res.error
-        })
-      }
-    })
-    settingsSaveRef.current = save
-    return save
-  }
-
-  const handleDownloadMedia = async () => {
-    const imageUrl = activePost?.media?.imageUrl
-    if (!imageUrl) return
-
-    const extension =
-      imageUrl.startsWith('data:') && imageUrl.includes('/')
-        ? imageUrl.slice(imageUrl.indexOf('/') + 1, imageUrl.indexOf(';')) ||
-          'png'
-        : 'png'
-    const fileName = `${activePlatform.id}-visual-v${activePost?.media?.version || 1}.${extension}`
-
-    let objectUrl: string | null = null
+  const copyPostText = async (post: PostDetail) => {
     try {
-      let href = imageUrl
-      if (!imageUrl.startsWith('data:')) {
-        const res = await fetch(imageUrl)
-        if (!res.ok) throw new Error(`Image responded with ${res.status}`)
-        objectUrl = URL.createObjectURL(await res.blob())
-        href = objectUrl
-      }
-
-      const link = document.createElement('a')
-      link.href = href
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
+      await navigator.clipboard.writeText(postTextOf(post))
+      showToast({ type: 'success', title: 'Post copied' })
     } catch {
-      // Remote hosts can block cross-origin reads; open the asset so it can be saved manually.
-      window.open(imageUrl, '_blank', 'noopener,noreferrer')
-    } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }
-
-  const handleSearchStockMedia = async () => {
-    if (!activePost || isMediaLoading) return
-    const queryProblem = validateStockQuery(stockSearchQuery)
-    if (queryProblem) {
-      setMediaError(queryProblem)
-      return
-    }
-    const postId = activePost.id
-    setIsMediaLoading(true)
-    setMediaPostId(postId)
-    setMediaLoadingText('Searching royalty-free stock imagery...')
-    setMediaError(null)
-
-    try {
-      markDataChanged()
-      const res = await regeneratePostMediaAction(postId, {
-        mode: 'stock',
-        customPrompt: stockSearchQuery.trim() || undefined
-      })
-      if (res.success && res.media) {
-        setPosts(prev =>
-          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
-        )
-        if (isPostOpen(postId)) {
-          setShowStockInput(false)
-          setStockSearchQuery('')
-        }
-      } else {
-        reportMediaError(postId, res.error || 'Failed to search stock visual')
-      }
-    } catch (err: any) {
-      reportMediaError(postId, err?.message || 'Failed to search stock visual')
-    } finally {
-      setIsMediaLoading(false)
-      setMediaPostId(null)
-      setMediaLoadingText('')
-    }
-  }
-
-  const handleApplyCustomUrl = async () => {
-    if (!activePost || isMediaLoading) return
-    const url = customImageUrl.trim()
-    const urlProblem = validateImageUrl(url)
-    if (urlProblem) {
-      setMediaError(urlProblem)
-      return
-    }
-
-    const postId = activePost.id
-    setIsMediaLoading(true)
-    setMediaPostId(postId)
-    setMediaLoadingText('Attaching custom image...')
-    setMediaError(null)
-
-    try {
-      markDataChanged()
-      const res = await updatePostMediaAction(postId, {
-        mode: 'stock',
-        imageUrl: url,
-        altText: `Custom visual for: ${activePost.hook.slice(0, 50)}`
-      })
-
-      if (res.success && res.media) {
-        setPosts(prev =>
-          prev.map(p => (p.id === postId ? { ...p, media: res.media } : p))
-        )
-        if (isPostOpen(postId)) {
-          setShowCustomUrlInput(false)
-          setCustomImageUrl('')
-        }
-      } else {
-        reportMediaError(postId, res.error || 'Failed to update image URL')
-      }
-    } catch (err: any) {
-      reportMediaError(postId, err?.message || 'Failed to update image URL')
-    } finally {
-      setIsMediaLoading(false)
-      setMediaPostId(null)
-      setMediaLoadingText('')
-    }
-  }
-
-  const handleRemoveMedia = async () => {
-    if (!activePost) return
-    const postId = activePost.id
-    setIsMediaLoading(true)
-    setMediaPostId(postId)
-    setMediaLoadingText('Switching to text-only mode...')
-    setMediaError(null)
-    setMediaMenuOpen(false)
-
-    try {
-      markDataChanged()
-      const res = await removePostMediaAction(postId)
-      if (res.success) {
-        setPosts(prev =>
-          prev.map(p => (p.id === postId ? { ...p, media: null } : p))
-        )
-      } else {
-        reportMediaError(postId, res.error || 'Failed to remove media')
-      }
-    } catch (err: any) {
-      reportMediaError(postId, err?.message || 'Failed to remove media')
-    } finally {
-      setIsMediaLoading(false)
-      setMediaPostId(null)
-      setMediaLoadingText('')
-    }
-  }
-
-  const handleSwapHook = async (newHook: string) => {
-    // The buffer takes the swap too, so it does not read as an unsaved edit.
-    // This post's editor: if another post opens meanwhile, it has its own.
-    const editor = editorRef.current
-    const previousHook = editor?.draft.hook ?? ''
-    editor?.setHook(newHook)
-    if (!activePost) return
-    setIsSaving(true)
-    try {
-      markDataChanged()
-      const res = await updateDraft(activePost.id, { hook: newHook })
-      if (!res.success) throw new Error(res.error)
-      setPosts(prev =>
-        prev.map(p =>
-          p.id === activePost.id
-            ? {
-                ...p,
-                hook: newHook,
-                charCount: res.charCount ?? p.charCount,
-                lintFindings: res.lintFindings ?? p.lintFindings,
-                // The text it replaced is now an earlier version.
-                versionCount: (p.versionCount ?? 0) + (res.versionSaved ? 1 : 0)
-              }
-            : p
-        )
-      )
-    } catch (err: any) {
-      // Undo the swap unless the hook has been edited meanwhile.
-      editor?.setHook(current => (current === newHook ? previousHook : current))
       showToast({
         type: 'error',
-        title: 'Hook not saved',
-        message: err?.message || 'Failed to update draft'
+        title: 'Copy failed',
+        message: 'Open the post and copy it from there.'
       })
-    } finally {
-      setIsSaving(false)
     }
   }
 
-  // A new version of a post's text (regenerate, restore). Its image is
-  // unchanged, so the one already loaded is kept.
-  const replacePostText = (updated: PostDetail) =>
-    setPosts(prev =>
-      prev.map(p =>
-        p.id === updated.id
-          ? { ...updated, media: p.media, mediaFailure: p.mediaFailure }
-          : p
-      )
-    )
-
-  const handleSaveEdits = async (draft: PostDraft) => {
-    if (!activePost) return
-    setIsSaving(true)
+  const toggleHidden = async (post: PostDetail) => {
+    const hide = !post.hiddenAt
+    markBusy([post.id], true)
     try {
       markDataChanged()
-      const res = await updateDraft(activePost.id, {
-        hook: draft.hook,
-        body: draft.body,
-        firstComment: draft.firstComment,
-        ...(draft.caption !== undefined ? { caption: draft.caption } : {}),
-        ...(draft.title !== undefined ? { title: draft.title } : {})
-      })
-      if (!res.success) throw new Error(res.error)
-      setPosts(prev =>
-        prev.map(p =>
-          p.id === activePost.id
-            ? {
-                ...p,
-                hook: draft.hook,
-                body: draft.body,
-                firstComment: draft.firstComment,
-                ...(draft.caption !== undefined || draft.title !== undefined
-                  ? {
-                      payload: {
-                        ...(p.payload ?? {}),
-                        ...(draft.caption !== undefined ? { caption: draft.caption } : {}),
-                        ...(draft.title !== undefined ? { title: draft.title } : {})
-                      }
-                    }
-                  : {}),
-                // From the save: counted and checked on the text as stored.
-                charCount: res.charCount ?? p.charCount,
-                lintFindings: res.lintFindings ?? p.lintFindings,
-                // The text it replaced is now an earlier version.
-                versionCount: (p.versionCount ?? 0) + (res.versionSaved ? 1 : 0)
-              }
-            : p
-        )
-      )
-      setIsEditing(false)
-    } catch (err: any) {
-      // The editor stays open with the edits, so nothing typed is lost.
-      showToast({
-        type: 'error',
-        title: 'Changes not saved',
-        message: err?.message || 'Failed to update draft'
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const copyTextToClipboard = async (text: string): Promise<boolean> => {
-    // 1. Try modern clipboard API (HTTPS or localhost)
-    if (
-      typeof navigator !== 'undefined' &&
-      navigator.clipboard &&
-      typeof navigator.clipboard.writeText === 'function'
-    ) {
-      try {
-        await navigator.clipboard.writeText(text)
-        return true
-      } catch (e) {
-        console.warn('navigator.clipboard.writeText failed, using fallback:', e)
-      }
-    }
-
-    // 2. Fallback using temporary textarea (HTTP / LAN IP / permissions restricted)
-    if (typeof document !== 'undefined') {
-      try {
-        const textarea = document.createElement('textarea')
-        textarea.value = text
-        textarea.setAttribute('readonly', '')
-        textarea.style.position = 'fixed'
-        textarea.style.left = '-9999px'
-        textarea.style.top = '-9999px'
-        textarea.style.opacity = '0'
-        document.body.appendChild(textarea)
-        textarea.focus()
-        textarea.select()
-        const successful = document.execCommand('copy')
-        document.body.removeChild(textarea)
-        if (successful) return true
-      } catch (err) {
-        console.error('execCommand copy fallback failed:', err)
-      }
-    }
-
-    return false
-  }
-
-  const handleCopyPost = async () => {
-    if (!activePost) return
-    // Always the saved post: that is the text Approve stores, so what is copied
-    // is what is approved. Edits not saved yet are not part of either. It is
-    // the text the preview shows, with the hook in Unicode bold; the first
-    // comment has its own button, since it is pasted after publishing.
-    const format = formatOf(activePost.formatId)
-    // LinkedIn copies as its platform formats it (a bold hook); every other
-    // format as plain text in its own shape.
-    const success = await copyTextToClipboard(
-      format === 'linkedin.post'
-        ? platformPostText(activePost, activePlatform)
-        : copyText(format, activePost)
-    )
-    if (success) {
-      setCopiedPost(true)
-      showToast({
-        type: 'success',
-        title: 'Post Copied!',
-        message: hasUnsavedEdits
-          ? 'Copied the saved post. Your unsaved edits are not included; save them to copy them.'
-          : format === 'linkedin.post'
-            ? `Post copied${activePlatform.unicodeBoldHook ? ' with a bold hook' : ''}, ready to paste into ${activePlatform.name}.`
-            : FORMATS[format].structure === 'thread'
-              ? 'Thread copied. Paste each post, separated by the "---" lines, in order.'
-              : FORMATS[format].structure === 'script'
-                ? 'Script and caption copied.'
-                : `Copied, ready to paste into ${PLATFORMS[FORMATS[format].platform].label}.`
-      })
-      setTimeout(() => setCopiedPost(false), 2500)
-    } else {
-      showToast({
-        type: 'error',
-        title: 'Copy Failed',
-        message: 'Could not write to clipboard. Please select text manually.'
-      })
-    }
-  }
-
-  const handleCopyComment = async () => {
-    if (!copyableComment) return
-    const success = await copyTextToClipboard(copyableComment)
-    if (success) {
-      const savedComment = activePost?.firstComment || ''
-      const draftComment = editorRef.current?.draft.firstComment ?? savedComment
-      setCopiedComment(true)
-      showToast({
-        type: 'success',
-        title: 'Comment Copied!',
-        message:
-          draftComment !== savedComment
-            ? 'Copied the saved comment. Your unsaved edits are not included; save them to copy them.'
-            : `${activeCommentLabel} copied, ready to paste under the published post.`
-      })
-      setTimeout(() => setCopiedComment(false), 2500)
-    } else {
-      showToast({
-        type: 'error',
-        title: 'Copy Failed',
-        message: 'Could not write comment to clipboard.'
-      })
-    }
-  }
-
-  const handleCopyImage = async () => {
-    const imageUrl = activePost?.media?.imageUrl
-    if (!imageUrl) return
-
-    try {
-      let blob: Blob
-      if (imageUrl.startsWith('data:')) {
-        try {
-          const res = await fetch(imageUrl)
-          blob = await res.blob()
-        } catch {
-          const parts = imageUrl.split(',')
-          const header = parts[0] || ''
-          const base64Data = parts[1] || ''
-          const mime = header.match(/:(.*?);/)?.[1] || 'image/png'
-          const bstr = atob(base64Data)
-          let n = bstr.length
-          const u8arr = new Uint8Array(n)
-          while (n--) {
-            u8arr[n] = bstr.charCodeAt(n)
-          }
-          blob = new Blob([u8arr], { type: mime })
-        }
-      } else {
-        const res = await fetch(imageUrl)
-        blob = await res.blob()
-      }
-
-      // ClipboardItem requires PNG format
-      let pngBlob = blob
-      if (blob.type !== 'image/png') {
-        const img = new window.Image()
-        img.crossOrigin = 'anonymous'
-        await new Promise((resolve, reject) => {
-          img.onload = resolve
-          img.onerror = reject
-          img.src = imageUrl
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = img.naturalWidth || img.width
-        canvas.height = img.naturalHeight || img.height
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0)
-        pngBlob = await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob(
-            b => (b ? resolve(b) : reject(new Error('Canvas toBlob failed'))),
-            'image/png'
-          )
-        })
-      }
-
-      if (
-        typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        typeof ClipboardItem !== 'undefined' &&
-        typeof navigator.clipboard.write === 'function'
-      ) {
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': pngBlob })
-        ])
-        setCopiedImage(true)
-        showToast({
-          type: 'success',
-          title: 'Image Copied!',
-          message:
-            `Image copied to clipboard! You can paste (Ctrl+V) directly into ${activePlatform.name}.`
-        })
-        setTimeout(() => setCopiedImage(false), 2500)
-        return
-      }
-
-      // Browser doesn't support direct image clipboard write: download image instead
-      await handleDownloadMedia()
-      showToast({
-        type: 'info',
-        title: 'Image Downloaded',
-        message:
-          'Clipboard image copy is unsupported in this browser. Image downloaded instead.'
-      })
-    } catch (err) {
-      console.warn(
-        'Failed to copy image to clipboard, downloading instead:',
-        err
-      )
-      await handleDownloadMedia()
-      showToast({
-        type: 'info',
-        title: 'Image Downloaded',
-        message:
-          'Direct clipboard image copy unavailable. Image downloaded so you can attach it.'
-      })
-    }
-  }
-
-  /**
-   * A status change keeps the post open: it stays in the queue under its new
-   * status (see keptPostId), so the reviewer is not moved to another post.
-   * Rejecting also cancels its scheduled publication (rejectDraft does that on
-   * the server), so it shows here as cancelled too.
-   */
-  const refreshQueueAfterStatusChange = (id: string, status: string) => {
-    setPosts(list =>
-      list.map(p => {
-        if (p.id !== id) return p
-        const publication =
-          status === 'rejected' && p.publication?.status === 'scheduled'
-            ? {
-                ...p.publication,
-                status: 'cancelled' as const,
-                error: 'Cancelled because the post was rejected.',
-                errorCode: 'not_approved' as const
-              }
-            : p.publication
-        return { ...p, status, publication }
-      })
-    )
-    setKeptPostId(id)
-    setSelectedPostId(id)
-  }
-
-  const handleApprove = async () => {
-    if (!activePost || activePost.status === 'approved') return
-    if (hasUnsavedEdits) {
-      showToast({
-        type: 'error',
-        title: 'Unsaved changes',
-        message:
-          'Save or cancel your edits before approving this post. Use Edit Post Text to reopen them.'
-      })
-      return
-    }
-    const approvedId = activePost.id
-    setIsSaving(true)
-    try {
-      markDataChanged()
-      const res = await approveDraft(approvedId)
-      if (!res.success) throw new Error(res.error)
-      refreshQueueAfterStatusChange(approvedId, 'approved')
-      showToast({
-        type: 'success',
-        title: 'Post approved'
-      })
-    } catch (err: any) {
-      showToast({
-        type: 'error',
-        title: 'Post not approved',
-        message: err?.message || 'Failed to approve draft'
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const cancelPostRejection = () => {
-    setShowPostRejection(false)
-    setPostRejectionReason('')
-  }
-
-  const handleReject = async (reason?: string) => {
-    if (!activePost || activePublished) return
-    if (!confirmDiscardEdits('Rejecting this post')) return
-    const rejectedId = activePost.id
-
-    setIsSaving(true)
-    try {
-      markDataChanged()
-      const res = await rejectDraft(rejectedId, reason?.trim() || undefined)
-      if (!res.success) throw new Error(res.error)
-      refreshQueueAfterStatusChange(rejectedId, 'rejected')
-      showToast({
-        type: 'success',
-        title: 'Post rejected',
-        message: reason?.trim()
-          ? 'Your reason was saved to shape future drafts.'
-          : undefined
-      })
-    } catch (err: any) {
-      showToast({
-        type: 'error',
-        title: 'Post not rejected',
-        message: err?.message || 'Failed to reject draft'
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  /** The post to open once `id` leaves the queue: the next one, or else the one before. */
-  const neighbourOf = (id: string) => {
-    const i = filteredPosts.findIndex(p => p.id === id)
-    return (filteredPosts[i + 1] ?? filteredPosts[i - 1])?.id ?? ''
-  }
-
-  /**
-   * Hiding takes the post out of the queue, and showing it again takes it out
-   * of Hidden: either way it leaves the list on screen, so the next one opens.
-   */
-  const handleToggleHidden = async () => {
-    if (!activePost) return
-    const id = activePost.id
-    const hide = !activePost.hiddenAt
-    if (
-      !confirmDiscardEdits(
-        hide ? 'Hiding this post' : 'Putting this post back in the queue'
-      )
-    ) {
-      return
-    }
-    const next = neighbourOf(id)
-    setIsSaving(true)
-    try {
-      markDataChanged()
-      const res = await setDraftHidden(id, hide)
+      const res = await setDraftHidden(post.id, hide)
       if (!res.success) throw new Error(res.error)
       setPosts(list =>
-        list.map(p => (p.id === id ? { ...p, hiddenAt: res.hiddenAt } : p))
+        list.map(p => (p.id === post.id ? { ...p, hiddenAt: res.hiddenAt } : p))
       )
-      setKeptPostId(kept => (kept === id ? null : kept))
-      setSelectedPostId(next)
       showToast({
         type: 'success',
-        title: hide ? 'Post hidden' : 'Post back in the queue',
-        message: hide ? 'Find it with the Hidden button by the search.' : undefined
+        title: hide ? 'Post hidden' : 'Post unhidden',
+        message: hide ? 'Turn on Hidden posts in Filters to see it.' : undefined
       })
     } catch (err: any) {
       showToast({
         type: 'error',
-        title: hide ? 'Post not hidden' : 'Post not put back',
+        title: hide ? 'Post not hidden' : 'Post not unhidden',
         message: err?.message || 'Failed to update the post'
       })
     } finally {
-      setIsSaving(false)
+      markBusy([post.id], false)
     }
   }
 
-  // Published and still on its platform, whose API can delete it: the Delete
-  // dialog offers to remove it there too.
-  const canDeleteFromPlatform =
-    activePost?.publication?.status === 'published' &&
-    !activePost.publication.deletedAt &&
-    activePost.publication.canDelete
-
-  const openDeleteDialog = () => {
-    if (!confirmDiscardEdits('Deleting this post')) return
-    setAlsoDeleteFromPlatform(false)
-    setShowDeleteDialog(true)
-  }
-
-  const handleDelete = async () => {
-    if (!activePost) return
-    const id = activePost.id
-    const alsoFromPlatform = canDeleteFromPlatform && alsoDeleteFromPlatform
-    const next = neighbourOf(id)
+  // Delete (card menu) asks first.
+  const [pendingDelete, setPendingDelete] = useState<string[] | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const confirmDelete = async () => {
+    if (!pendingDelete) return
+    const ids = pendingDelete
     setIsDeleting(true)
-    try {
-      markDataChanged()
-      const res = await deleteDraft(id, { alsoFromPlatform })
-      if (!res.success) throw new Error(res.error)
-      // Older posts load from after the cursor post, which must still exist:
-      // the post loaded just before it takes its place.
-      if (nextCursor === id) {
-        setNextCursor(posts[posts.findIndex(p => p.id === id) - 1]?.id ?? null)
-      }
-      setPosts(list => list.filter(p => p.id !== id))
-      setDeletedCount(n => n + 1)
-      setKeptPostId(kept => (kept === id ? null : kept))
-      setSelectedPostId(next)
-      setShowDeleteDialog(false)
+    markBusy(ids, true)
+    markDataChanged()
+    const deleted: string[] = []
+    const failures: string[] = []
+    for (const id of ids) {
+      const res = await deleteDraft(id, { alsoFromPlatform: false }).catch(
+        (err: any) => ({ success: false as const, error: err?.message as string })
+      )
+      if (res.success) deleted.push(id)
+      else failures.push(res.error || 'Failed to delete the post')
+    }
+    removePosts(deleted)
+    markBusy(ids, false)
+    setIsDeleting(false)
+    setPendingDelete(null)
+    if (deleted.length > 0) {
       showToast({
         type: 'success',
-        title: 'Post deleted',
-        message: res.deletedFromPlatform
-          ? `It was deleted from ${activePlatform.name} too.`
-          : undefined
+        title:
+          deleted.length === 1 ? 'Post deleted' : `${deleted.length} posts deleted`
       })
-    } catch (err: any) {
-      // The dialog stays open, so the platform choice can be changed.
+    }
+    if (failures.length > 0) {
       showToast({
         type: 'error',
-        title: 'Post not deleted',
-        message: err?.message || 'Failed to delete the post'
+        title:
+          failures.length === 1
+            ? 'A post was not deleted'
+            : `${failures.length} posts were not deleted`,
+        message: failures[0]
       })
-      // It may have left the platform before the rest failed.
-      if (alsoFromPlatform) {
-        const publication = await getPostPublication(id).catch(() => null)
-        if (publication) {
-          setPosts(list =>
-            list.map(p => (p.id === id ? { ...p, publication } : p))
-          )
-        }
-      }
-    } finally {
-      setIsDeleting(false)
     }
   }
 
-  // Decision shortcuts, alongside J/K navigation. Declared after the handlers
-  // they call; like J/K, an Effect Event, so the listener is added once.
-  const onDecisionKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return
-    const target = event.target as HTMLElement | null
-    const tag = target?.tagName
-    if (
-      tag === 'INPUT' ||
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT' ||
-      target?.isContentEditable
-    ) {
-      return
-    }
-    if (!activePost || isSaving) return
-
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
-    if (key === 'a') {
-      event.preventDefault()
-      void handleApprove()
-    } else if (key === 'r') {
-      // A rejected post has no Reject button; R would reject it again and
-      // store a second feedback row.
-      if (activePost.status === 'rejected' || activePublished) return
-      event.preventDefault()
-      setShowPostRejection(true)
-    } else if (key === 'c') {
-      event.preventDefault()
-      void handleCopyPost()
-    } else if (event.key === 'Escape' && showPostRejection) {
-      cancelPostRejection()
-    }
+  const cardProps = (post: PostDetail) => ({
+    post,
+    href: postHref(post.id),
+    mounted: hasMounted,
+    busy: busyIds.has(post.id),
+    onCopy: () => void copyPostText(post),
+    onToggleHidden: () => void toggleHidden(post),
+    onDelete: () => setPendingDelete([post.id])
   })
-  useEffect(() => {
-    window.addEventListener('keydown', onDecisionKeyDown)
-    return () => window.removeEventListener('keydown', onDecisionKeyDown)
-  }, [])
 
-  const authorInitials = activePost?.accountName
-    ? initialsOf(activePost.accountName)
-    : 'IN'
-
-  // Offered beside the hook in the preview: the AI's own opening first, so a
-  // swap can always be undone, then the alternates. Duplicates are dropped.
-  const hookOptions = [
-    ...(activePost?.originalHook
-      ? [{ label: 'Original', content: activePost.originalHook }]
-      : []),
-    ...(activePost?.variants || [])
-      .filter(v => v.variantType === 'hook')
-      .map((v, i) => ({ label: `Alternate ${i + 1}`, content: v.content }))
-  ].filter(
-    (option, i, all) =>
-      all.findIndex(o => o.content.trim() === option.content.trim()) === i
-  )
-  const lintFindings = activePost?.lintFindings || []
-  const passedLintCount = lintFindings.filter(f => f.passed).length
-  const totalLintCount = lintFindings.length
-  const hasLintIssues = totalLintCount > 0 && passedLintCount < totalLintCount
-
-  // Buttons stay disabled until their input is valid; messages only appear once the
-  // user has typed something, so an untouched field is not shown as an error.
-  const promptError = validateImagePrompt(imagePrompt)
-  const showPromptError = imagePrompt.trim().length > 0 && promptError !== null
-  // With nothing typed, the main button designs an image from the post text
-  // (a new concept each time) instead of sitting disabled waiting for a prompt.
-  const regenerateFromPost = !imagePrompt.trim() && !referenceImage
-  // An uploaded reference also designs from the post, so a prompt is optional
-  // and unsaved edits would make the image miss the post.
-  const guidedByReference = Boolean(referenceImage) && !referenceMediaId
-  const mainButtonBlocked = regenerateFromPost
-    ? isEditing
-    : guidedByReference
-      ? isEditing || showPromptError
-      : promptError !== null
-  const stockQueryError = validateStockQuery(stockSearchQuery)
-  const customUrlError = validateImageUrl(customImageUrl)
-
-  // Relevance is scored against the post thesis, which only makes sense for media
-  // the pipeline derived itself. An image the reviewer asked for, searched for or
-  // supplied was never scored, so it gets a badge saying so instead of a verdict.
-  const isUserPromptedMedia = isReviewerChosenSource(activePost?.media?.source)
-  const reviewerMediaLabel = reviewerSourceLabel(activePost?.media?.source)
-
-  const relevanceInfo = getUserFacingRelevance(
-    activePost?.media?.imageUrl && !isUserPromptedMedia
-      ? {
-          relevanceScore: activePost.media.relevanceScore,
-          issues: activePost.media.issues
-        }
-      : null
-  )
-
-  const mediaHeadline =
-    activePost?.media?.mediaBrief?.textOverlay?.headline ||
-    activePost?.media?.mediaBrief?.primaryConcept ||
-    activePost?.media?.altText ||
-    'Editorial visual asset'
-
-  // Search and filters sit in the queue card on wide screens; below lg the
-  // queue is hidden, so they are shown above the post instead.
-  const filterControls = (
-    <div className="flex items-center gap-2">
-      <div className="relative min-w-0 flex-1">
-        <Search className="text-muted pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={e => changeSearch(e.target.value)}
-          placeholder="Search posts…"
-          className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border py-1.5 pr-3 pl-8 text-xs outline-none"
-        />
-      </div>
-
-      <PostFiltersMenu
-        value={{
-          status: statusFilter,
-          from: dateFrom,
-          to: dateTo,
-          sort: sortOrder
-        }}
-        statusCounts={statusCounts}
-        today={hasMounted ? toDayInput(new Date()) : undefined}
-        onApply={next =>
-          writeParams(
-            {
-              status: next.status === 'all' ? null : next.status,
-              from: next.from || null,
-              to: next.to || null,
-              sort: next.sort === 'newest' ? null : next.sort
-            },
-            'push'
-          )
-        }
-      />
-
-      {/* Hidden posts in one click (the Hidden status filter); again to go
-          back to the queue. */}
-      <button
-        type="button"
-        onClick={() =>
-          writeParams(
-            { status: statusFilter === 'hidden' ? null : 'hidden' },
-            'push'
-          )
-        }
-        aria-pressed={statusFilter === 'hidden'}
-        title={
-          statusFilter === 'hidden' ? 'Back to the queue' : 'View hidden posts'
-        }
-        className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-          statusFilter === 'hidden'
-            ? 'border-accent bg-accent/10 text-accent'
-            : 'border-border bg-surface text-foreground hover:bg-surface-hover'
-        }`}
-      >
-        <EyeOff className="h-3.5 w-3.5" />
-        Hidden
-        <span className="tabular-nums opacity-70">{statusCounts.hidden}</span>
-      </button>
-    </div>
-  )
-
-  // Opens another version of the idea (Versions, above the preview). A
-  // filter never hides it: it stays in the queue while open (keptPostId),
-  // and a platform filter makes way for it.
-  const openVersion = (postId: string) => {
-    const target = posts.find(p => p.id === postId)
-    if (!target || postId === activePost?.id) return
-    if (!confirmDiscardEdits('Opening another version')) return
-    if (formatFilter && formatOf(target.formatId) !== formatFilter) {
-      setFormatFilter(null)
-    }
-    setKeptPostId(postId)
-    setSelectedPostId(postId)
+  const shownFrom = pageInfo.total === 0 ? 0 : (pageInfo.page - 1) * LIST_PAGE_SIZE + 1
+  const shownTo = Math.min(pageInfo.page * LIST_PAGE_SIZE, pageInfo.total)
+  const goToPage = (next: number) => {
+    writeParams({ page: next > 1 ? String(next) : null }, 'push')
+    scrollRef.current?.scrollTo({ top: 0 })
   }
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  // A version just written (Add a version) opens at once, for review.
-  const handleVersionAdded = (added: PostDetail) => {
-    setPosts(prev => [
-      added,
-      // Its siblings now have one more format between them.
-      ...prev.map(p =>
-        p.ideaId && p.ideaId === added.ideaId
-          ? { ...p, ideaFormats: added.ideaFormats }
-          : p
-      )
-    ])
-    if (formatFilter && formatOf(added.formatId) !== formatFilter) {
-      setFormatFilter(null)
-    }
-    setKeptPostId(added.id)
-    setSelectedPostId(added.id)
-  }
-
-  // The decision bar: where you are in the queue, approve / reject, then
-  // previous / next. It sits in the page header's strip, so it is always in
-  // view while the post scrolls.
-  const reviewBar = activePost ? (
-    <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-3">
-      {/* One row: where you are in the queue, the decision, then
-          previous / next. The two wrappers below are `contents`, so
-          their children sit directly in this row. */}
-      <div className="contents">
-        <div className="flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden whitespace-nowrap sm:min-w-fit">
-          <span className="text-foreground text-xs font-semibold tabular-nums">
-            Post {currentIndex + 1} of {totalPosts}
-          </span>
-          <span className="text-muted text-xs">•</span>
-          <span className="text-muted truncate text-xs font-medium">
-            {activePost.accountName}
-          </span>
-          <span className="text-muted text-xs">•</span>
-          <span
-            className="text-muted text-xs"
-            title={formatAbsoluteDateTime(activePost.createdAt)}
-          >
-            Drafted{' '}
-            {hasMounted
-              ? formatRelativeDate(activePost.createdAt)
-              : formatAbsoluteDate(activePost.createdAt)}
-          </span>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-              activePost.status === 'approved'
-                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                : activePost.status === 'rejected'
-                  ? 'border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                  : 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-            }`}
-          >
-            {activePost.status === 'approved'
-              ? '✓ Approved'
-              : activePost.status === 'rejected'
-                ? 'Rejected'
-                : 'Awaiting review'}
-          </span>
-          {activePost.hiddenAt && (
-            <span className="border-border bg-surface-hover text-muted rounded-full border px-2.5 py-0.5 text-[11px] font-semibold">
-              Hidden
-            </span>
-          )}
-        </div>
-
-        <div className="order-last flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void handleToggleHidden()}
-            aria-label={activePost.hiddenAt ? 'Put back in the queue' : 'Hide post'}
-            title={
-              activePost.hiddenAt
-                ? 'Put back in the queue'
-                : 'Hide from the queue (the Hidden button shows it again)'
-            }
-            className="border-border text-muted hover:bg-surface-hover hover:text-foreground flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {activePost.hiddenAt ? (
-              <Eye className="h-4 w-4" />
-            ) : (
-              <EyeOff className="h-4 w-4" />
-            )}
-          </button>
-          <button
-            type="button"
-            // The server refuses too: it may be on its platform any moment.
-            disabled={isSaving || activePost.publication?.status === 'publishing'}
-            onClick={openDeleteDialog}
-            aria-label="Delete post"
-            title={
-              activePost.publication?.status === 'publishing'
-                ? `It is being published to ${activePlatform.name} right now`
-                : 'Delete post'
-            }
-            className="border-border text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-rose-400"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-          <span aria-hidden className="bg-border mx-1 h-5 w-px" />
-          <button
-            type="button"
-            disabled={currentIndex <= 0}
-            onClick={handlePrevPost}
-            aria-label="Previous post"
-            title="Previous post (K)"
-            className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            disabled={currentIndex >= totalPosts - 1}
-            onClick={handleNextPost}
-            aria-label="Next post"
-            title="Next post (J)"
-            className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* The one thing to do next, which depends on the post's state */}
-      <div className="contents">
-        {showPostRejection ? (
-          <form
-            onSubmit={e => {
-              e.preventDefault()
-              void handleReject(postRejectionReason)
-            }}
-            // The review shortcuts listen on window and skip text fields, so
-            // Escape in the reason never reached them; it is handled here, and
-            // keys pressed on the form's buttons must not approve or move on.
-            onKeyDown={e => {
-              e.stopPropagation()
-              if (e.key === 'Escape') cancelPostRejection()
-            }}
-            className="flex min-w-0 flex-wrap items-center gap-2"
-          >
-            <input
-              type="text"
-              autoFocus
-              value={postRejectionReason}
-              onChange={e => setPostRejectionReason(e.target.value)}
-              placeholder="Why reject? Optional, helps future drafts"
-              className="border-border bg-surface text-foreground placeholder:text-muted w-72 max-w-full min-w-0 rounded-lg border px-3 py-2 text-xs outline-none focus:border-rose-500"
-            />
-            <div className="flex items-center justify-end gap-2">
+  // Older posts load where they will show: after the last page newest-first,
+  // before the first page oldest-first.
+  const loadOlder =
+    nextCursor !== null &&
+    (sortOrder === 'oldest'
+      ? pageInfo.page === 1
+      : pageInfo.page === pageInfo.pageCount) ? (
+            <div className="flex flex-col items-center gap-2 pt-2 text-center">
+              <p className="text-muted text-[11px] leading-relaxed">
+                Search and filters cover the posts loaded so far.
+              </p>
               <button
                 type="button"
-                onClick={cancelPostRejection}
-                className="text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-medium"
+                onClick={() => void loadMore()}
+                disabled={isLoadingMore}
+                className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="h-8 cursor-pointer rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
-              >
-                {isSaving ? 'Rejecting…' : 'Reject'}
+                {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Load older posts
               </button>
             </div>
-          </form>
-        ) : activePost.status === 'approved' ? (
-          <div className="flex shrink-0 items-center gap-3">
-            
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCopyPost}
-                className="bg-accent text-background flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-opacity hover:opacity-90"
-              >
-                {copiedPost ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-                {copiedPost ? 'Post copied' : '1. Copy post'}
-                <kbd className="ml-1.5 rounded border border-white/30 px-1 py-px font-mono text-[10px] font-normal opacity-80">
-                  C
-                </kbd>
-              </button>
-              {copyableComment ? (
-                <button
-                  type="button"
-                  onClick={handleCopyComment}
-                  className="border-border text-foreground hover:bg-surface-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
-                >
-                  {copiedComment ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <MessageSquare className="h-3.5 w-3.5" />
-                  )}
-                  {copiedComment
-                    ? `${activeCommentLabel} copied`
-                    : `2. Copy ${activeCommentLabel.toLowerCase()}`}
-                </button>
-              ) : (
-                <span className="text-muted text-[11px]">
-                  No {activeCommentLabel.toLowerCase()}
-                </span>
-              )}
-              {!activePublished && (
-                <button
-                  type="button"
-                  onClick={() => setShowPostRejection(true)}
-                  className="text-muted h-8 cursor-pointer px-2 text-[11px] hover:text-rose-600 dark:hover:text-rose-400"
-                >
-                  Reject instead
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="flex shrink-0 items-center gap-3">
-           
-            <div className="flex items-center gap-2">
-              {activePost.status !== 'rejected' && (
-                <button
-                  type="button"
-                  onClick={() => setShowPostRejection(true)}
-                  disabled={isSaving}
-                  className="border-border text-muted flex h-8 cursor-pointer items-center rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
-                >
-                  Reject
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={isSaving}
-                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-60"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {isSaving
-                  ? 'Saving…'
-                  : activePost.status === 'rejected'
-                    ? 'Approve instead'
-                    : 'Approve'}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  ) : null
+    ) : null
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      <PageHeader
-        title="Post Review & Approval"
-        description={`Reviewing drafts for ${identity.name} · @${identity.handle}`}
-        bottomContent={reviewBar}
-        actions={
-          // Publishing the open post, in the header beside the theme button
-          // (Publish now and Schedule need its platform set up and connected).
-          // Only for formats the app can publish: a Reel or a video script is
-          // copied out by hand.
-          activePost?.status === 'approved' &&
-          canPublishFormat(activePost.platform, formatOf(activePost.formatId)) ? (
-            <PublishControls
-              key={activePost.id}
-              platform={activePost.platform}
-              formatId={formatOf(activePost.formatId)}
-              postId={activePost.id}
-              postedAt={activePost.postedAt ?? null}
-              publication={activePost.publication}
-              onChange={publication => {
-                const id = activePost.id
-                setPosts(prev =>
-                  prev.map(p => (p.id === id ? { ...p, publication } : p))
-                )
-              }}
-            />
-          ) : undefined
-        }
-      />
-
-      {showDeleteDialog && activePost && (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {pendingDelete && (
         <ConfirmDialog
-          title="Delete this post?"
+          title={
+            pendingDelete.length === 1
+              ? 'Delete this post?'
+              : `Delete ${pendingDelete.length} posts?`
+          }
           description={
             <>
-              It is removed from the app for good, with its image and
-              alternates. This cannot be undone.
-              {activePost.publication?.status === 'scheduled' &&
-                ` Its scheduled ${activePlatform.name} publishing is cancelled.`}
-              {canDeleteFromPlatform && (
-                <label className="text-foreground mt-3 flex cursor-pointer items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={alsoDeleteFromPlatform}
-                    disabled={isDeleting}
-                    onChange={e => setAlsoDeleteFromPlatform(e.target.checked)}
-                    className="mt-1 accent-rose-600"
-                  />
-                  <span>
-                    Also delete it from {activePlatform.name}, with its
-                    reactions and comments. Otherwise it stays on{' '}
-                    {activePlatform.name}.
-                  </span>
-                </label>
-              )}
+              {pendingDelete.length === 1 ? 'It is' : 'They are'} removed from
+              the app for good, with images and alternates. This cannot be
+              undone. Scheduled publishing is cancelled; anything already
+              published stays on its platform.
             </>
           }
-          confirmLabel="Delete post"
+          confirmLabel={pendingDelete.length === 1 ? 'Delete post' : 'Delete posts'}
           pendingLabel="Deleting…"
           pending={isDeleting}
-          onCancel={() => setShowDeleteDialog(false)}
-          onConfirm={() => void handleDelete()}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => void confirmDelete()}
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* QUEUE RAIL — replaces a strip of "Post #1…#90" pills that carried no
-            information about the posts they pointed at. */}
-        <aside className="border-border bg-surface hidden w-[320px] shrink-0 flex-col border-r lg:flex">
-          <div className="border-border space-y-3 border-b px-4 pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <span className="text-foreground text-sm font-semibold tracking-tight">
-                  Queue
+      {/* Full width, 16px in from each side (24px from sm), like the bar. Sized by its own width (the
+          sidebar takes part of the screen), so the rows use @-variants. */}
+      <div
+        ref={scrollRef}
+        // Thumbnails find this as their scroll root (see Thumbnail).
+        data-posts-scroll
+        className="bg-background @container min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-6 sm:px-6"
+      >
+        <div className="space-y-4">
+          {/* TITLE: in the page itself (not the shared top bar), with the
+              mobile menu and theme buttons the bar would have drawn. */}
+          <div className="flex flex-col gap-4 pt-2 @3xl:flex-row @3xl:items-center @3xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-3">
+                <MobileNavButton />
+                <h1 className="text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
+                  Posts
+                </h1>
+                <span className="border-border bg-surface-hover text-foreground rounded-full border px-2.5 py-0.5 text-xs font-medium tabular-nums">
+                  {totalCount - deletedCount} total
                 </span>
-                <span className="bg-surface-hover text-muted rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums">
-                  {totalPosts}
+              </div>
+              <p className="text-muted mt-1.5 max-w-3xl text-[15px] leading-relaxed">
+                Posts drafted for 
+                <span className="text-foreground font-medium">
+                  {''} @{identity.handle}
                 </span>
-              </span>
-              {(hasActiveFilters || filterRunId) && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1 text-[11px] font-medium transition-colors"
-                >
-                  <X className="h-3 w-3" />
-                  Clear filters
-                </button>
-              )}
+                . Review, add media, and publish to your channels.
+              </p>
             </div>
-            {filterControls}
-            {postFormats.length > 1 && (
-              <div
-                role="group"
-                aria-label="Show posts for one platform"
-                className="mt-2 flex flex-wrap gap-1"
-              >
-                {[null, ...postFormats].map(option => (
-                  <button
-                    key={option ?? 'all'}
-                    type="button"
-                    aria-pressed={formatFilter === option}
-                    onClick={() => setFormatFilter(option)}
-                    className={`h-6 cursor-pointer rounded-full border px-2.5 text-[11px] font-medium transition-colors ${
-                      formatFilter === option
-                        ? 'border-accent/40 bg-accent/10 text-foreground'
-                        : 'border-border text-muted hover:text-foreground'
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Link
+              href="/ideas"
+              title="Posts are drafted from ideas: approve one to draft its post"
+              className="bg-accent text-background hover:bg-accent-hover flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Create Post</span>
+            </Link>
+              <ThemeToggle />
+            </div>
+          </div>
+
+          {/* PLATFORM TABS: one platform's posts, or every platform's */}
+          <div
+            role="group"
+            aria-label="Show posts for one platform"
+            className="border-border flex flex-wrap gap-2 border-b pb-3"
+          >
+            {[null, ...platformOptions].map(option => {
+              const active = platformFilter === option
+              const tint = option ? (PLATFORM_TINTS[option] ?? NEUTRAL_TINT) : NEUTRAL_TINT
+              const count = option
+                ? (platformCounts.counts.get(option) ?? 0)
+                : platformCounts.all
+              return (
+                <button
+                  key={option ?? 'all'}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setFilters({ platform: option })}
+                  className={`flex h-8 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors ${
+                    active
+                      ? `${tint.tab} text-foreground font-semibold`
+                      : 'border-border bg-surface text-muted hover:text-foreground hover:bg-surface-hover'
+                  }`}
+                >
+                  {option ? (
+                    <PlatformMark platform={option} colored className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <LayoutGrid className="h-4 w-4 shrink-0" />
+                  )}
+                  {option
+                    ? option === 'x'
+                      ? 'Twitter/X'
+                      : getPlatform(option).name
+                    : 'All platforms'}
+                  <span
+                    className={`rounded-md px-1.5 text-[11px] leading-5 font-medium tabular-nums ${
+                      active ? tint.count : 'bg-surface-hover text-muted'
                     }`}
                   >
-                    {option ? FORMATS[option].label : 'All formats'}
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* STATUS CHIPS, then search, Filters, Sort and the view */}
+          <div className="flex flex-col gap-3 @min-[60rem]:flex-row @min-[60rem]:items-center @min-[60rem]:justify-between">
+            <div
+              role="group"
+              aria-label="Show posts by status"
+              className="border-border bg-surface flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border p-1.5 @min-[60rem]:min-w-0"
+            >
+              {STATUS_FILTERS.map(status => {
+                const chip = STATUS_CHIPS[status]
+                const active = statusFilter === status
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() =>
+                      setFilters({
+                        status: status === 'all' ? null : status,
+                        // An older link's ?status=hidden stays in hidden mode.
+                        ...(searchParams.get('status') === 'hidden'
+                          ? { hidden: '1' }
+                          : {})
+                      })
+                    }
+                    className={`flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
+                      active
+                        ? chip.active
+                        : 'text-muted hover:text-foreground border-transparent'
+                    }`}
+                  >
+                    {chip.dot && (
+                      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${chip.dot}`} />
+                    )}
+                    {chip.label}
+                    <span
+                      className={`text-[11px] tabular-nums ${active ? 'opacity-80' : 'text-muted'}`}
+                    >
+                      {statusCounts[status]}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 @min-[60rem]:shrink-0 @min-[60rem]:flex-nowrap">
+              <div className="relative min-w-48 flex-1 @min-[60rem]:w-56 @min-[60rem]:flex-none">
+                <Search className="text-muted pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                <input
+                  ref={searchRef}
+                  type="search"
+                  value={searchQuery}
+                  onChange={e => changeSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Escape' && e.currentTarget.blur()}
+                  placeholder="Search posts..."
+                  aria-label="Search posts"
+                  className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent h-9 w-full rounded-lg border pr-14 pl-9 text-[13px] outline-none"
+                />
+                <kbd className="text-muted pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 font-sans text-[11px] @lg:block">
+                  {isMac ? '⌘K' : 'Ctrl K'}
+                </kbd>
+              </div>
+              <PostFiltersMenu
+                value={{ from: dateFrom, to: dateTo, hidden: showHidden }}
+                today={hasMounted ? toDayInput(new Date()) : undefined}
+                onApply={next =>
+                  setFilters({
+                    from: next.from || null,
+                    to: next.to || null,
+                    hidden: next.hidden ? '1' : null,
+                    // An older link's ?status=hidden goes with it.
+                    ...(searchParams.get('status') === 'hidden' ? { status: null } : {})
+                  })
+                }
+              />
+              <label className="border-border bg-surface text-muted focus-within:border-accent relative flex h-9 items-center gap-2 rounded-lg border pr-2.5 pl-3 text-[13px]">
+                Sort:
+                <select
+                  value={sortOrder}
+                  onChange={e =>
+                    setFilters({ sort: e.target.value === 'oldest' ? 'oldest' : null })
+                  }
+                  className="text-foreground cursor-pointer appearance-none bg-transparent pr-6 font-medium outline-none"
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+                <ChevronDown
+                  aria-hidden
+                  className="text-muted pointer-events-none absolute right-2.5 h-4 w-4"
+                />
+              </label>
+              <div
+                role="group"
+                aria-label="View"
+                className="border-border bg-surface flex h-9 items-center rounded-lg border p-0.5"
+              >
+                {(
+                  [
+                    { value: 'grid', label: 'Cards', Icon: LayoutGrid },
+                    { value: 'list', label: 'List', Icon: List }
+                  ] as const
+                ).map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={view === value}
+                    aria-label={`${label} view`}
+                    title={`${label} view`}
+                    onClick={() =>
+                      writeParams({ view: value === 'list' ? 'list' : null }, 'replace')
+                    }
+                    className={`flex h-full w-8 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                      view === value
+                        ? 'bg-surface-hover text-foreground'
+                        : 'text-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-
-          <div ref={queueListRef} className="flex-1 overflow-y-auto px-2 pb-3">
-            {filteredPosts.length === 0 ? (
-              <div className="flex flex-col items-center px-4 py-10 text-center">
-                <Search className="text-muted/60 mb-2 h-5 w-5" />
-                <p className="text-muted text-xs leading-relaxed">
-                  No posts match these filters.
-                </p>
-              </div>
-            ) : (
-              queuePagePosts.map((post, idx) => {
-                const isActive = post.id === activePost?.id
-                // Each page opens with its day, even one carried over.
-                const showBucket =
-                  idx === 0 ||
-                  dayKey(queuePagePosts[idx - 1]!.createdAt) !==
-                    dayKey(post.createdAt)
-                const errors = countLintErrors(post.lintFindings)
-                const status =
-                  post.status === 'approved'
-                    ? {
-                        label: 'Approved',
-                        dot: 'bg-emerald-500',
-                        text: 'text-emerald-700 dark:text-emerald-400'
-                      }
-                    : post.status === 'rejected'
-                      ? {
-                          label: 'Rejected',
-                          dot: 'bg-rose-500',
-                          text: 'text-rose-700 dark:text-rose-400'
-                        }
-                      : {
-                          label: 'In review',
-                          dot: 'bg-amber-500',
-                          text: 'text-amber-700 dark:text-amber-400'
-                        }
-
-                return (
-                  <div key={post.id}>
-                    {showBucket && (
-                      <div className="bg-surface/95 text-muted sticky top-0 z-10 flex items-center gap-2 px-2 pt-4 pb-2 text-[10px] font-semibold tracking-wider uppercase backdrop-blur">
-                        {bucketLabel(post.createdAt, hasMounted)}
-                        <span className="bg-border/70 h-px flex-1" />
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleSelectPost(post)}
-                      aria-current={isActive ? 'true' : undefined}
-                      title={post.accountName}
-                      className={`group relative mb-1 w-full cursor-pointer rounded-xl border px-3.5 py-3 text-left transition-all duration-150 ${
-                        isActive
-                          ? 'border-border bg-surface-hover/70 shadow-xs'
-                          : 'hover:bg-surface-hover/50 border-transparent'
-                      }`}
-                    >
-                      {isActive && (
-                        <span
-                          className="bg-accent absolute top-3 bottom-3 left-0 w-0.5 rounded-full"
-                          aria-hidden
-                        />
-                      )}
-
-                      <div className="mb-1.5 flex items-center gap-2">
-                        {showFormats && <FormatBadge formatId={post.formatId} />}
-                        <span
-                          className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${status.text}`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`}
-                            aria-hidden
-                          />
-                          {status.label}
-                        </span>
-                        <span
-                          className="text-muted ml-auto shrink-0 text-[10px] tabular-nums"
-                          title={formatAbsoluteDateTime(post.createdAt)}
-                        >
-                          {hasMounted
-                            ? formatRelativeDate(post.createdAt)
-                            : formatAbsoluteDate(post.createdAt)}
-                        </span>
-                      </div>
-
-                      {/* The hook is what actually identifies a post. */}
-                      <p
-                        className={`line-clamp-2 text-[13px] leading-snug tracking-tight ${
-                          isActive
-                            ? 'text-foreground font-medium'
-                            : 'text-foreground/75 group-hover:text-foreground'
-                        }`}
-                      >
-                        {post.hook}
-                      </p>
-
-                      <div className="text-muted mt-2 flex items-center gap-1.5 text-[10px]">
-                        <span className="tabular-nums">
-                          {FORMATS[formatOf(post.formatId)].structure === 'script'
-                            ? `~${videoScriptOf(post).seconds}s script`
-                            : `${post.charCount.toLocaleString()} chars`}
-                        </span>
-                        {post.media && (
-                          <span className="bg-surface-hover inline-flex items-center gap-1 rounded-md px-1.5 py-0.5">
-                            <ImageIcon className="h-2.5 w-2.5" />
-                            Media
-                          </span>
-                        )}
-                        {post.citationCount > 0 && (
-                          <span
-                            className="bg-surface-hover inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 tabular-nums"
-                            title={`${post.citationCount} source${post.citationCount === 1 ? '' : 's'}`}
-                          >
-                            <Quote className="h-2.5 w-2.5" />
-                            {post.citationCount}
-                          </span>
-                        )}
-                        {errors > 0 && (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-md bg-rose-500/10 px-1.5 py-0.5 font-medium text-rose-600 tabular-nums dark:text-rose-400"
-                            title={`${errors} lint error${errors === 1 ? '' : 's'}`}
-                          >
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            {errors}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  </div>
-                )
-              })
-            )}
-
-            {/* Older posts load after the last page of the ones loaded. */}
-            {nextCursor && queuePageInfo.page === queuePageInfo.pageCount && (
-              <div className="flex flex-col items-center gap-2 px-2 pt-4 pb-2 text-center">
-                <p className="text-muted text-[11px] leading-relaxed">
-                  Showing the newest {posts.length} of{' '}
-                  {totalCount - deletedCount} posts. Search
-                  and filters cover the posts loaded so far.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void loadMore()}
-                  disabled={isLoadingMore}
-                  className="border-border text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60"
-                >
-                  {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Load older posts
-                </button>
-              </div>
-            )}
-          </div>
-          {queuePageInfo.pageCount > 1 && (
-            <div className="border-border border-t px-3 py-2.5">
-              <Pagination
-                {...queuePageInfo}
-                noun="posts"
-                onPageChange={openQueuePage}
-              />
             </div>
-          )}
-        </aside>
-
-        <div className="bg-surface-hover/30 flex-1 overflow-y-auto p-4 sm:p-6 lg:py-8 lg:pr-2 lg:pl-8">
-          <div className="mx-auto max-w-6xl space-y-6 lg:mr-0 lg:max-w-none">
-          <div className="space-y-2 lg:hidden">
-            {filterControls}
-            {(hasActiveFilters || filterRunId) && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1 text-xs font-medium"
-              >
-                <X className="h-3 w-3" />
-                Clear filters
-              </button>
-            )}
           </div>
-          {filteredPosts.length === 0 || !activePost ? (
-            <div className="border-border bg-surface rounded-2xl border-2 border-dashed p-16 text-center">
+
+          {/* What is showing, and what is loaded */}
+          <div className="text-muted flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {showHidden && (
+                <>
+                  <span aria-hidden>•</span>
+                  <span className="text-foreground font-medium">Hidden posts</span>
+                </>
+              )}
+              {filterRunId && (
+                <>
+                  <span aria-hidden>•</span>
+                  <span className="text-foreground font-medium">One run</span>
+                </>
+              )}
+              {(hasActiveFilters || filterRunId) && (
+                <>
+                  <span aria-hidden>•</span>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="hover:text-foreground flex cursor-pointer items-center gap-1"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {filterRunId ? 'Show all posts' : 'Clear filters'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {sortOrder === 'oldest' && loadOlder}
+
+          {filteredPosts.length === 0 ? (
+            <div className="border-border bg-surface rounded-2xl border-2 border-dashed px-4 py-14 text-center">
               {posts.length === 0 ? (
                 <>
                   <FileCheck className="text-muted mx-auto mb-3 h-10 w-10" />
@@ -2578,13 +1095,12 @@ export function PostsClientInner({
                   <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
                     Approve concepts on the Ideas page to draft grounded posts.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => router.push('/ideas')}
-                    className="bg-accent text-background mt-4 h-8 cursor-pointer rounded-lg px-3.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
+                  <Link
+                    href="/ideas"
+                    className="bg-accent text-background mt-4 inline-flex h-8 items-center rounded-lg px-3.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
                   >
                     Go to Ideas
-                  </button>
+                  </Link>
                 </>
               ) : (
                 <>
@@ -2594,13 +1110,12 @@ export function PostsClientInner({
                   </h3>
                   <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
                     {posts.length} post{posts.length === 1 ? '' : 's'} exist in
-                    total. Widen the date range or clear the filters to see them.
+                    total. Pick another platform or status, or clear the
+                    filters to see them.
                   </p>
                   <button
                     type="button"
-                    onClick={() => {
-                      clearFilters()
-                    }}
+                    onClick={clearFilters}
                     className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 h-8 cursor-pointer rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
                   >
                     Clear all filters
@@ -2609,1148 +1124,620 @@ export function PostsClientInner({
               )}
             </div>
           ) : (
-            <>
-              {/* The idea's versions (LinkedIn, X…), and Add a version */}
-              <IdeaVersions
-                post={activePost}
-                posts={posts}
-                enabledFormats={enabledFormats}
-                disabled={isSaving}
-                onOpen={openVersion}
-                onAdded={handleVersionAdded}
-                className="mb-6"
-              />
-              {/* TWO-COLUMN REVIEW WORKSPACE (Left: Feed Preview; Right: Compact Review Panel) */}
-              <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
-                {/* ============================================================ */}
-                {/* LEFT COLUMN: PRIMARY VISUAL AREA (Platform Feed Preview)     */}
-                {/* ============================================================ */}
-                <div className="space-y-4 lg:col-span-7">
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-muted text-xs font-semibold tracking-wider uppercase">
-                      {formatOf(activePost.formatId) === 'linkedin.post'
-                        ? `${activePlatform.name} Feed Appearance`
-                        : previewTitle(activePost.formatId)}
-                    </span>
-                    <div className="flex items-center gap-4">
-                      <button
-                        type="button"
-                        onClick={handleCopyPost}
-                        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium"
-                      >
-                        {copiedPost ? (
-                          <Check className="h-3.5 w-3.5" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                        <span>
-                          {copiedPost
-                            ? 'Copied'
-                            : FORMATS[formatOf(activePost.formatId)].structure === 'script'
-                              ? 'Copy script'
-                              : 'Copy text'}
-                        </span>
-                      </button>
-                      <RegenerateControl
-                        key={activePost.id}
-                        post={activePost}
-                        disabled={isEditing || isSaving}
-                        onDone={replacePostText}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setIsEditing(!isEditing)}
-                        className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                        <span>
-                          {isEditing
-                            ? 'View Feed Preview'
-                            : FORMATS[formatOf(activePost.formatId)].structure === 'script'
-                              ? 'Edit Script'
-                              : 'Edit Post Text'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
-                  <PostTextEditor
-                    // A new version (regenerate, restore) starts the editor afresh.
-                    key={`${activePost.id}-${activePost.versionCount ?? 0}`}
-                    ref={editorRef}
-                    post={activePost}
-                    open={isEditing}
-                    saving={isSaving}
-                    onDirtyChange={setHasUnsavedEdits}
-                    onSave={handleSaveEdits}
-                    onClose={() => setIsEditing(false)}
-                  />
-                  {!isEditing && formatOf(activePost.formatId) !== 'linkedin.post' && (
-                    <div className="flex w-full justify-center">
-                      <VariantPreview
-                        key={activePost.id}
-                        formatId={formatOf(activePost.formatId)}
-                        authorName={activePost.accountName}
-                        authorInitials={authorInitials}
-                        hook={activePost.hook || ''}
-                        body={activePost.body || ''}
-                        cta={activePost.cta}
-                        hashtags={activePost.hashtags}
-                        firstComment={activePost.firstComment}
-                        payload={activePost.payload}
-                        mediaUrl={activePost.media?.imageUrl}
-                        mediaAltText={activePost.media?.altText}
-                        onMediaClick={
-                          activePost.media?.imageUrl
-                            ? () => setIsImageZoomOpen(true)
-                            : undefined
-                        }
-                      />
-                    </div>
-                  )}
-                  {!isEditing && formatOf(activePost.formatId) === 'linkedin.post' && (
-                    <div className="flex w-full justify-center">
-                      <PostPreview
-                        key={activePost.id}
-                        platform={activePlatform}
-                        authorName={activePost.accountName}
-                        authorHeadline={activePost.accountHeadline}
-                        authorInitials={authorInitials}
-                        hook={activePost.hook || ''}
-                        body={activePost.body || ''}
-                        cta={activePost.cta}
-                        hashtags={activePost.hashtags}
-                        mediaUrl={activePost.media?.imageUrl}
-                        mediaAltText={activePost.media?.altText}
-                        onMediaClick={
-                          activePost.media?.imageUrl
-                            ? () => setIsImageZoomOpen(true)
-                            : undefined
-                        }
-                        // Swapping the hook edits the post, so it's offered only while active.
-                        hookOptions={hookOptions.length > 1 ? hookOptions : []}
-                        onSelectHook={handleSwapHook}
-                        hookSwapDisabled={isSaving}
-                        firstComment={activePost.firstComment || ''}
-                        onCopyFirstComment={handleCopyComment}
-                        firstCommentCopied={copiedComment}
-                      />
-                    </div>
-                  )}
-                  {!isEditing && (
-                    <VersionHistory
-                      key={activePost.id}
-                      post={activePost}
-                      disabled={isSaving}
-                      onRestored={replacePostText}
-                    />
-                  )}
-                </div>
-
-                {/* ============================================================ */}
-                {/* RIGHT COLUMN: COMPACT REVIEW & CONTROL PANEL                 */}
-                {/* ============================================================ */}
-                <div className="space-y-4 lg:sticky lg:top-4 lg:col-span-5 lg:self-start">
-                  {/* Zoom viewer — portals to <body>, so its position here is irrelevant */}
-                  {isImageZoomOpen && activePost.media?.imageUrl && (
-                    <ImageLightbox
-                      src={activePost.media.imageUrl}
-                      alt={activePost.media.altText || 'Post image'}
-                      width={activePost.media.width || 2048}
-                      height={activePost.media.height || 1072}
-                      onClose={() => setIsImageZoomOpen(false)}
-                    />
-                  )}
-
-                  {/* ERROR BANNER */}
-                  {mediaError && (
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400">
-                      <span>{mediaError}</span>
-                      <button
-                        type="button"
-                        onClick={() => setMediaError(null)}
-                        className="cursor-pointer p-1 hover:text-rose-700 dark:hover:text-rose-300"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* NEUTRAL NOTICE (e.g. generation stopped) */}
-                  {mediaNotice && (
-                    <div className="border-border bg-surface-hover text-muted flex items-center justify-between gap-2 rounded-xl border p-3 text-xs">
-                      <span className="flex items-center gap-1.5">
-                        <Info className="h-3.5 w-3.5 shrink-0" />
-                        {mediaNotice}
+            <div className="space-y-7 pt-1">
+              {dayGroups.map((group, i) => {
+                const scheduled = group.posts.filter(
+                  p => p.publication?.status === 'scheduled'
+                ).length
+                return (
+                  <section key={`${group.key}-${i}`} className="space-y-3">
+                    <h2 className="flex items-center gap-3">
+                      <span className="text-foreground/80 text-[13px] font-semibold tracking-wider uppercase">
+                        {dayHeading(group.date, hasMounted)}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setMediaNotice(null)}
-                        className="hover:text-foreground cursor-pointer p-1"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* MEDIA RELEVANCE WARNING (if weak or unrelated). An image the
-                      reviewer described is not scored, but its lettering is. */}
-                  {activePost.media?.imageUrl &&
-                    (isUserPromptedMedia
-                      ? Boolean(activePost.media.issues?.length)
-                      : !relevanceInfo.isPass) && (
-                      <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
-                        <div className="flex items-start gap-2 font-medium text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                          <div>
-                            <p className="font-semibold">
-                              {activePost.media.issues?.length
-                                ? 'Check this image before posting'
-                                : 'Media may not match this post'}
-                            </p>
-                            {/* Every problem the checks found, not just the first: a
-                                misspelt label and a covered headline need different fixes. */}
-                            {activePost.media.issues?.length ? (
-                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                                {activePost.media.issues.map(issue => (
-                                  <li key={issue}>{issue}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                                {relevanceInfo.warningMessage ||
-                                  'Generated media appears to introduce a different topic.'}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            type="button"
-                            disabled={isMediaLoading}
-                            onClick={() => {
-                              setShowStockInput(true)
-                              setShowCustomUrlInput(false)
-                            }}
-                            className="border-border bg-surface hover:bg-surface-hover h-7 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
-                          >
-                            Change media
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isMediaLoading}
-                            onClick={handleRemoveMedia}
-                            className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
-                          >
-                            Use text only
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                  {/* 1. MEDIA: the image tools, or for a video format (a YouTube
-                      Short) the script panel: the app writes the script, it does
-                      not make the video. */}
-                  {FORMATS[formatOf(activePost.formatId)].structure === 'script' ? (
-                    <VideoScriptCard
-                      formatId={formatOf(activePost.formatId)}
-                      post={activePost}
-                      copy={copyTextToClipboard}
-                    />
-                  ) : (
-                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
-                        <ImageIcon className="text-accent h-3.5 w-3.5" />
-                        Media Attachment
+                      <span aria-hidden className="bg-border h-px flex-1" />
+                      <span className="text-muted text-xs font-normal">
+                        {group.posts.length} post{group.posts.length === 1 ? '' : 's'}
+                        {scheduled > 0 && ` · ${scheduled} scheduled`}
                       </span>
-                      {activePost.media?.imageUrl && isUserPromptedMedia ? (
-                        <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
-                          <Sparkles className="h-3 w-3" />
-                          {reviewerMediaLabel}
-                        </span>
-                      ) : activePost.media?.imageUrl ? null : activePost.media ? (
-                        <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                          {activeImageLoadError
-                            ? 'Image not loaded'
-                            : 'Loading image'}
-                        </span>
-                      ) : (
-                        <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                          Text Only
-                        </span>
-                      )}
-                    </div>
-
-                    {isMediaLoading && !mediaBusyHere && (
-                      <p className="text-muted text-[11px]">
-                        An image for another post is still being processed.
-                        Media actions here unlock when it finishes.
-                      </p>
-                    )}
-
-                    {mediaBusyHere ? (
-                      <div className="border-border bg-surface-hover/50 text-muted flex animate-pulse flex-col items-center justify-center space-y-2 rounded-xl border py-6 text-xs">
-                        <Loader2 className="text-accent h-5 w-5 animate-spin" />
-                        <p className="text-foreground font-medium">
-                          {mediaLoadingText || 'Processing media asset...'}
-                        </p>
+                    </h2>
+                    {view === 'grid' ? (
+                      // 1 to 5 columns by the list's own width
+                      <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2 @min-[54rem]:grid-cols-3 @min-[68rem]:grid-cols-4 @min-[92rem]:grid-cols-5">
+                        {group.posts.map(post => (
+                          <PostCard key={post.id} {...cardProps(post)} />
+                        ))}
                       </div>
-                    ) : activePost.media?.imageUrl ? (
-                      <div className="space-y-2">
-                        <div className="bg-surface-hover/40 border-border/60 flex items-start gap-3 rounded-xl border p-2.5">
-                          {/* Compact 64x64 thumbnail */}
-                          <button
-                            type="button"
-                            onClick={() => setIsImageZoomOpen(true)}
-                            title="Zoom image"
-                            className="border-border relative h-16 w-16 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border bg-neutral-900"
-                          >
-                            <Image
-                              src={activePost.media.imageUrl}
-                              alt={
-                                activePost.media.altText || 'Media thumbnail'
-                              }
-                              width={64}
-                              height={64}
-                              className="h-full w-full object-cover"
-                              unoptimized
-                            />
-                          </button>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <p className="text-foreground line-clamp-2 text-xs leading-snug font-medium">
-                              &quot;{mediaHeadline}&quot;
-                            </p>
-                            <div className="text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-                              <span>
-                                Media v{activePost.media.version || 1}
-                              </span>
-                              <span>•</span>
-                              {activePost.media.width &&
-                              activePost.media.height ? (
-                                <span className="text-foreground font-medium">
-                                  {activePost.media.width} ×{' '}
-                                  {activePost.media.height} HD
-                                </span>
-                              ) : (
-                                <span className="capitalize">
-                                  {activePost.media.mode.replace('_', ' ')}
-                                </span>
-                              )}
-                              {activePost.media.workflow === 'edit' && (
-                                <>
-                                  <span>•</span>
-                                  <span>edited</span>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2.5 pt-0.5">
-                              <button
-                                type="button"
-                                onClick={handleDownloadMedia}
-                                className="text-accent inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:underline"
-                              >
-                                <Download className="h-3 w-3" />
-                                Download image
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isMediaLoading}
-                                onClick={handleRemoveMedia}
-                                className="text-muted inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium hover:text-rose-600 dark:hover:text-rose-400"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsImageZoomOpen(true)}
-                          aria-label="Zoom image"
-                          className="group border-border relative block w-full cursor-zoom-in overflow-hidden rounded-xl border bg-neutral-900"
-                        >
-                          <Image
-                            src={activePost.media.imageUrl}
-                            alt={activePost.media.altText || 'Generated visual'}
-                            width={activePost.media.width || 2048}
-                            height={activePost.media.height || 1072}
-                            className="h-auto w-full object-contain"
-                            unoptimized
-                          />
-                          <span className="pointer-events-none absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                            <ZoomIn className="h-3 w-3" />
-                            Zoom
-                          </span>
-                        </button>
-                      </div>
-                    ) : isActiveImageLoading ? (
-                      <div className="border-border bg-surface-hover/50 text-muted flex items-center justify-center gap-2 rounded-xl border py-6 text-xs">
-                        <Loader2 className="text-accent h-4 w-4 animate-spin" />
-                        <span>Loading image...</span>
-                      </div>
-                    ) : activeImageLoadError ? (
-                      // The image is still attached; only this load failed.
-                      <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                        <span className="flex items-center gap-1.5">
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                          Couldn&apos;t load this post&apos;s image:{' '}
-                          {activeImageLoadError}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={retryImageLoad}
-                          className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
-                        >
-                          Retry
-                        </button>
-                      </div>
-                    ) : activePost.mediaFailure ? (
-                      // Drafting tried to make an image for this post and could not.
-                      <div className="flex items-start gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>
-                          The image for this post could not be made during
-                          drafting: {activePost.mediaFailure} Generate one below.
-                        </span>
-                      </div>
-                    ) : null}
-
-                    {/* Stock search input */}
-                    {showStockInput && !mediaBusyHere && (
-                      <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
-                        <label className="text-foreground block text-[11px] font-semibold">
-                          Search Stock Imagery
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={stockSearchQuery}
-                            onChange={e => setStockSearchQuery(e.target.value)}
-                            placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
-                            className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                            aria-invalid={
-                              stockSearchQuery.trim().length > 0 &&
-                              stockQueryError !== null
-                            }
-                            onKeyDown={e =>
-                              e.key === 'Enter' &&
-                              !stockQueryError &&
-                              handleSearchStockMedia()
-                            }
-                          />
-                          <button
-                            type="button"
-                            disabled={
-                              isMediaLoading || stockQueryError !== null
-                            }
-                            onClick={handleSearchStockMedia}
-                            className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Search
-                          </button>
-                        </div>
-                        {stockSearchQuery.trim().length > 0 &&
-                          stockQueryError && (
-                            <p className="text-[11px] text-rose-600 dark:text-rose-400">
-                              {stockQueryError}
-                            </p>
-                          )}
+                    ) : (
+                      <div className="border-border bg-surface divide-border divide-y rounded-2xl border">
+                        {group.posts.map(post => (
+                          <PostRow key={post.id} {...cardProps(post)} />
+                        ))}
                       </div>
                     )}
-
-                    {/* Custom URL input */}
-                    {showCustomUrlInput && !mediaBusyHere && (
-                      <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
-                        <label className="text-foreground block text-[11px] font-semibold">
-                          Direct Image URL
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="url"
-                            value={customImageUrl}
-                            onChange={e => setCustomImageUrl(e.target.value)}
-                            placeholder="https://images.unsplash.com/..."
-                            className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
-                            aria-invalid={
-                              customImageUrl.trim().length > 0 &&
-                              customUrlError !== null
-                            }
-                            onKeyDown={e =>
-                              e.key === 'Enter' &&
-                              !customUrlError &&
-                              handleApplyCustomUrl()
-                            }
-                          />
-                          <button
-                            type="button"
-                            disabled={isMediaLoading || customUrlError !== null}
-                            onClick={handleApplyCustomUrl}
-                            className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Apply
-                          </button>
-                        </div>
-                        {customImageUrl.trim().length > 0 && customUrlError && (
-                          <p className="text-[11px] text-rose-600 dark:text-rose-400">
-                            {customUrlError}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Optional image type for a design from the post; an
-                        edit of the current image keeps its own. */}
-                    {!mediaBusyHere && !referenceMediaId && (
-                      <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
-                        <div className="flex items-baseline justify-between">
-                          <span
-                            id="image-type-label"
-                            className="text-foreground text-[11px] font-semibold"
-                          >
-                            Image type
-                          </span>
-                          <span className="text-muted text-[10px]">
-                            Optional
-                          </span>
-                        </div>
-                        <div
-                          role="radiogroup"
-                          aria-labelledby="image-type-label"
-                          className="flex flex-wrap gap-1.5"
-                        >
-                          {IMAGE_TYPE_OPTIONS.map(option => {
-                            const active = imageType === option.value
-                            const Icon = option.icon
-                            return (
-                              <button
-                                key={option.label}
-                                type="button"
-                                role="radio"
-                                aria-checked={active}
-                                title={option.description}
-                                // A reference image sets the structure itself.
-                                disabled={Boolean(referenceImage)}
-                                onClick={() => setImageType(option.value)}
-                                className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                  active
-                                    ? 'border-accent bg-accent/10 text-foreground font-semibold'
-                                    : 'border-border bg-surface text-muted hover:text-foreground'
-                                }`}
-                              >
-                                <Icon
-                                  className={`h-3 w-3 ${active ? 'text-accent' : ''}`}
-                                />
-                                {option.label}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        <p className="text-muted text-[10px]">
-                          {referenceImage
-                            ? null
-                            : imagePrompt.trim()
-                              ? 'Generate image follows your description below. The type is used by "Generate from post text".'
-                              : IMAGE_TYPE_OPTIONS.find(o => o.value === imageType)
-                                  ?.description}
-                        </p>
-
-                        <div className="border-border space-y-2 border-t pt-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span
-                              id="image-background-label"
-                              className="text-foreground text-[11px] font-semibold"
-                            >
-                              Background
-                            </span>
-                            <div
-                              role="radiogroup"
-                              aria-labelledby="image-background-label"
-                              className="flex gap-1.5"
-                            >
-                              {BACKGROUND_PATTERNS.map(pattern => {
-                                const active = imagePattern === pattern.value
-                                return (
-                                  <button
-                                    key={pattern.value}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={active}
-                                    // A reference image brings its own background.
-                                    disabled={Boolean(referenceImage)}
-                                    onClick={() =>
-                                      !active &&
-                                      handleSaveImageSettings({
-                                        pattern: pattern.value,
-                                        footer: savedFooter
-                                      })
-                                    }
-                                    className={`inline-flex h-6 cursor-pointer items-center rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                      active
-                                        ? 'border-accent bg-accent/10 text-foreground font-semibold'
-                                        : 'border-border bg-surface text-muted hover:text-foreground'
-                                    }`}
-                                  >
-                                    {pattern.label}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <label
-                              htmlFor="image-footer"
-                              className="text-foreground shrink-0 text-[11px] font-semibold"
-                            >
-                              Website
-                            </label>
-                            <input
-                              id="image-footer"
-                              value={footerDraft}
-                              maxLength={FOOTER_MAX_LENGTH}
-                              placeholder={`e.g. ${brand.website || 'yourcompany.com'}`}
-                              onChange={e => setFooterDraft(e.target.value)}
-                              onBlur={() => {
-                                const footer = footerDraft.trim()
-                                setFooterDraft(footer)
-                                if (footer !== savedFooter)
-                                  handleSaveImageSettings({
-                                    pattern: imagePattern,
-                                    footer
-                                  })
-                              }}
-                              onKeyDown={e =>
-                                e.key === 'Enter' && e.currentTarget.blur()
-                              }
-                              className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-[11px] outline-none"
-                            />
-                          </div>
-                         
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Prompt-driven generation */}
-                    {!mediaBusyHere && (
-                      <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
-                        <div className="flex items-center justify-between">
-                          <label
-                            htmlFor="image-prompt"
-                            className="text-foreground block text-[11px] font-semibold"
-                          >
-                            {referenceMediaId
-                              ? 'Describe the change you want'
-                              : referenceImage
-                                ? 'Add direction (optional)'
-                                : 'Describe the image you want'}
-                          </label>
-                          {(imagePrompt || referenceImage) && (
-                            <button
-                              type="button"
-                              onClick={clearPromptAndReference}
-                              className="text-muted hover:text-foreground cursor-pointer text-[11px] font-medium"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-                        <textarea
-                          id="image-prompt"
-                          value={imagePrompt}
-                          onChange={e => setImagePrompt(e.target.value)}
-                          onPaste={handleReferencePaste}
-                          // Enter does what the main button does; Shift+Enter
-                          // starts a new line.
-                          onKeyDown={e => {
-                            if (
-                              e.key !== 'Enter' ||
-                              e.shiftKey ||
-                              e.nativeEvent.isComposing
-                            ) {
-                              return
-                            }
-                            e.preventDefault()
-                            if (isMediaLoading || mainButtonBlocked) return
-                            void (regenerateFromPost
-                              ? handleGenerateFromPost()
-                              : handleGenerateFromPrompt())
-                          }}
-                          rows={5}
-                          placeholder={
-                            referenceMediaId
-                              ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
-                              : referenceImage
-                                ? 'e.g. Show the moment the team first sees the results'
-                                : 'e.g. A minimal isometric illustration of two paths splitting, lots of negative space'
-                          }
-                          aria-invalid={showPromptError}
-                          aria-describedby="image-prompt-hint"
-                          className="border-border bg-surface text-foreground focus:border-accent w-full resize-y rounded-lg border px-2.5 py-2 text-xs outline-none aria-invalid:border-rose-500"
-                        />
-                        <div
-                          id="image-prompt-hint"
-                          className="flex items-start justify-between gap-2 text-[11px]"
-                        >
-                          {showPromptError ? (
-                            <span className="text-rose-600 dark:text-rose-400">
-                              {promptError}
-                            </span>
-                          ) : null}
-                          <span
-                            className={`shrink-0 tabular-nums ${
-                              countWords(imagePrompt) > IMAGE_PROMPT_MAX_WORDS
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : 'text-muted'
-                            }`}
-                          >
-                            {countWords(imagePrompt)}/{IMAGE_PROMPT_MAX_WORDS}{' '}
-                            words
-                          </span>
-                        </div>
-
-                        {referenceImage ? (
-                          <div className="border-border bg-surface flex items-center gap-2.5 rounded-lg border p-2">
-                            <Image
-                              src={referenceImage}
-                              alt="Reference"
-                              width={40}
-                              height={40}
-                              className="border-border h-10 w-10 shrink-0 rounded border object-cover"
-                              unoptimized
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-foreground truncate text-[11px] font-medium">
-                                {referenceImageName}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={clearReferenceImage}
-                              title="Remove reference image"
-                              className="text-muted hover:text-foreground cursor-pointer p-1"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <button
-                              type="button"
-                              onClick={() => referenceInputRef.current?.click()}
-                              className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium"
-                            >
-                              <Paperclip className="h-3 w-3" />
-                              Attach a reference image to copy its layout
-                            </button>
-                            {activePost.media?.imageUrl && (
-                              <button
-                                type="button"
-                                onClick={useCurrentImageAsReference}
-                                className="text-accent inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium hover:underline"
-                              >
-                                <ImageIcon className="h-3 w-3" />
-                                Use current image
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        <input
-                          ref={referenceInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={e => {
-                            const file = e.target.files?.[0]
-                            if (file) loadReferenceImage(file)
-                            // Reset so choosing the same file again still fires onChange.
-                            e.target.value = ''
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {/* Generation from the post's own text; with a reference
-                        attached, the main button already does this. */}
-                    {!mediaBusyHere && !guidedByReference && (
-                      <div className="space-y-1">
-                        <button
-                          type="button"
-                          disabled={isEditing || isMediaLoading}
-                          onClick={handleGenerateFromPost}
-                          title={
-                            isEditing
-                              ? 'Save your edits first so the image matches the post'
-                              : undefined
-                          }
-                          className="border-accent/40 text-accent hover:bg-accent/10 flex h-7 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>Generate from post text</span>
-                        </button>
-                        <p className="text-muted text-[10px]">
-                          {isEditing
-                            ? 'Save your edits first so the image matches the post.'
-                            : null}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Every generated image gets these; set on the Brand Theme page */}
-                    {!mediaBusyHere && (
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        {brand.hasLogo || brand.colors.length > 0 ? (
-                          <span className="text-muted inline-flex min-w-0 items-center gap-1.5">
-                            {brand.colors.map((color, i) => (
-                              <span
-                                   key={`${i}-${color}`}
-                                aria-hidden
-                                className="border-border h-3 w-3 shrink-0 rounded-full border"
-                                style={{ background: color }}
-                              />
-                            ))}
-                            <span className="truncate">
-                              {brand.hasLogo && brand.colors.length > 0
-                                ? 'Your logo and brand colours go on every image.'
-                                : brand.hasLogo
-                                  ? 'Your logo goes on every image.'
-                                  : 'Your brand colours go into every image.'}
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-muted">
-                            No logo or brand colours yet.
-                          </span>
-                        )}
-                        <Link
-                          href={BRAND_THEME_PATH}
-                          className="text-accent inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
-                        >
-                          <Palette className="h-3 w-3" />
-                          Brand Theme
-                        </Link>
-                      </div>
-                    )}
-
-                    {/* Primary & Secondary Media Actions */}
-                    <div className="flex items-center gap-2 pt-1">
-                      {isGenerating && mediaBusyHere ? (
-                        <button
-                          type="button"
-                          onClick={handleStopGeneration}
-                          className="flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
-                        >
-                          <CircleStop className="h-3.5 w-3.5" />
-                          <span>Stop generating</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isMediaLoading || mainButtonBlocked}
-                          onClick={
-                            regenerateFromPost
-                              ? handleGenerateFromPost
-                              : handleGenerateFromPrompt
-                          }
-                          title={
-                            (regenerateFromPost || guidedByReference) &&
-                            isEditing
-                              ? 'Save your edits first so the image matches the post'
-                              : undefined
-                          }
-                          className="bg-accent hover:bg-accent-hover text-background flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {mediaBusyHere ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Sparkles className="h-3.5 w-3.5" />
-                          )}
-                          <span>
-                            {activePost.media?.imageUrl
-                              ? 'Regenerate image'
-                              : 'Generate image'}
-                          </span>
-                        </button>
-                      )}
-
-                      <div className="relative">
-                        <button
-                          type="button"
-                          disabled={isMediaLoading}
-                          onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
-                          className="border-border hover:bg-surface-hover text-foreground flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <span>Change media</span>
-                          <ChevronDown className="text-muted h-3.5 w-3.5" />
-                        </button>
-
-                        {mediaMenuOpen && (
-                          <div className="border-border bg-surface animate-in fade-in zoom-in-95 absolute right-0 z-20 mt-1 w-52 rounded-xl border py-1.5 text-xs shadow-xl duration-100">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMediaMenuOpen(false)
-                                setShowStockInput(true)
-                                setShowCustomUrlInput(false)
-                              }}
-                              className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
-                            >
-                              <Search className="h-3.5 w-3.5 text-blue-500" />
-                              <span>Find stock image</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMediaMenuOpen(false)
-                                setShowCustomUrlInput(true)
-                                setShowStockInput(false)
-                              }}
-                              className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
-                              <span>Use custom image URL</span>
-                            </button>
-                            {activePost.media && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMediaMenuOpen(false)
-                                  handleRemoveMedia()
-                                }}
-                                className="border-border mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                <span>Text only (remove media)</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  )}
-
-                </div>
-              </div>
-            </>
+                  </section>
+                )
+              })}
+            </div>
           )}
-          </div>
+
+          {sortOrder !== 'oldest' && loadOlder}
+
+          {/* PAGINATION */}
+          {filteredPosts.length > 0 && (
+            <nav
+              aria-label="Pagination"
+              className="border-border mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-6"
+            >
+              <p className="text-muted text-[13px]">
+                Showing{' '}
+                <span className="text-foreground font-semibold tabular-nums">
+                  {shownFrom} to {shownTo}
+                </span>{' '}
+                of {pageInfo.total} total drafts &amp; posts
+              </p>
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  disabled={pageInfo.page <= 1}
+                  onClick={() => goToPage(pageInfo.page - 1)}
+                  aria-label="Previous page"
+                  className="border-border bg-surface text-foreground hover:bg-surface-hover disabled:text-muted flex h-8 cursor-pointer items-center rounded-lg border px-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
+                >
+                  <ChevronLeft className="h-4 w-4 sm:hidden" />
+                  <span className="hidden sm:inline">Previous</span>
+                </button>
+                {pageNumbers(pageInfo.page, pageInfo.pageCount).map((n, i) =>
+                  n === null ? (
+                    <span key={`gap-${i}`} aria-hidden className="text-muted w-5 text-center text-xs">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={n}
+                      type="button"
+                      aria-current={n === pageInfo.page ? 'page' : undefined}
+                      onClick={() => goToPage(n)}
+                      className={`h-8 min-w-8 cursor-pointer rounded-lg px-2 text-[13px] font-semibold tabular-nums transition-colors ${
+                        n === pageInfo.page
+                          ? 'bg-accent text-background'
+                          : 'border-border bg-surface text-foreground hover:bg-surface-hover border'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  )
+                )}
+                <button
+                  type="button"
+                  disabled={pageInfo.page >= pageInfo.pageCount}
+                  onClick={() => goToPage(pageInfo.page + 1)}
+                  aria-label="Next page"
+                  className="border-border bg-surface text-foreground hover:bg-surface-hover disabled:text-muted flex h-8 cursor-pointer items-center rounded-lg border px-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight className="h-4 w-4 sm:hidden" />
+                </button>
+              </div>
+            </nav>
+          )}
         </div>
+
       </div>
     </div>
   )
 }
 
-/** The text a reviewer edits on a post. */
-interface PostDraft {
-  hook: string
-  body: string
-  firstComment: string
-  /** A video's caption and (YouTube) title; absent for other formats. */
-  caption?: string
-  title?: string
-}
-
-/** What the page reads and sets in the editor's buffer from outside it. */
-interface PostTextEditorHandle {
-  draft: PostDraft
-  setHook: Dispatch<SetStateAction<string>>
+/** What a card or row can do; the list passes the same to both. */
+type PostItemProps = {
+  post: PostDetail
+  href: string
+  /** Relative wording ("6h ago") only once mounted, as it depends on now. */
+  mounted: boolean
+  busy: boolean
+  onCopy: () => void
+  onToggleHidden: () => void
+  onDelete: () => void
 }
 
 /**
- * The hook, body and first comment textareas, with the edit buffer they type
- * into. The buffer is kept here so a keystroke re-renders this, not the page.
- *
- * Keyed by post, so opening another post starts a fresh buffer. It stays
- * mounted while closed: closing it to look at the preview keeps the edits,
- * and they still count as unsaved.
+ * A post image, loaded once the card scrolls near the screen. The list ships
+ * without image bytes (they can be large), so each comes from the media
+ * route, once per image for the whole visit.
  */
-function PostTextEditor({
-  ref,
-  post,
-  open,
-  saving,
-  onDirtyChange,
-  onSave,
-  onClose
+const thumbnailCache = new Map<string, { at: number; url: Promise<string | null> }>()
+/** Signed image links expire; one is reused for this long. */
+const THUMBNAIL_TTL_MS = 45 * 60_000
+function loadThumbnail(mediaId: string): Promise<string | null> {
+  const cached = thumbnailCache.get(mediaId)
+  let pending =
+    cached && Date.now() - cached.at < THUMBNAIL_TTL_MS ? cached.url : null
+  if (!pending) {
+    pending = fetch(`/api/media/${mediaId}`)
+      .then(res => res.json())
+      .then(body =>
+        body?.success && typeof body.imageUrl === 'string' ? body.imageUrl : null
+      )
+      .catch(() => null)
+      .then(url => {
+        // A failure is tried again next time the image is shown.
+        if (!url) thumbnailCache.delete(mediaId)
+        return url
+      })
+    thumbnailCache.set(mediaId, { at: Date.now(), url: pending })
+  }
+  return pending
+}
+
+function Thumbnail({
+  mediaId,
+  alt,
+  className
 }: {
-  ref: Ref<PostTextEditorHandle>
-  post: PostDetail
-  open: boolean
-  saving: boolean
-  /** Called when the buffer starts or stops differing from the saved post. */
-  onDirtyChange: (dirty: boolean) => void
-  onSave: (draft: PostDraft) => void
-  onClose: () => void
+  mediaId: string
+  alt: string
+  className?: string
 }) {
-  const savedHook = post.hook || ''
-  const savedBody = post.body || ''
-  const savedComment = post.firstComment || ''
-  const formatId = formatOf(post.formatId)
-  const spec = FORMATS[formatId]
-  const isVideo = spec.structure === 'script'
-  const hasTitle = isVideo && spec.platform === 'youtube'
-  const savedCaption =
-    typeof post.payload?.caption === 'string' ? post.payload.caption : ''
-  const savedTitle =
-    typeof post.payload?.title === 'string' ? post.payload.title : ''
-  const [hook, setHook] = useState(savedHook)
-  const [body, setBody] = useState(savedBody)
-  const [firstComment, setFirstComment] = useState(savedComment)
-  const [caption, setCaption] = useState(savedCaption)
-  const [title, setTitle] = useState(savedTitle)
-  const current: PostDraft = {
-    hook,
-    body,
-    firstComment,
-    ...(isVideo ? { caption } : {}),
-    ...(hasTitle ? { title } : {})
-  }
-
-  useImperativeHandle(
-    ref,
-    () => ({ draft: current, setHook }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hook, body, firstComment, caption, title]
-  )
-
-  // The page only re-renders when this flips, not on every keystroke. Also
-  // flips without typing: a save or hook swap changes the saved post.
-  const dirty =
-    hook !== savedHook ||
-    body !== savedBody ||
-    firstComment !== savedComment ||
-    (isVideo && caption !== savedCaption) ||
-    (hasTitle && title !== savedTitle)
-  const labels =
-    spec.structure === 'script'
-      ? { hook: 'Opening line (spoken)', body: 'Rest of the script, one shot per paragraph' }
-      : spec.structure === 'thread'
-        ? { hook: 'First post', body: 'Other posts, separated by a line with ---' }
-        : { hook: 'Opening Hook', body: 'Body' }
+  const ref = useRef<HTMLDivElement>(null)
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  // A link that no longer loads (expired) is fetched again, once.
+  const [retried, setRetried] = useState(false)
   useEffect(() => {
-    onDirtyChange(dirty)
-  }, [dirty, onDirtyChange])
-
-  const discard = () => {
-    setHook(savedHook)
-    setBody(savedBody)
-    setFirstComment(savedComment)
-    setCaption(savedCaption)
-    setTitle(savedTitle)
-    onClose()
-  }
-
-  if (!open) return null
-
+    const element = ref.current
+    if (!element) return
+    let cancelled = false
+    // The list scrolls inside its own box, which is the root to measure
+    // against for the margin to start loading just before a card shows.
+    const root = element.closest<HTMLElement>('[data-posts-scroll]')
+    const observer = new IntersectionObserver(
+      entries => {
+        if (!entries.some(e => e.isIntersecting)) return
+        observer.disconnect()
+        void loadThumbnail(mediaId).then(loaded => {
+          if (cancelled) return
+          if (loaded) setUrl(loaded)
+          else setFailed(true)
+        })
+      },
+      { root, rootMargin: '300px' }
+    )
+    observer.observe(element)
+    return () => {
+      cancelled = true
+      observer.disconnect()
+    }
+  }, [mediaId])
   return (
-    <div className="border-border bg-surface space-y-4 rounded-2xl border p-6 shadow-xs">
-      <div className="flex items-center justify-between">
-        <span className="text-foreground text-xs font-semibold">
-          Edit Draft Copy
-        </span>
-        <span className="text-muted font-mono text-xs">
-          {spec.limits.foldChars
-            ? `Hook: ${hook.length} chars (fold ~${spec.limits.foldChars})`
-            : `Hook: ${hook.length} chars`}
-        </span>
-      </div>
-      <div>
-        <label className="text-muted mb-1 block text-xs font-medium">
-          {labels.hook}
-        </label>
-        <textarea
-          value={hook}
-          onChange={e => setHook(e.target.value)}
-          rows={3}
-          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+    <div ref={ref} className={`bg-surface-hover relative overflow-hidden ${className ?? ''}`}>
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={alt}
+          className="h-full w-full object-cover"
+          onError={() => {
+            thumbnailCache.delete(mediaId)
+            setUrl(null)
+            if (retried) {
+              setFailed(true)
+              return
+            }
+            setRetried(true)
+            void loadThumbnail(mediaId).then(loaded =>
+              loaded ? setUrl(loaded) : setFailed(true)
+            )
+          }}
         />
-      </div>
-      <div>
-        <label className="text-muted mb-1 block text-xs font-medium">
-          {labels.body}
-        </label>
-        <textarea
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          rows={8}
-          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 font-mono text-xs outline-none"
-        />
-      </div>
-      <div>
-        <label className="text-muted mb-1 block text-xs font-medium">
-          {spec.commentLabel}
-        </label>
-        <textarea
-          value={firstComment}
-          onChange={e => setFirstComment(e.target.value)}
-          rows={2}
-          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
-        />
-      </div>
-      {hasTitle && (
-        <div>
-          <label className="text-muted mb-1 block text-xs font-medium">
-            Title ({title.length}/100)
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
-          />
+      ) : (
+        <div className="text-muted flex h-full w-full items-center justify-center">
+          {failed ? (
+            <ImageOff className="h-5 w-5" />
+          ) : (
+            <ImageIcon className="h-5 w-5 animate-pulse" />
+          )}
         </div>
       )}
-      {isVideo && (
-        <div>
-          <label className="text-muted mb-1 block text-xs font-medium">
-            Caption posted with the video
-          </label>
-          <textarea
-            value={caption}
-            onChange={e => setCaption(e.target.value)}
-            rows={3}
-            className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
-          />
-        </div>
-      )}
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={discard}
-          className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => onSave(current)}
-          disabled={saving}
-          className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
-        >
-          Save Changes
-        </button>
-      </div>
     </div>
   )
 }
 
+/** The badge on a card's picture: what kind of media the post carries. */
+function mediaBadge(post: PostDetail): { label: string; video: boolean } | null {
+  const spec = FORMATS[formatOf(post.formatId)]
+  if (spec.structure === 'script') {
+    const seconds = videoScriptOf(post).seconds
+    const kind = spec.platform === 'youtube' ? 'Short' : 'Reel'
+    const length = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+    return { label: `${length} ${kind}`, video: true }
+  }
+  if (post.media) return { label: '1 image', video: false }
+  return null
+}
+
+/**
+ * Where the post goes next, as the card's footer action: live (with its
+ * link), on its way, or what to do — publish, review, edit.
+ */
+function PostAction({
+  post,
+  href,
+  mounted
+}: {
+  post: PostDetail
+  href: string
+  mounted: boolean
+}) {
+  const publication = post.publication
+  const platform = getPlatform(post.platform)
+  const live = Boolean(post.postedAt) || publication?.status === 'published'
+  const chip = 'relative z-10 inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium'
+  const button =
+    'relative z-10 inline-flex h-7 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition-colors'
+  if (live) {
+    const label = `Live on ${LIVE_ON[post.platform] ?? platform.name}`
+    return publication?.postUrl && !publication.deletedAt ? (
+      <a
+        href={publication.postUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Open it on ${platform.name}`}
+        className={`${chip} bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400`}
+      >
+        {label}
+      </a>
+    ) : (
+      <span className={`${chip} bg-emerald-500/10 text-emerald-700 dark:text-emerald-400`}>
+        {label}
+      </span>
+    )
+  }
+  if (publication?.status === 'publishing') {
+    return (
+      <span className={`${chip} text-muted bg-surface-hover`}>
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Publishing
+      </span>
+    )
+  }
+  if (publication?.status === 'scheduled') {
+    return (
+      <span
+        className={`${chip} bg-indigo-500/10 text-indigo-700 dark:text-indigo-300`}
+        title={
+          mounted
+            ? `Publishes ${formatAbsoluteDateTime(publication.scheduledAt)}`
+            : undefined
+        }
+      >
+        <Clock className="h-3 w-3" />
+        Scheduled
+      </span>
+    )
+  }
+  if (post.status === 'approved') {
+    const failed = publication?.status === 'failed'
+    return (
+      <Link
+        href={href}
+        className={`${button} ${
+          failed
+            ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+            : 'border-border text-foreground hover:bg-surface-hover'
+        }`}
+      >
+        {failed
+          ? 'Retry publish'
+          : canPublishFormat(post.platform, formatOf(post.formatId))
+            ? 'Publish Now'
+            : 'Copy & post'}
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    )
+  }
+  if (post.status === 'draft') {
+    return (
+      <Link href={href} className={`${button} border-border text-foreground hover:bg-surface-hover`}>
+        Continue Edit
+      </Link>
+    )
+  }
+  if (post.status === 'rejected') {
+    return (
+      <Link href={href} className={`${button} border-border text-muted hover:text-foreground hover:bg-surface-hover`}>
+        Revisit
+      </Link>
+    )
+  }
+  return (
+    <Link
+      href={href}
+      className={`${button} border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400`}
+    >
+      Review Draft
+    </Link>
+  )
+}
+
+/** The ⋮ menu on a card or row: open, copy, hide, delete. */
+function PostMenu({
+  post,
+  href,
+  busy,
+  onCopy,
+  onToggleHidden,
+  onDelete
+}: Pick<PostItemProps, 'post' | 'href' | 'busy' | 'onCopy' | 'onToggleHidden' | 'onDelete'>) {
+  const [open, setOpen] = useState(false)
+  const wrapper = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapper.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      trigger.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+  const item =
+    'hover:bg-surface-hover flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40'
+  const run = (action: () => void, refocus = true) => () => {
+    setOpen(false)
+    if (refocus) trigger.current?.focus()
+    action()
+  }
+  return (
+    <div
+      ref={wrapper}
+      // Above the cards and rows after it while open.
+      className={`relative ${open ? 'z-20' : 'z-10'}`}
+      onBlur={e => {
+        if (!wrapper.current?.contains(e.relatedTarget as Node)) setOpen(false)
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        aria-label={`More actions for: ${post.hook}`}
+        aria-expanded={open}
+        disabled={busy}
+        onClick={() => setOpen(o => !o)}
+        className="text-muted hover:text-foreground hover:bg-surface-hover flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors disabled:opacity-40"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+      </button>
+      {open && (
+        <div className="border-border bg-surface text-foreground absolute top-full right-0 z-30 mt-1 w-44 rounded-xl border p-1 shadow-lg">
+          <Link href={href} className={item}>
+            <ArrowRight className="text-muted h-3.5 w-3.5" />
+            Open post
+          </Link>
+          <button type="button" onClick={run(onCopy)} className={item}>
+            <Copy className="text-muted h-3.5 w-3.5" />
+            Copy text
+          </button>
+          <button type="button" onClick={run(onToggleHidden)} className={item}>
+            {post.hiddenAt ? (
+              <Eye className="text-muted h-3.5 w-3.5" />
+            ) : (
+              <EyeOff className="text-muted h-3.5 w-3.5" />
+            )}
+            {post.hiddenAt ? 'Unhide' : 'Hide'}
+          </button>
+          <button
+            type="button"
+            // The server refuses too: it may be on its platform any moment.
+            disabled={post.publication?.status === 'publishing'}
+            // The confirm dialog takes focus.
+            onClick={run(onDelete, false)}
+            className={`${item} text-rose-600 hover:bg-rose-500/10 dark:text-rose-400`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The whole card opens the post: a link stretched over it, with the menu and
+ * footer action above it.
+ */
+function CardCover({ post, href }: Pick<PostItemProps, 'post' | 'href'>) {
+  return (
+    <Link
+      href={href}
+      aria-label={`Open: ${post.hook}`}
+      className="absolute inset-0 z-0 rounded-[inherit]"
+    />
+  )
+}
+
+/** One post as a card: platform and status, picture, opening, tags, action. */
+function PostCard(props: PostItemProps) {
+  const { post, href, mounted } = props
+  const format = formatOf(post.formatId)
+  const spec = FORMATS[format]
+  const badge = mediaBadge(post)
+  const tags = (post.hashtags || []).slice(0, 2)
+  return (
+    <article
+      className="group border-border hover:border-foreground/20 bg-surface relative flex flex-col rounded-2xl border shadow-xs transition-colors"
+    >
+      <CardCover post={post} href={href} />
+
+      <div className="pointer-events-none relative flex items-center gap-2 px-3.5 pt-3.5">
+        <PlatformMark platform={post.platform} colored className="h-5 w-5 shrink-0" />
+        <span className="text-foreground min-w-0 truncate text-[13px] font-semibold">
+          {spec.label}
+        </span>
+        <PostStatusPill post={post} className="ml-auto" />
+        <span className="pointer-events-auto">
+          <PostMenu {...props} />
+        </span>
+      </div>
+
+      <div className="pointer-events-none px-3.5 pt-3">
+       <div className="relative">
+        {post.media?.id ? (
+          <Thumbnail
+            mediaId={post.media.id}
+            alt={post.media.altText || post.hook}
+            className="aspect-[5/2] w-full rounded-lg"
+          />
+        ) : (
+          <div className="bg-surface-hover text-muted flex aspect-[5/2] w-full flex-col items-center justify-center gap-1.5 rounded-lg">
+            {spec.structure === 'script' ? (
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white">
+                <Play className="ml-0.5 h-4 w-4 fill-current" />
+              </span>
+            ) : (
+              <PlatformMark platform={post.platform} className="h-6 w-6 opacity-40" />
+            )}
+            <span className="text-xs">
+              {spec.structure === 'script' ? 'Video script' : 'No image yet'}
+            </span>
+          </div>
+        )}
+        {badge && (
+          <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+            {!badge.video && <ImageIcon className="h-3 w-3" />}
+            {badge.label}
+          </span>
+        )}
+        {badge?.video && post.media?.id && (
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm">
+              <Play className="ml-0.5 h-4 w-4 fill-current" />
+            </span>
+          </span>
+        )}
+       </div>
+      </div>
+
+      <div className="pointer-events-none relative flex flex-1 flex-col px-3.5 pt-3 pb-3.5">
+        <h3 className="text-foreground line-clamp-2 text-sm leading-snug font-bold">
+          {post.hook}
+        </h3>
+        {post.body && (
+          <p className="text-muted mt-1 line-clamp-2 text-xs leading-relaxed">
+            {post.body}
+          </p>
+        )}
+        {tags.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {tags.map(tag => (
+              <span
+                key={tag}
+                className="border-border bg-background text-muted rounded border px-1.5 py-0.5 font-mono text-[10px]"
+              >
+                #{tag.replace(/^#+/, '')}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-border pointer-events-none relative mt-auto flex items-center gap-2.5 border-t px-3.5 py-2.5">
+        {/* The exact time on hover; dates only once mounted, in the viewer's
+            own time zone. */}
+        <span
+          className="text-muted pointer-events-auto flex items-center gap-1.5 text-xs"
+          title={mounted ? formatAbsoluteDateTime(post.createdAt) : undefined}
+        >
+          <Clock className="h-3.5 w-3.5" />
+          {mounted ? shortAgo(post.createdAt) : ''}
+        </span>
+        <span className="text-muted text-xs tabular-nums">
+          {spec.structure === 'script'
+            ? `~${videoScriptOf(post).seconds}s script`
+            : `${post.charCount.toLocaleString('en-US')} chars`}
+        </span>
+        {post.hiddenAt && (
+          <span className="text-muted flex items-center gap-1 text-xs">
+            <EyeOff className="h-3 w-3" />
+            Hidden
+          </span>
+        )}
+        <span className="pointer-events-auto ml-auto">
+          <PostAction post={post} href={href} mounted={mounted} />
+        </span>
+      </div>
+    </article>
+  )
+}
+
+/** One post as a row, for the list view. */
+function PostRow(props: PostItemProps) {
+  const { post, href, mounted } = props
+  const spec = FORMATS[formatOf(post.formatId)]
+  return (
+    <div className="group hover:bg-surface-hover/50 relative flex items-center gap-3 px-3 py-2.5 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
+      <CardCover post={post} href={href} />
+      <div className="pointer-events-none relative shrink-0">
+        {post.media?.id ? (
+          <Thumbnail
+            mediaId={post.media.id}
+            alt={post.media.altText || post.hook}
+            className="h-12 w-20 rounded-lg"
+          />
+        ) : (
+          <div className="bg-surface-hover flex h-12 w-20 items-center justify-center rounded-lg">
+            <PlatformMark platform={post.platform} className="text-muted h-4 w-4 opacity-50" />
+          </div>
+        )}
+      </div>
+      <div className="pointer-events-none relative min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <PlatformMark platform={post.platform} colored className="h-4 w-4 shrink-0" />
+          <span className="text-muted shrink-0 text-xs font-medium">{spec.label}</span>
+          <span className="text-foreground truncate text-[13px] font-semibold">
+            {post.hook}
+          </span>
+        </div>
+        <p className="text-muted mt-0.5 truncate text-xs">{post.body}</p>
+      </div>
+      <span className="pointer-events-none relative hidden shrink-0 @2xl:flex">
+        <PostStatusPill post={post} />
+      </span>
+      <span
+        className="text-muted pointer-events-auto relative hidden w-20 shrink-0 text-right text-xs @3xl:block"
+        title={mounted ? formatAbsoluteDateTime(post.createdAt) : undefined}
+      >
+        {mounted ? shortAgo(post.createdAt) : ''}
+      </span>
+      <span className="relative hidden shrink-0 @4xl:block">
+        <PostAction post={post} href={href} mounted={mounted} />
+      </span>
+      <PostMenu {...props} />
+    </div>
+  )
+}
+
+/** What the Filters menu sets; status, platform and sort have their own controls. */
 type PostFilters = {
-  status: StatusFilter
   /** yyyy-mm-dd; empty means that end is open. */
   from: string
   to: string
-  sort: SortOrder
+  /** Only the posts hidden from the list. */
+  hidden: boolean
 }
 
 const DEFAULT_FILTERS: PostFilters = {
-  status: 'all',
   from: '',
   to: '',
-  sort: 'newest'
+  hidden: false
 }
 
 const filterFieldClass =
@@ -3758,19 +1745,17 @@ const filterFieldClass =
 
 /**
  * The Filters button and its panel. Choices are only a draft until Apply, so
- * the queue does not jump around while they are being set.
+ * the list does not jump around while they are being set.
  *
- * The toolbar scrolls sideways, which would clip an absolutely placed panel,
- * so the panel is portalled to the body and placed against the window.
+ * The toolbar can scroll sideways, which would clip an absolutely placed
+ * panel, so the panel is portalled to the body and placed against the window.
  */
 function PostFiltersMenu({
   value,
-  statusCounts,
   today,
   onApply
 }: {
   value: PostFilters
-  statusCounts: Record<StatusFilter, number>
   /** Latest pickable day; unset until mounted, as "today" differs by timezone. */
   today?: string
   onApply: (next: PostFilters) => void
@@ -3783,10 +1768,7 @@ function PostFiltersMenu({
   const [dateError, setDateError] = useState<string | null>(null)
   const [position, setPosition] = useState({ top: 0, left: 0 })
 
-  const activeCount =
-    (value.status !== 'all' ? 1 : 0) +
-    (value.from || value.to ? 1 : 0) +
-    (value.sort !== 'newest' ? 1 : 0)
+  const activeCount = (value.from || value.to ? 1 : 0) + (value.hidden ? 1 : 0)
 
   const place = () => {
     const rect = buttonRef.current?.getBoundingClientRect()
@@ -3844,16 +1826,16 @@ function PostFiltersMenu({
         onClick={() => (open ? setOpen(false) : openMenu())}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+        className={`flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors ${
           activeCount > 0
-            ? 'border-accent bg-accent/10 text-accent'
+            ? 'border-accent/60 bg-surface text-foreground'
             : 'border-border bg-surface text-foreground hover:bg-surface-hover'
         }`}
       >
-        <ListFilter className="h-3.5 w-3.5" />
+        <Funnel className="h-4 w-4" />
         Filters
         {activeCount > 0 && (
-          <span className="bg-accent text-background rounded-full px-1.5 text-[10px] leading-4 font-semibold tabular-nums">
+          <span className="bg-accent text-background flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold tabular-nums">
             {activeCount}
           </span>
         )}
@@ -3871,8 +1853,7 @@ function PostFiltersMenu({
               role="dialog"
               aria-label="Filter posts"
               style={{ top: position.top, left: position.left }}
-              // The page's review shortcuts (A, R, J, K…) listen on window;
-              // keys typed here must not reach them.
+              // Escape closes the panel, and keys typed here go no further.
               onKeyDown={e => {
                 e.stopPropagation()
                 if (e.key === 'Escape') setOpen(false)
@@ -3884,28 +1865,6 @@ function PostFiltersMenu({
               }}
               className="border-border bg-surface fixed z-50 w-[min(20rem,calc(100vw-2rem))] space-y-4 rounded-xl border p-4 shadow-lg"
             >
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="filter-status"
-                  className="text-foreground block text-xs font-semibold"
-                >
-                  Status
-                </label>
-                <select
-                  id="filter-status"
-                  autoFocus
-                  value={draft.status}
-                  onChange={e => set({ status: e.target.value as StatusFilter })}
-                  className={filterFieldClass}
-                >
-                  {STATUS_FILTERS.map(status => (
-                    <option key={status} value={status}>
-                      {STATUS_LABELS[status]} ({statusCounts[status]})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               {/* Each end limits the other, so From can never be after To. */}
               <fieldset className="space-y-1.5">
                 <legend className="text-foreground mb-1.5 text-xs font-semibold">
@@ -3920,6 +1879,7 @@ function PostFiltersMenu({
                       ref={fromRef}
                       id="filter-from"
                       type="date"
+                      autoFocus
                       value={draft.from}
                       max={draft.to || today}
                       onChange={e => set({ from: e.target.value })}
@@ -3949,23 +1909,20 @@ function PostFiltersMenu({
                 )}
               </fieldset>
 
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="filter-sort"
-                  className="text-foreground block text-xs font-semibold"
-                >
-                  Sort
-                </label>
-                <select
-                  id="filter-sort"
-                  value={draft.sort}
-                  onChange={e => set({ sort: e.target.value as SortOrder })}
-                  className={filterFieldClass}
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                </select>
-              </div>
+              <label className="text-foreground flex cursor-pointer items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={draft.hidden}
+                  onChange={e => set({ hidden: e.target.checked })}
+                  className="accent-accent mt-0.5"
+                />
+                <span>
+                  <span className="font-semibold">Hidden posts</span>
+                  <span className="text-muted block text-[11px]">
+                    Show only the posts hidden from the list.
+                  </span>
+                </span>
+              </label>
 
               <div className="border-border flex items-center justify-between gap-2 border-t pt-3">
                 <button
@@ -4007,20 +1964,18 @@ export function PostsClient({
   initialNextCursor,
   totalCount,
   identity,
-  brand,
   enabledFormats
 }: {
   initialPosts: PostDetail[]
   initialNextCursor: string | null
   totalCount: number
   identity: IdentitySummary
-  brand: BrandSummary
   enabledFormats?: FormatId[]
 }) {
   return (
     <Suspense
       fallback={
-        <div className="bg-background flex h-screen items-center justify-center">
+        <div className="bg-background flex min-h-0 flex-1 items-center justify-center">
           <div className="flex flex-col items-center space-y-4">
             <Loader2 className="text-accent h-8 w-8 animate-spin" />
             <p className="text-muted text-sm font-medium">Loading posts...</p>
@@ -4033,7 +1988,6 @@ export function PostsClient({
         initialNextCursor={initialNextCursor}
         totalCount={totalCount}
         identity={identity}
-        brand={brand}
         enabledFormats={enabledFormats}
       />
     </Suspense>

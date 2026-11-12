@@ -35,8 +35,9 @@ import { z } from 'zod'
  * and their other platforms are untouched.
  *
  * revalidatePath in a Server Action re-renders the page it was called from,
- * layout included (the header's publishing status), in the same response, and
- * the browser drops its copies of other pages: no router.refresh needed.
+ * layout included (the publishing status a post's Publish controls read), in
+ * the same response, and the browser drops its copies of other pages: no
+ * router.refresh needed.
  */
 export async function disconnectPlatform(platform: string) {
   const user = await requireUser()

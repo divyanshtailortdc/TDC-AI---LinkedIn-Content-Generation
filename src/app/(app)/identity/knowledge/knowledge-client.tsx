@@ -99,6 +99,14 @@ export function KnowledgeClient({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null)
+  // The open document's claims, a page at a time; another document opens on
+  // its first page.
+  const [claimPage, setClaimPage] = useState(1)
+  const [claimsDocId, setClaimsDocId] = useState(expandedDocId)
+  if (expandedDocId !== claimsDocId) {
+    setClaimsDocId(expandedDocId)
+    setClaimPage(1)
+  }
 
   // AI setup suggestions. Picking one only fills the inputs below; the normal
   // fetch, extract and save steps still run, and still need a click.
@@ -110,6 +118,20 @@ export function KnowledgeClient({
         aiKnowledge.facts.length > 0 ||
         aiKnowledge.suggestedAdditions.length > 0)
   )
+  // The facts found can run past a page, so they show a page at a time too.
+  // A new analysis replaces them: the new facts open on their first page.
+  const [factPage, setFactPage] = useState(1)
+  const [shownFacts, setShownFacts] = useState(aiKnowledge?.facts)
+  if (aiKnowledge?.facts !== shownFacts) {
+    setShownFacts(aiKnowledge?.facts)
+    setFactPage(1)
+  }
+  const { rows: pageFacts, pageInfo: factPageInfo } = paginate(
+    aiKnowledge?.facts ?? [],
+    factPage,
+    PAGE_SIZE
+  )
+  const factListRef = useRef<HTMLDivElement>(null)
   const savedUrls = new Set(
     initialDocs
       .map(d => d.sourceUrl)
@@ -432,7 +454,7 @@ export function KnowledgeClient({
           )}
 
           {aiKnowledge.facts.length > 0 && (
-            <div className="space-y-2">
+            <div ref={factListRef} className="scroll-mt-4 space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-foreground text-xs font-semibold">Facts found</p>
                 <button
@@ -444,7 +466,7 @@ export function KnowledgeClient({
                   {isSaving ? 'Saving…' : 'Save facts to knowledge base'}
                 </button>
               </div>
-              {aiKnowledge.facts.map(fact => (
+              {pageFacts.map(fact => (
                 <div key={fact.quote} className="bg-surface rounded-lg p-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-foreground font-medium">{fact.statement}</span>
@@ -457,6 +479,12 @@ export function KnowledgeClient({
                   <p className="text-muted mt-1 italic">&ldquo;{fact.quote}&rdquo;</p>
                 </div>
               ))}
+              <Pagination
+                {...factPageInfo}
+                noun="facts"
+                onPageChange={setFactPage}
+                scrollTarget={factListRef}
+              />
             </div>
           )}
 
@@ -807,9 +835,9 @@ export function KnowledgeClient({
                         </p>
                       ) : (
                         <div className="space-y-2">
-                          {claims.map((c, cIdx) => (
+                          {paginate(claims, claimPage, PAGE_SIZE).rows.map((c, cIdx) => (
                             <div
-                              key={cIdx}
+                              key={`${claimPage}-${cIdx}`}
                               className="bg-surface-hover border-border space-y-1.5 rounded-lg border p-3"
                             >
                               <p className="text-foreground text-xs font-medium">
@@ -821,6 +849,11 @@ export function KnowledgeClient({
                               </div>
                             </div>
                           ))}
+                          <Pagination
+                            {...paginate(claims, claimPage, PAGE_SIZE).pageInfo}
+                            noun="claims"
+                            onPageChange={setClaimPage}
+                          />
                         </div>
                       )}
                     </div>
