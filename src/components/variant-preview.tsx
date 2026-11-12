@@ -114,7 +114,7 @@ function joined(parts: Array<string | null | undefined>) {
     .join('\n\n')
 }
 
-/** A creator's "what to shoot" for a post, written with it. */
+/** What to shoot for a casual or fun post, written with it. */
 function ShotIdea({ payload }: { payload?: Record<string, unknown> | null }) {
   const idea = typeof payload?.visualIdea === 'string' ? payload.visualIdea.trim() : ''
   if (!idea) return null
@@ -162,14 +162,19 @@ export function VariantPreview(props: VariantPreviewProps) {
       <div className="flex w-full flex-col items-center gap-4 sm:flex-row sm:items-start">
         {/* The video as it shows in the feed: vertical, caption over the picture. */}
         <div className="relative flex aspect-9/16 w-56 shrink-0 flex-col justify-end overflow-hidden rounded-2xl bg-neutral-900 text-white shadow-sm">
+          {/* No video exists: the frame stands in for the one to be filmed. */}
           <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-xs text-neutral-400">
             <span className="inline-flex flex-col items-center gap-2">
               <Clapperboard className="h-6 w-6" />
-              {script.shots[0]?.show || 'Filmed by the author'}
+              <span className="font-semibold text-neutral-200">Not filmed yet</span>
+              <span>First shot: {script.shots[0]?.show || 'filmed by the author'}</span>
             </span>
           </div>
+          <span className="absolute top-2.5 left-2.5 rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-neutral-900">
+            Script to film
+          </span>
           {script.shots[0]?.onScreenText && (
-            <div className="absolute inset-x-4 top-10 rounded-md bg-black/60 px-2 py-1 text-center text-xs font-semibold">
+            <div className="absolute inset-x-4 top-11 rounded-md bg-black/60 px-2 py-1 text-center text-xs font-semibold">
               {script.shots[0].onScreenText}
             </div>
           )}
@@ -184,7 +189,7 @@ export function VariantPreview(props: VariantPreviewProps) {
         {/* The script, shot by shot, as the author will film it. */}
         <div className={`${shell} min-w-0 flex-1`}>
           <div className="flex items-baseline justify-between border-b border-neutral-100 px-4 py-2.5 dark:border-border">
-            <span className="text-xs font-semibold">{spec.label} script</span>
+            <span className="text-xs font-semibold">{spec.label} script · film these shots</span>
             <span
               className={`text-[11px] tabular-nums ${script.seconds > maxSeconds ? 'text-rose-600 dark:text-rose-400' : 'text-neutral-500'}`}
             >
@@ -338,8 +343,10 @@ export function VariantPreview(props: VariantPreviewProps) {
   )
 }
 
-/** The header label above a preview, e.g. "X thread preview". */
+/** The header label above a preview, e.g. "X preview · X thread". */
 export function previewTitle(formatId: string | null | undefined): string {
   if (!isFormatId(formatId) || formatId === 'linkedin.post') return 'LinkedIn Feed Appearance'
+  // A video is a script to film; "preview" suggested a finished video.
+  if (FORMATS[formatId].structure === 'script') return `${FORMATS[formatId].label} · script to film`
   return `${PLATFORMS[FORMATS[formatId].platform].label} preview · ${FORMATS[formatId].label}`
 }

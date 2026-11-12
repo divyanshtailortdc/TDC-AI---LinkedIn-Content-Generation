@@ -1,8 +1,11 @@
+import type { StyleMix } from '@/lib/formats/styles'
+
 /**
- * What a goal sets out to do. Professionals and companies aim at authority,
- * leads or hires; a creator aims at followers, fun or a launch. Each identity
- * type is offered its own set (objectivesFor); every value stays valid for
- * every goal, so a goal keeps its objective if its identity changes type.
+ * What a goal sets out to do. Professional posting aims at authority, leads
+ * or hires; casual and fun posting at followers, fun or a launch. Which set an
+ * identity is offered follows the styles of its platforms (objectivesFor);
+ * every value stays valid for every goal, so a goal keeps its objective when
+ * the styles change.
  */
 
 export const GOAL_OBJECTIVES = [
@@ -43,7 +46,8 @@ const PROFESSIONAL: GoalObjective[] = [
   'community'
 ]
 
-const CREATOR: GoalObjective[] = [
+/** For platforms where the identity posts casually or for fun. */
+const CASUAL: GoalObjective[] = [
   'grow_audience',
   'engagement',
   'entertain',
@@ -53,9 +57,16 @@ const CREATOR: GoalObjective[] = [
   'awareness'
 ]
 
-/** The objectives an identity of this type chooses from. */
-export function objectivesFor(accountType?: string | null): GoalObjective[] {
-  return accountType === 'creator' ? CREATOR : PROFESSIONAL
+/**
+ * The objectives an identity chooses from, by the style mix of its platforms:
+ * professional, casual, or both sets for a mix.
+ */
+export function objectivesFor(style?: StyleMix | null): GoalObjective[] {
+  if (style === 'casual') return CASUAL
+  if (style === 'mixed') {
+    return [...PROFESSIONAL, ...CASUAL.filter(o => !PROFESSIONAL.includes(o))]
+  }
+  return PROFESSIONAL
 }
 
 export function isGoalObjective(value: unknown): value is GoalObjective {

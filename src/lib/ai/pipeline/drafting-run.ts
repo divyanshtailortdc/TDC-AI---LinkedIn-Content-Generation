@@ -44,12 +44,12 @@ import {
 } from '@/lib/publishing/publication-queries'
 import { findRevision, lockPost, saveRevision } from '@/lib/post-revisions'
 import {
-  isCreator,
   collectBannedWords,
   loadIdeaContext,
   platformOf,
   recentCtasOf,
-  resolveLinkPlacement
+  resolveLinkPlacement,
+  styleFor
 } from '../context'
 import { refreshRunTotals } from '../run-accounting'
 import { markIdeaDrafted, releaseDraftingClaim } from './drafting-claim'
@@ -74,10 +74,15 @@ import {
   formatCharCount,
   formatOf,
   formatsToDraft,
+  isCasualStyle,
   splitThread,
   toPlainText,
   type FormatId
 } from '@/lib/formats'
+
+/** LinkedIn posts in a casual or fun style get no generated graphic. */
+const linkedInIsCasual = (ctx: GenerationContext) =>
+  isCasualStyle(styleFor(ctx, 'linkedin'))
 
 /**
  * A run's second half, per approved idea: run the post-drafting skill, lint
@@ -673,8 +678,9 @@ async function prepareFormats(
         DEFAULT_FORMAT,
         // LinkedIn reads its own sample posts once others are tagged.
         prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
-          // A creator posts their own photos and videos: no generated graphic.
-          withMedia: !isCreator(ctx)
+          // Casual or fun posts carry the author's own photos and videos: no
+          // generated graphic.
+          withMedia: !linkedInIsCasual(ctx)
         })
       )
     : null
@@ -869,7 +875,7 @@ export async function draftAdditionalFormat(
   const post =
     formatId === DEFAULT_FORMAT
       ? await prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
-          withMedia: !isCreator(ctx)
+          withMedia: !linkedInIsCasual(ctx)
         })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
           ...(await siblingsOf(ideaId, formatId))

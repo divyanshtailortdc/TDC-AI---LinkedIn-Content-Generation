@@ -1,3 +1,4 @@
+import type { StyleMix } from '@/lib/formats'
 import { MAX_SUGGESTIONS } from './schema'
 
 export const INSTRUCTIONS = `You suggest goals for a social media content engine. A goal steers what a series of posts argues: one belief to move in the reader (the key message) and one action for readers to take.
@@ -18,18 +19,25 @@ export function buildPrompt(input: {
   allowedUrls: string[]
   /** The objective types this identity uses; absent leaves the choice open. */
   objectives?: string[]
-  /** A creator's goals are about their following, not about business. */
-  creator?: boolean
+  /**
+   * The style mix of the identity's platforms: goals on casual and fun
+   * platforms are about the people who follow them, not about business.
+   */
+  style?: StyleMix
 }): string {
   return `<profile>
 ${input.profile}
 </profile>
 ${
-  input.creator
+  input.style === 'casual'
     ? `
-This is a creator posting for a following (their niche is in the profile), not a business. Their goals are about that following: growing it, entertaining it, building a community, or promoting something they make or do. No lead generation, recruiting or thought leadership.
+This account posts casually or for fun, for the people who follow them, not as a business. Their goals are about that following: growing it, entertaining it, building a community, or promoting something they make or do. No lead generation, recruiting or thought leadership.
 `
-    : ''
+    : input.style === 'mixed'
+      ? `
+This account posts professionally on some platforms and casually or for fun on others. Suggest goals of both kinds: some about their expertise or business, some about the people who follow them for fun.
+`
+      : ''
 }${input.objectives ? `
 Objective types to choose from: ${input.objectives.join(', ')}
 ` : ''}

@@ -12,6 +12,7 @@ import {
   buildRegeneratePrompt,
   buildRevisionPrompt,
   buildSharedInstructions,
+  styleOfFormat,
   type ApprovedSibling
 } from './prompt'
 import type { RegenerateRequest } from '../post-drafting'
@@ -36,8 +37,9 @@ export function isCompleteVariant(formatId: FormatId, draft: VariantDraft): bool
 
 /**
  * Skill: an approved idea, the account's settings and a format in; a finished
- * post in that format out. Every format of one idea shares the first two
- * instruction blocks, so the second and later formats read them from cache.
+ * post in that format out. Every format of one idea in the same style shares
+ * the first two instruction blocks, so the second and later formats read them
+ * from cache.
  *
  * Pass `revise` for the single revision pass. Throws SkillError on failure or
  * an incomplete post; its usage is what that attempt cost.
@@ -61,7 +63,11 @@ export async function writeVariant(
   const approved = input.approvedSiblings ?? []
   const { output, usage, modelId } = await runSkill({
     stage: 'drafting',
-    instructions: [buildSharedInstructions(ctx), buildIdeaBlock(idea)],
+    // Formats in the same style share this block and its cache entry.
+    instructions: [
+      buildSharedInstructions(ctx, styleOfFormat(ctx, formatId)),
+      buildIdeaBlock(idea)
+    ],
     cacheInstructions: true,
     prompt: revise
       ? buildRevisionPrompt(

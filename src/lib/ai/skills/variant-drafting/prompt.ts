@@ -3,6 +3,8 @@ import {
   FORMATS,
   PLATFORMS,
   formatCharCount,
+  isCasualStyle,
+  type ContentStyle,
   videoScriptOf,
   WORDS_PER_SECOND,
   type FormatId,
@@ -11,7 +13,6 @@ import {
 import { channelNote, forFormat } from '../../channel-context'
 import {
   describeCta,
-  isCreator,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
   renderGoalBlock,
@@ -20,10 +21,11 @@ import {
   renderReviewerFeedbackBlock,
   renderVoiceBlock,
   resolveLinkPlacement,
+  styleFor,
   type GenerationContext
 } from '../../context-blocks'
+import { CASUAL_TRUTH_RULES, casualStyleRules } from '../shared/casual-rules'
 import { TRUTH_RULES } from '../shared/truth-rules'
-import { CREATOR_STYLE_RULES, CREATOR_TRUTH_RULES } from '../shared/creator-rules'
 import type { VariantDraft } from './schema'
 
 /**
@@ -51,13 +53,25 @@ export interface ApprovedSibling {
   text: string
 }
 
-export function buildSharedInstructions(ctx: GenerationContext): string {
+/** The style a format's posts are written in: its platform's. */
+export const styleOfFormat = (ctx: GenerationContext, formatId: FormatId): ContentStyle =>
+  styleFor(ctx, FORMATS[formatId].platform)
+
+/**
+ * The shared block for one style. Formats of the same style share it (and its
+ * cache entry); a professional one is the block every format had before
+ * styles existed.
+ */
+export function buildSharedInstructions(
+  ctx: GenerationContext,
+  style: ContentStyle = 'professional'
+): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const feedback = renderReviewerFeedbackBlock(ctx)
   const alsoSupports = renderAlsoSupportsBlock(ctx)
-  const creator = isCreator(ctx)
+  const casual = isCasualStyle(style) ? style : null
 
-  return `You are a ghostwriter who writes finished social media posts for one specific ${creator ? 'creator, who posts for a following rather than for business' : 'author'}, one platform at a time. You write in their voice, not yours, and you never invent facts${creator ? ' about them' : ''}. Each request names the platform and its rules; the facts, the goal and the author's voice stay the same on every platform, while the length, shape and register change to suit it.
+  return `You are a ghostwriter who writes finished social media posts for one specific author${casual ? `, for the people who follow them: ${casual === 'fun' ? 'fun and playful' : 'casual and personal'}, never corporate` : ''}, one platform at a time. You write in their voice, not yours, and you never invent facts${casual ? ' about them' : ''}. Each request names the platform and its rules; the facts, the goal and the author's voice stay the same on every platform, while the length, shape and register change to suit it.
 
 AUTHOR
 ${renderIdentityBlock(ctx)}
@@ -72,12 +86,12 @@ VOICE — the author's core voice, on every platform
 ${renderVoiceBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}\n` : ''}
 TRUTH RULES
-${creator ? CREATOR_TRUTH_RULES : TRUTH_RULES}
+${casual ? CASUAL_TRUTH_RULES : TRUTH_RULES}
 
 HOW EVERY POST SHOULD READ
 ${
-  creator
-    ? CREATOR_STYLE_RULES
+  casual
+    ? casualStyleRules(casual)
     : `- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
 - One idea per post, made through one specific example rather than a list of abstractions. If the idea asks for an example, include it.
 - When the platform is short, keep the core argument and its strongest piece of evidence; cut words, never the argument.
@@ -217,8 +231,8 @@ ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly wh
 7. visualIdea — ${
     spec.id === 'instagram.caption'
       ? 'the image or short carousel this caption goes with'
-      : isCreator(ctx)
-        ? 'what the creator should photograph or film to go with this post, in one or two sentences'
+      : isCasualStyle(styleOfFormat(ctx, spec.id))
+        ? 'what the author should photograph or film to go with this post, in one or two sentences'
         : 'leave empty'
   }
 8. posts, shots, caption and title — leave empty; this is a single post

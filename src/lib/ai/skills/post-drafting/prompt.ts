@@ -2,7 +2,6 @@ import type { Idea } from '@/db/schema'
 import {
   describeCta,
   describeHashtags,
-  isCreator,
   platformOf,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
@@ -13,10 +12,16 @@ import {
   renderReviewerFeedbackBlock,
   renderVoiceBlock,
   resolveLinkPlacement,
+  styleFor,
   type GenerationContext
 } from '../../context-blocks'
+import { isCasualStyle } from '@/lib/formats'
+import {
+  CASUAL_TRUTH_RULES,
+  casualPersona,
+  casualStyleRules
+} from '../shared/casual-rules'
 import { TRUTH_RULES } from '../shared/truth-rules'
-import { CREATOR_STYLE_RULES, CREATOR_TRUTH_RULES } from '../shared/creator-rules'
 import type { DraftGenerationResult } from './schema'
 
 /** The exemplars that teach rhythm better than any slider can. */
@@ -49,12 +54,14 @@ export function buildInstructions(ctx: GenerationContext): string {
   const guardrails = renderGuardrailsBlock(ctx)
   const feedback = renderReviewerFeedbackBlock(ctx)
   const alsoSupports = renderAlsoSupportsBlock(ctx)
-  // A creator's post is personal and playful; everyone else's is unchanged.
-  const creator = isCreator(ctx)
+  // A casual or fun platform gets posts for followers; a professional one
+  // the prompt it always had.
+  const style = styleFor(ctx, platformOf(ctx).id)
+  const casual = isCasualStyle(style) ? style : null
 
   return `${
-    creator
-      ? `You are a ghostwriter producing a finished ${platformOf(ctx).name} post for one specific creator, who posts for a following rather than for business. You write in their voice, not yours, and you never invent facts about them.`
+    casual
+      ? casualPersona(platformOf(ctx).name, casual)
       : `You are a ghostwriter producing a finished ${platformOf(ctx).name} post for one specific author. You write in their voice, not yours, and you never invent facts.`
   }
 
@@ -75,12 +82,12 @@ ${renderConstraintsBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
 
 TRUTH RULES
-${creator ? CREATOR_TRUTH_RULES : TRUTH_RULES}
+${casual ? CASUAL_TRUTH_RULES : TRUTH_RULES}
 
 HOW IT SHOULD READ
 ${
-  creator
-    ? CREATOR_STYLE_RULES
+  casual
+    ? casualStyleRules(casual)
     : `- Open on one concrete thing: a specific moment, a figure from the evidence, or a claim a reader could disagree with. No throat-clearing, no "Ever wondered...", no definition of the topic.
 - One idea per post, made through one specific example (a task, a decision, a scene), not a list of abstractions. If the idea asks for an example, include it.
 - Vary sentence length. Use "it's not X, it's Y" at most twice in a post.

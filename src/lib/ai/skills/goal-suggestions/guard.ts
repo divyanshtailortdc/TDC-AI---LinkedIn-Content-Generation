@@ -32,8 +32,8 @@ export function collectAllowedUrls(profile: {
 /**
  * Drops empty and duplicate suggestions (including ones that repeat an
  * existing goal), trims lengths, and replaces any link the user did not save
- * with no link. With `objectives`, a suggestion of another type of identity's
- * objective (lead generation for a creator) is dropped.
+ * with no link. With `objectives`, a suggestion of an objective this identity
+ * is not offered (lead generation on a fun-only account) is dropped.
  */
 export function keepValidSuggestions(
   output: GoalSuggestionsModelOutput,

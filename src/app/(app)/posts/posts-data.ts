@@ -11,6 +11,7 @@ import {
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
+import { inKnownFormat } from '@/lib/known-formats'
 import { isPublishingConfigured } from '@/lib/publishing/config'
 import {
   latestPublications,
@@ -71,7 +72,7 @@ export async function loadPostsPage(
       .from(postDraftsTable)
       .leftJoin(accountsTable, eq(postDraftsTable.accountId, accountsTable.id))
       .leftJoin(ideasTable, eq(postDraftsTable.ideaId, ideasTable.id))
-      .where(and(eq(postDraftsTable.accountId, accountId), where))
+      .where(and(eq(postDraftsTable.accountId, accountId), inKnownFormat(), where))
       .orderBy(desc(postDraftsTable.createdAt), desc(postDraftsTable.id))
       .limit(limit)
 
@@ -188,7 +189,7 @@ export async function loadPostsPage(
       ? db
           .select({ ideaId: postDraftsTable.ideaId, formatId: postDraftsTable.formatId })
           .from(postDraftsTable)
-          .where(inArray(postDraftsTable.ideaId, ideaIds))
+          .where(and(inArray(postDraftsTable.ideaId, ideaIds), inKnownFormat()))
       : Promise.resolve([]),
     // How many earlier versions each post has, for its Earlier versions list.
     draftIds.length > 0
@@ -306,6 +307,6 @@ export async function countPosts(accountId: string) {
   const [row] = await db
     .select({ total: count() })
     .from(postDraftsTable)
-    .where(eq(postDraftsTable.accountId, accountId))
+    .where(and(eq(postDraftsTable.accountId, accountId), inKnownFormat()))
   return row?.total ?? 0
 }

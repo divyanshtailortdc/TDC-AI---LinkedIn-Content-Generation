@@ -53,7 +53,8 @@ export interface LintOptions {
   partRange?: { min: number; max: number } | null
   /**
    * How hard engagement bait counts: an error (rewritten before review) by
-   * default; a warning for a creator, whose "tag a friend" is normal.
+   * default; a warning on a casual or fun platform, where "tag a friend" is
+   * normal.
    */
   engagementBaitSeverity?: 'error' | 'warning' | null
   /** What `limitTexts` are called in messages: "Post" unless a video's "Caption". */

@@ -13,7 +13,9 @@ import {
 } from '@/components/identity-fields'
 import { showToast } from '@/components/toast-notification'
 import { parseAccountType, profileFromRecords } from '@/lib/identity-profile'
+import { IDENTITY_PATH } from '@/lib/identity-path'
 import { AlertCircle, X } from 'lucide-react'
+import Link from 'next/link'
 import { useState } from 'react'
 import { updateAccountAction } from './actions'
 
@@ -69,7 +71,7 @@ export function EditIdentityForm({
     (Object.keys(values) as Array<keyof IdentityValues>).some(
       key => values[key] !== saved.values[key]
     )
-  const missingRequired = Object.keys(validateIdentityValues(values, accountType)).length > 0
+  const missingRequired = Object.keys(validateIdentityValues(values)).length > 0
   const setValues = (next: Partial<IdentityValues>) =>
     setFields(prev => ({ ...prev, ...next }))
 
@@ -93,11 +95,11 @@ export function EditIdentityForm({
     setError(null)
 
     // Nothing was changed and nothing required is missing: nothing to save.
-    if (!dirty && Object.keys(validateIdentityValues(values, accountType)).length === 0) {
+    if (!dirty && Object.keys(validateIdentityValues(values)).length === 0) {
       return true
     }
 
-    const errors = validateIdentityValues(values, accountType)
+    const errors = validateIdentityValues(values)
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       setError('Please fill in all required fields marked with *.')
@@ -175,6 +177,17 @@ export function EditIdentityForm({
             }
           }}
         />
+        <p className="text-muted mt-3 text-xs">
+          Where you post, and whether each platform sounds professional,
+          casual or fun, is set in{' '}
+          <Link
+            href={`${IDENTITY_PATH}/preferences`}
+            className="text-accent hover:text-accent-hover font-medium"
+          >
+            Preferences → Platforms
+          </Link>
+          .
+        </p>
       </div>
     </div>
   )

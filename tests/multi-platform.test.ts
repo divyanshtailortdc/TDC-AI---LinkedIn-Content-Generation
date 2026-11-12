@@ -14,6 +14,7 @@ import { toVariantDraft, VariantOutputSchema } from '../src/lib/ai/skills/varian
 import {
   cleanChannelSettings,
   copyText,
+  videoCaptionText,
   countChars,
   FORMAT_IDS,
   FORMATS,
@@ -48,7 +49,7 @@ import {
 function withChannels(
   ctx: GenerationContext,
   formats: string[],
-  settings: Record<string, { audience?: string; tone?: string }> = {}
+  settings: Record<string, { audience?: string; tone?: string; style?: string }> = {}
 ): GenerationContext {
   return {
     ...ctx,
@@ -168,15 +169,15 @@ describe('channel settings', () => {
     assert.deepStrictEqual(resolved.enabledFormats, ['x.post', 'instagram.caption'])
   })
 
-  it('drops LinkedIn, unknown platforms and blank notes', () => {
+  it("keeps only LinkedIn's style, and drops unknown platforms, styles and blank notes", () => {
     assert.deepStrictEqual(
       cleanChannelSettings({
-        linkedin: { audience: 'peers' },
+        linkedin: { audience: 'peers', style: 'fun' },
         myspace: { audience: 'x' },
-        x: { audience: '  ', tone: ' blunt ' },
+        x: { audience: '  ', tone: ' blunt ', style: 'loud' },
         instagram: { audience: '' }
       }),
-      { x: { audience: undefined, tone: 'blunt' } }
+      { linkedin: { style: 'fun' }, x: { tone: 'blunt' } }
     )
   })
 
@@ -318,7 +319,7 @@ describe('drafting prompts for other formats', () => {
     assert.deepStrictEqual(splitThread(draft.hook, draft.body), ['One', 'Two', 'Three'])
   })
 
-  it("keeps a creator's shot idea on any single post, and none when not written", () => {
+  it('keeps a shot idea on any single post, and none when not written', () => {
     assert.deepStrictEqual(
       toVariantDraft('facebook.post', { hook: 'H', body: 'B', visualIdea: 'Film the rehearsal' }).payload,
       { visualIdea: 'Film the rehearsal' }
@@ -432,7 +433,11 @@ describe('ideation for several platforms', () => {
   it("writes a platform's own ideas for a run aimed at it", () => {
     const channels = ideationPrompt.ideationChannels(['linkedin.post', 'instagram.caption'], 'instagram')
     assert.deepStrictEqual(channels, { target: 'instagram', formats: ['instagram.caption'] })
-    const instructions = ideationPrompt.buildInstructions(ctx, channels)
+    // Professional on Instagram too: the editorial plan, for Instagram.
+    const professional = withChannels(ctx, ['linkedin.post', 'instagram.caption'], {
+      instagram: { style: 'professional' }
+    })
+    const instructions = ideationPrompt.buildInstructions(professional, channels)
     assert.match(instructions, /plans Instagram content/)
     assert.match(instructions, /WHAT WORKS ON INSTAGRAM/)
     assert.ok(!instructions.includes('plans LinkedIn content'))
@@ -537,9 +542,7 @@ describe('short videos', () => {
   })
 
   it('pairs each spoken paragraph with its shot and estimates timing', () => {
-    const draft = toVariantDraft('instagram.reel', answer)
-    // A Reel takes no title.
-    assert.strictEqual(draft.payload?.title, undefined)
+    const draft = toVariantDraft('youtube.short', answer)
     const script = videoScriptOf(draft)
     assert.strictEqual(script.shots.length, 3)
     assert.strictEqual(script.shots[0]!.onScreenText, 'Is it closed?')
@@ -555,6 +558,12 @@ describe('short videos', () => {
     assert.match(text, /CAPTION\nWhat closed should mean\.\n\n#finance #d2c$/)
   })
 
+  it('copies just the caption and hashtags to post with the video', () => {
+    const draft = toVariantDraft('youtube.short', answer)
+    assert.strictEqual(videoCaptionText('youtube.short', draft), 'What closed should mean.\n\n#finance #d2c')
+    assert.strictEqual(videoCaptionText('x.post', { hook: 'H', body: 'B' }), '')
+  })
+
   it('checks spoken length, caption and title', () => {
     const rule = (list: ReturnType<typeof runLinter>, name: string) => list.find(f => f.rule === name)
     const good = runLinter(
@@ -565,12 +574,13 @@ describe('short videos', () => {
     assert.strictEqual(rule(good, 'video_title'), undefined)
     assert.strictEqual(rule(good, 'cta_required'), undefined)
 
-    const long = toVariantDraft('instagram.reel', {
+    // 500 words is over 3 minutes spoken, past a Short's limit.
+    const long = toVariantDraft('youtube.short', {
       ...answer,
       caption: '',
-      shots: [{ say: 'word '.repeat(300), show: 'x' }, { say: 'end', show: 'y' }]
+      shots: [{ say: 'word '.repeat(500), show: 'x' }, { say: 'end', show: 'y' }]
     })
-    const bad = runLinter(buildFormatLintOptions(ctx, 'instagram.reel', goldenIdea, long))
+    const bad = runLinter(buildFormatLintOptions(ctx, 'youtube.short', goldenIdea, long))
     assert.strictEqual(rule(bad, 'script_length')?.severity, 'error')
     assert.strictEqual(rule(bad, 'caption_missing')?.passed, false)
 
@@ -580,21 +590,17 @@ describe('short videos', () => {
   })
 
   it('flags a URL in a video caption', () => {
-    const withLink = toVariantDraft('instagram.reel', { ...answer, caption: 'See https://example.com' })
-    const list = runLinter(buildFormatLintOptions(ctx, 'instagram.reel', goldenIdea, withLink))
+    const withLink = toVariantDraft('youtube.short', { ...answer, caption: 'See https://example.com' })
+    const list = runLinter(buildFormatLintOptions(ctx, 'youtube.short', goldenIdea, withLink))
     assert.match(list.find(f => f.rule === 'link_placement')?.message ?? '', /not clickable/)
   })
 
   it('asks for shots, caption and the spoken length', () => {
-    const reel = variantPrompt.buildFormatPrompt(ctx, 'instagram.reel')
-    assert.match(reel, /PLATFORM: Instagram/)
-    assert.match(reel, /1\. shots — /)
-    assert.match(reel, /about 30 seconds/)
-    assert.match(reel, /3\. title — leave empty/)
     const yt = variantPrompt.buildFormatPrompt(ctx, 'youtube.short')
+    assert.match(yt, /PLATFORM: YouTube/)
+    assert.match(yt, /1\. shots — /)
+    assert.match(yt, /about 45 seconds/)
     assert.match(yt, /3\. title — at most 100 characters/)
-    // A Reel reads and opens as a video, not as a photo caption.
-    assert.ok(reel.includes(FORMATS['instagram.reel'].opening!))
   })
 
   it('reads [YouTube] sample tags', () => {

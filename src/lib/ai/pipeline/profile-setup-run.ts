@@ -416,6 +416,7 @@ export async function analyzeIdentitySetup(
 
   return {
     accountType: result.accountType,
+    styles: result.styles,
     suggestions: result.suggestions,
     warnings: result.warnings,
     sources: sources.map(s => s.status),

@@ -1,3 +1,5 @@
+import { isContentStyle, type ContentStyle } from '@/lib/formats/styles'
+import type { PlatformId } from '@/lib/platforms'
 import { findLinks, normalizeUrlForCompare } from '@/lib/urls'
 import { z } from 'zod'
 import { chooseWebsite } from './links'
@@ -1083,6 +1085,31 @@ export function sanitizeIdentitySetup(
     suggestions: final.data,
     warnings: Array.from(new Set(warnings))
   }
+}
+
+/**
+ * The style the model picked for each platform the user said they post on;
+ * anything else it returned (another platform, an unknown style) is dropped.
+ */
+export function readStyles(
+  raw: unknown,
+  platforms: readonly PlatformId[]
+): Partial<Record<PlatformId, ContentStyle>> {
+  const entries = asRecord(raw)?.styles
+  const out: Partial<Record<PlatformId, ContentStyle>> = {}
+  if (!Array.isArray(entries)) return out
+  for (const entry of entries) {
+    const platform = asString(asRecord(entry)?.platform).toLowerCase()
+    const style = asString(asRecord(entry)?.style).toLowerCase()
+    if (
+      (platforms as readonly string[]).includes(platform) &&
+      isContentStyle(style) &&
+      !(platform in out)
+    ) {
+      out[platform as PlatformId] = style
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------

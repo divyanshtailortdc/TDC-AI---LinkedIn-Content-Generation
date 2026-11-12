@@ -57,7 +57,7 @@ export const authSessionsTable = pgTable(
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
     userId: uuid('user_id')
-      .notNull()
+      .notNull()  
       .references(() => authUsersTable.id, { onDelete: 'cascade' }),
     // Admin plugin: the admin who started this session by impersonating the user.
     impersonatedBy: text('impersonated_by'),

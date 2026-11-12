@@ -1,4 +1,6 @@
+import { CONTENT_STYLES, type ContentStyle } from '@/lib/formats/styles'
 import { GOAL_OBJECTIVES, objectivesFor } from '@/lib/goal-objectives'
+import { PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
 import { idSchema } from '@/lib/ids'
 import { normalizeUrlForCompare } from '@/lib/urls'
@@ -233,15 +235,16 @@ export type EntrySection = 'profile' | 'voice' | 'goals' | 'preferences'
 
 export const FIELD_SPECS = {
   profile: {
-    name: { type: 'text', label: 'Display name' },
+    // The Profile form's wording (src/lib/identity-profile.ts).
+    name: { type: 'text', label: 'Name' },
     // Labelled by identity type where that is known (see fieldLabel).
     company: { type: 'text', label: 'Company' },
-    description: { type: 'text', label: 'Description' },
-    targetAudience: { type: 'text', label: 'Target audience' },
-    offerings: { type: 'text', label: 'Offerings' },
-    industry: { type: 'text', label: 'Industry' },
-    linkedinUrl: { type: 'text', label: 'LinkedIn URL', url: true },
-    websiteUrl: { type: 'text', label: 'Website URL', url: true }
+    description: { type: 'text', label: 'About' },
+    targetAudience: { type: 'text', label: "Who it's for" },
+    offerings: { type: 'text', label: 'What you promote' },
+    industry: { type: 'text', label: 'What you post about' },
+    linkedinUrl: { type: 'text', label: 'Main profile link', url: true },
+    websiteUrl: { type: 'text', label: 'Website', url: true }
   },
   voice: {
     tone: { type: 'enum', label: 'Writing style', options: VOICE_PRESETS },
@@ -266,8 +269,8 @@ export const FIELD_SPECS = {
     objectiveType: {
       type: 'enum',
       label: 'Objective',
-      // AI setup reads every identity as a professional or a company.
-      options: objectivesFor('personal')
+      // Every objective: the analysis does not know yet how they will post.
+      options: objectivesFor('mixed')
     },
     keyMessage: { type: 'text', label: 'Key message' },
     desiredAction: { type: 'text', label: 'Call to action' },
@@ -353,9 +356,7 @@ export function fieldLabel(
   accountType?: 'personal' | 'company'
 ): string {
   if (section === 'profile' && field === 'company' && accountType) {
-    return accountType === 'company'
-      ? 'Parent company / brand'
-      : 'Current company'
+    return accountType === 'company' ? 'Parent company' : 'Where you work'
   }
   const specs = (FIELD_SPECS as Record<string, Record<string, FieldSpec>>)[
     section
@@ -409,6 +410,16 @@ export const IdentitySetupModelSchema = z.object({
     fields: z.array(entrySchema('profile')),
     missing: modelMissing
   }),
+  styles: z
+    .array(
+      z.object({
+        platform: z.enum(PLATFORM_IDS),
+        style: z.enum(CONTENT_STYLES)
+      })
+    )
+    .describe(
+      'One entry for each platform under "Where they post" in <choices>: how their posts there should sound. Empty when none are given.'
+    ),
   voice: z.object({
     fields: z.array(entrySchema('voice')),
     missing: modelMissing
@@ -474,6 +485,8 @@ const optionalText = (max: number) =>
  */
 export const AnalysisGuidanceSchema = z.object({
   accountType: z.enum(['personal', 'company']).optional(),
+  /** Where they post, picked in setup; the analysis suggests a style for each. */
+  platforms: z.array(z.enum(PLATFORM_IDS)).max(PLATFORM_IDS.length).optional(),
   tone: z.enum(VOICE_PRESETS).optional(),
   perspective: VoiceAnalysisSchema.shape.perspective.optional(),
   formality: z.number().int().min(1).max(5).optional(),
@@ -618,6 +631,11 @@ export type IdentitySetupAnalysis = {
    * Name and company only mean the right thing under this type.
    */
   accountType: 'personal' | 'company'
+  /**
+   * How posts should sound on each platform given in the guidance; empty
+   * when none were given.
+   */
+  styles: Partial<Record<PlatformId, ContentStyle>>
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   sources: SourceFetchStatus[]

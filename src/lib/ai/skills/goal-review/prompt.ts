@@ -1,21 +1,29 @@
+import type { StyleMix } from '@/lib/formats'
 import { frameEvidenceText } from '../ideation/prompt'
 
 /**
  * The review's instructions for a run whose ideas are for one platform
- * ("Instagram"); without one, the general instructions, unchanged.
+ * ("Instagram"); without one, the general instructions, unchanged. A run for
+ * casual or fun platforms (or a mix) is told how those ideas are judged.
  */
 export function instructionsFor(
   platform?: string | null,
-  creator = false
+  style: StyleMix = 'professional'
 ): string {
   const base = platform
     ? INSTRUCTIONS.replace('social media post ideas', `${platform} post ideas`)
     : INSTRUCTIONS
-  return creator ? `${base}\n\n${CREATOR_NOTE}` : base
+  if (style === 'casual') return `${base}\n\n${CASUAL_NOTE}`
+  if (style === 'mixed') return `${base}\n\n${MIXED_NOTE}`
+  return base
 }
 
-/** How a creator's goals are judged: by their following, not by business. */
-const CREATOR_NOTE = `These ideas are for a creator posting for a following, not for a business. Their readers are their followers and the people who like their niche. An idea achieves a goal such as growing followers, entertaining or building community when those people would watch it to the end, share it, comment or follow for more; it achieves a promotion goal when it makes them curious about the thing promoted without reading like an advert. Do not mark an idea down for being casual, funny or personal.`
+const CASUAL_JUDGEMENT = `Their readers are their followers and the people who like what they post about. Such an idea achieves a goal such as growing followers, entertaining or building community when those people would watch it to the end, share it, comment or follow for more; it achieves a promotion goal when it makes them curious about the thing promoted without reading like an advert. Do not mark it down for being casual, funny or personal.`
+
+/** How goals are judged on casual and fun platforms: by the followers. */
+const CASUAL_NOTE = `These ideas are for platforms where the account posts casually or for fun, for the people who follow them rather than as expertise. ${CASUAL_JUDGEMENT}`
+
+const MIXED_NOTE = `Some of these ideas are meant for platforms where the account posts casually or for fun (a skit, a tutorial, a trend, a relatable moment) rather than as expertise. Judge those by their followers: ${CASUAL_JUDGEMENT}`
 
 export const INSTRUCTIONS = `You review proposed social media post ideas against the goal each was written for, before a person decides which to have written. Judge whether each idea would achieve its goal, not whether it would make a good post in general.
 

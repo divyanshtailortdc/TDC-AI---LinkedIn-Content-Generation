@@ -23,6 +23,7 @@ import {
   objectivesFor
 } from '@/lib/goal-objectives'
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
+import type { StyleMix } from '@/lib/formats/styles'
 import { cn } from '@/lib/cn'
 import {
   Check,
@@ -69,14 +70,17 @@ const OBJECTIVES = GOAL_OBJECTIVES.map(value => ({
 
 export function GoalsClient({
   accountId,
-  accountType,
+  styleMix,
   initialGoals,
   usage,
   picker
 }: {
   accountId: string
-  /** A creator is offered creator goals (followers, fun, promotion). */
-  accountType?: string | null
+  /**
+   * How the identity posts across its platforms: casual or fun platforms are
+   * offered goals about followers, fun and promotion.
+   */
+  styleMix?: StyleMix
   initialGoals: RawGoal[]
   /** Ideas and posts made for each goal so far, by goal id. */
   usage: Record<string, { ideas: number; posts: number }>
@@ -98,7 +102,7 @@ export function GoalsClient({
   // Form states
   const [title, setTitle] = useState('')
   // The objectives this identity chooses from; the first is the default.
-  const objectiveChoices = objectivesFor(accountType)
+  const objectiveChoices = objectivesFor(styleMix)
   const defaultObjective = objectiveChoices[0]!
   const [objectiveType, setObjectiveType] =
     useState<GoalPayload['objectiveType']>(defaultObjective)

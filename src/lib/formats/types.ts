@@ -19,7 +19,6 @@ export const FORMAT_IDS = [
   'threads.post',
   'facebook.post',
   'instagram.caption',
-  'instagram.reel',
   'youtube.short'
 ] as const
 export type FormatId = (typeof FORMAT_IDS)[number]
@@ -89,7 +88,7 @@ export interface FormatSpec {
   rules: string[]
   /** What the review screen calls the first comment field on this platform. */
   commentLabel: string
-  /** Where a format reads or opens unlike its platform's other formats (a Reel). */
+  /** Where a format reads or opens unlike its platform's other formats (a video script). */
   register?: string
   opening?: string
 }

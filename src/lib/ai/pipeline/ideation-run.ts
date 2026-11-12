@@ -19,7 +19,6 @@ import {
 } from '~/lib/research/web-search'
 import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
-  isCreator,
   audienceSegments,
   goalLabel,
   loadGenerationContext,
@@ -51,10 +50,16 @@ import { applyGoalReviews, reviewGoalFit } from '../skills/goal-review'
 import {
   generateIdeas,
   ideationChannels,
+  ideationStyle,
   type GeneratedIdeaItem
 } from '../skills/ideation'
 import { channelAudience } from '../channel-context'
-import { cleanFormats, initialTargetFormats, PLATFORMS } from '@/lib/formats'
+import {
+  cleanFormats,
+  initialTargetFormats,
+  PLATFORMS,
+  type StyleMix
+} from '@/lib/formats'
 import { buildGroundingCorpus } from './grounding-corpus'
 
 /**
@@ -129,7 +134,10 @@ type WebResearch = {
  * Fixed search unless RESEARCH_MODE=agent. The agent falls back to fixed
  * search on any failure, so a run never loses its research to it.
  */
-async function researchTheWeb(ctx: GenerationContext): Promise<WebResearch> {
+async function researchTheWeb(
+  ctx: GenerationContext,
+  style: StyleMix
+): Promise<WebResearch> {
   if (!ctx.prefs.research.use_web_search || !isWebSearchConfigured) {
     return {
       findings: [],
@@ -142,9 +150,9 @@ async function researchTheWeb(ctx: GenerationContext): Promise<WebResearch> {
 
   let fallbackReason: string | null = null
   let agentUsage: CallUsage = EMPTY_USAGE
-  // The agent researches a business and its field; a creator's research is
-  // the fixed trend search (buildSearchQueries).
-  if (env.RESEARCH_MODE === 'agent' && !isCreator(ctx)) {
+  // The agent researches a business and its field; a run for casual or fun
+  // platforms only searches for trends instead (buildSearchQueries).
+  if (env.RESEARCH_MODE === 'agent' && style !== 'casual') {
     try {
       const agent = await runResearchAgent(ctx)
       if (agent.findings.length > 0) {
@@ -344,7 +352,7 @@ async function researchAndIdeate(
   // The web, the knowledge base and the newsletters are read at once: none
   // needs the others.
   const [research, passages, stories] = await Promise.all([
-    researchTheWeb(ctx),
+    researchTheWeb(ctx, ideationStyle(ctx, channels)),
     retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx)),
     retrieveNewsletterStories(ctx)
   ])
@@ -461,7 +469,8 @@ async function researchAndIdeate(
       signal,
       channels?.target && channels.target !== 'linkedin'
         ? PLATFORMS[channels.target].label
-        : null
+        : null,
+      ideationStyle(ctx, channels)
     )
     ideationUsage = addUsage(ideationUsage, review.usage)
     goalReviewed += review.reviews.filter(Boolean).length

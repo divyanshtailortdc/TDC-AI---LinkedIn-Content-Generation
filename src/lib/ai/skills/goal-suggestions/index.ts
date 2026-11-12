@@ -3,13 +3,13 @@ import 'server-only'
 import {
   renderAudienceBlock,
   renderIdentityBlock,
+  styleMixFor,
   type GenerationContext
 } from '../../context'
 import { runSkill } from '../../run-skill'
 import { collectAllowedUrls, keepValidSuggestions } from './guard'
 import { buildPrompt, INSTRUCTIONS } from './prompt'
 import { objectivesFor } from '@/lib/goal-objectives'
-import { isCreatorAccount } from '@/lib/identity-profile'
 import { GoalSuggestionsModelSchema, type GoalSuggestion } from './schema'
 
 export type { GoalSuggestion } from './schema'
@@ -50,7 +50,8 @@ export async function suggestGoals(
     offerings: ctx.offerings
   })
   const existingGoals = ctx.goals.map(g => g.title.trim()).filter(Boolean)
-  const objectives = objectivesFor(ctx.account.accountType)
+  const style = styleMixFor(ctx)
+  const objectives = objectivesFor(style)
 
   const { output } = await runSkill({
     stage: 'identity_setup',
@@ -60,7 +61,7 @@ export async function suggestGoals(
       existingGoals,
       allowedUrls: [...allowedUrls.values()],
       objectives,
-      creator: isCreatorAccount(ctx.account)
+      style
     }),
     schema: GoalSuggestionsModelSchema,
     timeoutMs: MODEL_TIMEOUT_MS,

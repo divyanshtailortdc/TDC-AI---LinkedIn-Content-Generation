@@ -20,13 +20,11 @@ import {
   updateDraftSuggestions,
   useIdentitySetupDraft
 } from './draft-store'
-import { ProfileSuggestionsPanel } from './profile-suggestions-panel'
 import {
   pruneDraftAgainstSaved,
   ReviewSuggestionsDialog,
   StatusChip
 } from './review-dialog'
-import type { SectionPrefill } from './use-section-prefill'
 
 type Urls = { linkedinUrl?: string | null; websiteUrl?: string | null }
 
@@ -37,9 +35,8 @@ const primaryButton =
  * The "AI Suggestions" card beside the setup steps.
  *
  * With an `account` it works on that account's draft: View AI suggestions opens
- * the review window, where suggestions are edited and applied. Without one
- * (the create page) it works on the new-identity draft: the page's `prefill`
- * lists the profile suggestions to apply to its form, and the page saves.
+ * the review window, where suggestions are edited and applied. (The create
+ * page runs its own analysis; see identity/create-identity.tsx.)
  */
 export function AiSetupCard({
   variant = 'rail',
@@ -47,12 +44,7 @@ export function AiSetupCard({
   urls,
   accountType,
   accountTypeChosen = true,
-  onAccountTypeChange,
-  prefill,
-  saving = false,
-  onApplied,
-  onSave,
-  onReviewFields
+  onAccountTypeChange
 }: {
   /**
    * "rail" is the card beside most steps. "assistant" is the Profile step's
@@ -69,13 +61,6 @@ export function AiSetupCard({
   onAccountTypeChange?: (value: 'personal' | 'company') => void
   /** Rail card on the create page only: the URLs typed into its form. */
   urls?: Urls
-  /** Create page only: its form's profile suggestions, applied on confirm. */
-  prefill?: SectionPrefill
-  /** Create page only: the identity is being created. */
-  saving?: boolean
-  onApplied?: () => void
-  onSave?: () => void
-  onReviewFields?: () => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -199,51 +184,37 @@ export function AiSetupCard({
         </>
       ) : (
         <>
-          {prefill && !account ? (
-            <ProfileSuggestionsPanel
-              prefill={prefill}
-              accountType={accountType ?? 'personal'}
-              onReanalyze={() => setReanalyzing(true)}
-              saving={saving}
-              onApplied={() => onApplied?.()}
-              onSave={() => onSave?.()}
-              onReviewFields={() => onReviewFields?.()}
-            />
-          ) : (
-            <>
-              <p className="text-muted mt-2.5 text-xs leading-relaxed">
-                Suggestions are ready. Review them, choose what to keep, then
-                apply. Nothing is saved until you do.
-              </p>
-              {draft && (
-                <ul className="border-border divide-border mt-3 divide-y rounded-lg border">
-                  {SETUP_SECTIONS.map(section => {
-                    const status = getSectionStatus(draft.suggestions, section)
-                    if (status.state === 'empty') return null
-                    return (
-                      <li
-                        key={section}
-                        className="flex items-center justify-between gap-2 px-3 py-2"
-                      >
-                        <span className="text-foreground text-xs font-medium">
-                          {SECTION_LABELS[section]}
-                        </span>
-                        <StatusChip status={status} />
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-              <button
-                type="button"
-                onClick={() => setReviewOpen(true)}
-                className={`${primaryButton} mt-4`}
-              >
-                <ListChecks className="h-3.5 w-3.5" />
-                View AI suggestions
-              </button>
-            </>
+          <p className="text-muted mt-2.5 text-xs leading-relaxed">
+            Suggestions are ready. Review them, choose what to keep, then
+            apply. Nothing is saved until you do.
+          </p>
+          {draft && (
+            <ul className="border-border divide-border mt-3 divide-y rounded-lg border">
+              {SETUP_SECTIONS.map(section => {
+                const status = getSectionStatus(draft.suggestions, section)
+                if (status.state === 'empty') return null
+                return (
+                  <li
+                    key={section}
+                    className="flex items-center justify-between gap-2 px-3 py-2"
+                  >
+                    <span className="text-foreground text-xs font-medium">
+                      {SECTION_LABELS[section]}
+                    </span>
+                    <StatusChip status={status} />
+                  </li>
+                )
+              })}
+            </ul>
           )}
+          <button
+            type="button"
+            onClick={() => setReviewOpen(true)}
+            className={`${primaryButton} mt-4`}
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+            View AI suggestions
+          </button>
           <div className="border-border mt-4 flex items-center justify-between border-t pt-3">
             <button
               type="button"
@@ -310,8 +281,8 @@ function ProTipCard() {
         Pro Tip
       </h3>
       <p className="text-muted mt-1.5 text-xs leading-relaxed">
-        The more specific you are with your Target Audience, the higher
-        engagement your generated posts will achieve on social media.
+        The more specific you are about who it&apos;s for, the better your
+        posts will land with them.
       </p>
     </section>
   )

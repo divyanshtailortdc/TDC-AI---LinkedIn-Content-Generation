@@ -13,9 +13,17 @@ import type {
   VoiceConfig
 } from '@/db/schema'
 import type { ResolvedBrandTheme } from '@/lib/brand/theme'
-import { getPlatform, type PlatformSpec } from '@/lib/platforms'
-import { isCreatorAccount } from '@/lib/identity-profile'
-import { resolveChannels, type ResolvedChannels } from '@/lib/formats'
+import { getPlatform, type PlatformId, type PlatformSpec } from '@/lib/platforms'
+import { parseAccountType } from '@/lib/identity-profile'
+import {
+  isCasualStyle,
+  mixOf,
+  resolveChannels,
+  styleOf,
+  type ContentStyle,
+  type ResolvedChannels,
+  type StyleMix
+} from '@/lib/formats'
 import { parseHashtagPolicy, type HashtagRange } from './hashtags'
 
 export { parseHashtagPolicy }
@@ -264,28 +272,48 @@ const list = (values?: string[] | null) =>
 const multiline = (text: string, indent: string) =>
   text.replace(/\r\n?/g, '\n').trim().replace(/\n+/g, `\n${indent}`)
 
-/** A creator posting for a following, not a professional or a business. */
-export const isCreator = (ctx: Pick<GenerationContext, 'account'>) =>
-  isCreatorAccount(ctx.account)
+/** How posts on this platform should sound for this identity. */
+export function styleFor(
+  ctx: Pick<GenerationContext, 'prefs'>,
+  platform: PlatformId
+): ContentStyle {
+  return styleOf(ctx.prefs.channels?.settings ?? {}, platform)
+}
+
+/**
+ * Whether the given platforms (by default every platform the identity drafts
+ * for) are all professional, all casual or fun, or a mix.
+ */
+export function styleMixFor(
+  ctx: Pick<GenerationContext, 'prefs'>,
+  platforms?: PlatformId[]
+): StyleMix {
+  const scope =
+    platforms && platforms.length > 0
+      ? platforms
+      : (ctx.prefs.channels?.platforms ?? [getPlatform().id])
+  return mixOf(scope.map(p => styleFor(ctx, p)))
+}
+
+/** The profile link's label: LinkedIn when it is one, else the profile it is. */
+const profileLinkLabel = (url: string) =>
+  /(^|\.)linkedin\.com\//i.test(url.replace(/^https?:\/\//i, '')) ? 'LinkedIn' : 'Profile'
 
 export function renderIdentityBlock(ctx: GenerationContext): string {
   const a = ctx.account
-  const creator = isCreator(ctx)
   const lines = [
     `Name: ${a.name}`,
-    creator
-      ? 'Type: creator (posts for a following, for fun or as a hobby; not a business)'
-      : `Type: ${a.accountType}`,
+    `Type: ${parseAccountType(a.accountType)}`,
     `Headline: ${a.headline}`
   ]
-  if (a.company && !creator) lines.push(`Company: ${a.company}`)
-  if (a.industry) lines.push(`${creator ? 'Niche' : 'Industry'}: ${a.industry}`)
-  if (a.bio) lines.push(`${creator ? 'About them' : 'Bio'}: ${a.bio}`)
+  if (a.company) lines.push(`Company: ${a.company}`)
+  if (a.industry) lines.push(`Industry: ${a.industry}`)
+  if (a.bio) lines.push(`Bio: ${a.bio}`)
   if (a.websiteUrl) lines.push(`Website: ${a.websiteUrl}`)
-  if (a.linkedinUrl) lines.push(`${creator ? 'Main profile' : 'LinkedIn'}: ${a.linkedinUrl}`)
+  if (a.linkedinUrl) lines.push(`${profileLinkLabel(a.linkedinUrl)}: ${a.linkedinUrl}`)
 
   if (ctx.offerings.length > 0) {
-    lines.push('', creator ? 'What they promote:' : 'What they offer:')
+    lines.push('', 'What they offer:')
     for (const o of ctx.offerings) {
       const parts = [`- ${o.name} (${o.type})`]
       if (o.tagline) parts.push(`  Tagline: ${o.tagline}`)
@@ -768,15 +796,16 @@ export function renderReviewerFeedbackBlock(ctx: GenerationContext): string {
 export function renderMediaContext(ctx: GenerationContext): string {
   const a = ctx.account
   const org = a.company && a.company !== a.name ? ` (${a.company})` : ''
-  const creator = isCreator(ctx)
   const lines = [
-    `Posted by: ${a.name}${org}, ${a.accountType === 'company' ? 'a company page' : creator ? 'a creator' : 'a person'}`
+    `Posted by: ${a.name}${org}, ${a.accountType === 'company' ? 'a company page' : 'a person'}`
   ]
-  if (a.industry) lines.push(`${creator ? 'Niche' : 'Industry'}: ${a.industry}`)
-  if (creator) {
-    // Without this the art director made a business graphic for a dancer.
+  if (a.industry) lines.push(`Industry: ${a.industry}`)
+  // The post's platform decides how it should feel: without this the art
+  // director made a business graphic for a dancer's Instagram.
+  const style = styleFor(ctx, platformOf(ctx).id)
+  if (isCasualStyle(style)) {
     lines.push(
-      'Style: a creator, not a business. Make it playful, personal and bold, like their own feed; never corporate, never a diagram, chart or business layout.'
+      `Style: for the people who follow them, not a business audience. Make it ${style === 'fun' ? 'playful, funny and bold' : 'warm, personal and natural'}, like their own feed; never corporate, never a diagram, chart or business layout.`
     )
   }
   const audiences = ctx.audiences

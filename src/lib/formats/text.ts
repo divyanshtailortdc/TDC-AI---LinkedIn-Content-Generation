@@ -194,6 +194,15 @@ export function overLimitMessage(
  * (a bold hook); other platforms get plain text, and a thread its posts with
  * a "---" line between them, to paste one at a time.
  */
+/**
+ * What is posted with a video as text: its caption and hashtags, without the
+ * script. Empty for a format that is not a video.
+ */
+export function videoCaptionText(formatId: FormatId, post: PostText): string {
+  if (FORMATS[formatId].structure !== 'script') return ''
+  return limitedTexts(formatId, plainPost(post))[0] ?? ''
+}
+
 export function copyText(formatId: FormatId, post: PostText): string {
   if (formatId === 'linkedin.post') return platformPostText(post)
   if (FORMATS[formatId].structure === 'thread') {

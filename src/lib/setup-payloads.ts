@@ -1,4 +1,5 @@
 import { GOAL_OBJECTIVES } from '@/lib/goal-objectives'
+import { CONTENT_STYLES } from '@/lib/formats/styles'
 import { z } from 'zod'
 import { idSchema } from './ids'
 import { optionalUrlError, tooLong } from './identity-profile'
@@ -50,7 +51,8 @@ export const PreferencesPayloadSchema = z.object({
         z.string().max(20),
         z.object({
           audience: text(2000, 'Who follows you there').optional(),
-          tone: text(2000, 'How you sound there').optional()
+          tone: text(2000, 'How you sound there').optional(),
+          style: z.enum(CONTENT_STYLES).optional()
         })
       )
     })

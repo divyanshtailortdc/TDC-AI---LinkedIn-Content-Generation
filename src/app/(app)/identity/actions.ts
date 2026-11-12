@@ -3,11 +3,17 @@
 import { db } from '@/db'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
-import { startCreatorFormats } from '@/lib/channels'
+import {
+  cleanChannelSettings,
+  isPlatformId,
+  STARTING_FORMATS,
+  type ChannelSettings,
+  type PlatformId
+} from '@/lib/formats'
 import {
   ACCOUNT_TYPES,
   deriveHeadline,
-  identityProfileSchemaFor,
+  IdentityProfileSchema,
   parseAccountType
 } from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
@@ -63,6 +69,46 @@ function profileFromFormData(formData: FormData) {
   }
 }
 
+/** A JSON form field, or null when it is missing or not JSON. */
+function jsonField(formData: FormData, key: string): unknown {
+  const raw = formData.get(key)
+  if (typeof raw !== 'string' || !raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Where a new identity posts and how each platform should sound, from the
+ * setup's first and last steps. Each picked platform starts with its main
+ * formats (STARTING_FORMATS); none picked keeps the LinkedIn default.
+ */
+function channelsFromFormData(formData: FormData): {
+  enabledFormats: string[]
+  channelSettings: ChannelSettings
+} | null {
+  const picked = jsonField(formData, 'platforms')
+  const platforms = Array.isArray(picked)
+    ? Array.from(new Set(picked.filter(isPlatformId)))
+    : []
+  if (platforms.length === 0) return null
+  const styles = jsonField(formData, 'styles')
+  const settings = cleanChannelSettings(
+    Object.fromEntries(
+      platforms.map((p: PlatformId) => [
+        p,
+        { style: (styles as Record<string, unknown> | null)?.[p] }
+      ])
+    )
+  )
+  return {
+    enabledFormats: platforms.flatMap(p => STARTING_FORMATS[p]),
+    channelSettings: settings
+  }
+}
+
 /**
  * Creates the signed-in user's identity. Each user has one: when it already
  * exists (a second click, a retried request, another tab), nothing is
@@ -74,17 +120,16 @@ export async function createAccount(formData: FormData) {
   if (await getIdentity()) return { redirectTo: IDENTITY_PATH }
 
   const accountType = parseAccountType(formData.get('accountType'))
-  const parsed = identityProfileSchemaFor(accountType).safeParse(
-    profileFromFormData(formData)
-  )
+  const parsed = IdentityProfileSchema.safeParse(profileFromFormData(formData))
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
-  const data = { ...parsed.data, offerings: parsed.data.offerings ?? '' }
+  const data = parsed.data
 
   try {
-    // The account and its offering and audience are written together.
-    const created = await insertIdentity(
+    // The account, its offering and audience, and where it posts are written
+    // together.
+    await insertIdentity(
       db,
       {
         userId: user.id,
@@ -98,10 +143,9 @@ export async function createAccount(formData: FormData) {
         linkedinUrl: data.linkedinUrl || null,
         websiteUrl: data.websiteUrl || null
       },
-      data
+      data,
+      channelsFromFormData(formData)
     )
-    // A creator posts on Instagram, not LinkedIn, until they choose otherwise.
-    if (accountType === 'creator') await startCreatorFormats(created.id)
   } catch (err) {
     if (isUniqueViolation(err)) return { redirectTo: IDENTITY_PATH }
     throw err
@@ -122,9 +166,9 @@ export async function createAccount(formData: FormData) {
   }
 }
 
-const updateAccountSchema = identityProfileSchemaFor('creator').extend({
+const updateAccountSchema = IdentityProfileSchema.extend({
   id: AccountIdSchema,
-  /** Professional, Company / Product or Creator; left out keeps the saved type. */
+  /** A person or a brand; left out keeps the saved type. */
   accountType: z.enum(ACCOUNT_TYPES).optional()
 })
 
@@ -146,13 +190,6 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     if (!existing) {
       return { success: false, error: 'Identity not found' }
     }
-    // Offerings are optional for a creator only; checked against the type
-    // the identity will have once saved.
-    const nextType = validated.accountType ?? parseAccountType(existing.accountType)
-    if (nextType !== 'creator' && !validated.offerings?.trim()) {
-      return { success: false, error: 'Offerings are required' }
-    }
-
     // The handle only follows the LinkedIn URL; renaming keeps the old handle.
     let handle = existing.handle
     if (
@@ -182,11 +219,6 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       },
       validated
     )
-    // Becoming a creator moves an untouched LinkedIn-only setup to Instagram.
-    if (nextType === 'creator' && existing.accountType !== 'creator') {
-      await startCreatorFormats(validated.id)
-    }
-
     revalidatePath('/')
     revalidatePath(IDENTITY_PATH, 'layout')
 

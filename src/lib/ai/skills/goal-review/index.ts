@@ -1,5 +1,6 @@
-import { isCreator } from '../../context-blocks'
 import 'server-only'
+
+import type { StyleMix } from '@/lib/formats'
 
 import { goalLabel, type GenerationContext } from '../../context-blocks'
 import { runSkill, SkillError } from '../../run-skill'
@@ -25,14 +26,16 @@ export async function reviewGoalFit(
   ideas: GeneratedIdeaItem[],
   abortSignal?: AbortSignal,
   /** The platform a run's ideas are for, when it planned for one other than LinkedIn. */
-  platform?: string | null
+  platform?: string | null,
+  /** The run's style mix (ideationStyle); professional when not given. */
+  style: StyleMix = 'professional'
 ): Promise<{ reviews: Array<GoalReview | null>; usage: CallUsage }> {
   if (ideas.length === 0) return { reviews: [], usage: EMPTY_USAGE }
   const goalIds = ctx.selectedGoals.map(goal => goal.id)
   try {
     const { output, usage } = await runSkill({
       stage: 'goal_review',
-      instructions: instructionsFor(platform, isCreator(ctx)),
+      instructions: instructionsFor(platform, style),
       prompt: buildPrompt({
         account: [ctx.account.name, ctx.account.headline]
           .filter(Boolean)

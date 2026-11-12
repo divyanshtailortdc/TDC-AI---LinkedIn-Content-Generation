@@ -19,7 +19,7 @@ export const PUBLISHING_PLATFORMS: readonly PlatformSpec[] =
 
 /**
  * The formats (src/lib/formats) each platform's provider publishes; a post in
- * any other (a Reel, a video script) is copied and posted by hand.
+ * any other (an Instagram post, a video script) is copied and posted by hand.
  */
 export const PUBLISHABLE_FORMATS: Record<PublishingPlatformId, FormatId[]> = {
   linkedin: ['linkedin.post'],

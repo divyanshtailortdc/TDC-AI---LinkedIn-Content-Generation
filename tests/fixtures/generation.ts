@@ -192,6 +192,10 @@ export function context(parts: {
   ctaRequired?: boolean
   bannedTopics?: string[]
   complianceNotes?: string
+  /** The formats it drafts; LinkedIn alone when left out. */
+  enabledFormats?: string[]
+  /** What it said about each platform, its style included. */
+  channelSettings?: Record<string, { audience?: string; tone?: string; style?: string }>
 }): GenerationContext {
   const v = parts.voice === undefined ? voice() : parts.voice
   const primary = parts.goal ?? null
@@ -221,6 +225,8 @@ export function context(parts: {
                 compliance_notes: parts.complianceNotes ?? ''
               }
             : null,
+        enabledFormats: parts.enabledFormats,
+        channelSettings: parts.channelSettings,
         createdAt: NOW,
         updatedAt: NOW
       },

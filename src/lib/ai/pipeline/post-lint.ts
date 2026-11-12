@@ -1,8 +1,8 @@
 import {
   collectBannedWords,
-  isCreator,
   platformOf,
   resolveLinkPlacement,
+  styleFor,
   type GenerationContext
 } from '../context-blocks'
 import { collectFigureSources } from '../skills/post-drafting/guard'
@@ -14,6 +14,7 @@ import {
   countChars,
   DEFAULT_FORMAT,
   FORMATS,
+  isCasualStyle,
   limitedTexts,
   PLATFORMS,
   videoScriptOf,
@@ -58,8 +59,10 @@ export function buildPostLintOptions(
     bannedWords: collectBannedWords(ctx),
     bannedTopics: ctx.prefs.guardrails.banned_topics,
     platformName: platformOf(ctx).name,
-    // A creator inviting followers to tag a friend is not a business post's bait.
-    ...(isCreator(ctx) ? { engagementBaitSeverity: 'warning' as const } : {}),
+    // Inviting followers to tag a friend is not a professional post's bait.
+    ...(isCasualStyle(styleFor(ctx, platformOf(ctx).id))
+      ? { engagementBaitSeverity: 'warning' as const }
+      : {}),
     maxChars: constraints.max_chars,
     hookMaxChars: constraints.hook_max_chars,
     hashtagRange: constraints.hashtags,
@@ -117,6 +120,10 @@ export function buildFormatLintOptions(
   return {
     ...base,
     platformName: PLATFORMS[spec.platform].label,
+    // Judged by this format's platform, whatever LinkedIn's style is.
+    engagementBaitSeverity: isCasualStyle(styleFor(ctx, spec.platform))
+      ? 'warning'
+      : undefined,
     maxChars: spec.limits.maxChars,
     hookMaxChars: spec.limits.foldChars,
     countChars: value => countChars(value, spec.limits.count),

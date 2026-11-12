@@ -193,7 +193,7 @@ export async function setPostPosted(
         // Out on its platform (or going out now): un-marking it would be untrue.
         throw new Error(
           `This post was published on ${getPlatform(updated.platform).name}; it stays posted.`
-        )
+          )
       }
     })
 

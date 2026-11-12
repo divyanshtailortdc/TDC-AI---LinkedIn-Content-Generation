@@ -1,4 +1,9 @@
-import { accountsTable, audiencesTable, offeringsTable } from '@/db/schema'
+import {
+  accountsTable,
+  audiencesTable,
+  offeringsTable,
+  preferencesTable
+} from '@/db/schema'
 import { offeringNameFromText, type IdentityProfile } from '@/lib/identity-profile'
 import { asc, eq } from 'drizzle-orm'
 import type { PgDatabase } from 'drizzle-orm/pg-core'
@@ -36,7 +41,7 @@ async function upsertPrimaryOfferingAndAudience(
     name: offeringNameFromText(profile.offerings),
     description: profile.offerings
   }
-  // A creator may promote nothing: no offering row is made for that, and an
+  // Promoting nothing is fine: no offering row is made for that, and an
   // emptied one is switched off so no prompt lists it.
   if (!profile.offerings?.trim()) {
     if (primaryOffering) {
@@ -78,12 +83,20 @@ async function upsertPrimaryOfferingAndAudience(
 export async function insertIdentity(
   database: IdentityDb,
   account: AccountInsert,
-  profile: ProfileRows
+  profile: ProfileRows,
+  /** Where it posts and how each platform sounds, from setup; none keeps the defaults. */
+  channels?: Pick<
+    typeof preferencesTable.$inferInsert,
+    'enabledFormats' | 'channelSettings'
+  > | null
 ) {
   return database.transaction(async tx => {
     const [inserted] = await tx.insert(accountsTable).values(account).returning()
     if (!inserted) throw new Error('Failed to create account')
     await upsertPrimaryOfferingAndAudience(tx, inserted.id, profile)
+    if (channels) {
+      await tx.insert(preferencesTable).values({ accountId: inserted.id, ...channels })
+    }
     return inserted
   })
 }

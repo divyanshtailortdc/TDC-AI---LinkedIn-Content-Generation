@@ -1,16 +1,19 @@
 import { cleanFormats, FORMATS, isPlatformId, platformsOf } from './registry'
+import { DEFAULT_STYLES, isContentStyle, type ContentStyle } from './styles'
 import { DEFAULT_FORMAT, type FormatId, type PlatformId } from './types'
 
 /**
  * What an identity has said about each platform it posts on, saved in
  * `preferences.channel_settings`. LinkedIn takes its audience and tone from
- * the identity's profile and voice, so it has no entry here.
+ * the identity's profile and voice, so its entry holds only its style.
  */
 export type ChannelNote = {
   /** Who follows the identity on this platform, in its own words. */
   audience?: string
   /** How the identity sounds here, beyond its core voice. */
   tone?: string
+  /** Professional, casual or fun; absent means the platform's default. */
+  style?: ContentStyle
 }
 export type ChannelSettings = Partial<Record<PlatformId, ChannelNote>>
 
@@ -34,13 +37,26 @@ export function cleanChannelSettings(value: unknown): ChannelSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const out: ChannelSettings = {}
   for (const [platform, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!isPlatformId(platform) || platform === 'linkedin') continue
+    if (!isPlatformId(platform)) continue
     if (!raw || typeof raw !== 'object') continue
     const entry = raw as Record<string, unknown>
-    const cleaned: ChannelNote = { audience: note(entry.audience), tone: note(entry.tone) }
-    if (cleaned.audience || cleaned.tone) out[platform] = cleaned
+    const style = isContentStyle(entry.style) ? entry.style : undefined
+    const cleaned: ChannelNote =
+      platform === 'linkedin'
+        ? { style }
+        : { audience: note(entry.audience), tone: note(entry.tone), style }
+    // Keys left undefined are dropped, so a saved entry holds only what was said.
+    const kept = Object.fromEntries(
+      Object.entries(cleaned).filter(([, value]) => value !== undefined)
+    ) as ChannelNote
+    if (Object.keys(kept).length > 0) out[platform] = kept
   }
   return out
+}
+
+/** How posts on this platform should sound: the identity's pick, else its default. */
+export function styleOf(settings: ChannelSettings, platform: PlatformId): ContentStyle {
+  return settings[platform]?.style ?? DEFAULT_STYLES[platform]
 }
 
 export function resolveChannels(

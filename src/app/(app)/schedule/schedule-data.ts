@@ -10,6 +10,7 @@ import {
 } from '@/db/schema'
 import { monthGridRange, type Month } from '@/lib/calendar'
 import type { PlatformId } from '@/lib/platforms'
+import { inKnownFormat } from '@/lib/known-formats'
 import { isPublishingConfigured } from '@/lib/publishing/config'
 import { nextSlot } from '@/lib/schedule-time'
 import {
@@ -114,7 +115,8 @@ function nextRunOf(
  */
 export async function loadSchedulePage(accountId: string, month: Month) {
   const { from, to } = monthGridRange(month)
-  const ofAccount = eq(postDraftsTable.accountId, accountId)
+  // Drafts in a removed format (an Instagram Reel) are not planned or shown.
+  const ofAccount = and(eq(postDraftsTable.accountId, accountId), inKnownFormat())
   const publishingOn = isPublishingConfigured()
 
   const [planned, unscheduled, [unscheduledTotal], schedule, goals] =

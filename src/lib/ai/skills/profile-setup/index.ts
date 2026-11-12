@@ -3,7 +3,9 @@ import 'server-only'
 import { parseJsonLoosely } from '../../parse-json'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
-import { applyGuidance, sanitizeIdentitySetup } from './guard'
+import type { ContentStyle } from '@/lib/formats/styles'
+import type { PlatformId } from '@/lib/platforms'
+import { applyGuidance, readStyles, sanitizeIdentitySetup } from './guard'
 import {
   buildPrompt,
   INSTRUCTIONS,
@@ -40,6 +42,8 @@ export async function suggestSetup(input: {
 }): Promise<{
   /** The identity type the suggestions were written for. */
   accountType: 'personal' | 'company'
+  /** A style for each platform the guidance named. */
+  styles: Partial<Record<PlatformId, ContentStyle>>
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   usage: CallUsage
@@ -111,6 +115,7 @@ export async function suggestSetup(input: {
     : sanitized.warnings
   return {
     accountType: sanitized.accountType,
+    styles: readStyles(raw, input.guidance?.platforms ?? []),
     suggestions: guided.suggestions,
     // Advanced choices that could not be used are reported, not dropped quietly.
     warnings: [...warnings, ...guided.warnings],

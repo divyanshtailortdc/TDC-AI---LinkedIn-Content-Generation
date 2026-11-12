@@ -199,33 +199,6 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     ],
     commentLabel: 'Link-in-bio note'
   },
-  'instagram.reel': {
-    id: 'instagram.reel',
-    platform: 'instagram',
-    label: 'Instagram Reel',
-    version: 1,
-    structure: 'script',
-    limits: {
-      count: 'utf16',
-      maxChars: 2200,
-      targetChars: 300,
-      foldChars: 125,
-      seconds: { target: 30, max: 90 }
-    },
-    hashtags: { min: 1, max: 5 },
-    links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
-    rules: [
-      'A vertical video script, shot by shot, to be filmed by the author: what is said, what is on screen, and any text overlay.',
-      'The first shot is the hook: it earns the next three seconds, in words and in picture.',
-      'Write the spoken words to be said aloud: short sentences, contractions, no lists read out.',
-      'The caption goes with the video: its first 125 characters show before "more". Never write a URL; say the link is in the bio.'
-    ],
-    commentLabel: 'Pinned comment',
-    register:
-      'Spoken, personal and quick, to one viewer. Short sentences that sound natural out loud; the picture carries as much as the words.',
-    opening:
-      'A spoken first line, within two seconds, that makes the viewer want the rest, while the picture already shows something worth watching.'
-  },
   'youtube.short': {
     id: 'youtube.short',
     platform: 'youtube',

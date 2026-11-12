@@ -114,6 +114,7 @@ import {
 import { initialsOf } from '@/lib/initials'
 import type { PublicationSummary } from '@/lib/publishing/engine'
 import { PublishControls } from './publish-controls'
+import { VideoScriptCard } from '@/components/video-script-card'
 import { canPublishFormat } from '@/lib/publishing/platform'
 import { getPostPublication } from './publish-actions'
 import {
@@ -2500,7 +2501,7 @@ export function PostsClientInner({
                       <div className="text-muted mt-2 flex items-center gap-1.5 text-[10px]">
                         <span className="tabular-nums">
                           {FORMATS[formatOf(post.formatId)].structure === 'script'
-                            ? `~${videoScriptOf(post).seconds}s video`
+                            ? `~${videoScriptOf(post).seconds}s script`
                             : `${post.charCount.toLocaleString()} chars`}
                         </span>
                         {post.media && (
@@ -2656,7 +2657,13 @@ export function PostsClientInner({
                         ) : (
                           <Copy className="h-3.5 w-3.5" />
                         )}
-                        <span>{copiedPost ? 'Copied' : 'Copy text'}</span>
+                        <span>
+                          {copiedPost
+                            ? 'Copied'
+                            : FORMATS[formatOf(activePost.formatId)].structure === 'script'
+                              ? 'Copy script'
+                              : 'Copy text'}
+                        </span>
                       </button>
                       <RegenerateControl
                         key={activePost.id}
@@ -2671,7 +2678,11 @@ export function PostsClientInner({
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                         <span>
-                          {isEditing ? 'View Feed Preview' : 'Edit Post Text'}
+                          {isEditing
+                            ? 'View Feed Preview'
+                            : FORMATS[formatOf(activePost.formatId)].structure === 'script'
+                              ? 'Edit Script'
+                              : 'Edit Post Text'}
                         </span>
                       </button>
                     </div>
@@ -2853,7 +2864,16 @@ export function PostsClientInner({
                       </div>
                     )}
 
-                  {/* 1. COMPACT MEDIA REVIEW CARD (No duplicate large image) */}
+                  {/* 1. MEDIA: the image tools, or for a video format (a YouTube
+                      Short) the script panel: the app writes the script, it does
+                      not make the video. */}
+                  {FORMATS[formatOf(activePost.formatId)].structure === 'script' ? (
+                    <VideoScriptCard
+                      formatId={formatOf(activePost.formatId)}
+                      post={activePost}
+                      copy={copyTextToClipboard}
+                    />
+                  ) : (
                   <div className="border-border bg-surface space-y-2 rounded-2xl border p-5 shadow-xs mt-4">
                     <div className="flex items-center justify-between">
                       <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
@@ -3526,6 +3546,7 @@ export function PostsClientInner({
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* B. QUALITY CHECKS (Summary by default: "✓ 6 checks passed") */}
                   <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">

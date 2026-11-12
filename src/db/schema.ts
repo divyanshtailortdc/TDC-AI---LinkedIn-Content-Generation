@@ -392,13 +392,14 @@ export const preferencesTable = pgTable('preferences', {
   postConstraints: jsonb('post_constraints').$type<PostConstraints | null>(),
   guardrails: jsonb('guardrails').$type<Guardrails | null>(),
   // The formats this identity drafts (src/lib/formats), and per platform who
-  // follows it there and how it sounds; see resolveChannels.
+  // follows it there, how it sounds and its style (professional, casual or
+  // fun); see resolveChannels.
   enabledFormats: jsonb('enabled_formats')
     .$type<string[]>()
     .default(['linkedin.post'])
     .notNull(),
   channelSettings: jsonb('channel_settings')
-    .$type<Record<string, { audience?: string; tone?: string }>>()
+    .$type<Record<string, { audience?: string; tone?: string; style?: string }>>()
     .default({})
     .notNull(),
   ...commonFieldDefs.dates

@@ -2,13 +2,13 @@
 
 import {
   IDENTITY_FIELDS,
-  identityProfileSchemaFor,
+  IdentityProfileSchema,
   PROFILE_MAX_LENGTH,
   type AccountType,
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, Clapperboard, Globe, Link2, Sparkles, User } from 'lucide-react'
+import { Building2, Globe, Link2, Sparkles, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
@@ -28,29 +28,23 @@ const ACCOUNT_TYPES: Array<{
 }> = [
   {
     value: 'personal',
-    label: 'Professional',
-    description: 'You at work: founder, consultant, executive or expert',
+    label: 'Me',
+    description: 'A person posting as themselves',
     icon: User
   },
   {
     value: 'company',
-    label: 'Company / Product',
-    description: 'A brand, agency, startup, or specific product',
+    label: 'A brand',
+    description: 'A business, product or page',
     icon: Building2
-  },
-  {
-    value: 'creator',
-    label: 'Creator',
-    description: 'You posting for fun or a following: dance, comedy, fitness, food, any hobby',
-    icon: Clapperboard
   }
 ]
 
 /**
- * One titled group of fields. The Profile step is three of these: the identity
- * type, the basic information and the online presence.
+ * One titled group of fields. The Profile step is three of these: who is
+ * posting, the basic information and the online presence.
  */
-function SectionCard({
+export function SectionCard({
   title,
   description,
   required,
@@ -84,8 +78,8 @@ function SectionCard({
 }
 
 /**
- * Whether the AI writes as a person or as a brand. Chosen when the identity is
- * created; the edit page shows it locked, as it always has.
+ * Whether the posts speak as a person ("I") or as a brand ("we"). How they
+ * sound is chosen per platform, separately (PlatformStyles).
  */
 function AccountTypePicker({
   value,
@@ -100,12 +94,12 @@ function AccountTypePicker({
 }) {
   const locked = !onChange || readOnly
   return (
-    <SectionCard title="What kind of identity is this?" required>
+    <SectionCard title="Posting as" required>
       <input type="hidden" name="accountType" value={value} />
       <div
         role="radiogroup"
-        aria-label="Identity type"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-3"
+        aria-label="Posting as"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
       >
         {ACCOUNT_TYPES.map(option => {
           const selected = option.value === value
@@ -164,10 +158,9 @@ export type IdentityFieldErrors = Partial<Record<IdentityProfileField, string>>
 
 /** Runs the shared profile schema and maps its issues onto field names. */
 export function validateIdentityValues(
-  values: IdentityValues,
-  accountType: AccountType = 'personal'
+  values: IdentityValues
 ): IdentityFieldErrors {
-  const parsed = identityProfileSchemaFor(accountType).safeParse(values)
+  const parsed = IdentityProfileSchema.safeParse(values)
   if (parsed.success) return {}
   const errors: IdentityFieldErrors = {}
   for (const issue of parsed.error.issues) {
@@ -369,39 +362,20 @@ function IdentityField({
   )
 }
 
-/**
- * How the Profile fields read for a creator: the same columns, asked about in
- * a creator's terms (their niche, who follows them, what they promote).
- */
-const CREATOR_FIELDS: Partial<
+/** Placeholders for a brand, where a person's would read wrongly. */
+const BRAND_FIELDS: Partial<
   Record<IdentityProfileField, Partial<IdentityFieldDefinition>>
 > = {
-  name: { label: 'Creator Name', placeholder: 'e.g. Priya Dances' },
-  industry: {
-    label: 'Niche',
-    type: 'textarea',
-    placeholder: 'e.g. Bollywood dance tutorials, couple comedy skits, home workouts'
-  },
+  name: { placeholder: 'e.g. Acme AI, Blue Tokai Coffee' },
+  company: { label: 'Parent Company', placeholder: 'e.g. Acme Corp' },
   description: {
-    label: 'About You',
     placeholder:
-      'e.g. Dance teacher from Pune. I post short choreography tutorials, rehearsal bloopers and trend videos with my students.'
+      'e.g. Acme AI builds workflow automation software that helps sales teams book more meetings.'
   },
   targetAudience: {
-    label: 'Who Follows You',
-    placeholder:
-      'e.g. Teens and young adults learning to dance at home; parents of my students'
+    placeholder: 'e.g. Heads of Sales at B2B SaaS companies; coffee lovers in Bengaluru'
   },
-  offerings: {
-    label: 'What You Promote',
-    required: false,
-    hint: '(optional)',
-    placeholder: 'e.g. Weekend dance classes, my choreography course, brand collaborations'
-  },
-  linkedinUrl: {
-    label: 'Main Profile (Instagram, YouTube…)',
-    placeholder: 'https://www.instagram.com/your-handle'
-  }
+  linkedinUrl: { placeholder: 'https://www.linkedin.com/company/your-brand' }
 }
 
 /** The Profile fields, laid out the same on the create and edit pages. */
@@ -419,68 +393,40 @@ export function IdentityFields({
   /** Fields still holding an AI suggestion, marked until the user edits them. */
   aiFilled?: ReadonlySet<string>
   accountType: AccountType
-  /** Leave out to show the identity type read-only (edit page). */
+  /** Leave out to show who is posting read-only. */
   onAccountTypeChange?: (value: AccountType) => void
   /** A saved profile being viewed: every field is plain text until edited. */
   readOnly?: boolean
   onChange: (field: IdentityProfileField, value: string) => void
 }) {
+  const definition = (name: IdentityProfileField): IdentityFieldDefinition => {
+    const def = IDENTITY_FIELDS.find(f => f.name === name)!
+    const brand = accountType === 'company' ? BRAND_FIELDS[name] : undefined
+    // Topics can run to a phrase or two, so it gets room to wrap.
+    const shape = name === 'industry' ? { type: 'textarea' as const } : {}
+    return { ...def, ...shape, ...brand }
+  }
   const field = (
     name: IdentityProfileField,
     extras: {
       rightHint?: string
       textareaClass?: string
+      icon?: ReactNode
     } = {}
-  ) => {
-    let def = IDENTITY_FIELDS.find(f => f.name === name)!
-    const creatorDef = accountType === 'creator' ? CREATOR_FIELDS[name] : undefined
-    if (creatorDef) {
-      def = { ...def, ...creatorDef }
-    } else if (name === 'name') {
-      def = {
-        ...def,
-        placeholder:
-          accountType === 'company' ? 'e.g. Acme AI' : 'Enter your display name'
-      }
-    } else if (name === 'industry') {
-      def = { ...def, type: 'textarea' }
-    } else if (name === 'description') {
-      def = {
-        ...def,
-        label: 'Short Description',
-        placeholder:
-          accountType === 'company'
-            ? 'e.g. Acme AI builds workflow automation software that helps sales teams book more meetings.'
-            : def.placeholder
-      }
-    } else if (name === 'company') {
-      def =
-        accountType === 'company'
-          ? {
-              ...def,
-              label: 'Parent Company / Brand',
-              placeholder: 'e.g. Acme Corp'
-            }
-          : {
-              ...def,
-              label: 'Current Company',
-              placeholder: 'e.g. Acme Corp'
-            }
-    }
-    return (
-      <IdentityField
-        key={name}
-        def={def}
-        value={values[name]}
-        error={errors[name]}
-        rightHint={extras.rightHint}
-        textareaClass={extras.textareaClass}
-        readOnly={readOnly}
-        aiFilled={aiFilled?.has(name)}
-        onChange={value => onChange(name, value)}
-      />
-    )
-  }
+  ) => (
+    <IdentityField
+      key={name}
+      def={definition(name)}
+      value={values[name]}
+      error={errors[name]}
+      rightHint={extras.rightHint}
+      textareaClass={extras.textareaClass}
+      icon={extras.icon}
+      readOnly={readOnly}
+      aiFilled={aiFilled?.has(name)}
+      onChange={value => onChange(name, value)}
+    />
+  )
 
   return (
     <div className="space-y-5">
@@ -493,50 +439,26 @@ export function IdentityFields({
       <SectionCard title="Basic information">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {field('name')}
-          {/* A creator posts as themselves; no company to name. */}
-          {accountType !== 'creator' && field('company')}
+          {field('company')}
           <div className="sm:col-span-2">
             {field('industry', { textareaClass: 'h-20' })}
           </div>
           <div className="sm:col-span-2">
-            {field('description', {
-              textareaClass: 'h-28'
-            })}
+            {field('description', { textareaClass: 'h-28' })}
           </div>
           <div className="sm:col-span-2">
             {field('targetAudience', { textareaClass: 'h-28' })}
           </div>
           <div className="sm:col-span-2">
-            {field('offerings', {
-              textareaClass: 'h-28'
-            })}
+            {field('offerings', { textareaClass: 'h-28' })}
           </div>
         </div>
       </SectionCard>
 
       <SectionCard title="Online presence">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-          <IdentityField
-            def={{
-              ...IDENTITY_FIELDS.find(f => f.name === 'linkedinUrl')!,
-              ...(accountType === 'creator' ? CREATOR_FIELDS.linkedinUrl : {})
-            }}
-            value={values.linkedinUrl}
-            error={errors.linkedinUrl}
-            icon={<Link2 className="h-4 w-4" />}
-            readOnly={readOnly}
-            aiFilled={aiFilled?.has('linkedinUrl')}
-            onChange={value => onChange('linkedinUrl', value)}
-          />
-          <IdentityField
-            def={IDENTITY_FIELDS.find(f => f.name === 'websiteUrl')!}
-            value={values.websiteUrl}
-            error={errors.websiteUrl}
-            icon={<Globe className="h-4 w-4" />}
-            readOnly={readOnly}
-            aiFilled={aiFilled?.has('websiteUrl')}
-            onChange={value => onChange('websiteUrl', value)}
-          />
+          {field('linkedinUrl', { icon: <Link2 className="h-4 w-4" /> })}
+          {field('websiteUrl', { icon: <Globe className="h-4 w-4" /> })}
         </div>
       </SectionCard>
     </div>

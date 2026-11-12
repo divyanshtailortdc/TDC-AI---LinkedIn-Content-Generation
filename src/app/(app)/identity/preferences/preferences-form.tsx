@@ -6,6 +6,7 @@ import {
 } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
+import { PlatformStyles, StyleLegend } from '@/components/platform-styles'
 import { showToast } from '@/components/toast-notification'
 import {
   preferencesSuggestionValues,
@@ -17,7 +18,9 @@ import {
   PLATFORM_IDS,
   PLATFORMS,
   platformsOf,
+  styleOf,
   type ChannelSettings,
+  type ContentStyle,
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
@@ -111,11 +114,18 @@ export function PreferencesForm({
       ...current,
       [platform]: { ...current[platform], [field]: value }
     }))
-  // The platforms with a format turned on, other than LinkedIn, which takes
-  // its audience and tone from the profile and voice.
-  const notePlatforms = platformsOf(
+  const setStyle = (platform: PlatformId, style: ContentStyle) =>
+    setChannelSettings(current => ({
+      ...current,
+      [platform]: { ...current[platform], style }
+    }))
+  // The platforms with a format turned on: each has a style.
+  const activePlatforms = platformsOf(
     FORMAT_IDS.filter(f => enabledFormats.includes(f))
-  ).filter(p => p !== 'linkedin')
+  )
+  // Other than LinkedIn, which takes its audience and tone from the profile
+  // and voice, each also has notes.
+  const notePlatforms = activePlatforms.filter(p => p !== 'linkedin')
 
   const [error, setError] = useState<string | null>(null)
 
@@ -289,6 +299,28 @@ export function PreferencesForm({
           <p className="text-xs text-rose-600 dark:text-rose-400">
             Turn on at least one format.
           </p>
+        )}
+
+        {activePlatforms.length > 0 && (
+          <div className="space-y-2">
+            <div>
+              <p className="text-foreground text-xs font-medium">
+                How posts sound on each platform
+              </p>
+              <p className="text-muted text-xs">
+                Professional posts share expertise; casual and fun ones are
+                written for the people who follow you.
+              </p>
+            </div>
+            <PlatformStyles
+              platforms={activePlatforms}
+              value={Object.fromEntries(
+                activePlatforms.map(p => [p, styleOf(channelSettings, p)])
+              )}
+              onChange={setStyle}
+            />
+            <StyleLegend />
+          </div>
         )}
 
         {notePlatforms.map(platform => {

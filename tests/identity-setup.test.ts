@@ -430,11 +430,11 @@ describe('name and company fit the identity type', () => {
   it('names the company field the way the Profile form does', () => {
     assert.strictEqual(
       fieldLabel('profile', 'company', 'company'),
-      'Parent company / brand'
+      'Parent company'
     )
     assert.strictEqual(
       fieldLabel('profile', 'company', 'personal'),
-      'Current company'
+      'Where you work'
     )
     assert.strictEqual(fieldLabel('profile', 'company'), 'Company')
   })
@@ -528,7 +528,7 @@ describe('Advanced analysis guidance', () => {
       suggestions.profile.targetAudience?.value
     )
     assert.deepStrictEqual(warnings, [
-      "Profile → Target audience: your Advanced analysis choice could not be used, so the AI's suggestion was kept."
+      "Profile → Who it's for: your Advanced analysis choice could not be used, so the AI's suggestion was kept."
     ])
   })
 

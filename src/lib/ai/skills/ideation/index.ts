@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { audienceSegments, isCreator, type GenerationContext } from '../../context'
+import { audienceSegments, type GenerationContext } from '../../context'
 import { inferRegion } from '../../region'
 import { runSkill } from '../../run-skill'
 import type { CallUsage } from '../../usage'
@@ -12,6 +12,7 @@ import {
 import {
   buildInstructions,
   buildPrompt,
+  ideationStyle,
   PROMPT_EVIDENCE_LIMIT,
   type IdeationChannels
 } from './prompt'
@@ -23,7 +24,7 @@ import {
 import { cleanFormats } from '@/lib/formats'
 
 export type { GroundingCorpus } from './guard'
-export { ideationChannels, type IdeationChannels } from './prompt'
+export { ideationChannels, ideationStyle, type IdeationChannels } from './prompt'
 export type { GeneratedIdeaItem } from './schema'
 
 /**
@@ -73,7 +74,7 @@ export async function generateIdeas(input: {
       assignedGoals: input.assignedGoals,
       hookMaxChars: input.ctx.prefs.constraints.hook_max_chars,
       channels,
-      creator: isCreator(input.ctx)
+      style: ideationStyle(input.ctx, channels)
     }),
     // A run with one format asks for exactly what it always did.
     schema: channels

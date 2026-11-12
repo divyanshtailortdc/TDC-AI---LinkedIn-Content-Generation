@@ -1,6 +1,5 @@
-import type { GenerationContext } from '~/lib/ai/context-blocks'
+import { styleMixFor, type GenerationContext } from '~/lib/ai/context-blocks'
 import type { Region } from '~/lib/ai/region'
-import { isCreatorAccount } from '@/lib/identity-profile'
 
 /**
  * The pure half of web research: what to search for and how old a result is.
@@ -119,11 +118,11 @@ function asSubject(text: string): string {
 }
 
 /**
- * A creator's research is what is going on in their niche, not news about a
- * business: trends, challenges and what people in the niche are making now,
- * then the run's goals in the niche's words.
+ * Research for casual and fun platforms is what is going on in the author's
+ * topic, not news about a business: trends, challenges and what people there
+ * are making now, then the run's goals in the topic's words.
  */
-function creatorSearchQueries(
+function trendSearchQueries(
   ctx: GenerationContext,
   limit: number,
   region?: Region | null
@@ -158,7 +157,10 @@ export function buildSearchQueries(
   region?: Region | null
 ): string[] {
   const a = ctx.account
-  if (isCreatorAccount(a)) return creatorSearchQueries(ctx, limit, region)
+  // Every platform casual or fun: trends only. A mix: editorial and trend
+  // searches in turn, so both kinds of idea have something to work from.
+  const style = styleMixFor(ctx)
+  if (style === 'casual') return trendSearchQueries(ctx, limit, region)
   // A person's name finds little; their field is the useful anchor.
   const brand = a.accountType === 'company' ? (a.company || a.name).trim() : ''
   // "Consumer electronics, semiconductors and appliances" searches as its first part.
@@ -187,5 +189,13 @@ export function buildSearchQueries(
     if (place && !includes(query, place)) query = `${query} ${place}`
     return query.replace(/\s+/g, ' ').trim()
   })
-  return Array.from(new Set(queries.filter(Boolean))).slice(0, limit)
+  const editorial = Array.from(new Set(queries.filter(Boolean)))
+  if (style !== 'mixed') return editorial.slice(0, limit)
+  const trends = trendSearchQueries(ctx, limit, region)
+  const both: string[] = []
+  for (let i = 0; i < Math.max(editorial.length, trends.length); i++) {
+    if (editorial[i]) both.push(editorial[i]!)
+    if (trends[i]) both.push(trends[i]!)
+  }
+  return Array.from(new Set(both)).slice(0, limit)
 }

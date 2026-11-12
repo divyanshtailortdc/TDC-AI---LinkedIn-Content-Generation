@@ -49,7 +49,7 @@ export const VariantOutputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'The image or short carousel an Instagram caption goes with, or for a creator what to photograph or film for the post, in one or two sentences. Empty when the request does not ask for it.'
+      'The image or short carousel an Instagram caption goes with, or on a casual or fun platform what to photograph or film for the post, in one or two sentences. Empty when the request does not ask for it.'
     ),
   shots: z
     .array(
@@ -138,8 +138,8 @@ export function toVariantDraft(
         : splitThread(output?.hook ?? '', output?.body ?? '')
     return { ...common, ...threadColumns(posts), cta: '', payload: null }
   }
-  // Instagram captions always come with one; for a creator every post does
-  // (what to shoot), and other formats are asked to leave it empty.
+  // Instagram captions always come with one; on a casual or fun platform
+  // every post does (what to shoot), and other formats leave it empty.
   const visualIdea = output?.visualIdea?.trim() || ''
   return {
     ...common,

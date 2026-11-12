@@ -52,10 +52,10 @@ export const PERSPECTIVE_ANGLE_GUIDE: Record<
 }
 
 /**
- * A creator's formats, in place of the analytical lenses: what a dance,
- * comedy or lifestyle account actually posts. Only creators are shown these.
+ * Content formats, in place of the analytical lenses, for casual and fun
+ * platforms: what a dance, comedy, food or lifestyle account actually posts.
  */
-export const CREATOR_ANGLES = [
+export const CASUAL_ANGLES = [
   'pov_skit',
   'storytime',
   'tutorial',
@@ -70,23 +70,23 @@ export const CREATOR_ANGLES = [
   'series_episode'
 ] as const
 
-export const CREATOR_ANGLE_GUIDE: Record<(typeof CREATOR_ANGLES)[number], string> = {
+export const CASUAL_ANGLE_GUIDE: Record<(typeof CASUAL_ANGLES)[number], string> = {
   pov_skit: 'A short scene or "POV:" the audience recognises from their own life, played for laughs or feels.',
-  storytime: 'A real moment from the creator\'s life, told well; the specifics are theirs to fill in.',
+  storytime: 'A real moment from the author\'s life, told well; the specifics are theirs to fill in.',
   tutorial: 'Teach one small thing step by step that a viewer can try today.',
-  trend_or_challenge: 'The creator\'s take on a trend, sound or challenge in their niche (only one the evidence shows).',
+  trend_or_challenge: 'The author\'s take on a trend, sound or challenge in their niche (only one the evidence shows).',
   behind_the_scenes: 'What happens off camera: the practice, the mess, the setup, the people.',
   relatable_moment: 'The tiny, specific thing everyone in this niche has felt but rarely says.',
   before_and_after: 'A visible change: first try versus now, before versus after.',
-  reaction: 'React to something in the niche with the creator\'s honest, funny or expert eye.',
-  day_in_the_life: 'A slice of the creator\'s real routine, made interesting by one detail.',
+  reaction: 'React to something in the niche with the author\'s honest, funny or expert eye.',
+  day_in_the_life: 'A slice of the author\'s real routine, made interesting by one detail.',
   myth_vs_reality: 'What people think the niche is like versus what it is really like.',
   hot_take: 'A light, defensible opinion the niche will argue about in the comments.',
   series_episode: 'An episode of a recurring series followers come back for.'
 }
 
-/** Every lens or format an idea may use, professional and creator. */
-export const ALL_PERSPECTIVE_ANGLES = [...PERSPECTIVE_ANGLES, ...CREATOR_ANGLES] as const
+/** Every lens or format an idea may use, professional and casual. */
+export const ALL_PERSPECTIVE_ANGLES = [...PERSPECTIVE_ANGLES, ...CASUAL_ANGLES] as const
 
 export type PerspectiveAngle = (typeof ALL_PERSPECTIVE_ANGLES)[number]
 

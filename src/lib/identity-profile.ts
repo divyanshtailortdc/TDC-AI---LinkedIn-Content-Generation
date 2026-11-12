@@ -6,21 +6,22 @@ import { z } from 'zod'
  */
 
 /**
- * Who the identity is: a professional writing as themselves, a company or
- * product, or a creator (dance, comedy, lifestyle, a hobby) posting for a
- * following. A creator's posts are written casually and from their niche,
- * not as thought leadership (see isCreatorAccount).
+ * Who is posting: a person as themselves, or a brand (a business, product or
+ * page). How the posts sound is a separate choice made per platform
+ * (professional, casual or fun; src/lib/formats/styles.ts), so a dancer and a
+ * café can both be fun, and a founder can be professional on LinkedIn and
+ * casual on Instagram.
  */
-export const ACCOUNT_TYPES = ['personal', 'company', 'creator'] as const
+export const ACCOUNT_TYPES = ['personal', 'company'] as const
 export type AccountType = (typeof ACCOUNT_TYPES)[number]
 
-/** A stored or submitted type; anything unknown is a person, as before. */
+/**
+ * A stored or submitted type; anything else is a person, as before. (An
+ * identity saved as a "creator" while that was a type reads as a person.)
+ */
 export function parseAccountType(value: unknown): AccountType {
-  return value === 'company' || value === 'creator' ? value : 'personal'
+  return value === 'company' ? 'company' : 'personal'
 }
-
-export const isCreatorAccount = (account: { accountType?: string | null }) =>
-  account.accountType === 'creator'
 
 export const URL_MESSAGE = 'URLs must start with http:// or https://'
 
@@ -64,47 +65,34 @@ export const IdentityProfileSchema = z.object({
   description: z
     .string()
     .trim()
-    .min(1, 'Description is required')
+    .min(1, 'Add a short description')
     .max(PROFILE_MAX_LENGTH.description, tooLong('Description', PROFILE_MAX_LENGTH.description)),
   targetAudience: z
     .string()
     .trim()
-    .min(1, 'Target audience is required')
+    .min(1, "Say who it's for")
     .max(
       PROFILE_MAX_LENGTH.targetAudience,
       tooLong('Target audience', PROFILE_MAX_LENGTH.targetAudience)
     ),
+  // Optional: plenty of people post without selling anything.
   offerings: z
     .string()
     .trim()
-    .min(1, 'Offerings are required')
-    .max(PROFILE_MAX_LENGTH.offerings, tooLong('Offerings', PROFILE_MAX_LENGTH.offerings)),
+    .max(PROFILE_MAX_LENGTH.offerings, tooLong('What you promote', PROFILE_MAX_LENGTH.offerings))
+    .optional()
+    .default(''),
+  // Stored as the account's industry; asked as what they post about.
   industry: z
     .string()
     .trim()
-    .min(1, 'Industry is required')
-    .max(PROFILE_MAX_LENGTH.industry, tooLong('Industry', PROFILE_MAX_LENGTH.industry)),
+    .min(1, 'Say what you post about')
+    .max(PROFILE_MAX_LENGTH.industry, tooLong('What you post about', PROFILE_MAX_LENGTH.industry)),
   linkedinUrl: optionalHttpUrl,
   websiteUrl: optionalHttpUrl
 })
 
 export type IdentityProfile = z.infer<typeof IdentityProfileSchema>
-
-/**
- * The profile schema for one identity type. A creator need not promote
- * anything, so their "What you promote" (offerings) may be left empty.
- */
-export function identityProfileSchemaFor(accountType: AccountType) {
-  if (accountType !== 'creator') return IdentityProfileSchema
-  return IdentityProfileSchema.extend({
-    offerings: z
-      .string()
-      .trim()
-      .max(PROFILE_MAX_LENGTH.offerings, tooLong('What you promote', PROFILE_MAX_LENGTH.offerings))
-      .optional()
-      .default('')
-  })
-}
 
 export type IdentityProfileField = keyof IdentityProfile
 
@@ -117,57 +105,63 @@ export type IdentityFieldDefinition = {
   required?: boolean
 }
 
+/**
+ * Worded for anyone who posts, from a founder to a dancer to a café. The
+ * columns keep their original names: industry holds what they post about,
+ * linkedinUrl their main profile on any platform.
+ */
 export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
   {
     name: 'name',
-    label: 'Display Name',
+    label: 'Name',
     type: 'text',
-    placeholder: 'Enter your display name',
+    placeholder: 'e.g. Priya Rao',
     required: true
   },
   {
     name: 'company',
-    label: 'Company Name',
+    label: 'Where You Work',
     type: 'text',
-    placeholder: 'e.g. Acme AI',
+    placeholder: 'e.g. Acme Corp',
     hint: '(optional)'
   },
   {
     name: 'description',
-    label: 'Description',
+    label: 'About',
     type: 'textarea',
-    placeholder: 'e.g. Founder of a B2B SaaS startup helping sales teams automate outreach. 10+ years in product and growth.',
+    placeholder:
+      'e.g. Dance teacher from Pune. I post short tutorials and rehearsal bloopers with my students.',
     required: true
   },
   {
     name: 'targetAudience',
-    label: 'Target Audience',
+    label: "Who It's For",
     type: 'textarea',
     placeholder:
-      'e.g. Heads of Sales and RevOps leaders at B2B SaaS companies with 50-500 employees',
+      'e.g. Teens learning to dance at home; parents of my students',
     required: true
   },
   {
     name: 'offerings',
-    label: 'Offerings',
+    label: 'What You Promote',
     type: 'textarea',
     placeholder:
-      'e.g. AI engineering consulting, a RAG evaluation toolkit, a weekly newsletter',
-    required: true
+      'e.g. Weekend dance classes, a course, your product or services. Leave empty if nothing.',
+    hint: '(optional)'
   },
   {
     name: 'industry',
-    label: 'Industry',
+    label: 'What You Post About',
     type: 'text',
-    placeholder: 'e.g. B2B SaaS, Healthcare, Fintech',
+    placeholder: 'e.g. Bollywood dance, B2B sales, home baking',
     required: true
   },
   {
     name: 'linkedinUrl',
-    label: 'LinkedIn Profile / Page URL',
+    label: 'Main Profile Link',
     hint: '(optional)',
     type: 'url',
-    placeholder: 'https://www.linkedin.com/in/your-name'
+    placeholder: 'https://www.instagram.com/your-handle'
   },
   {
     name: 'websiteUrl',
