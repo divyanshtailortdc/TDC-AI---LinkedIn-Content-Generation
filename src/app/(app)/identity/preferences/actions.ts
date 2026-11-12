@@ -13,8 +13,10 @@ import {
   cleanChannelSettings,
   cleanFormats,
   isCreatableFormat,
+  type ChannelNote,
   type ChannelSettings,
-  type FormatId
+  type FormatId,
+  type PlatformId
 } from '@/lib/formats'
 import {
   AccountIdSchema,
@@ -66,6 +68,23 @@ function checkedFormats(values: string[]): FormatId[] {
   return formats
 }
 
+/**
+ * The styles learned from each platform's posts are kept: the form never
+ * sends them, and only learnPlatformStyle and forgetPlatformStyle change them.
+ */
+function withLearnedStyles(
+  next: ChannelSettings,
+  saved: ChannelSettings
+): ChannelSettings {
+  const out: ChannelSettings = { ...next }
+  for (const [platform, note] of Object.entries(saved) as Array<
+    [PlatformId, ChannelNote]
+  >) {
+    if (note.rubric) out[platform] = { ...out[platform], rubric: note.rubric }
+  }
+  return out
+}
+
 export async function savePreferences(
   rawAccountId: string,
   rawPayload: PreferencesPayload
@@ -75,6 +94,14 @@ export async function savePreferences(
   await requireOwnedAccount(user.id, accountId)
   const payload = parseSetupPayload(PreferencesPayloadSchema, rawPayload)
   validate(payload)
+
+  const existing = await db
+    .select({
+      id: preferencesTable.id,
+      channelSettings: preferencesTable.channelSettings
+    })
+    .from(preferencesTable)
+    .where(eq(preferencesTable.accountId, accountId))
 
   const columns = {
     ideasPerRun: Number(payload.ideasPerRun),
@@ -95,16 +122,14 @@ export async function savePreferences(
     ...(payload.channels
       ? {
           enabledFormats: checkedFormats(payload.channels.enabledFormats),
-          channelSettings: cleanChannelSettings(payload.channels.settings)
+          channelSettings: withLearnedStyles(
+            cleanChannelSettings(payload.channels.settings),
+            cleanChannelSettings(existing[0]?.channelSettings)
+          )
         }
       : {}),
     updatedAt: new Date()
   }
-
-  const existing = await db
-    .select({ id: preferencesTable.id })
-    .from(preferencesTable)
-    .where(eq(preferencesTable.accountId, accountId))
 
   if (existing.length > 0) {
     await db

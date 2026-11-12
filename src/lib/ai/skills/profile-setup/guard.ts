@@ -1,4 +1,8 @@
-import { isContentStyle, type ContentStyle } from '@/lib/formats/styles'
+import {
+  isContentStyle,
+  isEmojiLevel,
+  type ContentStyle
+} from '@/lib/formats/styles'
 import type { PlatformId } from '@/lib/platforms'
 import { findLinks, normalizeUrlForCompare } from '@/lib/urls'
 import { z } from 'zod'
@@ -29,7 +33,8 @@ import {
   type FieldSpec,
   type IdentitySetupSuggestions,
   type KnowledgeSuggestions,
-  type LineBasis
+  type LineBasis,
+  type SetupChannelNote
 } from './schema'
 
 // ---------------------------------------------------------------------------
@@ -1110,6 +1115,71 @@ export function readStyles(
     }
   }
   return out
+}
+
+/** Longest audience or tone line kept from the model. */
+const CHANNEL_NOTE_LIMIT = 300
+
+/**
+ * Who follows them, how they sound and how freely they use emoji on each
+ * platform but LinkedIn (which takes these from the profile and voice), for
+ * the platforms the user said they post on. Blank lines are left out.
+ */
+export function readChannelNotes(
+  raw: unknown,
+  platforms: readonly PlatformId[]
+): Partial<Record<PlatformId, SetupChannelNote>> {
+  const entries = asRecord(raw)?.styles
+  const out: Partial<Record<PlatformId, SetupChannelNote>> = {}
+  if (!Array.isArray(entries)) return out
+  const line = (value: unknown) => {
+    const text = asString(value).replace(/\s+/g, ' ').trim()
+    return text ? text.slice(0, CHANNEL_NOTE_LIMIT) : undefined
+  }
+  for (const entry of entries) {
+    const record = asRecord(entry)
+    const platform = asString(record?.platform).toLowerCase()
+    if (
+      platform === 'linkedin' ||
+      !(platforms as readonly string[]).includes(platform) ||
+      platform in out
+    ) {
+      continue
+    }
+    const emoji = enumKey(asString(record?.emoji))
+    const note: SetupChannelNote = {
+      audience: line(record?.audience),
+      tone: line(record?.tone),
+      emoji: isEmojiLevel(emoji) ? emoji : undefined
+    }
+    const kept = Object.fromEntries(
+      Object.entries(note).filter(([, value]) => value !== undefined)
+    ) as SetupChannelNote
+    if (Object.keys(kept).length > 0) out[platform as PlatformId] = kept
+  }
+  return out
+}
+
+/**
+ * A suggested goal is for some of the platforms the user posts on, or for
+ * all of them. Platforms they did not pick are dropped, and a list naming
+ * every one of theirs (or none) means every platform, so it is left out.
+ */
+export function scopeGoalPlatforms(
+  suggestions: IdentitySetupSuggestions,
+  platforms: readonly PlatformId[]
+): IdentitySetupSuggestions {
+  const suggested = suggestions.goals.platforms
+  if (!suggested) return suggestions
+  const own = suggested.value.filter(p => platforms.includes(p))
+  const { platforms: _dropped, ...goals } = suggestions.goals
+  if (own.length === 0 || own.length >= platforms.length) {
+    return { ...suggestions, goals }
+  }
+  return {
+    ...suggestions,
+    goals: { ...goals, platforms: { ...suggested, value: own } }
+  }
 }
 
 // ---------------------------------------------------------------------------

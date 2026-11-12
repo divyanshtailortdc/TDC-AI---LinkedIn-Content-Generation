@@ -24,7 +24,17 @@ import {
   objectivesFor
 } from '@/lib/goal-objectives'
 import { goalSuggestionValues, type GoalValues } from '@/lib/settings-merge'
-import type { StyleMix } from '@/lib/formats/styles'
+import { PlatformMark } from '@/components/platform-mark'
+import {
+  cleanGoalPlatforms,
+  DEFAULT_STYLES,
+  goalPlatformsLabel,
+  mixOf,
+  PLATFORM_IDS,
+  PLATFORMS,
+  type ContentStyle,
+  type PlatformId
+} from '@/lib/formats'
 import { cn } from '@/lib/cn'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
@@ -60,6 +70,8 @@ type RawGoal = {
   desiredAction: string | null
   targetUrl: string | null
   linkStrategy: string
+  /** The platforms its posts go on; empty is every platform. */
+  platforms?: string[]
   isActive: boolean
   createdAt: Date | string
 }
@@ -72,17 +84,20 @@ const OBJECTIVES = GOAL_OBJECTIVES.map(value => ({
 
 export function GoalsClient({
   accountId,
-  styleMix,
+  platforms = [],
+  platformStyles = {},
   initialGoals,
   usage,
   picker
 }: {
   accountId: string
+  /** The platforms the identity posts on, which a goal can be limited to. */
+  platforms?: PlatformId[]
   /**
-   * How the identity posts across its platforms: casual or fun platforms are
-   * offered goals about followers, fun and promotion.
+   * How the identity sounds on each platform: a goal for casual or fun
+   * platforms is offered objectives about followers, fun and promotion.
    */
-  styleMix?: StyleMix
+  platformStyles?: Partial<Record<PlatformId, ContentStyle>>
   initialGoals: RawGoal[]
   /** Ideas and posts made for each goal so far, by goal id. */
   usage: Record<string, { ideas: number; posts: number }>
@@ -103,8 +118,17 @@ export function GoalsClient({
 
   // Form states
   const [title, setTitle] = useState('')
-  // The objectives this identity chooses from; the first is the default.
-  const objectiveChoices = objectivesFor(styleMix)
+  // The platforms the goal's posts go on; empty is every platform.
+  const [goalPlatforms, setGoalPlatforms] = useState<PlatformId[]>([])
+  // The objectives offered follow the styles of the goal's platforms; the
+  // first is the default.
+  const objectiveChoices = objectivesFor(
+    mixOf(
+      (goalPlatforms.length > 0 ? goalPlatforms : platforms).map(
+        p => platformStyles[p] ?? DEFAULT_STYLES[p]
+      )
+    )
+  )
   const defaultObjective = objectiveChoices[0]!
   const [objectiveType, setObjectiveType] =
     useState<GoalPayload['objectiveType']>(defaultObjective)
@@ -143,7 +167,8 @@ export function GoalsClient({
       keyMessage,
       desiredAction,
       targetUrl,
-      linkStrategy
+      linkStrategy,
+      platforms: goalPlatforms
     }),
     setValues: next => {
       setEditingGoalId(null)
@@ -154,6 +179,9 @@ export function GoalsClient({
       if (next.desiredAction !== undefined) setDesiredAction(next.desiredAction)
       if (next.targetUrl !== undefined) setTargetUrl(next.targetUrl)
       if (next.linkStrategy !== undefined) setLinkStrategy(next.linkStrategy)
+      if (next.platforms !== undefined) {
+        setGoalPlatforms(cleanGoalPlatforms(next.platforms))
+      }
     },
     // A suggested goal that is already saved is not offered again.
     suggestionValues: s => {
@@ -180,6 +208,7 @@ export function GoalsClient({
 
   const resetForm = () => {
     setTitle('')
+    setGoalPlatforms([])
     setObjectiveType(defaultObjective)
     setKeyMessage('')
     setDesiredAction('')
@@ -242,7 +271,8 @@ export function GoalsClient({
       keyMessage,
       desiredAction,
       targetUrl,
-      linkStrategy
+      linkStrategy,
+      platforms: goalPlatforms
     }
 
     try {
@@ -326,6 +356,7 @@ export function GoalsClient({
     linkStrategy: (g.linkStrategy === 'body'
       ? 'body'
       : 'first_comment') as GoalPayload['linkStrategy'],
+    platforms: cleanGoalPlatforms(g.platforms),
     isActive: g.isActive
   }))
 
@@ -357,6 +388,7 @@ export function GoalsClient({
     setDesiredAction(goal.desiredAction)
     setTargetUrl(goal.targetUrl)
     setLinkStrategy(goal.linkStrategy)
+    setGoalPlatforms(goal.platforms)
     setEditingGoalId(goal.id)
     setShowNewGoal(true)
     scrollToForm()
@@ -644,6 +676,17 @@ export function GoalsClient({
                 </div>
               </div>
 
+              {/* Where its posts go: offered once there is a choice. */}
+              {(platforms.length > 1 || goalPlatforms.length > 0) && (
+                <GoalPlatformsPicker
+                  platforms={PLATFORM_IDS.filter(
+                    p => platforms.includes(p) || goalPlatforms.includes(p)
+                  )}
+                  value={goalPlatforms}
+                  onChange={setGoalPlatforms}
+                />
+              )}
+
               {/* The One Key Message to Land */}
               <div className="border-accent/30 bg-accent/5 space-y-1.5 rounded-xl border p-4">
                 <label className="text-accent block text-xs font-bold tracking-wider uppercase">
@@ -861,6 +904,11 @@ export function GoalsClient({
                                 <h3 className="text-foreground text-base font-semibold">
                                   {g.displayTitle}
                                 </h3>
+                                {goalPlatformsLabel(g.platforms) && (
+                                  <span className="border-border text-muted rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                                    {goalPlatformsLabel(g.platforms)}
+                                  </span>
+                                )}
                               </div>
 
                               {/* Key Message Box */}
@@ -1024,4 +1072,68 @@ function usageLabel(usage: { ideas: number; posts: number } | undefined) {
   const posts = usage?.posts ?? 0
   if (ideas === 0) return 'No ideas yet'
   return `${ideas} idea${ideas === 1 ? '' : 's'} · ${posts} post${posts === 1 ? '' : 's'}`
+}
+
+/**
+ * The platforms a goal's posts go on: every platform, or only the ones
+ * picked. Picking every platform the identity posts on is the same as all.
+ */
+function GoalPlatformsPicker({
+  platforms,
+  value,
+  onChange
+}: {
+  platforms: PlatformId[]
+  value: PlatformId[]
+  onChange: (next: PlatformId[]) => void
+}) {
+  const all = value.length === 0
+  const toggle = (platform: PlatformId) => {
+    const next = value.includes(platform)
+      ? value.filter(p => p !== platform)
+      : PLATFORM_IDS.filter(p => p === platform || value.includes(p))
+    onChange(platforms.every(p => next.includes(p)) ? [] : next)
+  }
+  const chip = (on: boolean) =>
+    cn(
+      'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors',
+      on
+        ? 'border-accent/50 bg-accent/10 text-foreground'
+        : 'border-border text-muted hover:text-foreground'
+    )
+  const only = value.map(p => PLATFORMS[p].label).join(', ')
+  return (
+    <fieldset className="min-w-0">
+      <legend className="text-foreground mb-1.5 text-xs font-medium">
+        Posts on
+      </legend>
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          aria-pressed={all}
+          onClick={() => onChange([])}
+          className={chip(all)}
+        >
+          All platforms
+        </button>
+        {platforms.map(platform => (
+          <button
+            key={platform}
+            type="button"
+            aria-pressed={value.includes(platform)}
+            onClick={() => toggle(platform)}
+            className={chip(value.includes(platform))}
+          >
+            <PlatformMark platform={platform} className="h-3.5 w-3.5" />
+            {PLATFORMS[platform].label}
+          </button>
+        ))}
+      </div>
+      <p className="text-muted mt-1.5 text-[11px] leading-relaxed">
+        {all
+          ? 'Ideas for this goal can go on any platform you post on.'
+          : `Ideas for this goal go only on ${only}. Runs for other platforms leave it out.`}
+      </p>
+    </fieldset>
+  )
 }

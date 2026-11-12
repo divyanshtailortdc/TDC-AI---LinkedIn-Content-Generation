@@ -194,6 +194,8 @@ export type GoalValues = {
   desiredAction: string
   targetUrl: string
   linkStrategy: GoalPayload['linkStrategy']
+  /** The platforms its posts go on; empty is every platform. */
+  platforms: string[]
 }
 
 export const EMPTY_GOAL_VALUES: GoalValues = {
@@ -202,7 +204,8 @@ export const EMPTY_GOAL_VALUES: GoalValues = {
   keyMessage: '',
   desiredAction: '',
   targetUrl: '',
-  linkStrategy: 'first_comment'
+  linkStrategy: 'first_comment',
+  platforms: []
 }
 
 export function goalSuggestionValues(
@@ -257,7 +260,8 @@ export function buildGoalPayload(
       keyMessage: values.keyMessage,
       desiredAction: values.desiredAction || undefined,
       targetUrl: values.targetUrl || undefined,
-      linkStrategy: values.linkStrategy
+      linkStrategy: values.linkStrategy,
+      platforms: values.platforms
     }
   }
 }

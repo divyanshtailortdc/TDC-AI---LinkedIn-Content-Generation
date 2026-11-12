@@ -143,9 +143,12 @@ function SectionHeading({
 
 function SegmentedControl({
   label,
+  hint,
   options
 }: {
   label: string
+  /** A line under the choices. */
+  hint?: string
   options: {
     key: string
     label: string
@@ -180,6 +183,7 @@ function SegmentedControl({
           </button>
         ))}
       </div>
+      {hint && <p className="text-muted text-xs">{hint}</p>}
     </div>
   )
 }
@@ -433,6 +437,7 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
           <SegmentedControl
             label="Emoji"
+            hint="For LinkedIn and professional posts. Casual and fun platforms use emoji freely unless you change it under Preferences."
             options={EMOJI_OPTIONS.map(option => ({
               key: option.label,
               label: option.label,

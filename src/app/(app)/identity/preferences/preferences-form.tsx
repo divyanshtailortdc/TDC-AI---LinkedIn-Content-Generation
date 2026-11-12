@@ -14,20 +14,26 @@ import {
 } from '@/lib/settings-merge'
 import {
   CREATABLE_FORMATS,
+  defaultEmojiOf,
+  EMOJI_LABELS,
+  EMOJI_LEVELS,
   FORMAT_IDS,
   FORMATS,
+  isEmojiLevel,
   PLATFORM_IDS,
   PLATFORMS,
   platformsOf,
   styleOf,
   type ChannelSettings,
   type ContentStyle,
+  type EmojiLevel,
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
 import { FileText, Share2, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { savePreferences, type PreferencesPayload } from './actions'
+import { LearnedStyle, type LearnedStyleValue } from './learned-style'
 
 const IDEAS_PER_RUN_OPTIONS = [3, 4, 5, 6, 8, 10, 12]
 
@@ -77,13 +83,21 @@ function Section({
 export function PreferencesForm({
   accountId,
   initial,
-  hasSaved
+  hasSaved,
+  voiceEmoji,
+  learned: initialLearned = {}
 }: {
   accountId: string
   initial: PreferencesPayload
   /** False until preferences are first saved, when every value is a default. */
   hasSaved: boolean
+  /** The voice's emoji level: LinkedIn's, and professional platforms' by default. */
+  voiceEmoji: EmojiLevel
+  /** Each platform's style learned from its posts; saved apart from the form. */
+  learned?: Partial<Record<PlatformId, LearnedStyleValue>>
 }) {
+  // Learning saves at once, so Cancel never puts these back.
+  const [learned, setLearned] = useState(initialLearned)
   const [ideasPerRun, setIdeasPerRun] = useState(initial.ideasPerRun)
   const [constraints, setConstraints] = useState(initial.post_constraints)
   const [bannedTopicsInput, setBannedTopicsInput] = useState(
@@ -119,6 +133,12 @@ export function PreferencesForm({
     setChannelSettings(current => ({
       ...current,
       [platform]: { ...current[platform], style }
+    }))
+  // Undefined follows the platform's style (defaultEmojiOf).
+  const setEmoji = (platform: PlatformId, emoji: EmojiLevel | undefined) =>
+    setChannelSettings(current => ({
+      ...current,
+      [platform]: { ...current[platform], emoji }
     }))
   // The platforms with a format turned on: each has a style.
   const activePlatforms = platformsOf(
@@ -326,41 +346,96 @@ export function PreferencesForm({
 
         {notePlatforms.map(platform => {
           const label = PLATFORMS[platform].label
+          const defaultEmoji = defaultEmojiOf(channelSettings, platform, voiceEmoji)
           return (
-            <div key={platform} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="min-w-0">
-                <label
-                  htmlFor={`audience-${platform}`}
-                  className="text-foreground mb-1 block text-xs font-medium"
-                >
-                  Who follows you on {label} (optional)
-                </label>
-                <textarea
-                  id={`audience-${platform}`}
-                  autoComplete="off"
-                  value={channelSettings[platform]?.audience ?? ''}
-                  onChange={e => setNote(platform, 'audience', e.target.value)}
-                  placeholder={`e.g. Customers and local followers, not the partners on LinkedIn`}
-                  className={`${inputClass} h-20 resize-none leading-relaxed`}
-                />
+            <fieldset
+              key={platform}
+              className="border-border min-w-0 space-y-3 rounded-lg border p-3"
+            >
+              <legend className="text-foreground px-1 text-xs font-semibold">
+                {label}
+              </legend>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <label
+                    htmlFor={`audience-${platform}`}
+                    className="text-foreground mb-1 block text-xs font-medium"
+                  >
+                    Who follows you on {label} (optional)
+                  </label>
+                  <textarea
+                    id={`audience-${platform}`}
+                    autoComplete="off"
+                    value={channelSettings[platform]?.audience ?? ''}
+                    onChange={e => setNote(platform, 'audience', e.target.value)}
+                    placeholder={`e.g. Customers and local followers, not the partners on LinkedIn`}
+                    className={`${inputClass} h-20 resize-none leading-relaxed`}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label
+                    htmlFor={`tone-${platform}`}
+                    className="text-foreground mb-1 block text-xs font-medium"
+                  >
+                    How you sound on {label} (optional)
+                  </label>
+                  <textarea
+                    id={`tone-${platform}`}
+                    autoComplete="off"
+                    value={channelSettings[platform]?.tone ?? ''}
+                    onChange={e => setNote(platform, 'tone', e.target.value)}
+                    placeholder="e.g. Lighter, more personal, first names, the odd emoji"
+                    className={`${inputClass} h-20 resize-none leading-relaxed`}
+                  />
+                </div>
               </div>
-              <div className="min-w-0">
-                <label
-                  htmlFor={`tone-${platform}`}
-                  className="text-foreground mb-1 block text-xs font-medium"
-                >
-                  How you sound on {label} (optional)
-                </label>
-                <textarea
-                  id={`tone-${platform}`}
-                  autoComplete="off"
-                  value={channelSettings[platform]?.tone ?? ''}
-                  onChange={e => setNote(platform, 'tone', e.target.value)}
-                  placeholder="e.g. Lighter, more personal, first names, the odd emoji"
-                  className={`${inputClass} h-20 resize-none leading-relaxed`}
-                />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <label
+                    htmlFor={`emoji-${platform}`}
+                    className="text-foreground mb-1 block text-xs font-medium"
+                  >
+                    Emoji on {label}
+                  </label>
+                  <select
+                    id={`emoji-${platform}`}
+                    value={channelSettings[platform]?.emoji ?? ''}
+                    onChange={e =>
+                      setEmoji(
+                        platform,
+                        isEmojiLevel(e.target.value) ? e.target.value : undefined
+                      )
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">
+                      Default: {EMOJI_LABELS[defaultEmoji]}
+                    </option>
+                    {EMOJI_LEVELS.map(level => (
+                      <option key={level} value={level}>
+                        {EMOJI_LABELS[level]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-muted self-end text-[11px] leading-relaxed sm:pb-2">
+                  {styleOf(channelSettings, platform) === 'professional'
+                    ? 'Professional posts default to your Voice setting, as on LinkedIn.'
+                    : 'Casual and fun posts default to Freely. Your Voice setting is for LinkedIn and professional posts.'}
+                </p>
               </div>
-            </div>
+              <LearnedStyle
+                accountId={accountId}
+                platform={platform}
+                value={learned[platform] ?? null}
+                onChange={next =>
+                  setLearned(current => {
+                    const { [platform]: _old, ...rest } = current
+                    return next ? { ...rest, [platform]: next } : rest
+                  })
+                }
+              />
+            </fieldset>
           )
         })}
       </Section>

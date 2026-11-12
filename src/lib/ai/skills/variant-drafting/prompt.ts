@@ -288,6 +288,12 @@ export function buildFormatPrompt(
     ...(note?.tone
       ? [`How this author sounds on ${platform.label}, beyond the core voice: ${note.tone}`]
       : []),
+    ...(note?.rubric
+      ? [
+          `How this author writes on ${platform.label}, learned from their own ${platform.label} posts. Where it differs from the core voice, follow this:`,
+          note.rubric
+        ]
+      : []),
     '',
     'FORMAT RULES',
     ...spec.rules.map(r => `- ${r}`),

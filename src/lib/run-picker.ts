@@ -18,6 +18,7 @@ export async function loadRunPicker(accountId: string): Promise<RunPickerData> {
         title: goalsTable.title,
         objective: goalsTable.objective,
         keyMessage: goalsTable.keyMessage,
+        platforms: goalsTable.platforms,
         isActive: goalsTable.isActive
       })
       .from(goalsTable)

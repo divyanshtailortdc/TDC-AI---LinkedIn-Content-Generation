@@ -3,15 +3,28 @@ import {
   FORMATS,
   isCreatableFormat,
   isPlatformId,
+  PLATFORMS,
   platformsOf
 } from './registry'
-import { DEFAULT_STYLES, isContentStyle, type ContentStyle } from './styles'
-import { DEFAULT_FORMAT, type FormatId, type PlatformId } from './types'
+import {
+  DEFAULT_STYLES,
+  isCasualStyle,
+  isContentStyle,
+  isEmojiLevel,
+  type ContentStyle,
+  type EmojiLevel
+} from './styles'
+import {
+  DEFAULT_FORMAT,
+  PLATFORM_IDS,
+  type FormatId,
+  type PlatformId
+} from './types'
 
 /**
  * What an identity has said about each platform it posts on, saved in
- * `preferences.channel_settings`. LinkedIn takes its audience and tone from
- * the identity's profile and voice, so its entry holds only its style.
+ * `preferences.channel_settings`. LinkedIn takes its audience, tone and emoji
+ * from the identity's profile and voice, so its entry holds only its style.
  */
 export type ChannelNote = {
   /** Who follows the identity on this platform, in its own words. */
@@ -20,6 +33,13 @@ export type ChannelNote = {
   tone?: string
   /** Professional, casual or fun; absent means the platform's default. */
   style?: ContentStyle
+  /** How freely posts here use emoji; absent follows the style (emojiOf). */
+  emoji?: EmojiLevel
+  /**
+   * How the identity writes here, learned from its own posts on this
+   * platform (learnPlatformStyle). Only that action writes it.
+   */
+  rubric?: string
 }
 export type ChannelSettings = Partial<Record<PlatformId, ChannelNote>>
 
@@ -32,6 +52,8 @@ export interface ResolvedChannels {
 }
 
 const NOTE_LIMIT = 2000
+/** Longest learned style kept for a platform. */
+export const RUBRIC_LIMIT = 3000
 
 const note = (value: unknown) =>
   typeof value === 'string' && value.trim()
@@ -50,7 +72,16 @@ export function cleanChannelSettings(value: unknown): ChannelSettings {
     const cleaned: ChannelNote =
       platform === 'linkedin'
         ? { style }
-        : { audience: note(entry.audience), tone: note(entry.tone), style }
+        : {
+            audience: note(entry.audience),
+            tone: note(entry.tone),
+            style,
+            emoji: isEmojiLevel(entry.emoji) ? entry.emoji : undefined,
+            rubric:
+              typeof entry.rubric === 'string' && entry.rubric.trim()
+                ? entry.rubric.trim().slice(0, RUBRIC_LIMIT)
+                : undefined
+          }
     // Keys left undefined are dropped, so a saved entry holds only what was said.
     const kept = Object.fromEntries(
       Object.entries(cleaned).filter(([, value]) => value !== undefined)
@@ -63,6 +94,57 @@ export function cleanChannelSettings(value: unknown): ChannelSettings {
 /** How posts on this platform should sound: the identity's pick, else its default. */
 export function styleOf(settings: ChannelSettings, platform: PlatformId): ContentStyle {
   return settings[platform]?.style ?? DEFAULT_STYLES[platform]
+}
+
+/**
+ * How freely a platform uses emoji until the identity picks: the voice's
+ * level on LinkedIn and professional platforms, freely on casual and fun ones.
+ * The voice's level is usually learned from LinkedIn posts, and would keep
+ * emoji out of a fun Instagram caption.
+ */
+export function defaultEmojiOf(
+  settings: ChannelSettings,
+  platform: PlatformId,
+  voiceLevel: EmojiLevel
+): EmojiLevel {
+  if (platform === 'linkedin') return voiceLevel
+  return isCasualStyle(styleOf(settings, platform)) ? 'liberal' : voiceLevel
+}
+
+/** How freely posts on this platform use emoji: the identity's pick, else the default. */
+export function emojiOf(
+  settings: ChannelSettings,
+  platform: PlatformId,
+  voiceLevel: EmojiLevel
+): EmojiLevel {
+  if (platform === 'linkedin') return voiceLevel
+  return settings[platform]?.emoji ?? defaultEmojiOf(settings, platform, voiceLevel)
+}
+
+/**
+ * The platforms a goal's posts go on, from its saved list: known ones, once
+ * each, in registry order. Empty means every platform the identity posts on.
+ */
+export function cleanGoalPlatforms(value: unknown): PlatformId[] {
+  if (!Array.isArray(value)) return []
+  return PLATFORM_IDS.filter(p => value.includes(p))
+}
+
+/** Whether posts for this goal may go on `platform`. */
+export function goalServes(
+  goal: { platforms?: unknown },
+  platform: PlatformId
+): boolean {
+  const own = cleanGoalPlatforms(goal.platforms)
+  return own.length === 0 || own.includes(platform)
+}
+
+/** Where a goal's posts go, as a tag: "LinkedIn only", "LinkedIn, X"; null for every platform. */
+export function goalPlatformsLabel(value: unknown): string | null {
+  const own = cleanGoalPlatforms(value)
+  if (own.length === 0) return null
+  const labels = own.map(p => PLATFORMS[p].label)
+  return labels.length === 1 ? `${labels[0]} only` : labels.join(', ')
 }
 
 export function resolveChannels(
@@ -100,16 +182,26 @@ export function formatsToDraft(idea: {
 /**
  * The formats an idea from a run should start out targeting: for a run aimed
  * at one platform, that platform's enabled formats; otherwise the enabled
- * formats the idea suits, or every enabled format when it named none.
+ * formats the idea suits, or every enabled format when it named none. Only
+ * the platforms of the idea's goal count, unless the identity no longer posts
+ * on any of them.
  */
 export function initialTargetFormats(options: {
   enabled: FormatId[]
   fit: FormatId[]
   channel?: PlatformId | null
+  /** The platforms of the idea's main goal; empty or absent is every platform. */
+  goalPlatforms?: PlatformId[]
 }): FormatId[] {
-  const pool = options.channel
+  const enabled = options.channel
     ? options.enabled.filter(f => FORMATS[f].platform === options.channel)
     : options.enabled
+  const goalPlatforms = options.goalPlatforms ?? []
+  const forGoal =
+    goalPlatforms.length > 0
+      ? enabled.filter(f => goalPlatforms.includes(FORMATS[f].platform))
+      : enabled
+  const pool = forGoal.length > 0 ? forGoal : enabled
   const suited = pool.filter(f => options.fit.includes(f))
   if (suited.length > 0) return suited
   if (pool.length > 0) return options.channel ? pool : [pool[0]!]

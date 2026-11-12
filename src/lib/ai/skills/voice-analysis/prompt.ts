@@ -58,8 +58,12 @@ function prepareSamples(rawText: string): string {
     .join('\n\n')
 }
 
-export function buildPrompt(samplesText: string): string {
-  return `Here are real sample posts from the author:
+/** `platform` names the one platform every sample was written for, if so. */
+export function buildPrompt(samplesText: string, platform?: string): string {
+  const intro = platform
+    ? `Here are real sample posts the author wrote for ${platform}. Describe how they write there, in that platform's own idiom:`
+    : 'Here are real sample posts from the author:'
+  return `${intro}
 
 ${prepareSamples(samplesText)}
 

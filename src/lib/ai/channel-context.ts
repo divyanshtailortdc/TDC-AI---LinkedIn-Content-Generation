@@ -1,6 +1,7 @@
 import type { Audience } from '@/db/schema'
 import {
   DEFAULT_FORMAT,
+  emojiOf,
   FORMATS,
   type ChannelNote,
   type FormatId,
@@ -11,8 +12,9 @@ import type { GenerationContext } from './context-blocks'
 /**
  * The generation context as one format sees it. The identity, goals, voice
  * and evidence are the same everywhere; what changes per platform is which of
- * the author's own posts teach the rhythm, and which earlier posts this one
- * must not repeat. LinkedIn's view is the one it always had.
+ * the author's own posts teach the rhythm, which earlier posts this one must
+ * not repeat, and how freely it uses emoji. LinkedIn's view is the one it
+ * always had.
  */
 
 /** Below this many same-platform samples, every sample is shown instead. */
@@ -40,8 +42,20 @@ export function forFormat(
 
   if (formatId === DEFAULT_FORMAT) return { ...ctx, samplePosts }
 
+  // The base context's emoji level is the voice's; each other platform has
+  // its own (emojiOf). Applying it twice gives the same level.
+  const emoji_level = emojiOf(
+    ctx.prefs.channels?.settings ?? {},
+    platform,
+    ctx.prefs.constraints.emoji_level
+  )
+
   return {
     ...ctx,
+    prefs: {
+      ...ctx.prefs,
+      constraints: { ...ctx.prefs.constraints, emoji_level }
+    },
     samplePosts,
     history: {
       ...ctx.history,

@@ -16,11 +16,14 @@ import type { ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform, type PlatformId, type PlatformSpec } from '@/lib/platforms'
 import { parseAccountType } from '@/lib/identity-profile'
 import {
+  goalServes,
   isCasualStyle,
   mixOf,
+  PLATFORMS,
   resolveChannels,
   styleOf,
   type ContentStyle,
+  type EmojiLevel,
   type ResolvedChannels,
   type StyleMix
 } from '@/lib/formats'
@@ -94,7 +97,7 @@ export const DEFAULT_GUARDRAILS: Guardrails = {
   compliance_notes: ''
 }
 
-export type EmojiLevel = 'none' | 'bullets_only' | 'liberal'
+export type { EmojiLevel }
 
 /** What a voice config starts with, for accounts whose voice is not set up yet. */
 const DEFAULT_EMOJI_LEVEL: EmojiLevel = 'bullets_only'
@@ -474,8 +477,13 @@ export const goalLabel = (index: number) => `G${index + 1}`
 /**
  * The goals a run serves, each under the label an idea cites in goalRefs. The
  * link is left out: ideation decides what to argue, drafting places links.
+ * `platforms` are those of a run across more than one: a goal meant for only
+ * some of them says which.
  */
-export function renderGoalsBlock(goals: Goal[]): string {
+export function renderGoalsBlock(
+  goals: Goal[],
+  platforms: PlatformId[] = []
+): string {
   if (goals.length === 0) return 'No goals were selected.'
   return goals
     .map((goal, i) =>
@@ -487,10 +495,24 @@ export function renderGoalsBlock(goals: Goal[]): string {
           : '    Key message: not specified.',
         ...(goal.desiredAction
           ? [`    Desired reader action: ${goal.desiredAction}`]
-          : [])
+          : []),
+        ...goalPlatformLine(goal, platforms)
       ].join('\n')
     )
     .join('\n')
+}
+
+/** Where a goal's posts go, when that is only some of the run's platforms. */
+function goalPlatformLine(goal: Goal, platforms: PlatformId[]): string[] {
+  if (platforms.length < 2) return []
+  const own = platforms.filter(p => goalServes(goal, p))
+  // A goal for every platform says nothing; one for none of these platforms
+  // is written as if it were for all of them.
+  if (own.length === 0 || own.length === platforms.length) return []
+  const labels = own.map(p => PLATFORMS[p].label).join(', ')
+  return [
+    `    Posts only on: ${labels}. An idea whose main goal this is names only ${own.length === 1 ? "that platform's" : "those platforms'"} formats.`
+  ]
 }
 
 /** The words a goal is stated in: what research and retrieval look for. */
@@ -536,6 +558,8 @@ export function withIdeaGoal(
           ...snapshot,
           id: idea.goalId ?? idea.goalIds?.[0] ?? `snapshot-${idea.id}`,
           accountId: idea.accountId,
+          // The copy does not keep them; drafting does not read them.
+          platforms: [],
           isActive: false,
           createdAt: new Date(0),
           updatedAt: new Date(0)

@@ -1,5 +1,5 @@
 import { GOAL_OBJECTIVES } from '@/lib/goal-objectives'
-import { CONTENT_STYLES } from '@/lib/formats/styles'
+import { CONTENT_STYLES, EMOJI_LEVELS } from '@/lib/formats/styles'
 import { z } from 'zod'
 import { idSchema } from './ids'
 import { optionalUrlError, tooLong } from './identity-profile'
@@ -31,7 +31,9 @@ export const GoalPayloadSchema = z.object({
   keyMessage: text(2000, 'Key message'),
   desiredAction: text(500, 'Desired action').optional(),
   targetUrl: optionalUrl,
-  linkStrategy: z.enum(['body', 'first_comment'])
+  linkStrategy: z.enum(['body', 'first_comment']),
+  // The platforms its posts go on; empty is every platform. Absent keeps them.
+  platforms: z.array(z.string().max(20)).max(20).optional()
 })
 
 export const PreferencesPayloadSchema = z.object({
@@ -52,7 +54,8 @@ export const PreferencesPayloadSchema = z.object({
         z.object({
           audience: text(2000, 'Who follows you there').optional(),
           tone: text(2000, 'How you sound there').optional(),
-          style: z.enum(CONTENT_STYLES).optional()
+          style: z.enum(CONTENT_STYLES).optional(),
+          emoji: z.enum(EMOJI_LEVELS).optional()
         })
       )
     })

@@ -97,6 +97,7 @@ export function goal(overrides: Partial<Goal> = {}): Goal {
     desiredAction: null,
     targetUrl: null,
     linkStrategy: 'first_comment',
+    platforms: [],
     isActive: true,
     createdAt: NOW,
     updatedAt: NOW,
@@ -195,7 +196,10 @@ export function context(parts: {
   /** The formats it drafts; LinkedIn alone when left out. */
   enabledFormats?: string[]
   /** What it said about each platform, its style included. */
-  channelSettings?: Record<string, { audience?: string; tone?: string; style?: string }>
+  channelSettings?: Record<
+    string,
+    { audience?: string; tone?: string; style?: string; emoji?: string; rubric?: string }
+  >
 }): GenerationContext {
   const v = parts.voice === undefined ? voice() : parts.voice
   const primary = parts.goal ?? null

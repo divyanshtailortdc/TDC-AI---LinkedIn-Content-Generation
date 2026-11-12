@@ -76,6 +76,7 @@ function goal(id: string, overrides: Partial<Goal>): Goal {
     desiredAction: null,
     targetUrl: null,
     linkStrategy: 'first_comment',
+    platforms: [],
     isActive: true,
     createdAt: now,
     updatedAt: now,

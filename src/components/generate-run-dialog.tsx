@@ -6,7 +6,12 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { ideaTarget } from '@/lib/ai/idea-selection'
 import { cn } from '@/lib/cn'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { PLATFORMS, type PlatformId } from '@/lib/formats'
+import {
+  goalPlatformsLabel,
+  goalServes,
+  PLATFORMS,
+  type PlatformId
+} from '@/lib/formats'
 import {
   AlertCircle,
   ArrowRight,
@@ -24,6 +29,8 @@ export type RunGoalOption = {
   title: string
   objective: string
   keyMessage: string | null
+  /** The platforms its posts go on; empty or absent is every platform. */
+  platforms?: string[]
   isActive: boolean
 }
 
@@ -104,6 +111,12 @@ function PickerDialog({
   const platforms = picker.platforms ?? []
   // Null plans for every platform the identity posts on.
   const [channel, setChannel] = useState<PlatformId | null>(null)
+  // A run for one platform serves only the goals meant for it. Ticks on the
+  // others are kept, so picking every platform again brings them back.
+  const fitsChannel = (goal: RunGoalOption) =>
+    !channel || goalServes(goal, channel)
+  const usable = active.filter(fitsChannel)
+  const chosen = selected.filter(id => usable.some(g => g.id === id))
 
   const selectedGoals = active.filter(g => selected.includes(g.id))
   // Both goal lists, ten at a time. Ticks are kept across pages, and Select
@@ -131,12 +144,12 @@ function PickerDialog({
     )
 
   const start = async () => {
-    if (selected.length === 0) return
+    if (chosen.length === 0) return
     setIsStarting(true)
     setError(null)
     try {
       // In the order the goals are listed, so G1 is the first one shown.
-      const goalIds = active.map(g => g.id).filter(id => selected.includes(id))
+      const goalIds = active.map(g => g.id).filter(id => chosen.includes(id))
       const res = await triggerNewRun(goalIds, channel)
       if (res.success && res.runId) {
         // The action no longer revalidates; Back still shows the new run.
@@ -172,7 +185,7 @@ function PickerDialog({
           </h3>
           <p className="text-muted mt-1 text-xs leading-relaxed">
             {lockSelection
-              ? `This run will generate ideas for the ${selected.length} selected goal${selected.length === 1 ? '' : 's'}. Ideas wait for your approval before any post is written.`
+              ? `This run will generate ideas for the ${chosen.length} selected goal${chosen.length === 1 ? '' : 's'}. Ideas wait for your approval before any post is written.`
               : 'Pick the goals this run works toward. Research, your knowledge base and every idea are about these goals only. Ideas wait for your approval before any post is written.'}
           </p>
         </div>
@@ -208,7 +221,10 @@ function PickerDialog({
                 {pageSelectedGoals.map(goal => (
                   <li
                     key={goal.id}
-                    className="border-brand/40 bg-brand/5 flex items-start gap-3 rounded-xl border p-3"
+                    className={cn(
+                      'border-brand/40 bg-brand/5 flex items-start gap-3 rounded-xl border p-3',
+                      !fitsChannel(goal) && 'opacity-50'
+                    )}
                   >
                     <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
                       <Target className="h-2.5 w-2.5" />
@@ -221,6 +237,7 @@ function PickerDialog({
                         <span className="bg-accent/10 text-accent rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
                           {goal.objective.replace(/_/g, ' ')}
                         </span>
+                        <GoalPlatformsTag goal={goal} channel={channel} />
                       </span>
                       {goal.keyMessage && (
                         <span className="text-muted mt-1 line-clamp-2 block text-xs leading-relaxed">
@@ -245,34 +262,38 @@ function PickerDialog({
                   type="button"
                   onClick={() =>
                     setSelected(
-                      selected.length === active.length
+                      chosen.length === usable.length
                         ? []
-                        : active.map(g => g.id)
+                        : usable.map(g => g.id)
                     )
                   }
                   className="text-muted hover:text-foreground text-xs font-medium"
                 >
-                  {selected.length === active.length
+                  {chosen.length === usable.length
                     ? 'Clear all'
                     : 'Select all'}
                 </button>
               </legend>
               <ul className="space-y-2">
                 {pageActiveGoals.map(goal => {
-                  const checked = selected.includes(goal.id)
+                  const fits = fitsChannel(goal)
+                  const checked = fits && selected.includes(goal.id)
                   return (
                     <li key={goal.id}>
                       <label
                         className={cn(
-                          'flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors',
-                          checked
-                            ? 'border-brand/50 bg-brand/5'
-                            : 'border-border hover:bg-surface-hover'
+                          'flex items-start gap-3 rounded-xl border p-3 transition-colors',
+                          !fits
+                            ? 'border-border cursor-not-allowed opacity-50'
+                            : checked
+                              ? 'border-brand/50 bg-brand/5 cursor-pointer'
+                              : 'border-border hover:bg-surface-hover cursor-pointer'
                         )}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={!fits}
                           onChange={() => toggle(goal.id)}
                           className="accent-accent mt-0.5 h-4 w-4 shrink-0"
                         />
@@ -284,6 +305,7 @@ function PickerDialog({
                             <span className="bg-accent/10 text-accent rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
                               {goal.objective.replace(/_/g, ' ')}
                             </span>
+                            <GoalPlatformsTag goal={goal} channel={channel} />
                           </span>
                           {goal.keyMessage && (
                             <span className="text-muted mt-1 line-clamp-2 block text-xs leading-relaxed">
@@ -354,7 +376,7 @@ function PickerDialog({
           )}
           {active.length > 0 && (
             <p className="text-muted text-[11px] leading-relaxed">
-              {describeRunSize(picker.ideasPerRun, selected.length)}
+              {describeRunSize(picker.ideasPerRun, chosen.length)}
             </p>
           )}
           {error && (
@@ -379,7 +401,7 @@ function PickerDialog({
               <button
                 type="button"
                 onClick={start}
-                disabled={isStarting || selected.length === 0}
+                disabled={isStarting || chosen.length === 0}
                 className="bg-accent hover:bg-accent-hover text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isStarting ? (
@@ -387,14 +409,43 @@ function PickerDialog({
                 ) : (
                   <Sparkles className="h-3.5 w-3.5" />
                 )}
-                {selected.length === 0
-                  ? 'Pick a goal'
-                  : `Generate for ${selected.length} goal${selected.length === 1 ? '' : 's'}`}
+                {chosen.length === 0
+                  ? channel
+                    ? `Pick a goal for ${PLATFORMS[channel].label}`
+                    : 'Pick a goal'
+                  : `Generate for ${chosen.length} goal${chosen.length === 1 ? '' : 's'}`}
               </button>
             )}
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Where a goal's posts go, when that is not every platform; with a platform
+ * picked that the goal is not for, says so instead.
+ */
+function GoalPlatformsTag({
+  goal,
+  channel
+}: {
+  goal: RunGoalOption
+  channel: PlatformId | null
+}) {
+  if (channel && !goalServes(goal, channel)) {
+    return (
+      <span className="text-muted text-[11px]">
+        Not for {PLATFORMS[channel].label}
+      </span>
+    )
+  }
+  const label = goalPlatformsLabel(goal.platforms)
+  if (!label) return null
+  return (
+    <span className="border-border text-muted rounded-full border px-2 py-0.5 text-[10px] font-medium">
+      {label}
+    </span>
   )
 }

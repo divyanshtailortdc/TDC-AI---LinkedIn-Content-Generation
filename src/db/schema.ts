@@ -326,6 +326,9 @@ export const goalsTable = pgTable('goals', {
     .$type<'body' | 'first_comment'>()
     .default('first_comment')
     .notNull(),
+  // The platforms this goal's posts go on (src/lib/formats); empty is every
+  // platform the identity posts on, now or later. See goalServes.
+  platforms: jsonb('platforms').$type<string[]>().default([]).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   ...commonFieldDefs.dates
 },

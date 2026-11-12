@@ -25,6 +25,7 @@ import {
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
+import { isPlatformId, PLATFORMS } from '@/lib/platforms'
 import { isEmptyValue } from '@/lib/settings-merge'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import {
@@ -103,6 +104,11 @@ function specFor(section: EntrySection, field: string) {
   )[field]
 }
 
+/** How one choice reads: a platform by its name, anything else in words. */
+function optionLabel(option: string): string {
+  return isPlatformId(option) ? PLATFORMS[option].name : option.replace(/_/g, ' ')
+}
+
 /** How a value reads in the list. */
 function displayValue(
   section: EntrySection,
@@ -111,6 +117,9 @@ function displayValue(
 ): string {
   const spec = specFor(section, field)
   if (spec?.type === 'scale' && typeof value === 'number') return `${value} / 5`
+  if (spec?.options && Array.isArray(value)) {
+    return value.map(item => optionLabel(String(item))).join(', ')
+  }
   const text = formatValue(value)
   return spec?.options ? text.replace(/_/g, ' ') : text
 }
@@ -357,7 +366,7 @@ function FieldEditor({
                 change(spec.options!.filter(o => next.has(o)).join('\n'))
               }}
             />
-            {option.replace(/_/g, ' ')}
+            {optionLabel(option)}
           </label>
         ))}
       </div>

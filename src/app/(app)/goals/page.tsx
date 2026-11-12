@@ -2,7 +2,7 @@ import { NoIdentity } from '@/components/no-identity'
 import { db } from '@/db'
 import { goalsTable, ideasTable, postDraftsTable } from '@/db/schema'
 import { loadChannels } from '@/lib/channels'
-import { mixOf, styleOf } from '@/lib/formats'
+import { styleOf } from '@/lib/formats'
 import { getIdentity } from '@/lib/identity'
 import { loadRunPicker } from '@/lib/run-picker'
 import { desc, eq, sql } from 'drizzle-orm'
@@ -35,9 +35,11 @@ export default async function GoalsPage() {
     loadRunPicker(identity.id),
     loadChannels(identity.id)
   ])
-  // Which objectives are offered follows how the identity posts: professional,
-  // casual or fun, or a mix across its platforms.
-  const styleMix = mixOf(channels.platforms.map(p => styleOf(channels.settings, p)))
+  // Which objectives are offered follows how the identity posts on the goal's
+  // platforms: professional, casual or fun, or a mix.
+  const platformStyles = Object.fromEntries(
+    channels.platforms.map(p => [p, styleOf(channels.settings, p)])
+  )
 
   const usage = Object.fromEntries(
     [...usageRows].map(r => [r.goal_id, { ideas: r.ideas, posts: r.posts }])
@@ -46,7 +48,8 @@ export default async function GoalsPage() {
   return (
     <GoalsClient
       accountId={identity.id}
-      styleMix={styleMix}
+      platforms={channels.platforms}
+      platformStyles={platformStyles}
       initialGoals={goals}
       usage={usage}
       picker={picker}

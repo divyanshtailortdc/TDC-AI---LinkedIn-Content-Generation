@@ -81,9 +81,11 @@ function jsonField(formData: FormData, key: string): unknown {
 }
 
 /**
- * Where a new identity posts and how each platform should sound, from the
- * setup's first and last steps. Each picked platform starts with its main
- * formats (STARTING_FORMATS); none picked keeps the LinkedIn default.
+ * Where a new identity posts and how each platform should sound (its style,
+ * and for every platform but LinkedIn who follows it there, its tone and its
+ * emoji), from the setup's first and last steps. Each picked platform starts
+ * with its main formats (STARTING_FORMATS); none picked keeps the LinkedIn
+ * default.
  */
 function channelsFromFormData(formData: FormData): {
   enabledFormats: string[]
@@ -94,13 +96,20 @@ function channelsFromFormData(formData: FormData): {
     ? Array.from(new Set(picked.filter(isPlatformId)))
     : []
   if (platforms.length === 0) return null
-  const styles = jsonField(formData, 'styles')
+  const styles = jsonField(formData, 'styles') as Record<string, unknown> | null
+  const notes = jsonField(formData, 'notes') as Record<string, unknown> | null
   const settings = cleanChannelSettings(
     Object.fromEntries(
-      platforms.map((p: PlatformId) => [
-        p,
-        { style: (styles as Record<string, unknown> | null)?.[p] }
-      ])
+      platforms.map((p: PlatformId) => {
+        const note = notes?.[p]
+        return [
+          p,
+          {
+            ...(note && typeof note === 'object' ? note : {}),
+            style: styles?.[p]
+          }
+        ]
+      })
     )
   )
   return {

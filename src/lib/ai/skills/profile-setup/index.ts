@@ -5,7 +5,13 @@ import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
 import type { ContentStyle } from '@/lib/formats/styles'
 import type { PlatformId } from '@/lib/platforms'
-import { applyGuidance, readStyles, sanitizeIdentitySetup } from './guard'
+import {
+  applyGuidance,
+  readChannelNotes,
+  readStyles,
+  sanitizeIdentitySetup,
+  scopeGoalPlatforms
+} from './guard'
 import {
   buildPrompt,
   INSTRUCTIONS,
@@ -15,7 +21,8 @@ import {
 import {
   IdentitySetupModelSchema,
   type AnalysisGuidance,
-  type IdentitySetupSuggestions
+  type IdentitySetupSuggestions,
+  type SetupChannelNote
 } from './schema'
 
 /** The user is waiting on this; past it, retrying beats waiting. */
@@ -44,6 +51,8 @@ export async function suggestSetup(input: {
   accountType: 'personal' | 'company'
   /** A style for each platform the guidance named. */
   styles: Partial<Record<PlatformId, ContentStyle>>
+  /** Audience, tone and emoji for each of those platforms but LinkedIn. */
+  channelNotes: Partial<Record<PlatformId, SetupChannelNote>>
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   usage: CallUsage
@@ -113,10 +122,12 @@ export async function suggestSetup(input: {
   const warnings = input.guidance?.ctaUrl
     ? sanitized.warnings.filter(w => !w.startsWith('Goals → CTA link'))
     : sanitized.warnings
+  const platforms = input.guidance?.platforms ?? []
   return {
     accountType: sanitized.accountType,
-    styles: readStyles(raw, input.guidance?.platforms ?? []),
-    suggestions: guided.suggestions,
+    styles: readStyles(raw, platforms),
+    channelNotes: readChannelNotes(raw, platforms),
+    suggestions: scopeGoalPlatforms(guided.suggestions, platforms),
     // Advanced choices that could not be used are reported, not dropped quietly.
     warnings: [...warnings, ...guided.warnings],
     usage,

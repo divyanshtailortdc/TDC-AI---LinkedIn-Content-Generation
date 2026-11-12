@@ -19,7 +19,8 @@ import {
   type IdentityValues
 } from '@/components/identity-fields'
 import { PlatformMark } from '@/components/platform-mark'
-import { PlatformStyles, StyleLegend } from '@/components/platform-styles'
+import { PlatformCards, type PlatformCardNote } from '@/components/platform-cards'
+import { StyleLegend } from '@/components/platform-styles'
 import { showToast } from '@/components/toast-notification'
 import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
@@ -53,8 +54,9 @@ import { createAccount } from './actions'
  * 2. Tell us about you, in your own words (and a link or two). The AI fills
  *    in the profile and picks how posts should sound on each platform; or
  *    the person fills it in themselves.
- * 3. Review: the profile, who is posting (a person or a brand) and the style
- *    per platform, all editable, then save.
+ * 3. Review: the profile, who is posting (a person or a brand) and a card
+ *    per platform (its style, who follows them there, how they sound there
+ *    and their emoji), all editable, then save.
  *
  * Nothing is saved until the last step. The AI's other suggestions (voice,
  * goals, knowledge) wait in the setup draft and are offered once the identity
@@ -80,6 +82,7 @@ const PLATFORM_HINTS: Record<PlatformId, string> = {
 }
 
 type Styles = Partial<Record<PlatformId, ContentStyle>>
+type Notes = Partial<Record<PlatformId, PlatformCardNote>>
 
 /** Every picked platform's style: the one chosen, else its default. */
 const stylesFor = (platforms: PlatformId[], chosen: Styles): Record<string, ContentStyle> =>
@@ -96,6 +99,7 @@ export function CreateIdentity() {
   const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
   const [accountType, setAccountType] = useState<AccountType>('personal')
   const [styles, setStyles] = useState<Styles>({})
+  const [notes, setNotes] = useState<Notes>({})
   // What still holds the AI's suggestion, marked until edited.
   const [aiFilled, setAiFilled] = useState<Set<string>>(new Set())
   const [aiStyles, setAiStyles] = useState<Set<PlatformId>>(new Set())
@@ -139,6 +143,8 @@ export function CreateIdentity() {
     setAccountType(analysis.accountType)
     const picked = analysis.styles ?? {}
     setStyles(prev => ({ ...prev, ...picked }))
+    // The AI's notes replace an earlier analysis's for the same platform.
+    setNotes(prev => ({ ...prev, ...(analysis.channelNotes ?? {}) }))
     setAiStyles(new Set(platforms.filter(p => picked[p])))
     setUsedAi(true)
     setStep('review')
@@ -241,6 +247,10 @@ export function CreateIdentity() {
                 return next
               })
             }}
+            notes={notes}
+            onNoteChange={(platform, note) =>
+              setNotes(prev => ({ ...prev, [platform]: note }))
+            }
             aiFilled={aiFilled}
             onEdited={field =>
               setAiFilled(prev => {
@@ -598,6 +608,8 @@ function ReviewStep({
   setAccountType,
   styles,
   onStyleChange,
+  notes,
+  onNoteChange,
   aiFilled,
   onEdited,
   aiStyles,
@@ -612,6 +624,8 @@ function ReviewStep({
   setAccountType: (value: AccountType) => void
   styles: Record<string, ContentStyle>
   onStyleChange: (platform: PlatformId, style: ContentStyle) => void
+  notes: Notes
+  onNoteChange: (platform: PlatformId, note: PlatformCardNote) => void
   aiFilled: ReadonlySet<string>
   onEdited: (field: string) => void
   aiStyles: ReadonlySet<PlatformId>
@@ -676,6 +690,7 @@ function ReviewStep({
       {usedAi && <input type="hidden" name="claimAiDraft" value="1" />}
       <input type="hidden" name="platforms" value={JSON.stringify(platforms)} />
       <input type="hidden" name="styles" value={JSON.stringify(styles)} />
+      <input type="hidden" name="notes" value={JSON.stringify(notes)} />
 
       {usedAi && (
         <div className="border-accent/30 bg-accent/5 flex items-start gap-3 rounded-xl border px-4 py-3">
@@ -700,8 +715,8 @@ function ReviewStep({
       )}
 
       <SectionCard
-        title="How your posts should sound"
-        description="Pick a style for each platform. You can be professional on one and fun on another."
+        title="Your platforms"
+        description="Pick a style for each platform: you can be professional on one and fun on another. Edit to say who follows you there and how you sound."
         aside={
           <button
             type="button"
@@ -713,10 +728,12 @@ function ReviewStep({
         }
       >
         <div className="space-y-3">
-          <PlatformStyles
+          <PlatformCards
             platforms={platforms}
-            value={styles}
-            onChange={onStyleChange}
+            styles={styles}
+            notes={notes}
+            onStyleChange={onStyleChange}
+            onNoteChange={onNoteChange}
             aiPicked={aiStyles}
           />
           <StyleLegend />

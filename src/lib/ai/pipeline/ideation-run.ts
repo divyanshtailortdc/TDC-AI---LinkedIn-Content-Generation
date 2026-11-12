@@ -56,6 +56,8 @@ import {
 import { channelAudience } from '../channel-context'
 import {
   cleanFormats,
+  cleanGoalPlatforms,
+  goalServes,
   initialTargetFormats,
   PLATFORMS,
   type StyleMix
@@ -276,15 +278,31 @@ async function researchAndIdeate(
   const targetAudience = channels?.target
     ? channelAudience(baseCtx, channels.target)
     : null
-  const ctx = targetAudience
-    ? { ...baseCtx, audiences: [targetAudience, ...baseCtx.audiences] }
-    : baseCtx
   // A goal deleted after the run was queued drops out; with none left there
   // is nothing to write toward. The caller fails the run with this message.
-  if (ctx.selectedGoals.length === 0) {
+  if (baseCtx.selectedGoals.length === 0) {
     throw new Error(
       'None of the goals picked for this run exist any more. Start a new run and pick at least one goal.'
     )
+  }
+  // A run for one platform serves only the goals meant for it.
+  const target = channels?.target ?? null
+  const selectedGoals = target
+    ? baseCtx.selectedGoals.filter(g => goalServes(g, target))
+    : baseCtx.selectedGoals
+  if (target && selectedGoals.length === 0) {
+    const label = PLATFORMS[target].label
+    throw new Error(
+      `None of the goals picked for this run are for ${label}. Start a new run with a goal set for ${label} or for every platform.`
+    )
+  }
+  const ctx: GenerationContext = {
+    ...baseCtx,
+    selectedGoals,
+    primaryGoal: selectedGoals[0] ?? null,
+    ...(targetAudience
+      ? { audiences: [targetAudience, ...baseCtx.audiences] }
+      : {})
   }
 
   let ideationUsage: CallUsage = EMPTY_USAGE
@@ -715,7 +733,8 @@ async function researchAndIdeate(
         targetFormats: initialTargetFormats({
           enabled: enabledFormats,
           fit: cleanFormats(idea.formatFit),
-          channel: channels?.target ?? null
+          channel: channels?.target ?? null,
+          goalPlatforms: cleanGoalPlatforms(goal.platforms)
         })
         }
       })

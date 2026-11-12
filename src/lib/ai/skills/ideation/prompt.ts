@@ -247,7 +247,7 @@ THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned
 2. Message: its argument lands the goal's message, so a reader who agrees with it has come round to that message, not just to its topic.
 3. Action: its takeaway gives that reader a reason to take the goal's desired action (for lead generation, a reason to want help with the problem), without turning the post into an advert.
 Every idea is reviewed against these three before anyone sees it, and one that misses any of them is discarded.
-${renderGoalsBlock(ctx.selectedGoals)}
+${renderGoalsBlock(ctx.selectedGoals, channels?.target ? [] : platformsInScope(channels))}
 
 HOW THIS AUTHOR SOUNDS
 ${renderVoiceBlock(ctx)}

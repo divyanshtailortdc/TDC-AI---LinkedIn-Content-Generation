@@ -1,4 +1,9 @@
-import { CONTENT_STYLES, type ContentStyle } from '@/lib/formats/styles'
+import {
+  CONTENT_STYLES,
+  EMOJI_LEVELS,
+  type ContentStyle,
+  type EmojiLevel
+} from '@/lib/formats/styles'
 import { GOAL_OBJECTIVES, objectivesFor } from '@/lib/goal-objectives'
 import { PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
@@ -131,6 +136,10 @@ export const GoalSuggestionsSchema = z.object({
   desiredAction: suggested(text(500)).optional(),
   targetUrl: suggested(urlText).optional(),
   linkStrategy: suggested(z.enum(LINK_PLACEMENTS)).optional(),
+  /** Only some of the platforms they post on; left out for every platform. */
+  platforms: suggested(
+    z.array(z.enum(PLATFORM_IDS)).min(1).max(PLATFORM_IDS.length)
+  ).optional(),
   missing
 })
 
@@ -279,7 +288,8 @@ export const FIELD_SPECS = {
       type: 'enum',
       label: 'Links go in',
       options: LINK_PLACEMENTS
-    }
+    },
+    platforms: { type: 'list', label: 'Posts on', options: PLATFORM_IDS }
   },
   preferences: {
     bannedTopics: { type: 'list', label: 'Topics to avoid' },
@@ -414,7 +424,18 @@ export const IdentitySetupModelSchema = z.object({
     .array(
       z.object({
         platform: z.enum(PLATFORM_IDS),
-        style: z.enum(CONTENT_STYLES)
+        style: z.enum(CONTENT_STYLES),
+        audience: z
+          .string()
+          .describe(
+            'Who follows them on this platform, in one short line. Empty string for linkedin, or with nothing to go on.'
+          ),
+        tone: z
+          .string()
+          .describe(
+            'How they sound on this platform beyond their main voice, in one short line. Empty string for linkedin.'
+          ),
+        emoji: z.enum(EMOJI_LEVELS)
       })
     )
     .describe(
@@ -624,6 +645,13 @@ export function hasAnySuggestion(
   )
 }
 
+/** What setup suggests for one platform besides its style. */
+export type SetupChannelNote = {
+  audience?: string
+  tone?: string
+  emoji?: EmojiLevel
+}
+
 export type IdentitySetupAnalysis = {
   /**
    * The identity type the suggestions were written for: the one the user
@@ -636,6 +664,11 @@ export type IdentitySetupAnalysis = {
    * when none were given.
    */
   styles: Partial<Record<PlatformId, ContentStyle>>
+  /**
+   * For each platform but LinkedIn: who follows them there, how they sound
+   * there and how freely they use emoji. Missing from drafts saved before.
+   */
+  channelNotes?: Partial<Record<PlatformId, SetupChannelNote>>
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   sources: SourceFetchStatus[]

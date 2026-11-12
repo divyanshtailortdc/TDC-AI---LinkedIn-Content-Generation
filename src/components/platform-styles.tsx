@@ -46,37 +46,60 @@ export function PlatformStyles({
                 </span>
               )}
             </span>
-            <div
-              role="radiogroup"
-              aria-label={`How posts sound on ${label}`}
-              className="bg-surface-hover/60 inline-flex shrink-0 rounded-lg p-0.5"
-            >
-              {CONTENT_STYLES.map(style => {
-                const selected = current === style
-                return (
-                  <button
-                    key={style}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    disabled={disabled}
-                    title={STYLE_LABELS[style].hint}
-                    onClick={() => onChange(platform, style)}
-                    className={`rounded-md px-3 py-1 text-xs font-medium transition-colors disabled:cursor-default ${
-                      selected
-                        ? 'bg-surface text-foreground shadow-xs'
-                        : 'text-muted hover:text-foreground'
-                    }`}
-                  >
-                    {STYLE_LABELS[style].label}
-                  </button>
-                )
-              })}
-            </div>
+            <StylePicker
+              label={label}
+              value={current}
+              onChange={style => onChange(platform, style)}
+              disabled={disabled}
+            />
           </li>
         )
       })}
     </ul>
+  )
+}
+
+/** Professional, Casual or Fun for one platform. */
+export function StylePicker({
+  label,
+  value,
+  onChange,
+  disabled = false
+}: {
+  /** The platform's name, for screen readers. */
+  label: string
+  value: ContentStyle | undefined
+  onChange: (style: ContentStyle) => void
+  disabled?: boolean
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`How posts sound on ${label}`}
+      className="bg-surface-hover/60 inline-flex shrink-0 rounded-lg p-0.5"
+    >
+      {CONTENT_STYLES.map(style => {
+        const selected = value === style
+        return (
+          <button
+            key={style}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            disabled={disabled}
+            title={STYLE_LABELS[style].hint}
+            onClick={() => onChange(style)}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors disabled:cursor-default ${
+              selected
+                ? 'bg-surface text-foreground shadow-xs'
+                : 'text-muted hover:text-foreground'
+            }`}
+          >
+            {STYLE_LABELS[style].label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 

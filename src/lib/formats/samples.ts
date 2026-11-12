@@ -30,3 +30,23 @@ export function samplePlatform(raw: string): {
   }
   return { platform: 'linkedin', content: raw }
 }
+
+/** A tag that marks a sample post as one that performed well. */
+const PERFORMED_WELL =
+  /\[(performed\s*well|top\s*post|high\s*performing|viral)\]|⭐/i
+
+export const isPerformedWell = (post: string) => PERFORMED_WELL.test(post)
+
+export const withoutPerformedWell = (post: string) =>
+  post.replace(new RegExp(PERFORMED_WELL.source, 'gi'), '').trim()
+
+/**
+ * Pasted sample posts, one per block: posts are separated by a line of ---,
+ * === or ___. Fragments too short to be a post are dropped.
+ */
+export function splitSamplePosts(rawText: string): string[] {
+  return rawText
+    .split(/\n\s*---\s*\n|\n\s*===\s*\n|\n\s*_{3,}\s*\n/)
+    .map(post => post.trim())
+    .filter(post => post.length > 20)
+}

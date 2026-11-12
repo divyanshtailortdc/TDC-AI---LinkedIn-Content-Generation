@@ -302,6 +302,13 @@
       "when": 1794397478144,
       "tag": "0042_remove_articles",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794467020549,
+      "tag": "0043_goal_platforms",
+      "breakpoints": true
     }
   ]
 }

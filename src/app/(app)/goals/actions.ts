@@ -11,6 +11,7 @@ import {
   suggestGoals,
   type GoalSuggestion
 } from '@/lib/ai/skills/goal-suggestions'
+import { cleanGoalPlatforms } from '@/lib/formats'
 import { hasGoalTitle } from '@/lib/goal-titles'
 import { IDENTITY_PATH } from '@/lib/identity'
 import { idSchema } from '@/lib/ids'
@@ -33,6 +34,8 @@ export type GoalPayload = {
   targetUrl?: string
   /** Where targetUrl goes; only meaningful when there is a link. */
   linkStrategy: 'body' | 'first_comment'
+  /** The platforms its posts go on; empty is every platform. Absent keeps them. */
+  platforms?: string[]
 }
 
 /** Maps the form payload onto the goals table's columns. */
@@ -45,7 +48,10 @@ function toGoalColumns(payload: GoalPayload) {
     targetUrl: payload.targetUrl?.trim() || null,
     linkStrategy: (payload.linkStrategy === 'body'
       ? 'body'
-      : 'first_comment') as GoalPayload['linkStrategy']
+      : 'first_comment') as GoalPayload['linkStrategy'],
+    ...(payload.platforms
+      ? { platforms: cleanGoalPlatforms(payload.platforms) }
+      : {})
   }
 }
 

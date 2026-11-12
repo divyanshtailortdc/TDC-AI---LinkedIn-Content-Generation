@@ -7,7 +7,11 @@ import { buildPrompt, INSTRUCTIONS } from './prompt'
 import { VoiceAnalysisSchema, type VoiceAnalysisResult } from './schema'
 
 /** Skill: real sample posts in, a voice profile (rubric and settings) out. */
-export async function analyzeVoiceSamples(samplesText: string): Promise<{
+export async function analyzeVoiceSamples(
+  samplesText: string,
+  /** The one platform every sample was written for, when they share one. */
+  options?: { platform?: string }
+): Promise<{
   result: VoiceAnalysisResult
   provider: 'claude' | 'heuristic'
   modelUsed?: string
@@ -21,7 +25,7 @@ export async function analyzeVoiceSamples(samplesText: string): Promise<{
     const { output, modelId, providerName } = await runSkill({
       stage: 'voice_analysis',
       instructions: INSTRUCTIONS,
-      prompt: buildPrompt(cleanText),
+      prompt: buildPrompt(cleanText, options?.platform),
       schema: VoiceAnalysisSchema
     })
     return {

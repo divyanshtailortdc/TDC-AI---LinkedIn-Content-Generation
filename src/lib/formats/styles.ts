@@ -46,6 +46,27 @@ export const isCasualStyle = (style: ContentStyle): style is 'casual' | 'fun' =>
   style !== 'professional'
 
 /**
+ * How freely posts use emoji: not at all, only as list markers, or wherever
+ * they add warmth. The voice sets it for LinkedIn and professional platforms;
+ * each other platform can have its own (see emojiOf).
+ */
+export const EMOJI_LEVELS = ['none', 'bullets_only', 'liberal'] as const
+export type EmojiLevel = (typeof EMOJI_LEVELS)[number]
+
+export const EMOJI_LABELS: Record<EmojiLevel, string> = {
+  none: 'None',
+  bullets_only: 'As bullets',
+  liberal: 'Freely'
+}
+
+export function isEmojiLevel(value: unknown): value is EmojiLevel {
+  return (
+    typeof value === 'string' &&
+    (EMOJI_LEVELS as readonly string[]).includes(value)
+  )
+}
+
+/**
  * Whether a set of platforms is all professional, all casual or fun, or a
  * mix. Ideas, goals and research follow it: an identity that is fun on every
  * platform gets content ideas, one that is professional everywhere gets the
