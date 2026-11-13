@@ -193,7 +193,9 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
         delivery: 'images'
       }
     },
-    imageShape: '4:5',
+    // Landscape: Facebook's desktop feed boxes a portrait image with blank
+    // bars at its sides, but shows 1.91:1 at full width everywhere.
+    imageShape: '1.91:1',
     platform: 'facebook',
     label: 'Facebook post',
     version: 1,

@@ -8,8 +8,11 @@ import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import type { ImageStyle } from '~/lib/brand/theme'
 import { FORMATS, formatOf } from '@/lib/formats'
+import { lockPost } from '@/lib/post-revisions'
+import { assertPostChangeable, PostLockedError } from '@/lib/publishing/post-lock'
 import { loadBrandRendering } from './brand-assets'
 import {
+  deleteStoredImages,
   loadImageDataUrl,
   storeMediaImages,
   viewableImageUrl
@@ -82,15 +85,18 @@ export async function createPromptMediaForDraft(input: {
 }): Promise<PromptMediaOutcome> {
   // The same check every other post action makes: a post of someone else's
   // identity is reported as not found, so nothing is generated or billed for it.
-  // Only its format is read: it decides the image's shape.
+  // Only its format (the image's shape) and whether it went out are read.
   const draft = await db.query.postDraftsTable.findFirst({
     where: and(
       eq(postDraftsTable.id, input.draftId),
       eq(postDraftsTable.accountId, input.accountId)
     ),
-    columns: { id: true, formatId: true }
+    columns: { id: true, formatId: true, postedAt: true }
   })
   if (!draft) return { status: 'draft_not_found' }
+  // Before anything is generated (and paid for): a post that went out keeps
+  // its image. Throws PostLockedError.
+  await assertPostChangeable(draft)
 
   // Words in quotes are the lettering the reviewer asked for.
   const quoted = /["“]([^"”]{1,120})["”]/.exec(input.prompt)?.[1]?.trim()
@@ -160,6 +166,10 @@ export async function createPromptMediaForDraft(input: {
   // Superseding and inserting together: if the insert failed on its own, the post
   // would be left with no active image at all.
   const newMedia = await db.transaction(async (tx) => {
+    // Again on the locked row: a post that went out while its image was being
+    // made keeps the one it went out with.
+    const current = await lockPost(tx, input.draftId)
+    if (current) await assertPostChangeable(current, tx)
     // Only what the new version needs; the image columns are left unread.
     const columns = { id: true, version: true, regenerationAttempt: true } as const
     const existingMedia =
@@ -227,6 +237,12 @@ export async function createPromptMediaForDraft(input: {
 
     if (!inserted) throw new Error('Failed to save the generated image')
     return inserted
+  }).catch((err: unknown) => {
+    // Not saved: nothing points at the image just stored for it.
+    if (err instanceof PostLockedError) {
+      void deleteStoredImages([storedImages.imageUrl, storedImages.baseImageUrl])
+    }
+    throw err
   })
 
   // No revalidatePath: the Posts page shows the returned media itself.

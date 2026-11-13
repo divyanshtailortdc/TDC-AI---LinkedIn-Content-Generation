@@ -1536,6 +1536,13 @@ export function PostDetailClient({
     Boolean(activePost.postedAt) ||
     activePost.publication?.status === 'published' ||
     activePost.publication?.status === 'publishing'
+  // Why, for the notes and tooltips that say it can no longer change.
+  const lockedReason =
+    activePost.publication?.status === 'publishing'
+      ? `This post is being published on ${activePlatform.name}`
+      : activePost.publication?.status === 'published'
+        ? `This post is published on ${activePlatform.name}`
+        : 'This post is marked as posted'
 
   // Whether the post is ready for its platform, from what is saved.
   const publishChecks = validatePost({
@@ -1989,6 +1996,15 @@ export function PostDetailClient({
                   <button
                     type="button"
                     onClick={() => setIsEditing(!isEditing)}
+                    // Published or marked posted: its text stays as it went
+                    // out (updateDraft refuses it too). An open editor can
+                    // still be closed.
+                    disabled={mediaLocked && !isEditing}
+                    title={
+                      mediaLocked && !isEditing
+                        ? `${lockedReason}, so its text can no longer change`
+                        : undefined
+                    }
                     className="text-accent inline-flex cursor-pointer items-center gap-2 text-sm font-medium hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
                   >
                     <Edit2 className="h-4 w-4" />
@@ -2014,6 +2030,7 @@ export function PostDetailClient({
                     onDirtyChange={setHasUnsavedEdits}
                     onSave={handleSaveEdits}
                     onClose={() => setIsEditing(false)}
+                    lockedReason={mediaLocked ? lockedReason : null}
                   />
                   {!isEditing &&
                     formatOf(activePost.formatId) !== 'linkedin.post' && (
@@ -2061,9 +2078,12 @@ export function PostDetailClient({
                               ? () => setIsImageZoomOpen(true)
                               : undefined
                           }
-                          // Swapping the hook edits the post, so it's offered only while active.
+                          // Swapping the hook edits the post, so it's offered
+                          // only while active, and never once it went out.
                           hookOptions={
-                            hookOptions.length > 1 ? hookOptions : []
+                            !mediaLocked && hookOptions.length > 1
+                              ? hookOptions
+                              : []
                           }
                           onSelectHook={handleSwapHook}
                           hookSwapDisabled={isSaving}
@@ -2084,7 +2104,8 @@ export function PostDetailClient({
                     <VersionHistory
                       key={activePost.id}
                       post={activePost}
-                      disabled={isSaving}
+                      // Earlier versions can be read, not restored, once it went out.
+                      disabled={isSaving || mediaLocked}
                       onRestored={replacePostText}
                     />
                   )}
@@ -2217,9 +2238,11 @@ export function PostDetailClient({
                     <p className="text-foreground font-semibold">Text only</p>
                     <p className="text-muted leading-relaxed">
                       This post goes out without media.
-                      {activePost.media
-                        ? ' Its image is kept: pick Single image to use it again.'
-                        : ' Pick Single image or Carousel to add visuals.'}
+                      {mediaLocked
+                        ? ` ${lockedReason}, so that can no longer change.`
+                        : activePost.media
+                          ? ' Its image is kept: pick Single image to use it again.'
+                          : ' Pick Single image or Carousel to add visuals.'}
                     </p>
                   </div>
                 ) : (
@@ -2293,6 +2316,7 @@ export function PostDetailClient({
                             )}
                           </div>
                         </div>
+                        {!mediaLocked && (
                         <div className="flex items-center gap-2 pt-1">
                           <button
                             type="button"
@@ -2314,6 +2338,7 @@ export function PostDetailClient({
                             Use text only
                           </button>
                         </div>
+                        )}
                       </div>
                     )}
 
@@ -2376,15 +2401,17 @@ export function PostDetailClient({
                             <Download className="h-3.5 w-3.5" />
                             Download image
                           </button>
-                          <button
-                            type="button"
-                            disabled={isMediaLoading}
-                            onClick={handleRemoveMedia}
-                            className="text-muted inline-flex cursor-pointer items-center gap-1.5 font-medium hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Remove
-                          </button>
+                          {!mediaLocked && (
+                            <button
+                              type="button"
+                              disabled={isMediaLoading}
+                              onClick={handleRemoveMedia}
+                              className="text-muted inline-flex cursor-pointer items-center gap-1.5 font-medium hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Remove
+                            </button>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -2415,7 +2442,8 @@ export function PostDetailClient({
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
                         The image for this post could not be made during
-                        drafting: {activePost.mediaFailure} Generate one below.
+                        drafting: {activePost.mediaFailure}
+                        {!mediaLocked && ' Generate one below.'}
                       </span>
                     </div>
                   ) : null}
@@ -2424,6 +2452,7 @@ export function PostDetailClient({
                       found or pasted): the platform would crop or pad it. */}
                   {activePost.media?.imageUrl &&
                     imageOffShape &&
+                    !mediaLocked &&
                     !mediaBusyHere && (
                       <div className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-700 dark:text-sky-300">
                         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -2438,6 +2467,30 @@ export function PostDetailClient({
                       </div>
                     )}
 
+                  {/* Published or marked posted: the image that went out stays,
+                      so none of the ways to change it are offered (the media
+                      route and actions refuse them too). */}
+                  {mediaLocked ? (
+                    <div className="space-y-2.5">
+                      <p className="border-border bg-surface-hover/50 text-muted flex items-start gap-2 rounded-xl border p-3 text-xs leading-relaxed">
+                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{lockedReason}, so its image can no longer change.</span>
+                      </p>
+                      {/* A generation still running when the post went out:
+                          it would not be saved, so it can be stopped. */}
+                      {isGenerating && mediaBusyHere && (
+                        <button
+                          type="button"
+                          onClick={handleStopGeneration}
+                          className="flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 dark:text-rose-400"
+                        >
+                          <CircleStop className="h-4 w-4" />
+                          <span>Stop generating</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                  <>
                   {/* The look of the next image. An edit keeps its image's
                       look and a reference brings its own, so neither uses it. */}
                   {!mediaBusyHere && (
@@ -3079,6 +3132,8 @@ export function PostDetailClient({
                       )}
                     </>
                   )}
+                  </>
+                  )}
                 </div>
                 )}
               </div>
@@ -3121,12 +3176,15 @@ function PostTextEditor({
   saving,
   onDirtyChange,
   onSave,
-  onClose
+  onClose,
+  lockedReason
 }: {
   ref: Ref<PostTextEditorHandle>
   post: PostDetail
   open: boolean
   saving: boolean
+  /** Set once the post went out (published or marked posted): Save is off. */
+  lockedReason?: string | null
   /** Called when the buffer starts or stops differing from the saved post. */
   onDirtyChange: (dirty: boolean) => void
   onSave: (draft: PostDraft) => void
@@ -3270,6 +3328,12 @@ function PostTextEditor({
         </div>
       )}
       <div className="flex items-center justify-end gap-2">
+        {/* Went out while open: the edits can no longer be saved. */}
+        {lockedReason && (
+          <span className="text-muted mr-auto text-xs">
+            {lockedReason}, so these edits can no longer be saved.
+          </span>
+        )}
         <button
           type="button"
           onClick={discard}
@@ -3280,7 +3344,7 @@ function PostTextEditor({
         <button
           type="button"
           onClick={() => onSave(current)}
-          disabled={saving}
+          disabled={saving || Boolean(lockedReason)}
           className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
         >
           Save Changes

@@ -9,6 +9,8 @@ import {
 } from '@/db/schema'
 import { FORMATS, formatOf } from '@/lib/formats'
 import { postFullText } from '@/lib/post-text'
+import { lockPost } from '@/lib/post-revisions'
+import { assertPostChangeable, PostLockedError } from '@/lib/publishing/post-lock'
 import { and, desc, eq } from 'drizzle-orm'
 import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
@@ -16,7 +18,11 @@ import { DEFAULT_BRAND_THEME, type ImageStyle } from '~/lib/brand/theme'
 import type { DiagramForm } from './canvas/spec'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
-import { storeMediaImages, viewableImageUrl } from './image-store'
+import {
+  deleteStoredImages,
+  storeMediaImages,
+  viewableImageUrl
+} from './image-store'
 import {
   planHasImage,
   regenerateMediaPlan,
@@ -95,6 +101,9 @@ export async function createPostMedia(input: {
     )
   })
   if (!draft) return { status: 'draft_not_found' }
+  // Before anything is generated (and paid for): a post that went out keeps
+  // its image. Throws PostLockedError.
+  await assertPostChangeable(draft)
 
   // Every version, without the image bytes: the brief needs what each one
   // showed, not the pixels.
@@ -199,6 +208,10 @@ export async function createPostMedia(input: {
 
   // Supersede and insert together: never return or overwrite existing media.
   const newMedia = await db.transaction(async tx => {
+    // Again on the locked row: a post that went out while its image was being
+    // made keeps the one it went out with.
+    const current = await lockPost(tx, input.draftId)
+    if (current) await assertPostChangeable(current, tx)
     if (existingMedia) {
       await tx
         .update(postMediaTable)
@@ -235,6 +248,12 @@ export async function createPostMedia(input: {
 
     if (!inserted) throw new Error('Failed to insert regenerated media record')
     return inserted
+  }).catch((err: unknown) => {
+    // Not saved: nothing points at the image just stored for it.
+    if (err instanceof PostLockedError) {
+      void deleteStoredImages([storedImages.imageUrl, storedImages.baseImageUrl])
+    }
+    throw err
   })
 
   // No revalidatePath: the Posts page shows the returned media itself, and a

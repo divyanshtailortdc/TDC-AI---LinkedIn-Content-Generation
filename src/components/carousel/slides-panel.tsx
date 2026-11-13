@@ -652,7 +652,7 @@ function SlideRow(props: {
       </div>
 
       {!props.locked && !props.editing && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-0.5 pl-[4.75rem]">
+        <div className="mt-1.5 flex flex-wrap items-center gap-0.5 pl-19">
           <button
             type="button"
             disabled={props.disabled}
@@ -737,7 +737,7 @@ function SlideRow(props: {
       )}
 
       {props.rewriting && !props.locked && (
-        <div className="mt-2 space-y-2 pl-[4.75rem]">
+        <div className="mt-2 space-y-2 pl-19">
           <input
             value={props.instruction}
             onChange={e => props.onInstruction(e.target.value.slice(0, 1000))}

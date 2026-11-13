@@ -431,6 +431,10 @@ export async function createCarouselForPost(
     db.transaction(async tx => {
       const current = await lockPost(tx, draftId)
       if (!current) throw new CarouselError('Post not found.', 'not_found')
+      // Again on the locked row: a post that went out while its slides were
+      // being made keeps what it went out with (the stored slides are
+      // deleted below).
+      await assertEditable(current)
       const old = await tx
         .select({
           imageUrl: postSlidesTable.imageUrl,
