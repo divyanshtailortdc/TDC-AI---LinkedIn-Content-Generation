@@ -32,6 +32,6 @@ describe('an image made from an uploaded reference', () => {
     assert.match(shapeOf('linkedin.post'), /a wide 1\.91:1 landscape image/)
     assert.match(shapeOf('x.post'), /a wide 16:9 landscape image/)
     assert.match(shapeOf('instagram.caption'), /a tall 4:5 portrait image/)
-    assert.match(shapeOf('facebook.post'), /a tall 4:5 portrait image/)
+    assert.match(shapeOf('facebook.post'), /a wide 1\.91:1 landscape image/)
   })
 })

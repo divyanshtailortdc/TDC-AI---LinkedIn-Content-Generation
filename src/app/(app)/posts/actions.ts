@@ -53,6 +53,7 @@ import {
 import { validateImageUrl } from '~/lib/media/image-input'
 import { deleteDraftImages, deleteStoredImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
+import { assertPostChangeable } from '@/lib/publishing/post-lock'
 import { loadPostsPage } from './posts-data'
 
 /**
@@ -135,6 +136,8 @@ export async function updateDraft(
     const versionSaved = await db.transaction(async tx => {
       const current = await lockPost(tx, draftId)
       if (!current) throw new Error('Draft not found')
+      // Checked on the locked row: what went out stays as it is.
+      await assertPostChangeable(current, tx)
       const saved = await saveRevision(tx, current, 'user_edit', {
         next: {
           hook: newHook,
@@ -590,6 +593,7 @@ export async function updatePostMediaAction(
       )
     })
     if (!existingDraft) throw new Error('Post draft not found')
+    await assertPostChangeable(existingDraft)
 
     if (payload.mode === 'none' || !payload.imageUrl) {
       await deletePostImages(draftId)
@@ -640,6 +644,7 @@ export async function removePostMediaAction(draftId: string) {
       )
     })
     if (!draft) throw new Error('Post draft not found')
+    await assertPostChangeable(draft)
 
     await deletePostImages(draftId)
 

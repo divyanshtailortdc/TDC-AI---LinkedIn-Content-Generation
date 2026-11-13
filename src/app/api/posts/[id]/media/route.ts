@@ -11,6 +11,7 @@ import {
 import { createPostMedia } from '~/lib/media/post-media'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
 import { requireIdentityId } from '@/lib/identity'
+import { PostLockedError } from '@/lib/publishing/post-lock'
 import { getSessionUser } from '@/lib/session'
 import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
@@ -183,6 +184,8 @@ export async function POST(
       if (outcome.status === 'failed') return fail(502, outcome.error)
       return Response.json({ success: true, media: outcome.media })
     } catch (err: any) {
+      // Published or marked posted: nothing was generated.
+      if (err instanceof PostLockedError) return fail(409, err.message)
       if (request.signal.aborted) return fail(499, 'Image generation was stopped.')
       console.error('Error generating post media from the post text:', err)
       return fail(502, err?.message || 'Failed to generate image.')
@@ -216,6 +219,7 @@ export async function POST(
 
     return Response.json({ success: true, media: outcome.media })
   } catch (err: any) {
+    if (err instanceof PostLockedError) return fail(409, err.message)
     if (err instanceof ImageGenerationAbortedError || request.signal.aborted) {
       return fail(499, 'Image generation was stopped.')
     }

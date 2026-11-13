@@ -644,7 +644,7 @@ describe('image shape per post type', () => {
     assert.strictEqual(FORMATS['linkedin.post'].imageShape, '1.91:1')
     assert.strictEqual(FORMATS['x.post'].imageShape, '16:9')
     assert.strictEqual(FORMATS['x.thread'].imageShape, '16:9')
-    assert.strictEqual(FORMATS['facebook.post'].imageShape, '4:5')
+    assert.strictEqual(FORMATS['facebook.post'].imageShape, '1.91:1')
     assert.strictEqual(FORMATS['instagram.caption'].imageShape, '4:5')
     // LinkedIn keeps the size it always had.
     assert.deepStrictEqual(SHAPE_SIZES['1.91:1'], { width: 2048, height: 1072 })
