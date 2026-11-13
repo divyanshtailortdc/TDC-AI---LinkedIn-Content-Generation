@@ -796,12 +796,12 @@ function Divider({ block, spec }: BlockProps) {
 }
 
 /**
- * The illustration in the first image block; any other image block, or the
- * first when no illustration could be drawn, is a soft panel with its icon.
+ * The picture in the first image block; any other image block, or the
+ * first when no picture could be made, is a soft panel with its icon.
  */
 function ImageArea({ block, spec, first }: BlockProps & { first: boolean }) {
   const { visual, palette } = spec
-  if (!first || visual.kind !== 'illustration') {
+  if (!first || visual.kind !== 'picture') {
     return (
       <Frame
         block={block}
@@ -818,8 +818,23 @@ function ImageArea({ block, spec, first }: BlockProps & { first: boolean }) {
       </Frame>
     )
   }
+  const src = `data:${visual.mediaType};base64,${visual.image.toString('base64')}`
+  // A photograph or 3D scene fills its block, as a photo in a layout does.
+  if (visual.display === 'bleed') {
+    return (
+      <Frame block={block} fill={fillFor('none', palette)} padding={0}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- satori */}
+        <img
+          src={src}
+          width={block.width}
+          height={block.height}
+          alt=""
+          style={{ objectFit: 'cover' }}
+        />
+      </Frame>
+    )
+  }
   const size = Math.min(block.width, block.height)
-  const src = `data:image/png;base64,${visual.image.toString('base64')}`
   return (
     <Frame
       block={block}

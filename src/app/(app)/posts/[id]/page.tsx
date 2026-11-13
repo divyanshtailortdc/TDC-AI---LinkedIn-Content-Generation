@@ -77,7 +77,8 @@ export default async function PostPage({
         colors: brandColors(brand).map(c => c.hex),
         pattern: brand.backgroundPattern,
         footerText: brand.footerText,
-        website: displayWebsite(identity.websiteUrl)
+        website: displayWebsite(identity.websiteUrl),
+        style: brand.visualStyle
       }}
     />
   )

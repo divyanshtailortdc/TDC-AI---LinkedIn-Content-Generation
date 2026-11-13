@@ -5,11 +5,21 @@ import {
   type Publication,
   publicationsTable,
   postDraftsTable,
-  postMediaTable
+  postMediaTable,
+  postSlidesTable
 } from '@/db/schema'
+import { loadSlideRows } from '@/lib/carousel/rows'
 import { isUniqueViolation } from '@/lib/db-errors'
 import { getPlatform, type PlatformId } from '@/lib/platforms'
-import { FORMATS, formatOf, postTexts, toPlainText } from '@/lib/formats'
+import {
+  carouselSpecOf,
+  FORMATS,
+  formatOf,
+  postTexts,
+  resolveMediaFormat,
+  toPlainText,
+  type MediaFormat
+} from '@/lib/formats'
 import {
   instantOf,
   localDayKey,
@@ -30,6 +40,7 @@ import {
   lt,
   lte,
   notExists,
+  or,
   sql
 } from 'drizzle-orm'
 import {
@@ -47,6 +58,7 @@ import {
   type PlatformConfig,
   type PostImage,
   PostImageError,
+  type PostSlideImage,
   type ProviderContext,
   providerFor,
   type PublishConfigs
@@ -93,6 +105,8 @@ export type PublishDeps = {
   fetchFn?: FetchFn
   /** The post's image, or null for none. */
   loadImage?: (draftId: string) => Promise<PostImage | null>
+  /** A carousel post's drawn slides, in order. */
+  loadSlides?: (draftId: string) => Promise<PostSlideImage[]>
   now?: () => Date
 }
 
@@ -206,7 +220,8 @@ async function findOwnedDraft(
       firstComment: postDraftsTable.firstComment,
       status: postDraftsTable.status,
       postedAt: postDraftsTable.postedAt,
-      formatId: postDraftsTable.formatId
+      formatId: postDraftsTable.formatId,
+      mediaFormat: postDraftsTable.mediaFormat
     })
     .from(postDraftsTable)
     .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
@@ -299,6 +314,109 @@ const activeImageOf = (
 const needsImageMessage = (name: string) =>
   `${name} posts need an image. Add one to this post, then publish it.`
 
+type OwnedDraft = NonNullable<Awaited<ReturnType<typeof findOwnedDraft>>>
+
+/**
+ * What goes out with the post's text (src/lib/formats/media.ts): its
+ * carousel, its image, or nothing. A post set to text only goes out without
+ * the image it may still have.
+ */
+async function mediaFormatOf(database: PublishingDb, draft: OwnedDraft): Promise<MediaFormat> {
+  const image = (await activeImageOf(database, draft.id).limit(1)).length > 0
+  return resolveMediaFormat(formatOf(draft.formatId), draft.mediaFormat, { image })
+}
+
+/**
+ * Throws unless the post's carousel can go out: its provider publishes
+ * carousels, and it has between the platform's fewest and most slides, every
+ * one drawn. Checked when it is queued and again when it is published.
+ */
+async function assertCarouselPublishable(
+  database: PublishingDb,
+  draft: OwnedDraft
+): Promise<{ title: string }> {
+  const name = nameOf(draft.platform)
+  const provider = providerFor(draft.platform)
+  if (!provider.carousel || !provider.prepareCarousel) {
+    throw new PublishRequestError(
+      `${name} carousels cannot be published from here yet: download the slides and post them on ${name}.`,
+      'not_supported'
+    )
+  }
+  const spec = carouselSpecOf(formatOf(draft.formatId))
+  const min = spec?.minSlides ?? 2
+  const max = Math.min(spec?.maxSlides ?? provider.carousel.maxSlides, provider.carousel.maxSlides)
+  const slides = await loadSlideRows(database, draft.id)
+  if (slides.length < min || slides.length > max) {
+    throw new PublishRequestError(
+      slides.length === 0
+        ? 'This carousel has no slides yet. Make them, or switch the post to a single image.'
+        : `This carousel has ${slides.length} slides; ${name} takes ${min} to ${max}.`,
+      'needs_image'
+    )
+  }
+  const undrawn = slides.filter(s => !s.imageUrl)
+  if (undrawn.length > 0) {
+    throw new PublishRequestError(
+      `Slide ${undrawn.map(s => s.position).join(', ')} could not be drawn. Redraw ${undrawn.length === 1 ? 'it' : 'them'}, then publish.`,
+      'needs_image'
+    )
+  }
+  // A document post shows a title over it: the cover's headline.
+  return { title: slides[0]!.headline }
+}
+
+/**
+ * A carousel's drawn slides, in order, from the database or object storage.
+ * A slide that cannot be read throws PostImageError.
+ */
+export async function loadPostSlides(
+  database: PublishingDb,
+  draftId: string
+): Promise<PostSlideImage[]> {
+  const rows = await loadSlideRows(database, draftId)
+  const { decodeImageDataUrl } = await import('@/lib/media/brand-logo')
+  const { loadImageDataUrl } = await import('@/lib/media/image-store')
+  return Promise.all(
+    rows.map(async row => {
+      if (!row.imageUrl) {
+        throw new PostImageError(`Slide ${row.position} has not been drawn.`)
+      }
+      const image = decodeImageDataUrl(await loadImageDataUrl(row.imageUrl))
+      if (!image?.buffer.length) {
+        throw new PostImageError(`Slide ${row.position} could not be read.`)
+      }
+      assertImageType(image.mediaType)
+      return {
+        id: row.id,
+        bytes: image.buffer,
+        mediaType: image.mediaType,
+        altText: row.altText
+      }
+    })
+  )
+}
+
+/** One slide's image, for the signed link Buffer fetches; null when there is none. */
+export async function loadPostSlideImage(
+  database: PublishingDb,
+  draftId: string,
+  slideId: string
+): Promise<PostImage | null> {
+  const [row] = await database
+    .select({ imageUrl: postSlidesTable.imageUrl, altText: postSlidesTable.altText })
+    .from(postSlidesTable)
+    .where(and(eq(postSlidesTable.id, slideId), eq(postSlidesTable.draftId, draftId)))
+    .limit(1)
+  if (!row?.imageUrl) return null
+  const { decodeImageDataUrl } = await import('@/lib/media/brand-logo')
+  const { loadImageDataUrl } = await import('@/lib/media/image-store')
+  const image = decodeImageDataUrl(await loadImageDataUrl(row.imageUrl))
+  if (!image?.buffer.length) throw new PostImageError(UNREADABLE_IMAGE)
+  assertImageType(image.mediaType)
+  return { bytes: image.buffer, mediaType: image.mediaType, altText: row.altText }
+}
+
 /**
  * Queues a post to publish at `scheduledAt` (now, for Publish now). Every
  * rule is checked here, and again when it is published. Throws only
@@ -331,9 +449,13 @@ export async function requestPublication(
   if (!draft) throw new PublishRequestError('Post not found.', 'not_found')
   assertPublishable(draft)
   const name = nameOf(draft.platform)
-  if (
+  const media = await mediaFormatOf(database, draft)
+  if (media === 'carousel') {
+    await assertCarouselPublishable(database, draft)
+  } else if (
     providerFor(draft.platform).requiresImage &&
-    (await activeImageOf(database, draft.id).limit(1)).length === 0
+    (media !== 'image' ||
+      (await activeImageOf(database, draft.id).limit(1)).length === 0)
   ) {
     throw new PublishRequestError(needsImageMessage(name), 'needs_image')
   }
@@ -780,6 +902,9 @@ async function prepare(deps: PublishDeps, publication: Publication) {
     throw new PublishRequestError('The post no longer exists.', 'not_approved')
   }
   const [text = '', ...replies] = assertPublishable(draft)
+  const media = await mediaFormatOf(database, draft)
+  const carouselTitle =
+    media === 'carousel' ? (await assertCarouselPublishable(database, draft)).title : ''
   // Queued for one platform, it goes out there or not at all.
   if (draft.platform !== publication.platform) {
     throw new PublishRequestError(
@@ -797,6 +922,11 @@ async function prepare(deps: PublishDeps, publication: Publication) {
   const ctx = await contextFor(deps, connection)
   return {
     draftId: draft.id,
+    media,
+    // The image goes out unless the post is a carousel or was set to text
+    // only; a post without one loads none.
+    sendsImage: media !== 'carousel' && draft.mediaFormat !== 'text',
+    carouselTitle,
     text,
     // A thread's other posts and the reply, for a provider with `threads`.
     replies,
@@ -826,6 +956,9 @@ export async function executePublication(
   try {
     const {
       draftId,
+      media,
+      sendsImage,
+      carouselTitle,
       text,
       replies,
       comment,
@@ -836,13 +969,30 @@ export async function executePublication(
       authorUrn
     } = await prepare(deps, publication)
     try {
-      const image = await (
-        deps.loadImage ?? (id => loadPostImage(database, id))
-      )(draftId)
+      // A carousel's slides, or the single image; a text-only post sends
+      // neither, even when it still has an image.
+      const slides =
+        media === 'carousel'
+          ? await (deps.loadSlides ?? (id => loadPostSlides(database, id)))(draftId)
+          : null
+      const image = sendsImage
+        ? await (deps.loadImage ?? (id => loadPostImage(database, id)))(draftId)
+        : null
       // Removed since it was queued: nothing is sent.
-      if (!image && provider.requiresImage) {
+      if (!slides && !image && provider.requiresImage) {
         throw new PostImageError(needsImageMessage(provider.platform.name))
       }
+      // The carousel's document URN (LinkedIn) or slide links (Buffer).
+      const carouselRefs =
+        slides && provider.prepareCarousel
+          ? await provider.prepareCarousel(ctx, {
+              authorId: authorUrn,
+              draftId,
+              slides,
+              title: carouselTitle,
+              now: nowOf(deps)
+            })
+          : null
       // An uploaded image's URN (LinkedIn), or a link the provider fetches (Buffer).
       const imageUrn = image
         ? await provider.prepareImage(ctx, {
@@ -863,7 +1013,8 @@ export async function executePublication(
           authorUrn,
           metadata: mergeMetadata({
             postRequestedAt: nowOf(deps).toISOString(),
-            ...(imageUrn && { imageUrn })
+            ...(imageUrn && { imageUrn }),
+            ...(carouselRefs && { carouselSlides: carouselRefs.length })
           })
         })
         .where(heldClaim(publication))
@@ -885,7 +1036,15 @@ export async function executePublication(
         ...(inPostComment && { comment: provider.toApiText(inPostComment) }),
         image: imageUrn
           ? { ref: imageUrn, altText: image?.altText ?? null }
-          : undefined
+          : undefined,
+        carousel:
+          carouselRefs && slides
+            ? {
+                refs: carouselRefs,
+                title: carouselTitle,
+                altTexts: slides.map(s => s.altText)
+              }
+            : undefined
       })
 
       // Handed on, not out yet (Buffer): the row waits, with the post's id,
@@ -1406,9 +1565,21 @@ export async function queueAutoPublications(
             postDraftsTable.formatId,
             providerFor(connection.platform).formats
           ),
-          // Instagram: a post without an image would only fail.
+          // Instagram: a post without an image (or a carousel's slides)
+          // would only fail.
           providerFor(connection.platform).requiresImage
-            ? exists(activeImageOf(database, postDraftsTable.id))
+            ? or(
+                exists(activeImageOf(database, postDraftsTable.id)),
+                and(
+                  eq(postDraftsTable.mediaFormat, 'carousel'),
+                  exists(
+                    database
+                      .select({ one: sql`1` })
+                      .from(postSlidesTable)
+                      .where(eq(postSlidesTable.draftId, postDraftsTable.id))
+                  )
+                )
+              )
             : undefined,
           eq(postDraftsTable.status, 'approved'),
           isNull(postDraftsTable.postedAt),

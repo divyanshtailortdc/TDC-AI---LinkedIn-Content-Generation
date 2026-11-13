@@ -292,21 +292,20 @@ export async function createPost(
     text: string
     replies?: string[]
     image?: { url: string; altText?: string | null }
+    /** A carousel: several images in one post, in order (instead of `image`). */
+    images?: Array<{ url: string; altText?: string | null }>
     metadata?: Record<string, unknown>
   }
 ): Promise<BufferPostState> {
-  const assets = post.image
-    ? [
-        {
-          image: {
-            url: post.image.url,
-            ...(post.image.altText && {
-              metadata: { altText: post.image.altText.slice(0, 1000) }
-            })
-          }
-        }
-      ]
-    : []
+  const images = post.images?.length ? post.images : post.image ? [post.image] : []
+  const assets = images.map(image => ({
+    image: {
+      url: image.url,
+      ...(image.altText && {
+        metadata: { altText: image.altText.slice(0, 1000) }
+      })
+    }
+  }))
   const replies = post.replies?.filter(text => text.trim()) ?? []
   const metadata = {
     ...post.metadata,

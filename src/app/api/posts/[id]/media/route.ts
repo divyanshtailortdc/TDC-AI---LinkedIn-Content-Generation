@@ -1,5 +1,6 @@
-import { VISUAL_TYPES } from '~/lib/ai/skills/media-brief/schema'
+import { IMAGE_STYLES, type ImageStyle } from '~/lib/brand/theme'
 import { ImageGenerationAbortedError, readImageDimensions } from '~/lib/media'
+import { DIAGRAM_FORMS } from '~/lib/media/canvas/spec'
 import {
   MAX_REFERENCE_IMAGES,
   REFERENCE_IMAGE_MAX_BYTES,
@@ -18,7 +19,8 @@ import { z } from 'zod'
  * Image generation for a post draft from the reviewer's own input:
  *
  * - fromPost (prompt optional, as direction): a new image designed from the
- *   post's own text, in the image type the reviewer picked, if any. The page
+ *   post's own text, in the image style the reviewer picked (and, for minimal
+ *   graphic design, the diagram form), else the brand theme's style. The page
  *   sends this when nothing is typed and no reference is attached;
  * - a reference image (prompt optional): a new image made from the reference
  *   and the prompt alone, in its layout and style and the brand's colours;
@@ -52,7 +54,18 @@ const bodySchema = z.object(
       .optional(),
     // "Generate from post text": designed from the post, the prompt as direction.
     fromPost: z.boolean().optional(),
-    visualType: z.enum(VISUAL_TYPES, { error: 'Unknown image type.' }).optional()
+    // How the image is rendered, for a design from the post or a prompt
+    // alone; the brand theme's style when absent.
+    style: z
+      .enum(IMAGE_STYLES.map(s => s.value) as [ImageStyle, ...ImageStyle[]], {
+        error: 'Unknown image style.'
+      })
+      .optional(),
+    // A diagram form, for minimal graphic design. "illustration" is what the
+    // page sent before image styles; it asks for the illustration style.
+    visualType: z
+      .enum([...DIAGRAM_FORMS, 'illustration'], { error: 'Unknown image type.' })
+      .optional()
   },
   { error: 'Request body must be a JSON object.' }
 )
@@ -134,6 +147,11 @@ export async function POST(
   }
 
   const prompt = parsed.data.prompt.trim()
+  const { visualType } = parsed.data
+  const style =
+    parsed.data.style ?? (visualType === 'illustration' ? 'illustration' : undefined)
+  const diagramType =
+    visualType && visualType !== 'illustration' ? visualType : undefined
   const referenceMediaId = parsed.data.referenceMediaId
   const fromPost = Boolean(parsed.data.fromPost) && !referenceMediaId
   const upload =
@@ -156,7 +174,8 @@ export async function POST(
         accountId,
         mode: 'ai_generated',
         customPrompt: prompt || undefined,
-        visualType: parsed.data.visualType,
+        style,
+        diagramType,
         abortSignal: request.signal
       })
       if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
@@ -184,6 +203,7 @@ export async function POST(
       prompt,
       referenceMediaId,
       referenceImage: upload,
+      style,
       abortSignal: request.signal
     })
 

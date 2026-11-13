@@ -21,7 +21,7 @@ import {
 } from '~/lib/ai/pipeline/drafting-run'
 
 /**
- * The formats picked in "Create posts": any that can be created (no Reels),
+ * The formats picked in "Create posts": any that can be created,
  * whatever the identity turned on in its preferences; refused when none are.
  */
 function chosenFormats(raw: unknown): FormatId[] {

@@ -1,6 +1,11 @@
 'use client'
 
+import { CarouselViewer } from '@/components/carousel/carousel-viewer'
+import { SlidesPanel } from '@/components/carousel/slides-panel'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { PostTypePicker } from '@/components/post-type-picker'
+import { PublishChecks } from '@/components/publish-checks'
+import type { SlideView } from '@/lib/carousel/types'
 import { PageHeader } from '@/components/page-header'
 import { PlatformMark } from '@/components/platform-mark'
 import { PostPreview } from '@/components/post-preview'
@@ -11,7 +16,11 @@ import {
   BACKGROUND_PATTERNS,
   BRAND_THEME_PATH,
   FOOTER_MAX_LENGTH,
-  type BackgroundPattern
+  IMAGE_STYLES,
+  imageStyleLabel,
+  isPictureStyle,
+  type BackgroundPattern,
+  type ImageStyle
 } from '@/lib/brand/theme'
 import {
   formatAbsoluteDate,
@@ -21,24 +30,32 @@ import {
 import {
   FORMATS,
   PLATFORMS,
+  captionMeter,
+  carouselWording,
   copyText,
   formatOf,
-  type FormatId
+  resolveMediaFormat,
+  suggestsCarousel,
+  supportsMediaFormat,
+  validatePost,
+  type FormatId,
+  type MediaFormat
 } from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { initialsOf } from '@/lib/initials'
 import { SHAPE_SIZES } from '@/lib/media/canvas/spec'
 import {
+  DIAGRAM_TYPE_CHOICES,
   IMAGE_PROMPT_MAX_WORDS,
-  IMAGE_TYPE_CHOICES,
   countWords,
   validateImagePrompt,
   validateImageUrl,
   validateReferenceDimensions,
   validateReferenceFile,
   validateStockQuery,
-  type ImageTypeChoice
+  type DiagramTypeChoice
 } from '@/lib/media/image-input'
+import { IMAGE_STYLE_ICONS } from '@/components/image-style-icons'
 import {
   isReviewerChosenSource,
   reviewerSourceLabel
@@ -71,7 +88,6 @@ import {
   Network,
   Palette,
   Paperclip,
-  PenTool,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -102,6 +118,7 @@ import {
   removePostMediaAction,
   saveImageSettings,
   setDraftHidden,
+  setPostMediaFormat,
   updateDraft,
   updatePostMediaAction
 } from './actions'
@@ -127,23 +144,23 @@ const ImageLightbox = dynamic(
   { ssr: false }
 )
 
-// The image type picker: Auto (null) lets the art director choose per post.
-const IMAGE_TYPE_OPTIONS = [
+// The diagram picker, for minimal graphic design: Auto (null) lets the art
+// director choose per post.
+const DIAGRAM_TYPE_OPTIONS = [
   {
     value: null,
     label: 'Auto',
-    description: 'Picks the type that fits the post best.',
+    description: 'Picks the diagram that fits the post best.',
     icon: Sparkles
   },
-  ...IMAGE_TYPE_CHOICES.map(choice => ({
+  ...DIAGRAM_TYPE_CHOICES.map(choice => ({
     ...choice,
     icon: {
       hub_spoke: Network,
       flow: Workflow,
       stack: Layers,
       cards: LayoutGrid,
-      comparison: Columns2,
-      illustration: PenTool
+      comparison: Columns2
     }[choice.value]
   }))
 ]
@@ -257,8 +274,13 @@ export function PostDetailClient({
   // copies its structure.
   const [referenceMediaId, setReferenceMediaId] = useState<string | null>(null)
   const referenceInputRef = useRef<HTMLInputElement>(null)
-  // Optional, and kept across posts like a preference; null is Auto.
-  const [imageType, setImageType] = useState<ImageTypeChoice | null>(null)
+  // The style of the next image: the one this post's image was made in, so a
+  // regeneration keeps its look, else the Brand Theme's.
+  const [imageStyle, setImageStyle] = useState<ImageStyle>(
+    () => initialPost.media?.imageStyle ?? brand.style
+  )
+  // For minimal graphic design only; null is Auto.
+  const [diagramType, setDiagramType] = useState<DiagramTypeChoice | null>(null)
   // The background and website on every new image: saved for the identity,
   // so the images made while drafting use them too.
   const [imagePattern, setImagePattern] = useState(brand.pattern)
@@ -286,6 +308,68 @@ export function PostDetailClient({
   // The page is keyed by post (see ./[id]/page.tsx), so the open post never
   // changes here; another post is another page.
   const activePostId = activePost.id
+
+  // A carousel's slides, loaded when the post has any; edited in the Slides
+  // panel and shown, swipeable, in the preview.
+  const [slides, setSlides] = useState<SlideView[] | null>(null)
+  const [slidesLoading, setSlidesLoading] = useState(
+    () => (initialPost.slideCount ?? 0) > 0
+  )
+  const [slideIndex, setSlideIndex] = useState(0)
+  const [zoomSlide, setZoomSlide] = useState<number | null>(null)
+  // The post type being switched to, while it saves.
+  const [pendingMediaFormat, setPendingMediaFormat] =
+    useState<MediaFormat | null>(null)
+  // Carousel picked on a post with no slides yet: the Slides panel shows,
+  // offering to make them, before the post is one.
+  const [wantsCarousel, setWantsCarousel] = useState(false)
+  // Why the post's slides could not be loaded. It has slides, so the panel
+  // offers to load them again, never to make new ones over them.
+  const [slidesError, setSlidesError] = useState<string | null>(null)
+
+  /** The post's slides, or why they could not be loaded. */
+  const fetchSlides = async (): Promise<SlideView[]> => {
+    const res = await fetch(`/api/posts/${initialPost.id}/slides`)
+    const body = (await res.json().catch(() => null)) as {
+      success?: boolean
+      slides?: SlideView[]
+      error?: string
+    } | null
+    if (!res.ok || !body?.success || !body.slides) {
+      throw new Error(body?.error || `The server answered ${res.status}.`)
+    }
+    return body.slides
+  }
+
+  const retrySlides = () => {
+    setSlidesError(null)
+    setSlidesLoading(true)
+    void fetchSlides()
+      .then(setSlides)
+      .catch((err: Error) => setSlidesError(err.message))
+      .finally(() => setSlidesLoading(false))
+  }
+
+  useEffect(() => {
+    if ((initialPost.slideCount ?? 0) === 0) return
+    let cancelled = false
+    void fetchSlides()
+      .then(loaded => {
+        if (!cancelled) setSlides(loaded)
+      })
+      .catch((err: Error) => {
+        console.error('Could not load the slides:', err)
+        if (!cancelled) setSlidesError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setSlidesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // Once per page: the page is keyed by post.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // A media job outlives the post it started on: the user can open another
   // post while it runs. The error, notice and input resets below are the open
@@ -467,7 +551,7 @@ export function PostDetailClient({
     setImageLoadAttempt(n => n + 1)
   }
 
-  // Image type, background and website sit behind "Image options".
+  // Diagram type, background and website sit behind "Image options".
   const [showAdvancedMedia, setShowAdvancedMedia] = useState(false)
 
   const clearReferenceImage = () => {
@@ -624,6 +708,9 @@ export function PostDetailClient({
           : `Generating your image in HD, sized for ${activePlatform.name}...`,
       {
         prompt: imagePrompt.trim(),
+        // The default look of an image from a prompt alone; an edit or a
+        // reference keeps its own.
+        style: imageStyle,
         ...(referenceMediaId
           ? { referenceMediaId }
           : { referenceImages: referenceImage ? [referenceImage] : undefined })
@@ -642,11 +729,15 @@ export function PostDetailClient({
     if (!activePost || isMediaLoading) return
     await startMediaRequest(
       activePost.id,
-      `Designing a visual from the post, sized for ${activePlatform.name}, then checking its text and branding. This takes about a minute.`,
+      imageStyle === 'minimal_graphic'
+        ? `Designing a minimal graphic from the post, sized for ${activePlatform.name}. This takes about a minute.`
+        : `Designing a ${imageStyleLabel(imageStyle).toLowerCase()} visual from the post, sized for ${activePlatform.name}, then checking the picture for stray lettering and artefacts. This takes about a minute.`,
       {
         fromPost: true,
         prompt: imagePrompt.trim(),
-        visualType: imageType ?? undefined
+        style: imageStyle,
+        visualType:
+          imageStyle === 'minimal_graphic' ? (diagramType ?? undefined) : undefined
       }
     )
   }
@@ -1379,6 +1470,8 @@ export function PostDetailClient({
   // An uploaded reference is enough by itself, so a prompt is optional. It
   // does not read the post, so unsaved edits do not hold it up.
   const guidedByReference = Boolean(referenceImage) && !referenceMediaId
+  // An edit keeps its image's look and a reference brings its own.
+  const styleLocked = Boolean(referenceImage) || Boolean(referenceMediaId)
   const mainButtonBlocked = regenerateFromPost
     ? isEditing
     : guidedByReference
@@ -1427,6 +1520,131 @@ export function PostDetailClient({
   }
 
   const activeFormat = formatOf(activePost.formatId)
+  // What goes out with the text (src/lib/formats/media.ts), and what the
+  // page shows: a carousel picked before it has slides shows the Slides
+  // panel to make them.
+  const activeMediaFormat = resolveMediaFormat(
+    activeFormat,
+    activePost.mediaFormat,
+    { image: Boolean(activePost.media) }
+  )
+  const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
+  // Set aside by "Text only": the image is kept but does not go out.
+  const imageSetAside = activePost.mediaFormat === 'text'
+  // Published or marked posted: what went out stays as it is.
+  const mediaLocked =
+    Boolean(activePost.postedAt) ||
+    activePost.publication?.status === 'published' ||
+    activePost.publication?.status === 'publishing'
+
+  // Whether the post is ready for its platform, from what is saved.
+  const publishChecks = validatePost({
+    formatId: activeFormat,
+    mediaFormat: activeMediaFormat,
+    post: activePost,
+    image: { present: Boolean(activePost.media) },
+    slides:
+      activeMediaFormat !== 'carousel'
+        ? []
+        : slides
+          ? slides.map(s => ({
+              position: s.position,
+              headline: s.headline,
+              body: s.body,
+              status: s.status
+            }))
+          : slidesLoading || slidesError
+            ? null
+            : [],
+    siblings: posts
+      .filter(p => p.id !== activePost.id)
+      .map(p => ({
+        formatId: formatOf(p.formatId),
+        text: copyText(formatOf(p.formatId), p)
+      }))
+  })
+  const activeMeter = captionMeter(activeFormat, activePost)
+
+  // The AI planned a carousel for a post that is not one: drafted before
+  // carousels were made automatically, or its slides could not be made.
+  // Offered in one click, until the reviewer picks a post type themselves.
+  const plannedVisual =
+    typeof activePost.payload?.visualIdea === 'string'
+      ? activePost.payload.visualIdea
+      : ''
+  const captionSaysSwipe = carouselWording(
+    [activePost.hook, activePost.body, activePost.cta].filter(Boolean).join('\n')
+  )
+  const carouselSuggested =
+    !mediaLocked &&
+    !activePost.mediaFormat &&
+    shownMedia !== 'carousel' &&
+    supportsMediaFormat(activeFormat, 'carousel') &&
+    (suggestsCarousel(plannedVisual) || captionSaysSwipe !== null)
+
+  // The carousel, swipeable, where the platform shows a post's media; the
+  // image a text-only post set aside is not shown, since it does not go out.
+  const carouselPreview =
+    shownMedia === 'carousel' ? (
+      <CarouselViewer
+        slides={(slides ?? []).map(s => ({
+          id: s.id,
+          position: s.position,
+          imageUrl: s.imageUrl,
+          altText: s.altText,
+          status: s.status
+        }))}
+        platform={activePost.platform}
+        title={slides?.[0]?.headline}
+        index={slideIndex}
+        onIndexChange={setSlideIndex}
+        onOpen={setZoomSlide}
+        loading={slidesLoading}
+        error={slidesError}
+      />
+    ) : undefined
+  const previewImageUrl =
+    imageSetAside || shownMedia === 'carousel' ? undefined : activePost.media?.imageUrl
+
+  /** Saves what goes out with the text; a carousel without slides waits for them. */
+  const handleMediaFormatChange = async (next: MediaFormat) => {
+    if (
+      next === 'carousel' &&
+      !(slides && slides.length > 0) &&
+      !(activePost.slideCount ?? 0)
+    ) {
+      setWantsCarousel(true)
+      return
+    }
+    setWantsCarousel(false)
+    if (next === activeMediaFormat && activePost.mediaFormat === next) return
+    const id = activePost.id
+    setPendingMediaFormat(next)
+    try {
+      markDataChanged()
+      const res = await setPostMediaFormat(id, next)
+      if (!res.success) throw new Error(res.error)
+      setPosts(prev =>
+        prev.map(p =>
+          p.id === id
+            ? {
+                ...p,
+                mediaFormat: res.mediaFormat,
+                lintFindings: (res.lintFindings as PostDetail['lintFindings']) ?? p.lintFindings
+              }
+            : p
+        )
+      )
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Post type not changed',
+        message: err?.message || 'Could not change the post type'
+      })
+    } finally {
+      setPendingMediaFormat(null)
+    }
+  }
   // The shape its platform shows images in (LinkedIn 1.91:1, X 16:9,
   // Instagram and Facebook 4:5). Every generated image is made at it; one
   // made for another platform, or found or pasted, is flagged so it can be
@@ -1524,6 +1742,8 @@ export function PostDetailClient({
               postId={activePost.id}
               postedAt={activePost.postedAt ?? null}
               publication={activePost.publication}
+              media={activeMediaFormat}
+              slideCount={slides?.length ?? activePost.slideCount ?? 0}
               onChange={publication => {
                 const id = activePost.id
                 setPosts(prev =>
@@ -1827,8 +2047,9 @@ export function PostDetailClient({
                           hashtags={activePost.hashtags}
                           firstComment={activePost.firstComment}
                           payload={activePost.payload}
-                          mediaUrl={activePost.media?.imageUrl}
+                          mediaUrl={previewImageUrl}
                           mediaAltText={activePost.media?.altText}
+                          carousel={carouselPreview}
                           onMediaClick={
                             activePost.media?.imageUrl
                               ? () => setIsImageZoomOpen(true)
@@ -1850,8 +2071,9 @@ export function PostDetailClient({
                           body={activePost.body || ''}
                           cta={activePost.cta}
                           hashtags={activePost.hashtags}
-                          mediaUrl={activePost.media?.imageUrl}
+                          mediaUrl={previewImageUrl}
                           mediaAltText={activePost.media?.altText}
+                          carousel={carouselPreview}
                           onMediaClick={
                             activePost.media?.imageUrl
                               ? () => setIsImageZoomOpen(true)
@@ -1870,6 +2092,13 @@ export function PostDetailClient({
                       </div>
                     )}
                   {!isEditing && (
+                    <PublishChecks
+                      platformName={activePlatform.name}
+                      meter={activeMeter}
+                      checks={publishChecks}
+                    />
+                  )}
+                  {!isEditing && (
                     <VersionHistory
                       key={activePost.id}
                       post={activePost}
@@ -1884,12 +2113,20 @@ export function PostDetailClient({
             {/* RIGHT COLUMN: the image. Its header shares the preview
                 header's row. */}
             <div className="flex min-w-0 flex-col gap-3 @3xl:row-span-2 @3xl:grid @3xl:grid-rows-subgrid">
-              <div className="flex min-h-8 items-center justify-between gap-2 px-1">
-                <span className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
-                  <ImageIcon className="h-4 w-4" />
-                  Image
-                </span>
-                {activePost.media?.imageUrl && isUserPromptedMedia ? (
+              <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 px-1">
+                {/* What goes out with the text: text only, an image or a carousel. */}
+                <PostTypePicker
+                  formatId={activeFormat}
+                  value={shownMedia}
+                  onChange={next => void handleMediaFormatChange(next)}
+                  disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
+                  pending={pendingMediaFormat}
+                />
+                {shownMedia === 'carousel' ? (
+                  <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
+                    {slides?.length ?? activePost.slideCount ?? 0} slides
+                  </span>
+                ) : imageSetAside ? null : activePost.media?.imageUrl && isUserPromptedMedia ? (
                   <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
                     <Sparkles className="h-3 w-3" />
                     {reviewerMediaLabel}
@@ -1921,6 +2158,89 @@ export function PostDetailClient({
                 {/* IMAGE CARD: the post's image, and making a new one with AI.
                   Its notices sit inside it, so the card never drops below
                   the preview's top edge. */}
+                {/* Slides on the review screen: zoomed one at a time. */}
+                {zoomSlide !== null && slides?.[zoomSlide]?.imageUrl && (
+                  <ImageLightbox
+                    src={slides[zoomSlide].imageUrl!}
+                    alt={slides[zoomSlide].altText || `Slide ${zoomSlide + 1}`}
+                    width={1080}
+                    height={1350}
+                    onClose={() => setZoomSlide(null)}
+                  />
+                )}
+                {carouselSuggested && (
+                  <div className="border-accent/30 bg-accent/5 mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border p-3 text-xs">
+                    <span className="text-foreground min-w-0 flex-1 leading-relaxed">
+                      <Layers className="text-accent mr-1.5 inline h-3.5 w-3.5 align-[-2px]" />
+                      The AI planned this post as a carousel
+                      {captionSaysSwipe
+                        ? `, and its caption says “${captionSaysSwipe}”. Make the slides so the post has what it promises.`
+                        : '.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setWantsCarousel(true)}
+                      disabled={pendingMediaFormat !== null || mediaBusyHere}
+                      className="bg-accent text-background hover:bg-accent-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold disabled:opacity-50"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      Make it a carousel
+                    </button>
+                  </div>
+                )}
+                {shownMedia === 'carousel' ? (
+                  // SLIDES CARD: a carousel's slides, each edited on its own.
+                  <div className="border-border bg-surface rounded-2xl border p-4 shadow-sm">
+                    <SlidesPanel
+                      postId={activePost.id}
+                      formatId={activeFormat}
+                      slides={slides}
+                      loading={slidesLoading}
+                      onSlidesChange={next => {
+                        setSlides(next)
+                        const id = activePost.id
+                        setPosts(prev =>
+                          prev.map(p => (p.id === id ? { ...p, slideCount: next.length } : p))
+                        )
+                      }}
+                      onGenerated={result => {
+                        setSlides(result.slides)
+                        setWantsCarousel(false)
+                        const id = activePost.id
+                        setPosts(prev =>
+                          prev.map(p =>
+                            p.id === id
+                              ? {
+                                  ...p,
+                                  mediaFormat: 'carousel',
+                                  slideCount: result.slides.length,
+                                  lintFindings:
+                                    (result.lintFindings as PostDetail['lintFindings']) ??
+                                    p.lintFindings
+                                }
+                              : p
+                          )
+                        )
+                      }}
+                      activeIndex={slideIndex}
+                      onActiveIndexChange={setSlideIndex}
+                      locked={mediaLocked}
+                      drawsPictures={isPictureStyle(brand.style)}
+                      loadError={slidesError}
+                      onRetryLoad={retrySlides}
+                    />
+                  </div>
+                ) : imageSetAside ? (
+                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-4 text-xs shadow-sm">
+                    <p className="text-foreground font-semibold">Text only</p>
+                    <p className="text-muted leading-relaxed">
+                      This post goes out without media.
+                      {activePost.media
+                        ? ' Its image is kept: pick Single image to use it again.'
+                        : ' Pick Single image or Carousel to add visuals.'}
+                    </p>
+                  </div>
+                ) : (
                 <div className="border-border bg-surface space-y-4 rounded-2xl border p-4 shadow-sm">
                   {isMediaLoading && !mediaBusyHere && (
                     <p className="text-muted text-[11px]">
@@ -2135,6 +2455,70 @@ export function PostDetailClient({
                         </span>
                       </div>
                     )}
+
+                  {/* The look of the next image. An edit keeps its image's
+                      look and a reference brings its own, so neither uses it. */}
+                  {!mediaBusyHere && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span
+                          id="image-style-label"
+                          className="text-foreground text-[11px] font-semibold"
+                        >
+                          Style
+                        </span>
+                        {imageStyle !== brand.style && !styleLocked && (
+                          <button
+                            type="button"
+                            onClick={() => setImageStyle(brand.style)}
+                            className="text-muted hover:text-foreground cursor-pointer text-[10px]"
+                          >
+                            Back to the Brand Theme&apos;s{' '}
+                            {imageStyleLabel(brand.style)}
+                          </button>
+                        )}
+                      </div>
+                      <div
+                        role="radiogroup"
+                        aria-labelledby="image-style-label"
+                        className="flex flex-wrap gap-1.5"
+                      >
+                        {IMAGE_STYLES.map(option => {
+                          const active = imageStyle === option.value
+                          const Icon = IMAGE_STYLE_ICONS[option.value]
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              title={option.description}
+                              disabled={styleLocked}
+                              onClick={() => setImageStyle(option.value)}
+                              className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                active
+                                  ? 'border-accent bg-accent/10 text-foreground font-semibold'
+                                  : 'border-border bg-surface text-muted hover:text-foreground'
+                              }`}
+                            >
+                              <Icon
+                                className={`h-3.5 w-3.5 ${active ? 'text-accent' : ''}`}
+                              />
+                              {option.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="text-muted text-[10px]">
+                        {referenceMediaId
+                          ? 'An edit keeps the current image’s look unless you ask for another.'
+                          : referenceImage
+                            ? 'A reference image brings its own look.'
+                            : IMAGE_STYLES.find(o => o.value === imageStyle)
+                                ?.description}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Generate / Change media: first, so they stay in view on
                       short screens. The main button takes the spare width;
@@ -2375,7 +2759,7 @@ export function PostDetailClient({
                             ? 'e.g. Replace the headline with "Ship it", or make the background warmer'
                             : referenceImage
                               ? 'e.g. Keep this layout, but about faster order approvals'
-                              : 'e.g. A minimal isometric illustration of two paths splitting, lots of negative space'
+                              : 'e.g. A sales rep reviewing a quote with a customer on a warehouse floor, morning light'
                         }
                         aria-invalid={showPromptError}
                         aria-describedby={
@@ -2505,7 +2889,7 @@ export function PostDetailClient({
                       </div>
                     )}
 
-                  {/* Image type, background and website: set once and
+                  {/* Diagram type, background and website: set once and
                         rarely changed, so folded away until asked for. */}
                   {!mediaBusyHere && (
                     <button
@@ -2520,7 +2904,10 @@ export function PostDetailClient({
                           Image options
                           <span className="text-muted font-normal">
                             {' '}
-                            · type, background, website
+                            ·{' '}
+                            {imageStyle === 'minimal_graphic'
+                              ? 'diagram, background, website'
+                              : 'background, website'}
                           </span>
                         </span>
                       </span>
@@ -2531,64 +2918,75 @@ export function PostDetailClient({
                   )}
                   {showAdvancedMedia && (
                     <>
-                      {/* Optional image type for a design from the post; an
+                      {/* Background and website for every image, and for
+                        minimal graphic design an optional diagram type; an
                         edit of the current image keeps its own. */}
                       {!mediaBusyHere && !referenceMediaId && (
                         <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
-                          <div className="flex items-baseline justify-between">
-                            <span
-                              id="image-type-label"
-                              className="text-foreground text-[11px] font-semibold"
-                            >
-                              Image type
-                            </span>
-                            <span className="text-muted text-[10px]">
-                              Optional
-                            </span>
-                          </div>
-                          <div
-                            role="radiogroup"
-                            aria-labelledby="image-type-label"
-                            className="flex flex-wrap gap-1.5"
-                          >
-                            {IMAGE_TYPE_OPTIONS.map(option => {
-                              const active = imageType === option.value
-                              const Icon = option.icon
-                              return (
-                                <button
-                                  key={option.label}
-                                  type="button"
-                                  role="radio"
-                                  aria-checked={active}
-                                  title={option.description}
-                                  // A reference image sets the structure itself.
-                                  disabled={Boolean(referenceImage)}
-                                  onClick={() => setImageType(option.value)}
-                                  className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                    active
-                                      ? 'border-accent bg-accent/10 text-foreground font-semibold'
-                                      : 'border-border bg-surface text-muted hover:text-foreground'
-                                  }`}
+                          {imageStyle === 'minimal_graphic' && (
+                            <>
+                              <div className="flex items-baseline justify-between">
+                                <span
+                                  id="diagram-type-label"
+                                  className="text-foreground text-[11px] font-semibold"
                                 >
-                                  <Icon
-                                    className={`h-3 w-3 ${active ? 'text-accent' : ''}`}
-                                  />
-                                  {option.label}
-                                </button>
-                              )
-                            })}
-                          </div>
-                          <p className="text-muted text-[10px]">
-                            {referenceImage
-                              ? null
-                              : imagePrompt.trim()
-                                ? 'Generate image follows your description below. The type is used by "Generate from post text".'
-                                : IMAGE_TYPE_OPTIONS.find(
-                                    o => o.value === imageType
-                                  )?.description}
-                          </p>
+                                  Diagram type
+                                </span>
+                                <span className="text-muted text-[10px]">
+                                  Optional
+                                </span>
+                              </div>
+                              <div
+                                role="radiogroup"
+                                aria-labelledby="diagram-type-label"
+                                className="flex flex-wrap gap-1.5"
+                              >
+                                {DIAGRAM_TYPE_OPTIONS.map(option => {
+                                  const active = diagramType === option.value
+                                  const Icon = option.icon
+                                  return (
+                                    <button
+                                      key={option.label}
+                                      type="button"
+                                      role="radio"
+                                      aria-checked={active}
+                                      title={option.description}
+                                      // A reference image sets the structure itself.
+                                      disabled={Boolean(referenceImage)}
+                                      onClick={() => setDiagramType(option.value)}
+                                      className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                        active
+                                          ? 'border-accent bg-accent/10 text-foreground font-semibold'
+                                          : 'border-border bg-surface text-muted hover:text-foreground'
+                                      }`}
+                                    >
+                                      <Icon
+                                        className={`h-3 w-3 ${active ? 'text-accent' : ''}`}
+                                      />
+                                      {option.label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                              <p className="text-muted text-[10px]">
+                                {referenceImage
+                                  ? null
+                                  : imagePrompt.trim()
+                                    ? 'Generate image follows your description below. The diagram type is used by "Design from the post text".'
+                                    : DIAGRAM_TYPE_OPTIONS.find(
+                                        o => o.value === diagramType
+                                      )?.description}
+                              </p>
+                            </>
+                          )}
 
-                          <div className="border-border space-y-2 border-t pt-2">
+                          <div
+                            className={
+                              imageStyle === 'minimal_graphic'
+                                ? 'border-border space-y-2 border-t pt-2'
+                                : 'space-y-2'
+                            }
+                          >
                             <div className="flex items-center justify-between gap-2">
                               <span
                                 id="image-background-label"
@@ -2700,6 +3098,7 @@ export function PostDetailClient({
                     </>
                   )}
                 </div>
+                )}
               </div>
             </div>
           </div>

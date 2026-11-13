@@ -150,7 +150,7 @@ describe('what the art director is told about a post', () => {
 
 describe('the image brief prompt', () => {
   const context = buildMediaBriefContext(ctx, idea)
-  const prompt = buildPrompt({
+  const request = {
     ...context,
     postText:
       'A quote that takes a day is rarely slow because the rep is slow.',
@@ -166,7 +166,10 @@ describe('the image brief prompt', () => {
       }
     ],
     rejectionReason: 'Too busy'
-  })
+  }
+  // No style given: the photographic default.
+  const prompt = buildPrompt(request)
+  const diagramPrompt = buildPrompt({ ...request, imageStyle: 'minimal_graphic' })
 
   it('puts the goal, idea, facts, knowledge, offerings, audience and brand in front of the art director', () => {
     assert.match(
@@ -209,26 +212,61 @@ describe('the image brief prompt', () => {
       prompt,
       /- Earlier \(conceptual illustration\): Bridge between two screens/
     )
-    assert.match(prompt, /a visual type other than comparison/)
+    // A photograph is always a picture, so only its subject has to change.
+    assert.match(prompt, /a picture of a different subject or scene/)
+    assert.ok(!prompt.includes('a visual type other than'))
+    assert.match(diagramPrompt, /a visual type other than comparison/)
     assert.match(prompt, /The reviewer said about the last one: "Too busy"/)
   })
 
-  it('applies the layout rules and forbids generic imagery and photorealistic scenes', () => {
-    assert.match(prompt, /THE LAYOUT \(fixed, drawn by code\)/)
-    assert.match(prompt, /Left: the brand logo, then the tagline/)
-    assert.match(prompt, /Right: the visual, on a light background/)
-    assert.match(
-      prompt,
-      /No generic business, AI or technology filler/
-    )
-    assert.match(
-      prompt,
-      /Never state a statistic, date, venue, price or offer/
-    )
-    assert.match(
-      prompt,
-      /never text, labels, logos, screens full of words, real people's faces, hands, desks, coffee cups/
-    )
+  it('asks for a real photograph by default, fitted to the brand, with no text', () => {
+    assert.match(prompt, /IMAGE STYLE — Photorealistic\n/)
+    assert.match(prompt, /a photographer's shot description/)
+    assert.match(prompt, /its industry, its customers/)
+    assert.match(prompt, /styleDirection: one or two sentences fitting the photographic look/)
+    assert.match(prompt, /Avoid the clichés that make an image look fake/)
+    assert.match(prompt, /Keep anything readable out of the shot/)
+    // The picture's layouts, without the card that would hide it.
+    assert.match(prompt, /the picture fills the right side to the image's edges/)
+    assert.ok(!prompt.includes('centered_hero'))
+    assert.match(prompt, /THE VISUAL: visualType is "picture"/)
+    assert.ok(!prompt.includes('VISUAL TYPES you may use'))
+    assert.match(prompt, /a real scene a camera could capture/)
+    // The old blanket ban on photographs is gone.
+    assert.ok(!prompt.includes('anything photographic'))
+    assert.ok(!prompt.includes('clean vector diagrams'))
+  })
+
+  it('treats a visual direction as the subject, not the style', () => {
+    const directed = buildPrompt({
+      ...request,
+      direction: 'A flat illustration of a rep juggling three binders'
+    })
+    assert.match(directed, /It sets the subject; the image style sets the look/)
+    assert.match(directed, /whatever medium they name, show it in this style/)
+  })
+
+  it('applies the diagram layout rules for minimal graphic design', () => {
+    assert.match(diagramPrompt, /IMAGE STYLE — Minimal Graphic Design/)
+    assert.match(diagramPrompt, /THE LAYOUT \(fixed, drawn by code\)/)
+    assert.match(diagramPrompt, /Left: the brand logo, then the tagline/)
+    assert.match(diagramPrompt, /Right: the visual, on a light background/)
+    assert.match(diagramPrompt, /centered_hero/)
+    assert.match(diagramPrompt, /VISUAL TYPES you may use:\n- hub_spoke/)
+    assert.ok(!diagramPrompt.includes('- picture:'))
+    for (const p of [prompt, diagramPrompt]) {
+      assert.match(p, /No generic business, AI or technology filler/)
+      assert.match(p, /Never state a statistic, date, venue, price or offer/)
+    }
+  })
+
+  it('describes each picture style in its own terms', () => {
+    const render = buildPrompt({ ...request, imageStyle: '3d_render' })
+    assert.match(render, /IMAGE STYLE — 3D Render/)
+    assert.match(render, /No human figures/)
+    const drawn = buildPrompt({ ...request, imageStyle: 'illustration' })
+    assert.match(drawn, /IMAGE STYLE — Illustration/)
+    assert.match(drawn, /clean flat vector illustration on a plain white background/)
   })
 
   it('leaves out every block it has nothing for', () => {
@@ -408,6 +446,8 @@ const review = (overrides: Partial<ImageReview> = {}): ImageReview => ({
   conveysPost: true,
   genericStock: false,
   followsBrand: true,
+  artifacts: [],
+  matchesStyle: true,
   relevanceScore: 86,
   summary: 'Scattered records pulled into one stack.',
   ...overrides

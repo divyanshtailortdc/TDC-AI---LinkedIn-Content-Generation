@@ -1,6 +1,7 @@
 import 'server-only'
 
 import type { Idea } from '@/db/schema'
+import type { MediaFormat } from '@/lib/formats/types'
 import type { GenerationContext } from '../../context'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
@@ -44,7 +45,12 @@ const DRAFTING_TIMEOUT_MS = 120_000
  * draft; its usage is what that attempt cost.
  */
 export async function writeDraft(
-  input: { ctx: GenerationContext; idea: Idea },
+  input: {
+    ctx: GenerationContext
+    idea: Idea
+    /** What goes out with the text; a carousel's caption is written as one. */
+    mediaFormat?: MediaFormat | null
+  },
   revise?: { previous: DraftGenerationResult; failedChecks: string[] },
   /** A new version of an existing post, with what the reviewer wants changed. */
   regenerate?: RegenerateRequest
@@ -63,16 +69,18 @@ export async function writeDraft(
           input.ctx,
           input.idea,
           revise.previous,
-          revise.failedChecks
+          revise.failedChecks,
+          input.mediaFormat
         )
       : regenerate
         ? buildRegeneratePrompt(
             input.ctx,
             input.idea,
             regenerate.current,
-            regenerate.instruction
+            regenerate.instruction,
+            input.mediaFormat
           )
-        : buildPrompt(input.ctx, input.idea),
+        : buildPrompt(input.ctx, input.idea, input.mediaFormat),
     schema: DraftGenerationSchema,
     timeoutMs: DRAFTING_TIMEOUT_MS,
     maxRetries: 1

@@ -59,7 +59,7 @@ function validate(payload: PreferencesPayload) {
   }
 }
 
-/** Known formats that can be created (no Reels); refused when none are left. */
+/** Known formats that can be created; refused when none are left. */
 function checkedFormats(values: string[]): FormatId[] {
   const formats = cleanFormats(values).filter(isCreatableFormat)
   if (formats.length === 0) {

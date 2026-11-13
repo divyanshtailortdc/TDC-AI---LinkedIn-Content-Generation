@@ -22,7 +22,7 @@ import {
   ThumbsUp,
   ZoomIn
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 /**
  * How a post in any format other than LinkedIn reads where it will be
@@ -44,6 +44,8 @@ interface VariantPreviewProps {
   mediaUrl?: string | null
   mediaAltText?: string | null
   onMediaClick?: () => void
+  /** A carousel post's slides (a CarouselViewer), shown where the image goes. */
+  carousel?: ReactNode
 }
 
 function Avatar({ initials, round = true }: { initials: string; round?: boolean }) {
@@ -308,7 +310,9 @@ export function VariantPreview(props: VariantPreviewProps) {
           <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{props.authorName}</span>
           <MoreHorizontal className="h-5 w-5 shrink-0 text-neutral-400" />
         </div>
-        {props.mediaUrl ? (
+        {props.carousel ? (
+          props.carousel
+        ) : props.mediaUrl ? (
           // Its own shape, as the feed shows it (4:5 portrait), not cropped square.
           <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} flush />
         ) : (
@@ -328,7 +332,7 @@ export function VariantPreview(props: VariantPreviewProps) {
           <span className="mr-1.5 font-semibold">{props.authorName}</span>
           <Folded text={caption} fold={spec.limits.foldChars} />
           {tags && <p className="mt-3 text-[#00376b] dark:text-blue-400">{tags}</p>}
-          {visualIdea && props.mediaUrl && (
+          {visualIdea && (props.mediaUrl || props.carousel) && (
             <p className="mt-4 rounded-xl border border-neutral-200 p-4 text-sm leading-relaxed text-neutral-500 dark:border-border dark:text-neutral-400">
               <span className="font-medium text-neutral-900 dark:text-neutral-100">Visual idea:</span>{' '}
               {visualIdea}
@@ -354,7 +358,9 @@ export function VariantPreview(props: VariantPreviewProps) {
         <Folded text={text} fold={spec.limits.foldChars} />
         {tags && <p className="mt-2 text-[#1877f2]">{tags}</p>}
       </div>
-      <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} flush />
+      {props.carousel ?? (
+        <Media url={props.mediaUrl} alt={props.mediaAltText} onClick={props.onMediaClick} flush />
+      )}
       <div className="flex justify-around border-t border-neutral-100 py-2 text-xs font-semibold text-neutral-500 dark:border-border">
         <span className="inline-flex items-center gap-1.5"><ThumbsUp className="h-4 w-4" /> Like</span>
         <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-4 w-4" /> Comment</span>

@@ -147,6 +147,41 @@ export async function fitToSize(
   }
 }
 
+/**
+ * A picture cut to exactly `target`, whatever shape the model returned:
+ * scaled to cover it and cropped around what draws the eye, never stretched.
+ * For the picture inside a designed image, where a slightly different shape
+ * is no reason to throw the picture away.
+ */
+export async function coverToSize(
+  buffer: Buffer,
+  target: { width: number; height: number }
+): Promise<{
+  buffer: Buffer
+  width: number
+  height: number
+  resized: boolean
+} | null> {
+  const meta = await sharp(buffer).metadata()
+  if (!meta.width || !meta.height) return null
+  if (meta.width === target.width && meta.height === target.height) {
+    return { buffer, width: meta.width, height: meta.height, resized: false }
+  }
+  const resized = await sharp(buffer)
+    .resize(target.width, target.height, {
+      fit: 'cover',
+      position: sharp.strategy.attention
+    })
+    .jpeg({ quality: 92, mozjpeg: true })
+    .toBuffer()
+  return {
+    buffer: resized,
+    width: target.width,
+    height: target.height,
+    resized: true
+  }
+}
+
 const luminance = (r: number, g: number, b: number) =>
   (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 

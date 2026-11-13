@@ -4,15 +4,17 @@ import {
   postCitationsTable,
   postDraftsTable,
   postMediaTable,
+  postSlidesTable,
   postVariantsTable,
   runStepsTable,
   runsTable,
   type Idea,
   type NewPostDraft,
+  type NewPostSlide,
   type NewRunStep
 } from '@/db/schema'
 import { runStatusAfterDrafting, type DraftingRunStatus } from '@/lib/run-status'
-import { and, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import {
   runLinter,
@@ -26,6 +28,7 @@ import {
   type MediaPlanResult
 } from '~/lib/media'
 import { loadBrandRendering } from '~/lib/media/brand-assets'
+import { buildCarouselRows, spentBy } from '~/lib/carousel/service'
 import { buildMediaBriefContext } from '~/lib/media/brief-context'
 import { storeMediaImages } from '~/lib/media/image-store'
 import {
@@ -68,6 +71,7 @@ import { forFormat } from '../channel-context'
 import type { GenerationContext } from '../context'
 import type { DraftingDb } from './drafting-claim'
 import {
+  carouselWording,
   cleanFormats,
   DEFAULT_FORMAT,
   FORMATS,
@@ -75,10 +79,15 @@ import {
   formatOf,
   formatsToDraft,
   isCasualStyle,
+  plannedMediaFormat,
   postTexts,
+  resolveMediaFormat,
   splitThread,
+  suggestsCarousel,
+  supportsMediaFormat,
   toPlainText,
-  type FormatId
+  type FormatId,
+  type MediaFormat
 } from '@/lib/formats'
 
 /** LinkedIn posts in a casual or fun style get no generated graphic. */
@@ -216,6 +225,8 @@ interface PreparedPost {
     mode: 'ai_generated' | 'stock'
     stored: Awaited<ReturnType<typeof storeMediaImages>>
   } | null
+  /** A carousel's slides, drawn and stored under the post's id. */
+  slides: NewPostSlide[] | null
   lintErrorsCount: number
 }
 
@@ -232,6 +243,74 @@ interface PrepareOptions {
   siblingOpenings?: string[]
   /** This idea's posts the reviewer approved on other platforms (other formats only). */
   approvedSiblings?: ApprovedSibling[]
+  /**
+   * What goes out with the text: a rewrite keeps the post's own. Absent for
+   * a new post, which plans its own (plannedMediaFormat).
+   */
+  mediaFormat?: MediaFormat
+}
+
+/**
+ * A new post's carousel: its slides written beside its caption, drawn in
+ * the brand and stored under the id the post will be saved with. Never
+ * throws: null when no carousel could be made (the post then gets a single
+ * image, or none), with the reason on the run step.
+ */
+async function makeCarousel(
+  ctx: GenerationContext,
+  idea: Idea,
+  formatId: FormatId,
+  caption: string,
+  recordStep: RecordStep
+): Promise<{ draftId: string; slides: NewPostSlide[] } | null> {
+  const draftId = crypto.randomUUID()
+  const start = Date.now()
+  const label = FORMATS[formatId].label
+  try {
+    const built = await buildCarouselRows({
+      ctx,
+      idea,
+      formatId,
+      caption,
+      brand: await loadBrandRendering(ctx.account.id, ctx.brand ?? DEFAULT_BRAND_THEME),
+      draftId
+    })
+    await recordStep({
+      stage: 'media',
+      status: 'completed',
+      startedAt: new Date(start),
+      completedAt: new Date(),
+      durationMs: Date.now() - start,
+      requestSummary: `Carousel of ${built.rows.length} slides for the ${label}`,
+      tokens: built.usage.totalTokens,
+      costUsd: built.usage.costUsd.toFixed(4),
+      responseJson: {
+        mode: 'carousel',
+        formatId,
+        slides: built.rows.length,
+        issues: built.issues,
+        usage: built.usage
+      }
+    })
+    return { draftId, slides: built.rows }
+  } catch (err) {
+    const usage = spentBy(err)
+    const message = err instanceof Error ? err.message : 'The slides could not be made.'
+    console.warn(`The carousel for the ${label} of idea ${idea.id} was not made: ${message}`)
+    await recordStep({
+      stage: 'media',
+      status: 'failed',
+      startedAt: new Date(start),
+      completedAt: new Date(),
+      durationMs: Date.now() - start,
+      requestSummary: `Carousel for the ${label}`,
+      error: message,
+      tokens: usage.totalTokens,
+      costUsd: usage.costUsd.toFixed(4),
+      responseJson: { mode: 'carousel', formatId, usage }
+    })
+    return null
+  }
 }
 
 /**
@@ -310,9 +389,16 @@ async function prepareLinkedInPost(
       responseJson: { model: handle?.modelId ?? null, usage: draftUsage }
     })
 
+  // A carousel when the idea asks for one; the caption is written for it.
+  const planned = options.mediaFormat ?? plannedMediaFormat(DEFAULT_FORMAT, idea)
+
   let draft: DraftGenerationResult
   try {
-    const written = await writeDraft({ ctx, idea }, undefined, options.regenerate)
+    const written = await writeDraft(
+      { ctx, idea, mediaFormat: planned },
+      undefined,
+      options.regenerate
+    )
     draftUsage = written.usage
     draft = written.draft
   } catch (err: any) {
@@ -323,13 +409,21 @@ async function prepareLinkedInPost(
   }
   await recordDraftStep(null)
 
+  // A new post whose caption tells readers to swipe gets the slides it
+  // promises. A rewrite keeps the post's own media.
+  let mediaFormat: MediaFormat = planned
+  if (!options.regenerate && planned !== 'carousel' && carouselWording(postFullText(draft))) {
+    mediaFormat = 'carousel'
+  }
+
   // ------------------------------------------------------------------- lint
   // Only at drafting time: when a post is edited later its own ask is already
   // in the history and would be flagged as a repeat of itself.
   const recentCtas = recentCtasOf(ctx)
   const lintOptions = (d: DraftGenerationResult): LintOptions => ({
     ...buildPostLintOptions(ctx, idea, d),
-    recentCtas
+    recentCtas,
+    mediaFormat
   })
 
   const lintStart = Date.now()
@@ -341,7 +435,7 @@ async function prepareLinkedInPost(
   if (blocking.length > 0) {
     try {
       const revision = await writeDraft(
-        { ctx, idea },
+        { ctx, idea, mediaFormat },
         { previous: draft, failedChecks: blocking.map(f => f.message) }
       )
       revisionUsage = revision.usage
@@ -383,7 +477,8 @@ async function prepareLinkedInPost(
   const variantLimit = Math.max(1, Math.min(constraints.variants_per_post, 5))
   const prepared = (
     draftId: string,
-    media: PreparedPost['media']
+    media: PreparedPost['media'],
+    slides: NewPostSlide[] | null = null
   ): PreparedPost => ({
     formatId: DEFAULT_FORMAT,
     values: {
@@ -391,6 +486,8 @@ async function prepareLinkedInPost(
       accountId: ctx.account.id,
       ideaId: idea.id,
       platform: platformOf(ctx).id,
+      // Set only for a carousel; every other post follows its image.
+      mediaFormat: slides ? 'carousel' : undefined,
       hook: draft.hook,
       body: draft.body,
       originalHook: draft.hook,
@@ -409,9 +506,18 @@ async function prepareLinkedInPost(
     },
     alternateHooks: (draft.alternateHooks || []).slice(0, variantLimit),
     media,
+    slides,
     lintErrorsCount: blockingCount(lintFindings)
   })
   if (options.withMedia === false) return prepared(crypto.randomUUID(), null)
+  if (mediaFormat === 'carousel') {
+    const carousel = await makeCarousel(ctx, idea, DEFAULT_FORMAT, postFullText(draft), recordStep)
+    if (carousel) return prepared(carousel.draftId, null, carousel.slides)
+    // No slides: the post gets a single image, and its caption is checked
+    // again for promising slides it no longer has.
+    mediaFormat = 'image'
+    lintFindings = runLinter(lintOptions(draft))
+  }
   const { draftId, media } = await planPostImage(
     ctx,
     idea,
@@ -577,6 +683,13 @@ async function prepareFormatPost(
       responseJson: { model: handle?.modelId ?? null, usage: draftUsage, formatId }
     })
 
+  // What goes out with the text: the idea's carousel, or the format's
+  // default. A new single-image post may become a carousel if the writer
+  // finds the idea is best told as slides.
+  const planned = options.mediaFormat ?? plannedMediaFormat(formatId, idea)
+  const mayChooseCarousel =
+    !options.regenerate && planned === 'image' && supportsMediaFormat(formatId, 'carousel')
+
   let draft: VariantDraft
   try {
     const written = await writeVariant(
@@ -585,7 +698,8 @@ async function prepareFormatPost(
         idea,
         formatId,
         siblingOpenings: options.siblingOpenings,
-        approvedSiblings: options.approvedSiblings
+        approvedSiblings: options.approvedSiblings,
+        media: { format: planned, mayChooseCarousel }
       },
       undefined,
       options.regenerate
@@ -600,10 +714,29 @@ async function prepareFormatPost(
   }
   await recordDraftStep(null)
 
+  // A carousel when the writer asked for one in its visual idea, or its
+  // caption tells readers to swipe, and the format takes one. A rewrite
+  // keeps the post's own media.
+  const visualIdeaOf = (d: VariantDraft) => {
+    const value = (d.payload as { visualIdea?: unknown } | null)?.visualIdea
+    return typeof value === 'string' ? value : ''
+  }
+  let mediaFormat: MediaFormat = planned
+  if (
+    !options.regenerate &&
+    planned !== 'carousel' &&
+    supportsMediaFormat(formatId, 'carousel') &&
+    (suggestsCarousel(visualIdeaOf(draft)) ||
+      carouselWording(postTexts(formatId, draft).join('\n')))
+  ) {
+    mediaFormat = 'carousel'
+  }
+
   const recentCtas = recentCtasOf(forFormat(ctx, formatId))
   const lintOptions = (d: VariantDraft): LintOptions => ({
     ...buildFormatLintOptions(ctx, formatId, idea, d),
-    recentCtas
+    recentCtas,
+    mediaFormat
   })
 
   const lintStart = Date.now()
@@ -618,7 +751,8 @@ async function prepareFormatPost(
           idea,
           formatId,
           siblingOpenings: options.siblingOpenings,
-          approvedSiblings: options.approvedSiblings
+          approvedSiblings: options.approvedSiblings,
+          media: { format: mediaFormat }
         },
         { previous: draft, failedChecks: blocking.map(f => f.message) }
       )
@@ -656,30 +790,45 @@ async function prepareFormatPost(
     }
   })
 
+  const caption = postTexts(formatId, draft).join('\n\n')
+  // A carousel's slides, written beside the caption; without them, the
+  // format's single image (and the caption checked again for slides it no
+  // longer has).
+  const carousel =
+    mediaFormat === 'carousel' && options.withMedia !== false
+      ? await makeCarousel(ctx, idea, formatId, caption, recordStep)
+      : null
+  if (mediaFormat === 'carousel' && options.withMedia !== false && !carousel) {
+    mediaFormat = spec.withImage ? 'image' : 'text'
+    lintFindings = runLinter(lintOptions(draft))
+  }
+
   // Even in a casual or fun style, unlike LinkedIn: the post is the picture, it cannot
   // go out without one, and the reviewer can swap in their own photo.
-  const visualIdea = (draft.payload as { visualIdea?: unknown } | null)?.visualIdea
+  const visualIdea = visualIdeaOf(draft)
   const image =
-    spec.withImage && options.withMedia !== false
+    spec.withImage && options.withMedia !== false && !carousel
       ? await planPostImage(
           ctx,
           idea,
           formatId,
-          postTexts(formatId, draft).join('\n\n'),
+          caption,
           recordStep,
-          typeof visualIdea === 'string' ? visualIdea : undefined
+          visualIdea || undefined
         )
       : null
 
   return {
     formatId,
     values: {
-      id: image?.draftId ?? crypto.randomUUID(),
+      id: carousel?.draftId ?? image?.draftId ?? crypto.randomUUID(),
       accountId: ctx.account.id,
       ideaId: idea.id,
       // Where it goes out. Publishing (src/lib/publishing) only takes the
       // platforms it has a provider for, so this post is never sent to LinkedIn.
       platform: spec.platform,
+      // Set only for a carousel; every other post follows its image.
+      mediaFormat: carousel ? 'carousel' : undefined,
       hook: draft.hook,
       body: draft.body,
       originalHook: draft.hook,
@@ -699,6 +848,7 @@ async function prepareFormatPost(
     },
     alternateHooks: draft.alternateHooks.slice(0, 3),
     media: image?.media ?? null,
+    slides: carousel?.slides ?? null,
     lintErrorsCount: blockingCount(lintFindings)
   }
 }
@@ -794,6 +944,10 @@ async function savePreparedPosts(
           sourceTitle: ev.sourceTitle || null
         }))
       )
+    }
+
+    if (post.slides && post.slides.length > 0) {
+      await tx.insert(postSlidesTable).values(post.slides)
     }
 
     const media = post.media
@@ -980,6 +1134,22 @@ async function stopPublishingBeforeRewrite(
   }
 }
 
+/** Whether the post has an image that would go out with it. */
+async function hasActiveImage(draftId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: postMediaTable.id })
+    .from(postMediaTable)
+    .where(
+      and(
+        eq(postMediaTable.draftId, draftId),
+        eq(postMediaTable.status, 'active'),
+        isNotNull(postMediaTable.imageUrl)
+      )
+    )
+    .limit(1)
+  return Boolean(row)
+}
+
 /**
  * Writes a new version of a post from its idea, with what the reviewer wants
  * changed ("make it shorter"), or simply another take. The text is replaced;
@@ -1020,6 +1190,11 @@ export async function regenerateDraft(
   const formatId = formatOf(draft.formatId)
   const ctx = await loadIdeaContext(idea)
   const recordStep = stepRecorder(idea.runId)
+  // The new text is written for what goes out with it now: a carousel's
+  // caption as one, a single post never promising slides.
+  const mediaFormat = resolveMediaFormat(formatId, draft.mediaFormat, {
+    image: await hasActiveImage(draftId)
+  })
   const regenerate: RegenerateRequest = {
     current: { hook: draft.hook, body: draft.body, cta: draft.cta, payload: draft.payload },
     instruction: instruction?.trim() || null
@@ -1028,12 +1203,14 @@ export async function regenerateDraft(
     formatId === DEFAULT_FORMAT
       ? await prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
           regenerate,
-          withMedia: false
+          withMedia: false,
+          mediaFormat
         })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
           regenerate,
-          // A rewrite keeps the post's image.
+          // A rewrite keeps the post's image, or its slides.
           withMedia: false,
+          mediaFormat,
           ...(await siblingsOf(idea.id, formatId))
         })
 

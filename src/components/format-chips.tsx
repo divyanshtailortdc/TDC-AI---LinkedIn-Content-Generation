@@ -30,7 +30,7 @@ export function FormatChips({
   formats: string[] | null | undefined
   label?: string
 }) {
-  // Only formats a post can still be created in: no Reels.
+  // Only formats a post can still be created in.
   const known = (formats ?? []).filter(isFormatId).filter(isCreatableFormat)
   if (known.length === 0) return null
   return (

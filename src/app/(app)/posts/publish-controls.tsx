@@ -9,7 +9,7 @@ import {
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import { formatAbsoluteDateTime as formatDateTime } from '@/lib/format-date'
-import { FORMATS, type FormatId } from '@/lib/formats'
+import { FORMATS, type FormatId, type MediaFormat } from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { getPlatform, type PlatformId } from '@/lib/platforms'
 import type { PublicationSummary } from '@/lib/publishing/engine'
@@ -124,8 +124,14 @@ function PublishControlsInner({
   postId,
   postedAt,
   publication,
-  onChange
+  onChange,
+  media = 'image',
+  slideCount = 0
 }: {
+  /** What goes out with the text: the confirmation names it. */
+  media?: MediaFormat
+  /** A carousel's slides. */
+  slideCount?: number
   /** The platform the post is written for. */
   platform: PlatformId
   /** Its format (src/lib/formats): a thread and its reply are worded as such. */
@@ -560,7 +566,12 @@ function PublishControlsInner({
           title={`Publish to ${name} now?`}
           description={
             <>
-              This {FORMATS[formatId].structure === 'thread' ? 'thread' : 'post'}, with its image
+              This {FORMATS[formatId].structure === 'thread' ? 'thread' : 'post'}
+              {media === 'carousel'
+                ? `, with its ${slideCount} slides${platform.id === 'linkedin' ? ' as a document' : ''}`
+                : media === 'text'
+                  ? ' (text only)'
+                  : ', with its image'}
               {SENDS_FIRST_COMMENT.has(platform.id)
                 ? ` and ${FORMATS[formatId].commentLabel.toLowerCase()}`
                 : ''}, is published

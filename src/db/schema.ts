@@ -699,6 +699,13 @@ export const postDraftsTable = pgTable('post_drafts', {
   // Format-specific structure the text columns cannot hold, e.g. an
   // Instagram caption's visual idea.
   payload: jsonb('payload').$type<Record<string, unknown> | null>(),
+  // What goes out with the text (src/lib/formats/media.ts): 'text',
+  // 'image' or 'carousel' (its slides in post_slides). Null, as on every
+  // post from before it, follows the post's media: its image when it has
+  // one, else text only. A video script is always a video.
+  mediaFormat: varchar('media_format', { length: 20 }).$type<
+    'text' | 'image' | 'carousel'
+  >(),
   // The post this one was rewritten from, when it was derived from a sibling.
   sourceDraftId: uuid('source_draft_id'),
   ...commonFieldDefs.dates
@@ -823,6 +830,48 @@ export const postMediaTable = pgTable('post_media', {
 )
 
 // ---------------------------------------------------------------------------
+// 14b. Post Slides (1:N with PostDraft) — a carousel post's slides
+// ---------------------------------------------------------------------------
+
+/**
+ * One slide of a carousel post (src/lib/carousel), in swipe order. Its text
+ * is its own, never the caption's: the caption stays in post_drafts, so the
+ * two are edited apart. The drawn slide and the generated picture inside it
+ * are kept separately, so editing a slide's words redraws it around the same
+ * picture instead of generating a new one.
+ */
+export const postSlidesTable = pgTable(
+  'post_slides',
+  {
+    id: commonFieldDefs.id(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+    // 1, 2, 3… in the order they are swiped; renumbered on delete and move.
+    position: integer('position').notNull(),
+    // 'cover' | 'content' | 'cta'
+    role: varchar('role', { length: 10 }).notNull(),
+    headline: text('headline').notNull(),
+    body: text('body').default('').notNull(),
+    imagePrompt: text('image_prompt').default('').notNull(),
+    // SlideDesign: layout, icon, stat, emphasis, picture.
+    design: jsonb('design').$type<Record<string, unknown>>().default({}).notNull(),
+    altText: text('alt_text'),
+    // The drawn slide: storage://… or a data URL (src/lib/media/image-store).
+    imageUrl: text('image_url'),
+    // The generated picture drawn into it, when it has one.
+    pictureUrl: text('picture_url'),
+    // 'ready' | 'failed'
+    renderStatus: varchar('render_status', { length: 10 }).default('ready').notNull(),
+    renderError: text('render_error'),
+    // Issues the picture's check found, the prompt it was made from, its cost.
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
+    ...commonFieldDefs.dates
+  },
+  table => [index('post_slides_draft_position_idx').on(table.draftId, table.position)]
+)
+
+// ---------------------------------------------------------------------------
 // 15. Schedules (1:1 with Account) — when automatic runs fire
 // ---------------------------------------------------------------------------
 
@@ -906,7 +955,11 @@ export const brandThemesTable = pgTable('brand_themes', {
   // Google Fonts families from FONT_CHOICES (src/lib/brand/fonts.ts).
   headingFont: text('heading_font'),
   bodyFont: text('body_font'),
-  // 'auto' | 'diagram' | 'illustration': what fills the image's right side.
+  // The image style (IMAGE_STYLES in src/lib/brand/theme.ts):
+  // 'photorealistic' | 'illustration' | '3d_render' | 'minimal_graphic'.
+  // Rows from before image styles hold 'auto' (the default, read as
+  // photorealistic) or 'diagram' (read as minimal_graphic); see
+  // resolveImageStyle.
   visualStyle: varchar('visual_style', { length: 20 }).default('auto').notNull(),
   // 'dots' | 'grid' | 'plain'
   backgroundPattern: varchar('background_pattern', { length: 20 })
@@ -1521,6 +1574,7 @@ export const postVariants = postVariantsTable
 export const postRevisions = postRevisionsTable
 export const postCitations = postCitationsTable
 export const postMedia = postMediaTable
+export const postSlides = postSlidesTable
 export const schedules = schedulesTable
 export const feedback = feedbackTable
 export const newsletters = newslettersTable
@@ -1586,6 +1640,8 @@ export type PostCitation = typeof postCitationsTable.$inferSelect
 export type NewPostCitation = typeof postCitationsTable.$inferInsert
 
 export type PostMedia = typeof postMediaTable.$inferSelect
+export type PostSlide = typeof postSlidesTable.$inferSelect
+export type NewPostSlide = typeof postSlidesTable.$inferInsert
 export type NewPostMedia = typeof postMediaTable.$inferInsert
 
 

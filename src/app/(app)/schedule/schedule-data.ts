@@ -116,7 +116,7 @@ function nextRunOf(
  */
 export async function loadSchedulePage(accountId: string, month: Month) {
   const { from, to } = monthGridRange(month)
-  // Drafts in a removed format (an Instagram Reel) are not planned or shown.
+  // Drafts in a removed format (a TikTok video) are not planned or shown.
   const ofAccount = and(eq(postDraftsTable.accountId, accountId), inKnownFormat())
   const publishingOn = isPublishingConfigured()
 

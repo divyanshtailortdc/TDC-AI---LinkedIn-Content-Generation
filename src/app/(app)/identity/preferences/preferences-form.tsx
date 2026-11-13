@@ -20,7 +20,7 @@ import {
   FORMAT_IDS,
   FORMATS,
   isEmojiLevel,
-  PLATFORM_IDS,
+  CREATABLE_PLATFORMS,
   PLATFORMS,
   platformsOf,
   styleOf,
@@ -279,7 +279,7 @@ export function PreferencesForm({
         description="The formats posts are written in. Each idea is written separately for every platform you pick when you create posts."
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {PLATFORM_IDS.map(platform => (
+          {CREATABLE_PLATFORMS.map(platform => (
             <fieldset
               key={platform}
               className="border-border min-w-0 rounded-lg border p-3"

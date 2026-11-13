@@ -185,6 +185,22 @@ export async function loadImageDataUrl(value: string): Promise<string> {
 }
 
 /**
+ * Deletes stored images no row points at any more (a carousel slide drawn
+ * again). Links and data URLs are left alone; a failure is only logged.
+ */
+export async function deleteStoredImages(values: Array<string | null | undefined>) {
+  const bucket = env.STORAGE_BUCKET
+  if (!bucket) return
+  await Promise.all(
+    values.filter(isStoredImage).map(value =>
+      client()
+        .send(new DeleteObjectCommand({ Bucket: bucket, Key: storedImageKey(value) }))
+        .catch(err => console.error(`Could not delete stored image ${value}:`, err))
+    )
+  )
+}
+
+/**
  * Deletes every stored image of a draft, after its media rows are gone. One
  * request per object, since Google Cloud Storage has no batch delete in its
  * S3 API. A failure is only logged: a leftover object costs storage, not

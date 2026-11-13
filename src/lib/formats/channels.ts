@@ -153,7 +153,7 @@ export function resolveChannels(
     | null
     | undefined
 ): ResolvedChannels {
-  // Reels are no longer written: one turned on before is dropped here, so
+  // A format that can no longer be created, turned on before, is dropped here, so
   // ideation, Preferences and Add a version never see it.
   const enabled = cleanFormats(row?.enabledFormats).filter(isCreatableFormat)
   const enabledFormats = enabled.length > 0 ? enabled : [DEFAULT_FORMAT]
@@ -173,9 +173,11 @@ export function formatsToDraft(idea: {
   targetFormats?: unknown
   formatFit?: unknown
 }): FormatId[] {
-  const chosen = cleanFormats(idea.targetFormats)
+  // Only formats that can still be created: an older idea aimed at a Reel or
+  // a Short drafts its other formats, or LinkedIn.
+  const chosen = cleanFormats(idea.targetFormats).filter(isCreatableFormat)
   if (chosen.length > 0) return chosen
-  const fit = cleanFormats(idea.formatFit)
+  const fit = cleanFormats(idea.formatFit).filter(isCreatableFormat)
   return fit.length > 0 ? fit : [DEFAULT_FORMAT]
 }
 

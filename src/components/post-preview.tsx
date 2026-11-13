@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Check,
   Copy,
@@ -37,6 +37,8 @@ interface PostPreviewProps {
   mediaAltText?: string | null
   /** When set, the attached image becomes clickable (e.g. to open a zoom view). */
   onMediaClick?: () => void
+  /** A carousel post's slides (a CarouselViewer), shown where the image goes. */
+  carousel?: ReactNode
   /**
    * Other openings to offer beside the hook. With `onSelectHook` set, a Swap
    * hook button next to the hook lists them; picking one replaces the hook.
@@ -62,6 +64,7 @@ export function PostPreview({
   mediaUrl,
   mediaAltText,
   onMediaClick,
+  carousel,
   hookOptions = [],
   onSelectHook,
   hookSwapDisabled = false,
@@ -239,8 +242,13 @@ export function PostPreview({
         )}
       </div>
 
+      {/* A carousel: LinkedIn shows the document under the text. */}
+      {carousel && (
+        <div className="mt-2 border-y border-neutral-200 dark:border-border">{carousel}</div>
+      )}
+
       {/* Media Attachment Preview */}
-      {mediaUrl && (
+      {!carousel && mediaUrl && (
         // One fixed height for every image shape (MEDIA_FRAME, as the other
         // platforms' previews), so the card keeps one length.
         <div className={`mt-2 border-y border-neutral-200 dark:border-border bg-neutral-100 dark:bg-surface-hover/60 relative overflow-hidden ${MEDIA_FRAME}`}>

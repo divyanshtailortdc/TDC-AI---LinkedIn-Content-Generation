@@ -13,6 +13,7 @@ import {
   postCitationsTable,
   postDraftsTable,
   postMediaTable,
+  postSlidesTable,
   postVariantsTable,
   preferencesTable,
   researchFindingsTable,
@@ -183,6 +184,7 @@ export const postDraftsRelations = relations(postDraftsTable, ({ one, many }) =>
   variants: many(postVariantsTable),
   citations: many(postCitationsTable),
   media: one(postMediaTable),
+  slides: many(postSlidesTable),
   feedback: many(feedbackTable)
 }))
 
@@ -203,6 +205,13 @@ export const postCitationsRelations = relations(postCitationsTable, ({ one }) =>
 export const postMediaRelations = relations(postMediaTable, ({ one }) => ({
   draft: one(postDraftsTable, {
     fields: [postMediaTable.draftId],
+    references: [postDraftsTable.id]
+  })
+}))
+
+export const postSlidesRelations = relations(postSlidesTable, ({ one }) => ({
+  draft: one(postDraftsTable, {
+    fields: [postSlidesTable.draftId],
     references: [postDraftsTable.id]
   })
 }))

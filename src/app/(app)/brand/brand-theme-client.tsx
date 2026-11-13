@@ -4,8 +4,10 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
 import { findFont, FONT_CHOICES } from '@/lib/brand/fonts'
+import { IMAGE_STYLE_ICONS } from '@/components/image-style-icons'
 import {
   describeColor,
+  IMAGE_STYLES,
   isLightBackground,
   LOGO_MAX_DATA_URL_LENGTH,
   LOGO_MAX_EDGE,
@@ -13,11 +15,12 @@ import {
   LOGO_UPLOAD_MAX_BYTES,
   LOGO_UPLOAD_TYPES,
   normalizeHex,
+  type ImageStyle,
   type ResolvedBrandTheme
 } from '@/lib/brand/theme'
 import { cn } from '@/lib/cn'
 import { Diagram } from '@/lib/media/canvas/diagram'
-import { canvasPalette } from '@/lib/media/canvas/palette'
+import { canvasPalette, type CanvasPalette } from '@/lib/media/canvas/palette'
 import {
   CANVAS_SIZE,
   headlineFontSize,
@@ -398,6 +401,52 @@ function useWidth(ref: React.RefObject<HTMLElement | null>) {
   return width
 }
 
+const PICTURE_CAPTIONS: Record<Exclude<ImageStyle, 'minimal_graphic'>, string> = {
+  photorealistic: 'A photograph of the post’s world',
+  '3d_render': 'A 3D render of the post’s subject',
+  illustration: 'An illustration in your colours'
+}
+
+/**
+ * Where the picture goes in the sample, in the chosen style's place: a
+ * photograph or 3D scene fills the visual side to the edges, an
+ * illustration stands on the background.
+ */
+function PicturePlaceholder({
+  style,
+  palette
+}: {
+  style: Exclude<ImageStyle, 'minimal_graphic'>
+  palette: CanvasPalette
+}) {
+  const Icon = IMAGE_STYLE_ICONS[style]
+  const bleed = style !== 'illustration'
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: bleed ? 0 : 96,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 28,
+        borderRadius: bleed ? 0 : 48,
+        border: bleed ? 'none' : `4px dashed ${palette.line}`,
+        background: bleed
+          ? `linear-gradient(160deg, #e2e8f0 0%, #cbd5e1 55%, ${palette.primary}55 100%)`
+          : 'transparent',
+        color: bleed ? '#334155' : palette.muted
+      }}
+    >
+      <Icon style={{ width: 120, height: 120 }} strokeWidth={1.4} />
+      <span style={{ fontSize: 34, fontWeight: 600 }}>
+        {PICTURE_CAPTIONS[style]}
+      </span>
+    </div>
+  )
+}
+
 /**
  * A sample image in the brand theme: the split layout most images use, drawn
  * at an image's full size with the image renderer's own colours, measures
@@ -509,7 +558,11 @@ function BrandPreview({
               height: VISUAL_PANEL.height
             }}
           >
-            <Diagram diagram={SAMPLE_DIAGRAM} palette={palette} />
+            {theme.visualStyle === 'minimal_graphic' ? (
+              <Diagram diagram={SAMPLE_DIAGRAM} palette={palette} />
+            ) : (
+              <PicturePlaceholder style={theme.visualStyle} palette={palette} />
+            )}
           </div>
 
           {/* The text column, at the image renderer's measures. */}
@@ -799,6 +852,59 @@ export function BrandThemeClient({
                   onChange={hex => setTheme(t => ({ ...t, backgroundColor: hex }))}
                   validateLight
                 />
+              </div>
+            </Section>
+
+            {/* Image style */}
+            <Section
+              icon={IMAGE_STYLE_ICONS.photorealistic}
+              title="Image Style"
+              description="How the picture in every new image is rendered. Each image is still fitted to your industry, audience and the post; you can pick another style for a single image on the post."
+            >
+              <div
+                role="radiogroup"
+                aria-label="Image style"
+                className="grid gap-2 sm:grid-cols-2"
+              >
+                {IMAGE_STYLES.map(option => {
+                  const active = theme.visualStyle === option.value
+                  const Icon = IMAGE_STYLE_ICONS[option.value]
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() =>
+                        setTheme(t => ({ ...t, visualStyle: option.value }))
+                      }
+                      className={cn(
+                        'flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
+                        active
+                          ? 'border-accent bg-accent/10'
+                          : 'border-border bg-surface-hover/50 hover:border-accent/50'
+                      )}
+                    >
+                      <Icon
+                        className={cn(
+                          'mt-0.5 h-4 w-4 shrink-0',
+                          active ? 'text-accent' : 'text-muted'
+                        )}
+                      />
+                      <span className="min-w-0">
+                        <span className="text-foreground block text-sm font-semibold">
+                          {option.label}
+                          {option.value === 'photorealistic' && (
+                            <span className="text-muted font-normal"> · default</span>
+                          )}
+                        </span>
+                        <span className="text-muted mt-0.5 block text-xs">
+                          {option.description}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </Section>
 

@@ -84,6 +84,16 @@ const X_LINK_NOTE =
 export const FORMATS: Record<FormatId, FormatSpec> = {
   'linkedin.post': {
     id: 'linkedin.post',
+    // A carousel goes out as a document: LinkedIn shows a PDF page by page.
+    media: {
+      formats: ['image', 'text', 'carousel'],
+      carousel: {
+        minSlides: 2,
+        maxSlides: 20,
+        targetSlides: { min: 6, max: 9 },
+        delivery: 'document'
+      }
+    },
     imageShape: '1.91:1',
     platform: 'linkedin',
     label: 'LinkedIn post',
@@ -103,6 +113,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'x.post': {
     id: 'x.post',
+    media: { formats: ['text', 'image'], maxImages: 4 },
     imageShape: '16:9',
     platform: 'x',
     label: 'X post',
@@ -122,6 +133,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'x.thread': {
     id: 'x.thread',
+    media: { formats: ['text', 'image'], maxImages: 4 },
     imageShape: '16:9',
     platform: 'x',
     label: 'X thread',
@@ -152,6 +164,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'threads.post': {
     id: 'threads.post',
+    media: { formats: ['text', 'image'] },
     imageShape: '4:5',
     platform: 'threads',
     label: 'Threads post',
@@ -170,6 +183,16 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'facebook.post': {
     id: 'facebook.post',
+    // Several photos in one post, which Facebook shows as a grid.
+    media: {
+      formats: ['text', 'image', 'carousel'],
+      carousel: {
+        minSlides: 2,
+        maxSlides: 10,
+        targetSlides: { min: 4, max: 6 },
+        delivery: 'images'
+      }
+    },
     imageShape: '4:5',
     platform: 'facebook',
     label: 'Facebook post',
@@ -189,17 +212,28 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   // A feed post: a picture with its caption. The id is older than the label.
   'instagram.caption': {
     id: 'instagram.caption',
+    // Instagram refuses a post without media: an image or a carousel.
+    media: {
+      formats: ['image', 'carousel'],
+      carousel: {
+        minSlides: 2,
+        maxSlides: 10,
+        targetSlides: { min: 5, max: 8 },
+        delivery: 'images'
+      }
+    },
     imageShape: '4:5',
     platform: 'instagram',
     label: 'Instagram post',
-    version: 1,
+    // 2: the visual is one image or a carousel, as the post's media format says.
+    version: 2,
     structure: 'single',
     limits: { count: 'utf16', maxChars: 2200, targetChars: 800, foldChars: 125 },
     hashtags: { min: 1, max: 5 },
     links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
     rules: [
       'The first 125 characters show before "more": the hook must be a complete thought within them.',
-      'The caption goes with one image (or a short carousel) that shows the idea. Describe that visual in visualIdea.',
+      'The caption goes with the post\'s visual (one image, or a carousel when the request says so). Describe that visual in visualIdea.',
       'Short paragraphs separated by line breaks. Plain text: no markdown.',
       'Links are not clickable in captions. Never write a URL; say the link is in the bio.',
       'Hashtags go at the end, in addition to the caption text.'
@@ -209,6 +243,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'instagram.reel': {
     id: 'instagram.reel',
+    media: { formats: ['video'] },
     imageShape: '4:5',
     platform: 'instagram',
     label: 'Instagram Reel',
@@ -237,6 +272,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'youtube.short': {
     id: 'youtube.short',
+    media: { formats: ['video'] },
     imageShape: '4:5',
     platform: 'youtube',
     label: 'YouTube Short',
@@ -263,14 +299,26 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
 
 /**
  * The formats new posts can be created in, from ideas or as another version:
- * every one above except Instagram Reels (Instagram is posts with a picture).
- * Reels written before stay readable and editable.
+ * every one above but the video scripts (Instagram Reels, YouTube Shorts).
+ * The app offers no Reel, video or script anywhere; scripts written before
+ * stay readable and editable.
  */
 export const CREATABLE_FORMATS: readonly FormatId[] = FORMAT_IDS.filter(
-  id => id !== 'instagram.reel'
+  id => FORMATS[id].structure !== 'script'
 )
 
 export const isCreatableFormat = (id: FormatId) => CREATABLE_FORMATS.includes(id)
+
+/**
+ * The platforms posts can be created for: those with a creatable format.
+ * Not YouTube, whose only format was the Short script. Pickers (setup,
+ * Preferences, the AI setup) offer these.
+ */
+export const CREATABLE_PLATFORMS: readonly PlatformId[] = PLATFORM_IDS.filter(p =>
+  CREATABLE_FORMATS.some(f => FORMATS[f].platform === p)
+)
+
+export const isCreatablePlatform = (id: PlatformId) => CREATABLE_PLATFORMS.includes(id)
 
 export const formatSpec = (id: FormatId): FormatSpec => FORMATS[id]
 

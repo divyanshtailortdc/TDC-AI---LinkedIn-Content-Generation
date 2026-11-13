@@ -25,7 +25,7 @@ import { showToast } from '@/components/toast-notification'
 import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
   DEFAULT_STYLES,
-  PLATFORM_IDS,
+  CREATABLE_PLATFORMS,
   PLATFORMS,
   type ContentStyle,
   type PlatformId
@@ -305,7 +305,7 @@ function WhereStep({
     onChange(
       platforms.includes(platform)
         ? platforms.filter(p => p !== platform)
-        : PLATFORM_IDS.filter(p => p === platform || platforms.includes(p))
+        : CREATABLE_PLATFORMS.filter(p => p === platform || platforms.includes(p))
     )
   return (
     <section className="space-y-4">
@@ -321,7 +321,7 @@ function WhereStep({
         </p>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {PLATFORM_IDS.map(platform => {
+        {CREATABLE_PLATFORMS.map(platform => {
           const selected = platforms.includes(platform)
           return (
             <button

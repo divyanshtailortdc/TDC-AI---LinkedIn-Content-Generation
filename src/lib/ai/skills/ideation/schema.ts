@@ -243,7 +243,9 @@ export const IdeaGenerationItemSchema = z.object({
   mediaBrief: z
     .string()
     .optional()
-    .describe('One sentence of visual direction for the accompanying image.'),
+    .describe(
+      'One sentence of visual direction for the accompanying image. For an idea best told as slides, start with "Carousel:" and say what the slides show.'
+    ),
   noveltyNote: IdeaItemSchema.shape.noveltyNote,
   estimatedStrength: IdeaItemSchema.shape.estimatedStrength,
   risks: IdeaItemSchema.shape.risks

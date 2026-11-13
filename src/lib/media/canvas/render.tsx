@@ -6,10 +6,14 @@ import { mix } from './palette'
 import {
   CANVAS_SIZE,
   headlineFontSize,
+  isStacked,
+  picturePanel,
   splitHeadline,
+  STACK_MARGIN,
   TEXT_COLUMN,
   VISUAL_PANEL,
-  type CanvasSpec
+  type CanvasSpec,
+  type CanvasVisual
 } from './spec'
 
 /**
@@ -33,14 +37,48 @@ import {
 
 const LOGO_BOX = { width: 340, height: 84 }
 
-/** A tall canvas's margin above or below the visual panel. */
-const STACK_MARGIN = 96
-
 const sizeOf = (spec: CanvasSpec) => spec.size ?? CANVAS_SIZE
 
-/** Too narrow for text and panel side by side (4:5): they are stacked. */
-const isStacked = (size: { width: number; height: number }) =>
-  size.width / size.height < 1.3
+type Picture = Extract<CanvasVisual, { kind: 'picture' }>
+
+const pictureSrc = (visual: Picture) =>
+  `data:${visual.mediaType};base64,${visual.image.toString('base64')}`
+
+/** A photograph or 3D scene, filling the visual side to the image's edges. */
+const isBleed = (visual: CanvasVisual): visual is Picture =>
+  visual.kind === 'picture' && visual.display === 'bleed'
+
+/** The picture filling its panel, cropped rather than squeezed. */
+function BleedPicture({
+  visual,
+  rect
+}: {
+  visual: Picture
+  rect: { left: number; top: number; width: number; height: number }
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        position: 'absolute',
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        overflow: 'hidden'
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- satori */}
+      <img
+        src={pictureSrc(visual)}
+        width={rect.width}
+        height={rect.height}
+        alt=""
+        style={{ objectFit: 'cover' }}
+      />
+    </div>
+  )
+}
 
 /** The height a wide shape has beyond 1.91:1 (16:9's 80 px), split above and below. */
 const extraHeight = (spec: CanvasSpec) =>
@@ -304,8 +342,9 @@ function Visual({ spec }: { spec: CanvasSpec }) {
   if (visual.kind === 'diagram') {
     return <Diagram diagram={visual.diagram} palette={palette} />
   }
-  const imageUrl = `data:image/png;base64,${visual.image.toString('base64')}`
-  const size = visual.framed ? 880 : 1000
+  const imageUrl = pictureSrc(visual)
+  const framed = visual.display !== 'cutout'
+  const size = framed ? 880 : 1000
   const offset = (VISUAL_PANEL.width - size) / 2
   const spots = [
     { left: 20, top: 110 },
@@ -333,7 +372,7 @@ function Visual({ spec }: { spec: CanvasSpec }) {
           position: 'absolute',
           left: offset,
           top: offset,
-          ...(visual.framed
+          ...(framed
             ? {
                 borderRadius: 48,
                 border: `2px solid ${palette.line}`,
@@ -465,7 +504,7 @@ function WideVisual({ spec }: { spec: CanvasSpec }) {
   if (visual.kind === 'diagram') {
     return <WideDiagram diagram={visual.diagram} palette={palette} />
   }
-  const imageUrl = `data:image/png;base64,${visual.image.toString('base64')}`
+  const imageUrl = pictureSrc(visual)
   const size = 440
   return (
     <div
@@ -742,6 +781,7 @@ function Stacked({
   spec: CanvasSpec
   visualFirst: boolean
 }) {
+  const { visual } = spec
   const { copy, palette, fonts } = spec
   const size = sizeOf(spec)
   const words = splitHeadline(copy.headline, copy.highlights)
@@ -812,18 +852,25 @@ function Stacked({
 
   return (
     <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
-      <div
-        style={{
-          display: 'flex',
-          position: 'absolute',
-          left: Math.round((size.width - VISUAL_PANEL.width) / 2),
-          top: panelTop,
-          width: VISUAL_PANEL.width,
-          height: VISUAL_PANEL.height
-        }}
-      >
-        <Visual spec={spec} />
-      </div>
+      {isBleed(visual) ? (
+        <BleedPicture
+          visual={visual}
+          rect={picturePanel(visualFirst ? 'split_right' : 'split_left', size)}
+        />
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            position: 'absolute',
+            left: Math.round((size.width - VISUAL_PANEL.width) / 2),
+            top: panelTop,
+            width: VISUAL_PANEL.width,
+            height: VISUAL_PANEL.height
+          }}
+        >
+          <Visual spec={spec} />
+        </div>
+      )}
       <div
         style={{
           position: 'absolute',
@@ -850,8 +897,15 @@ export async function renderCanvas(
   spec: CanvasSpec,
   fonts: SatoriFont[]
 ): Promise<Buffer> {
-  const layout = spec.layout || 'split_left'
+  const bleed = isBleed(spec.visual)
+  // centered_hero's card would cover a photograph almost entirely; the
+  // brief never picks it for one, and a stray one is drawn split instead.
+  const layout =
+    bleed && spec.layout === 'centered_hero'
+      ? 'split_left'
+      : spec.layout || 'split_left'
   const extra = extraHeight(spec)
+  const size = sizeOf(spec)
 
   const response = new ImageResponse(
     (
@@ -879,6 +933,9 @@ export async function renderCanvas(
         ) : layout === 'top_bottom' ? (
           <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
             <TopHeader spec={spec} />
+            {isBleed(spec.visual) ? (
+              <BleedPicture visual={spec.visual} rect={picturePanel(layout, size)} />
+            ) : (
             <div
               style={{
                 display: 'flex',
@@ -891,40 +948,29 @@ export async function renderCanvas(
             >
               <WideVisual spec={spec} />
             </div>
+            )}
           </div>
         ) : layout === 'centered_hero' ? (
           <CenteredHero spec={spec} />
-        ) : layout === 'split_right' ? (
-          <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
-            <div
-              style={{
-                display: 'flex',
-                position: 'absolute',
-                left: 0,
-                top: extra / 2,
-                width: VISUAL_PANEL.width,
-                height: VISUAL_PANEL.height
-              }}
-            >
-              <Visual spec={spec} />
-            </div>
-            <TextColumn spec={spec} alignRight />
-          </div>
         ) : (
           <div style={{ display: 'flex', position: 'relative', width: '100%', height: '100%' }}>
-            <div
-              style={{
-                display: 'flex',
-                position: 'absolute',
-                left: VISUAL_PANEL.left,
-                top: VISUAL_PANEL.top + extra / 2,
-                width: VISUAL_PANEL.width,
-                height: VISUAL_PANEL.height
-              }}
-            >
-              <Visual spec={spec} />
-            </div>
-            <TextColumn spec={spec} />
+            {isBleed(spec.visual) ? (
+              <BleedPicture visual={spec.visual} rect={picturePanel(layout, size)} />
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  position: 'absolute',
+                  left: layout === 'split_right' ? 0 : VISUAL_PANEL.left,
+                  top: VISUAL_PANEL.top + extra / 2,
+                  width: VISUAL_PANEL.width,
+                  height: VISUAL_PANEL.height
+                }}
+              >
+                <Visual spec={spec} />
+              </div>
+            )}
+            <TextColumn spec={spec} alignRight={layout === 'split_right'} />
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import {
   postCitationsTable,
   postMediaTable,
   postRevisionsTable,
+  postSlidesTable,
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
@@ -17,6 +18,7 @@ import {
   latestPublications,
   type PublicationSummary
 } from '@/lib/publishing/engine'
+import { isImageStyle } from '@/lib/brand/theme'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
 import { and, count, desc, eq, inArray, type SQL } from 'drizzle-orm'
@@ -57,6 +59,7 @@ export async function loadPostsPage(
     createdAt: postDraftsTable.createdAt,
     formatId: postDraftsTable.formatId,
     payload: postDraftsTable.payload,
+    mediaFormat: postDraftsTable.mediaFormat,
     ideaId: postDraftsTable.ideaId,
     accountName: accountsTable.name,
     accountHeadline: accountsTable.headline,
@@ -114,7 +117,8 @@ export async function loadPostsPage(
     failedMedia,
     publications,
     ideaFormatRows,
-    revisionCounts
+    revisionCounts,
+    slideCounts
   ] = await Promise.all([
     draftIds.length > 0
       ? db
@@ -194,8 +198,17 @@ export async function loadPostsPage(
           .from(postRevisionsTable)
           .where(inArray(postRevisionsTable.draftId, draftIds))
           .groupBy(postRevisionsTable.draftId)
+      : Promise.resolve([]),
+    // How many carousel slides each post has; the slides load when it opens.
+    draftIds.length > 0
+      ? db
+          .select({ draftId: postSlidesTable.draftId, count: count() })
+          .from(postSlidesTable)
+          .where(inArray(postSlidesTable.draftId, draftIds))
+          .groupBy(postSlidesTable.draftId)
       : Promise.resolve([])
   ])
+  const slidesByDraft = new Map(slideCounts.map(r => [r.draftId, r.count]))
   const versionsByDraft = new Map(revisionCounts.map(r => [r.draftId, r.count]))
   const formatsByIdea = new Map<string, string[]>()
   for (const row of ideaFormatRows) {
@@ -247,6 +260,8 @@ export async function loadPostsPage(
       runId: draft.runId,
       formatId: draft.formatId,
       payload: (draft.payload as Record<string, unknown> | null) ?? null,
+      mediaFormat: draft.mediaFormat ?? null,
+      slideCount: slidesByDraft.get(draft.id) ?? 0,
       ideaId: draft.ideaId,
       ideaFormats: draft.ideaId ? (formatsByIdea.get(draft.ideaId) ?? []) : [],
       versionCount: versionsByDraft.get(draft.id) ?? 0,
@@ -277,7 +292,10 @@ export async function loadPostsPage(
             regenerationAttempt: media.regenerationAttempt || 0,
             hasLogo: Boolean((media.metadata as any)?.logo),
             reviewChecked: Boolean((media.metadata as any)?.review?.checked),
-            usedReference: Boolean((media.metadata as any)?.usedReference)
+            usedReference: Boolean((media.metadata as any)?.usedReference),
+            imageStyle: isImageStyle((media.metadata as any)?.imageStyle)
+              ? (media.metadata as any).imageStyle
+              : undefined
           }
         : null,
       mediaFailure: media ? null : (mediaFailureByDraft.get(draft.id) ?? null),

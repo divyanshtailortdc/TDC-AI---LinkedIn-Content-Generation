@@ -12,8 +12,8 @@ import { postFullText } from '@/lib/post-text'
 import { and, desc, eq } from 'drizzle-orm'
 import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
-import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
-import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
+import { DEFAULT_BRAND_THEME, type ImageStyle } from '~/lib/brand/theme'
+import type { DiagramForm } from './canvas/spec'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
 import { storeMediaImages, viewableImageUrl } from './image-store'
@@ -82,8 +82,10 @@ export async function createPostMedia(input: {
   rejectionReason?: string
   /** An image the reviewer attached to guide composition and style. */
   referenceImage?: Buffer
-  /** AI: the image type the reviewer picked; the art director chooses when unset. */
-  visualType?: VisualType
+  /** AI: the image style the reviewer picked; the brand theme's when unset. */
+  style?: ImageStyle
+  /** AI, minimal graphic design: the diagram form; the art director chooses when unset. */
+  diagramType?: DiagramForm
   abortSignal?: AbortSignal
 }): Promise<PostMediaOutcome> {
   const draft = await db.query.postDraftsTable.findFirst({
@@ -157,9 +159,10 @@ export async function createPostMedia(input: {
         ? customPrompt ||
           (previousVersions.length === 0 ? ideaDirection : undefined)
         : undefined,
+    style: mode === 'ai_generated' ? input.style : undefined,
     allowedTypes:
-      mode === 'ai_generated' && input.visualType
-        ? [input.visualType]
+      mode === 'ai_generated' && input.diagramType
+        ? [input.diagramType]
         : undefined,
     postText: postFullText(draft),
     // The shape the post's platform shows (X 16:9, Instagram 4:5…).
@@ -275,6 +278,7 @@ async function mediaRecord(
     regenerationAttempt: saved.regenerationAttempt,
     hasLogo: Boolean(plan.logo),
     reviewChecked: plan.review?.checked ?? false,
-    usedReference: plan.usedReference ?? false
+    usedReference: plan.usedReference ?? false,
+    imageStyle: plan.imageStyle
   }
 }

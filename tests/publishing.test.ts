@@ -4,6 +4,7 @@ import assert from 'node:assert'
 import { randomBytes } from 'node:crypto'
 import { after, before, beforeEach, describe, it } from 'node:test'
 import postgres from 'postgres'
+import sharp from 'sharp'
 import * as schema from '../src/db/schema'
 import {
   disconnect,
@@ -11,7 +12,7 @@ import {
   saveConnection
 } from '../src/lib/publishing/connection'
 import type { LinkedInAppConfig, TokenSet } from '../src/lib/publishing/linkedin/oauth'
-import { verifyMediaToken } from '../src/lib/publishing/media-token'
+import { parseMediaSubject, verifyMediaToken } from '../src/lib/publishing/media-token'
 import type { BufferConfig } from '../src/lib/publishing/provider'
 import {
   cancelPublication,
@@ -116,6 +117,8 @@ type Call = {
   method: string
   url: string
   body?: any
+  /** An upload's raw bytes (an image or a carousel's PDF). */
+  bytes?: Buffer
   auth?: string
   restliMethod?: string
 }
@@ -137,7 +140,8 @@ function fakePlatform() {
       body:
         typeof init.body === 'string' && init.body.startsWith('{')
           ? JSON.parse(init.body)
-          : undefined
+          : undefined,
+      bytes: init.body instanceof Uint8Array ? Buffer.from(init.body) : undefined
     })
     if (init.method === 'DELETE' && href.includes('/rest/posts/')) {
       const next = deleteResponses.shift()
@@ -161,6 +165,16 @@ function fakePlatform() {
       })
     }
     if (href === 'https://upload.example/img')
+      return new Response(null, { status: 201 })
+    if (href.includes('/rest/documents?action=initializeUpload')) {
+      return Response.json({
+        value: {
+          uploadUrl: 'https://upload.example/doc',
+          document: 'urn:li:document:DOC1'
+        }
+      })
+    }
+    if (href === 'https://upload.example/doc')
       return new Response(null, { status: 201 })
     if (href.includes('/comments')) {
       return new Response(null, {
@@ -304,6 +318,32 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       return err.code
     }
     assert.fail('expected a refusal')
+  }
+
+  /** A small real PNG, as a drawn slide is stored without a bucket. */
+  const slidePng = async () =>
+    `data:image/png;base64,${(
+      await sharp({
+        create: { width: 108, height: 135, channels: 3, background: '#2255aa' }
+      })
+        .png()
+        .toBuffer()
+    ).toString('base64')}`
+
+  /** `count` drawn slides on a post; `undrawn` names one that failed to draw. */
+  const addSlides = async (draftId: string, count: number, undrawn?: number) => {
+    const image = await slidePng()
+    for (let i = 1; i <= count; i++) {
+      await database.insert(schema.postSlidesTable).values({
+        draftId,
+        position: i,
+        role: i === 1 ? 'cover' : i === count ? 'cta' : 'content',
+        headline: i === 1 ? 'Five checks before you sign' : `Slide ${i}`,
+        imageUrl: undrawn === i ? null : image,
+        renderStatus: undrawn === i ? 'failed' : 'ready',
+        altText: `Slide ${i} described`
+      })
+    }
   }
 
   let a: { userId: string; accountId: string } // signs in with Google
@@ -1045,6 +1085,71 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       )
     })
   })
+  describe('carousels', () => {
+    let c: Owner
+    before(async () => {
+      c = await newUser('carousel', 'google')
+      await connect(c, 'MEMBER_C')
+    })
+
+    it('C1. a LinkedIn carousel goes out as one PDF document, titled by its cover', async () => {
+      const draft = await newPost(c.accountId, { mediaFormat: 'carousel' })
+      await addSlides(draft, 3)
+      const result = await publishNow(c.userId, draft)
+      assert.strictEqual(result.status, 'published', String(result.error))
+
+      const upload = linkedIn.calls.find(call => call.url === 'https://upload.example/doc')
+      assert.ok(upload, 'the document was uploaded')
+      assert.strictEqual(upload.method, 'PUT')
+      const pdf = upload.bytes!.toString('latin1')
+      assert.ok(pdf.startsWith('%PDF-'), 'a PDF')
+      assert.strictEqual(pdf.match(/\/Type\s*\/Page\b/g)?.length, 3, 'one page per slide')
+      // No single image goes with it.
+      assert.ok(!linkedIn.calls.some(call => call.url.includes('/rest/images')))
+      assert.deepStrictEqual(linkedIn.postCalls()[0]!.body.content, {
+        media: { id: 'urn:li:document:DOC1', title: 'Five checks before you sign' }
+      })
+    })
+
+    it('C2. a carousel without slides, with one, or with a slide not drawn is refused before LinkedIn', async () => {
+      const none = await newPost(c.accountId, { mediaFormat: 'carousel' })
+      assert.strictEqual(await codeOf(publishNow(c.userId, none)), 'needs_image')
+
+      const one = await newPost(c.accountId, { mediaFormat: 'carousel' })
+      await addSlides(one, 1)
+      assert.strictEqual(await codeOf(publishNow(c.userId, one)), 'needs_image')
+
+      const undrawn = await newPost(c.accountId, { mediaFormat: 'carousel' })
+      await addSlides(undrawn, 3, 2)
+      assert.strictEqual(await codeOf(publishNow(c.userId, undrawn)), 'needs_image')
+
+      assert.strictEqual(linkedIn.calls.length, 0)
+    })
+
+    it('C3. a post set to text only goes out without the image it still has', async () => {
+      const draft = await newPost(c.accountId, { mediaFormat: 'text' })
+      await database.insert(schema.postMediaTable).values({
+        draftId: draft,
+        mode: 'ai_generated',
+        imageUrl: 'https://img.example/a.png'
+      })
+      const result = await publishNow(
+        c.userId,
+        draft,
+        deps({
+          loadImage: async () => ({
+            bytes: Buffer.from('png'),
+            mediaType: 'image/png',
+            altText: 'A chart'
+          })
+        })
+      )
+      assert.strictEqual(result.status, 'published', String(result.error))
+      assert.ok(!linkedIn.calls.some(call => call.url.includes('/rest/images')))
+      assert.strictEqual(linkedIn.postCalls()[0]!.body.content, undefined)
+    })
+  })
+
   describe('X through Buffer', () => {
     let x: { userId: string; accountId: string }
     const apiKey = 'BUFFER-KEY-1234567890'
@@ -1425,6 +1530,63 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         .from(schema.publicationsTable)
         .where(inArray(schema.publicationsTable.draftId, [withImage, without]))
       assert.deepStrictEqual(queued.map(r => r.draftId), [withImage])
+    })
+
+    it('M6. an Instagram carousel goes out as one post with every slide, each from its own signed link', async () => {
+      await connectVia('instagram', 'CHANNEL_IG')
+      const draft = await caption({ mediaFormat: 'carousel' })
+      await addSlides(draft, 3)
+      const result = await publishNow(m.userId, draft)
+      assert.strictEqual(result.status, 'published', String(result.error))
+
+      const [create] = buffer.creates()
+      const assets = create!.variables.input.assets as Array<{ image: { url: string; metadata?: { altText: string } } }>
+      assert.strictEqual(assets.length, 3)
+      const slideIds = (
+        await database
+          .select({ id: schema.postSlidesTable.id })
+          .from(schema.postSlidesTable)
+          .where(eq(schema.postSlidesTable.draftId, draft))
+          .orderBy(schema.postSlidesTable.position)
+      ).map(r => r.id)
+      assets.forEach((asset, i) => {
+        const link = new URL(asset.image.url)
+        assert.strictEqual(link.searchParams.get('for'), 'instagram')
+        const token = decodeURIComponent(link.pathname.split('/').pop()!)
+        // Signed for this post's slide, in swipe order, and no other.
+        const subject = verifyMediaToken(xConfig.encryptionKey, token)
+        assert.deepStrictEqual(parseMediaSubject(subject!), { draftId: draft, slideId: slideIds[i] })
+        assert.strictEqual(asset.image.metadata?.altText, `Slide ${i + 1} described`)
+      })
+    })
+
+    it('M7. auto-publishing to Instagram takes a carousel, which has no single image', async () => {
+      const day = new Date().toISOString().slice(0, 10)
+      const slot = new Date(`${day}T09:00:00Z`)
+      const before = new Date(slot.getTime() - 3600_000)
+      const carousel = await caption({ mediaFormat: 'carousel', plannedFor: day, updatedAt: before })
+      await addSlides(carousel, 3)
+      await database
+        .update(schema.platformConnectionsTable)
+        .set({
+          autoPublish: true,
+          autoPublishTime: '09:00',
+          autoPublishTimezone: 'UTC',
+          // Not M4's: the engine remembers each slot it queued, by this time.
+          autoPublishEnabledAt: new Date(slot.getTime() - 25 * 3600_000)
+        })
+        .where(
+          and(
+            eq(schema.platformConnectionsTable.userId, m.userId),
+            eq(schema.platformConnectionsTable.platform, 'instagram')
+          )
+        )
+      await queueAutoPublications(database, new Date(slot.getTime() + 3600_000))
+      const queued = await database
+        .select({ draftId: schema.publicationsTable.draftId })
+        .from(schema.publicationsTable)
+        .where(eq(schema.publicationsTable.draftId, carousel))
+      assert.deepStrictEqual(queued.map(r => r.draftId), [carousel])
     })
 
     it('M5. each network keeps its own connection: disconnecting Instagram leaves Facebook alone', async () => {

@@ -6,7 +6,7 @@
  * bypassed. Kept free of Node APIs so client components can import it.
  */
 
-import type { VisualType } from '~/lib/ai/skills/media-brief/schema'
+import type { DiagramForm } from '~/lib/media/canvas/spec'
 
 export const IMAGE_PROMPT_MIN_LENGTH = 3
 export const IMAGE_PROMPT_MAX_WORDS = 1000
@@ -22,10 +22,11 @@ export const STOCK_QUERY_MAX_LENGTH = 200
 export const IMAGE_URL_MAX_LENGTH = 2048
 
 /**
- * The kinds of image a reviewer can ask for when one is designed from the
- * post, in plain words. Optional: without a choice the art director picks.
+ * The diagram forms a reviewer can ask for when a minimal graphic design is
+ * made from the post, in plain words. Optional: without a choice the art
+ * director picks. (The other image styles are a picture, not a diagram.)
  */
-export const IMAGE_TYPE_CHOICES = [
+export const DIAGRAM_TYPE_CHOICES = [
   {
     value: 'hub_spoke',
     label: 'Hub & spoke',
@@ -50,18 +51,13 @@ export const IMAGE_TYPE_CHOICES = [
     value: 'comparison',
     label: 'Comparison',
     description: 'Two sides next to each other, like before and after.'
-  },
-  {
-    value: 'illustration',
-    label: 'Illustration',
-    description: 'A drawn scene instead of a diagram, for a story or a moment.'
   }
 ] as const satisfies readonly {
-  value: VisualType
+  value: DiagramForm
   label: string
   description: string
 }[]
-export type ImageTypeChoice = (typeof IMAGE_TYPE_CHOICES)[number]['value']
+export type DiagramTypeChoice = (typeof DIAGRAM_TYPE_CHOICES)[number]['value']
 
 const formatMegabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 

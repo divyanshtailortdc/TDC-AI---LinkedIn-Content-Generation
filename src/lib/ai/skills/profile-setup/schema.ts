@@ -5,7 +5,14 @@ import {
   type EmojiLevel
 } from '@/lib/formats/styles'
 import { GOAL_OBJECTIVES, objectivesFor } from '@/lib/goal-objectives'
-import { PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
+import { CREATABLE_PLATFORMS } from '@/lib/formats/registry'
+import type { PlatformId } from '@/lib/platforms'
+
+/**
+ * The platforms setup may pick or style: those posts can be made for (not
+ * YouTube, whose only format was a video script).
+ */
+const SETUP_PLATFORMS = CREATABLE_PLATFORMS as [PlatformId, ...PlatformId[]]
 import { optionalUrlError, URL_MESSAGE } from '@/lib/identity-profile'
 import { idSchema } from '@/lib/ids'
 import { normalizeUrlForCompare } from '@/lib/urls'
@@ -138,7 +145,7 @@ export const GoalSuggestionsSchema = z.object({
   linkStrategy: suggested(z.enum(LINK_PLACEMENTS)).optional(),
   /** Only some of the platforms they post on; left out for every platform. */
   platforms: suggested(
-    z.array(z.enum(PLATFORM_IDS)).min(1).max(PLATFORM_IDS.length)
+    z.array(z.enum(SETUP_PLATFORMS)).min(1).max(SETUP_PLATFORMS.length)
   ).optional(),
   missing
 })
@@ -289,7 +296,7 @@ export const FIELD_SPECS = {
       label: 'Links go in',
       options: LINK_PLACEMENTS
     },
-    platforms: { type: 'list', label: 'Posts on', options: PLATFORM_IDS }
+    platforms: { type: 'list', label: 'Posts on', options: SETUP_PLATFORMS }
   },
   preferences: {
     bannedTopics: { type: 'list', label: 'Topics to avoid' },
@@ -423,7 +430,7 @@ export const IdentitySetupModelSchema = z.object({
   styles: z
     .array(
       z.object({
-        platform: z.enum(PLATFORM_IDS),
+        platform: z.enum(SETUP_PLATFORMS),
         style: z.enum(CONTENT_STYLES),
         audience: z
           .string()
@@ -507,7 +514,7 @@ const optionalText = (max: number) =>
 export const AnalysisGuidanceSchema = z.object({
   accountType: z.enum(['personal', 'company']).optional(),
   /** Where they post, picked in setup; the analysis suggests a style for each. */
-  platforms: z.array(z.enum(PLATFORM_IDS)).max(PLATFORM_IDS.length).optional(),
+  platforms: z.array(z.enum(SETUP_PLATFORMS)).max(SETUP_PLATFORMS.length).optional(),
   tone: z.enum(VOICE_PRESETS).optional(),
   perspective: VoiceAnalysisSchema.shape.perspective.optional(),
   formality: z.number().int().min(1).max(5).optional(),

@@ -7,14 +7,16 @@ import {
 import { runSkill, SkillError } from '../../run-skill'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '../../usage'
 import { clamp, guardMediaBrief, normalizeOverlay } from './guard'
+import { DEFAULT_IMAGE_STYLE } from '@/lib/brand/theme'
 import { buildPrompt, buildRetryPrompt, INSTRUCTIONS } from './prompt'
-import { z } from 'zod'
 import {
-  MediaBriefSchema,
-  ReferenceMediaBriefSchema,
+  mediaBriefSchema,
+  normalizeVisualType,
+  visualTypesFor,
   type DeriveMediaBriefInput,
   type DeriveMediaBriefResult,
   type MediaBrief,
+  type MediaBriefOutput,
   type VisualType
 } from './schema'
 
@@ -45,18 +47,15 @@ export async function deriveMediaBrief(
 ): Promise<DeriveMediaBriefResult> {
   let usage: CallUsage = EMPTY_USAGE
 
-  // A type the reviewer chose is held to by the schema itself, not just
-  // checked afterwards; a reference sets its own structure instead.
-  const allowed = input.allowedTypes
-  const schema = input.referenceImage
-    ? ReferenceMediaBriefSchema
-    : allowed?.length
-      ? MediaBriefSchema.extend({
-          visualType: z
-            .enum(allowed as unknown as [VisualType, ...VisualType[]])
-            .describe('What fills the visual area; follow the rules in the request.')
-        })
-      : MediaBriefSchema
+  // The style and a type the reviewer chose are held to by the schema itself,
+  // not just checked afterwards: a picture style offers only the picture and
+  // the layouts with room for one.
+  const imageStyle = input.imageStyle ?? DEFAULT_IMAGE_STYLE
+  const schema = mediaBriefSchema({
+    style: imageStyle,
+    allowedTypes: input.allowedTypes,
+    reference: Boolean(input.referenceImage)
+  })
 
   const attempt = async (prompt: string) => {
     try {
@@ -73,7 +72,10 @@ export async function deriveMediaBrief(
         abortSignal: options.abortSignal
       })
       usage = addUsage(usage, result.usage)
-      return result.output
+      return result.output as
+        | (MediaBriefOutput & { blueprint?: MediaBrief['blueprint'] })
+        | null
+        | undefined
     } catch (err) {
       // The tokens were generated and billed before validation rejected them.
       if (err instanceof SkillError) usage = addUsage(usage, err.usage)
@@ -90,6 +92,7 @@ export async function deriveMediaBrief(
     readerTakeaway: output.readerTakeaway,
     primaryConcept: output.primaryConcept,
     visualMetaphor: output.visualMetaphor,
+    imageStyle,
     layout: output.layout,
     visualType: output.visualType,
     copy: {
@@ -104,7 +107,8 @@ export async function deriveMediaBrief(
       nodes: output.nodes,
       badges: output.badges,
       groups: output.groups,
-      illustrationPrompt: output.illustrationPrompt
+      imagePrompt: output.imagePrompt,
+      styleDirection: output.styleDirection || undefined
     },
     textOverlay: {
       headline: output.headline
@@ -113,21 +117,24 @@ export async function deriveMediaBrief(
     whyItFits: output.whyItFits,
     howItDiffers: output.howItDiffers || undefined,
     // Only the reference schema has it.
-    ...('blueprint' in output && {
-      blueprint: output.blueprint as MediaBrief['blueprint']
-    })
+    ...(output.blueprint && { blueprint: output.blueprint })
   })
 
+  // What the style and the reviewer's choice leave: one type for a picture
+  // style, the diagram forms (or the chosen one) for minimal graphic design.
+  const allowedTypes = visualTypesFor(imageStyle, input.allowedTypes)
   const guardOptions = {
-    // A reference image or a type the reviewer chose sets the visual form, so
-    // a new image may keep it; its subject must still change.
+    // A reference image, a picture style or a type the reviewer chose sets
+    // the visual form, so a new image may keep it; its subject must still
+    // change.
     previousVisualTypes:
-      input.referenceImage || input.allowedTypes?.length === 1
+      input.referenceImage || allowedTypes.length === 1
         ? []
         : (input.previousVersions || [])
-            .map(v => v.visualType)
-            .filter((t): t is string => Boolean(t)),
-    allowedTypes: input.allowedTypes,
+            .map(v => normalizeVisualType(v.visualType))
+            .filter((t): t is VisualType => Boolean(t)),
+    allowedTypes,
+    imageStyle,
     extraSourceText: [input.goal?.keyMessage, input.goal?.desiredAction]
       .filter(Boolean)
       .join('\n')
@@ -147,7 +154,7 @@ export async function deriveMediaBrief(
     let brief = toBrief(output, [])
     let guard = guardMediaBrief(
       brief,
-      output.illustrationPrompt || '',
+      output.imagePrompt || '',
       input.postText,
       input.accountName,
       guardOptions
@@ -162,7 +169,7 @@ export async function deriveMediaBrief(
         const retryBrief = toBrief(retry, [brief.primaryConcept])
         const retryGuard = guardMediaBrief(
           retryBrief,
-          retry.illustrationPrompt || '',
+          retry.imagePrompt || '',
           input.postText,
           input.accountName,
           guardOptions
@@ -185,14 +192,7 @@ export async function deriveMediaBrief(
           highlightWords: output.highlightWords,
           subheadline: output.subheadline
         },
-        visual: {
-          type: output.visualType,
-          hub: output.hub,
-          nodes: output.nodes,
-          badges: output.badges,
-          groups: output.groups,
-          illustrationPrompt: output.illustrationPrompt
-        },
+        visual: brief.visual!,
         blueprint: brief.blueprint,
         backgroundPattern: output.backgroundPattern,
         altText: clamp(output.altText, 300)

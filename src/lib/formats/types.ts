@@ -45,6 +45,28 @@ export type ImageShape = '1.91:1' | '16:9' | '4:5'
 /** Where a link goes when it should not sit in the post itself. */
 export type LinkFallback = 'first_comment' | 'reply' | 'link_in_bio'
 
+/**
+ * What goes out with a post's text: nothing (a text-only post), one image,
+ * a carousel of slides, or a video (a script the author films). The caption
+ * is the post's text in every case; a carousel's slides carry their own.
+ */
+export const MEDIA_FORMATS = ['text', 'image', 'carousel', 'video'] as const
+export type MediaFormat = (typeof MEDIA_FORMATS)[number]
+
+/**
+ * How a platform takes a carousel. `document`: one PDF the feed shows page
+ * by page (LinkedIn's carousels); `images`: several images in one post
+ * (Instagram, Facebook).
+ */
+export interface CarouselSpec {
+  /** Fewest and most slides the platform takes in one post. */
+  minSlides: number
+  maxSlides: number
+  /** What drafting aims for: enough to swipe, few enough to finish. */
+  targetSlides: { min: number; max: number }
+  delivery: 'document' | 'images'
+}
+
 export interface PlatformInfo {
   id: PlatformId
   label: string
@@ -104,6 +126,17 @@ export interface FormatSpec {
   withImage?: boolean
   /** The shape its generated images are made in. */
   imageShape: ImageShape
+  /**
+   * What can go out with the text, the first being what a new post gets
+   * unless its idea suggests otherwise. `carousel` is set when the format
+   * takes one.
+   */
+  media: {
+    formats: readonly MediaFormat[]
+    /** Most images one post carries (X: 4); absent when only one or none. */
+    maxImages?: number
+    carousel?: CarouselSpec
+  }
   /** Where a format reads or opens unlike its platform's other formats (a video script). */
   register?: string
   opening?: string

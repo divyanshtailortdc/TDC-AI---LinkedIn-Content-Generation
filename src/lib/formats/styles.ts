@@ -91,5 +91,6 @@ export const STARTING_FORMATS: Record<PlatformId, FormatId[]> = {
   threads: ['threads.post'],
   facebook: ['facebook.post'],
   instagram: ['instagram.caption'],
-  youtube: ['youtube.short']
+  // Its only format was the Short script, which is no longer created.
+  youtube: []
 }

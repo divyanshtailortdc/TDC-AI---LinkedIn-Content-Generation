@@ -1,4 +1,10 @@
-import { HEADLINE_MAX_WORDS } from '@/lib/brand/theme'
+import {
+  HEADLINE_MAX_WORDS,
+  imageStyleLabel,
+  isPictureStyle,
+  type ImageStyle
+} from '@/lib/brand/theme'
+import { styleClashes } from '@/lib/media/style-prompt'
 import { extractNumbers, mentionsFigure } from '../ideation/guard'
 import type { BriefGuardResult, MediaBrief, TextOverlaySpec } from './schema'
 
@@ -168,6 +174,8 @@ export interface BriefGuardOptions {
   allowedTypes?: readonly string[]
   /** Text whose figures the image may also quote, such as the goal's message. */
   extraSourceText?: string
+  /** The image style the picture must be in; no style checks when unset. */
+  imageStyle?: ImageStyle
 }
 
 /**
@@ -196,6 +204,21 @@ export function guardMediaBrief(
   const headlineWords = (brief.textOverlay?.headline || '').trim().split(/\s+/).filter(Boolean)
   if (headlineWords.length > HEADLINE_MAX_WORDS) {
     issues.push(`Headline is longer than ${HEADLINE_MAX_WORDS} words.`)
+  }
+
+  // A picture described in another medium than the chosen style comes out
+  // as a mix of both: "a flat vector illustration" in a photograph's prompt.
+  const style = options.imageStyle
+  if (style && isPictureStyle(style) && brief.visualType === 'picture') {
+    if (!imagePrompt.trim()) {
+      issues.push('Leaves imagePrompt empty, so the picture is undescribed.')
+    }
+    const clashes = styleClashes(style, imagePrompt)
+    if (clashes.length > 0) {
+      issues.push(
+        `Describes the picture as ${clashes.map(c => `"${c}"`).join(', ')}, but the image style is ${imageStyleLabel(style)}.`
+      )
+    }
   }
 
   const lastType = options.previousVisualTypes?.[0]

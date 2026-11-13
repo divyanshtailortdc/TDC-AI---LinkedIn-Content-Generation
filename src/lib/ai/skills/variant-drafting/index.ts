@@ -13,12 +13,13 @@ import {
   buildRevisionPrompt,
   buildSharedInstructions,
   styleOfFormat,
-  type ApprovedSibling
+  type ApprovedSibling,
+  type MediaPlan
 } from './prompt'
 import type { RegenerateRequest } from '../post-drafting'
 import { toVariantDraft, VariantOutputSchema, type VariantDraft } from './schema'
 
-export type { ApprovedSibling } from './prompt'
+export type { ApprovedSibling, MediaPlan } from './prompt'
 
 export type { VariantDraft } from './schema'
 
@@ -53,6 +54,8 @@ export async function writeVariant(
     siblingOpenings?: string[]
     /** This idea's posts the reviewer approved on other platforms. */
     approvedSiblings?: ApprovedSibling[]
+    /** What goes out with the text. */
+    media?: MediaPlan
   },
   revise?: { previous: VariantDraft; failedChecks: string[] },
   /** A new version of an existing post, with what the reviewer wants changed. */
@@ -76,7 +79,8 @@ export async function writeVariant(
           revise.previous,
           revise.failedChecks,
           siblings,
-          approved
+          approved,
+          input.media
         )
       : regenerate
         ? buildRegeneratePrompt(
@@ -85,9 +89,10 @@ export async function writeVariant(
             regenerate.current,
             regenerate.instruction,
             siblings,
-            approved
+            approved,
+            input.media
           )
-        : buildFormatPrompt(ctx, formatId, siblings, approved),
+        : buildFormatPrompt(ctx, formatId, siblings, approved, input.media),
     // One schema for every format, so they share the prompt cache.
     schema: VariantOutputSchema,
     timeoutMs: DRAFTING_TIMEOUT_MS,

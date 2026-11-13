@@ -1,3 +1,4 @@
+import type { MediaFormat } from '@/lib/formats/types'
 import type { Idea } from '@/db/schema'
 import {
   describeCta,
@@ -99,7 +100,20 @@ ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own correcti
 }
 
 /** The approved idea, its evidence, and exactly what to produce. */
-export function buildPrompt(ctx: GenerationContext, idea: Idea): string {
+/**
+ * What a LinkedIn post that goes out as a carousel is told about its text:
+ * it is the caption above the slides, which are designed separately. Only
+ * added for a carousel, so every other LinkedIn prompt stays as it was.
+ */
+export const LINKEDIN_CAROUSEL_BLOCK = `THIS POST IS A CAROUSEL
+It goes out with a document carousel: slides designed separately from this text, which LinkedIn shows page by page. The text you write is the caption above them. Open on the hook, give the context or story the slides do not, and say in one line what the slides walk through; you may invite the reader to click through them. Do not list every point the slides make, and do not number points.`
+
+export function buildPrompt(
+  ctx: GenerationContext,
+  idea: Idea,
+  /** 'carousel' for a post that goes out with slides; anything else changes nothing. */
+  mediaFormat?: MediaFormat | null
+): string {
   const constraints = ctx.prefs.constraints
   const goal = ctx.primaryGoal
   const linkPlacement = resolveLinkPlacement(goal)
@@ -151,7 +165,7 @@ Produce:
   }
 5. hashtags — ${describeHashtags(constraints)}, without the # symbol
 6. alternateHooks — ${Math.max(2, Math.min(constraints.variants_per_post, 3))} genuinely different openings
-7. selfScores — honest 1-10 ratings`
+7. selfScores — honest 1-10 ratings${mediaFormat === 'carousel' ? `\n\n${LINKEDIN_CAROUSEL_BLOCK}` : ''}`
 }
 
 /**
@@ -162,9 +176,10 @@ export function buildRegeneratePrompt(
   ctx: GenerationContext,
   idea: Idea,
   current: { hook: string; body: string; cta?: string | null },
-  instruction: string | null
+  instruction: string | null,
+  mediaFormat?: MediaFormat | null
 ): string {
-  return `${buildPrompt(ctx, idea)}
+  return `${buildPrompt(ctx, idea, mediaFormat)}
 
 The reviewer asked for a new version of this post.${
     instruction
@@ -191,9 +206,10 @@ export function buildRevisionPrompt(
   ctx: GenerationContext,
   idea: Idea,
   previous: DraftGenerationResult,
-  failedChecks: string[]
+  failedChecks: string[],
+  mediaFormat?: MediaFormat | null
 ): string {
-  return `${buildPrompt(ctx, idea)}
+  return `${buildPrompt(ctx, idea, mediaFormat)}
 
 Your previous draft failed these checks. Rewrite it so every one passes, keeping the argument and the voice intact.
 

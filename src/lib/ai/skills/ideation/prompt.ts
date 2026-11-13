@@ -2,6 +2,7 @@ import {
   DEFAULT_FORMAT,
   FORMATS,
   formatsOfPlatform,
+  isCreatableFormat,
   isPlatformId,
   PLATFORMS,
   platformsOf,
@@ -110,7 +111,11 @@ export function ideationChannels(
 ): IdeationChannels | null {
   if (isPlatformId(runChannel)) {
     const own = enabled.filter(f => FORMATS[f].platform === runChannel)
-    const formats = own.length > 0 ? own : formatsOfPlatform(runChannel)
+    const formats =
+      own.length > 0
+        ? own
+        : formatsOfPlatform(runChannel).filter(isCreatableFormat)
+    if (formats.length === 0) return null
     if (formats.length === 1 && formats[0] === DEFAULT_FORMAT) return null
     return { target: runChannel, formats }
   }
@@ -299,8 +304,17 @@ export function buildPrompt(input: {
     target && target.id !== 'linkedin'
       ? `- hookConcept: the idea for the opening line on ${target.label}, what stops someone scrolling. A concept, not final copy.`
       : `- hookConcept: the idea for the first ${input.hookMaxChars} characters, before the fold. A concept, not final copy.`
+  // Formats that take a carousel: an idea told best as slides says so in its
+  // media brief, and drafting makes those posts carousels.
+  const carouselFormats = channels
+    ? channels.formats.filter(f => FORMATS[f].media.carousel)
+    : []
   const formatsLine = channels
-    ? `\n- formats: the format ids it would make a strong post in, best first, from: ${channels.formats.map(f => `${f} (${FORMATS[f].label})`).join(', ')}`
+    ? `\n- formats: the format ids it would make a strong post in, best first, from: ${channels.formats.map(f => `${f} (${FORMATS[f].label})`).join(', ')}${
+        carouselFormats.length > 0
+          ? `\n- when the idea is best told as slides (steps, a short list, a framework, a before and after) and suits ${carouselFormats.map(f => FORMATS[f].label).join(' or ')}, begin mediaBrief with "Carousel:" and say what the slides show, one point per slide. Otherwise do not mention slides or a carousel.`
+          : ''
+      }`
     : ''
   const today = (input.today ?? new Date()).toISOString().slice(0, 10)
   const style = input.style ?? 'professional'

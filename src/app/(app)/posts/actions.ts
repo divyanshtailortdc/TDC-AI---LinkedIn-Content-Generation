@@ -5,7 +5,8 @@ import {
   brandThemesTable,
   feedbackTable,
   postDraftsTable,
-  postMediaTable
+  postMediaTable,
+  postSlidesTable
 } from '@/db/schema'
 import {
   BRAND_THEME_PATH,
@@ -31,8 +32,12 @@ import {
   formatOf,
   isCreatableFormat,
   isFormatId,
-  overLimitMessage
+  isMediaFormat,
+  MEDIA_FORMAT_LABELS,
+  overLimitMessage,
+  supportsMediaFormat
 } from '@/lib/formats'
+import { refreshPostChecks } from '~/lib/carousel/service'
 import { loadChannels } from '@/lib/channels'
 import { requireUser } from '@/lib/session'
 import { and, eq } from 'drizzle-orm'
@@ -46,7 +51,7 @@ import {
   restoreRevision
 } from '~/lib/ai/pipeline/drafting-run'
 import { validateImageUrl } from '~/lib/media/image-input'
-import { deleteDraftImages } from '~/lib/media/image-store'
+import { deleteDraftImages, deleteStoredImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
 import { loadPostsPage } from './posts-data'
 
@@ -459,6 +464,7 @@ export async function setDraftHidden(draftId: string, hidden: boolean) {
 }
 
 /**
+/**
  * Deletes a post from the app for good, with its alternates, sources and
  * images. A scheduled publication is called off, and one going out right now
  * stops the delete. Its publications stay, without the post, as the
@@ -538,6 +544,19 @@ export async function deleteDraft(
   }
 }
 
+/**
+ * Removes a post's image (every version) and the files behind it. Only the
+ * image rows' own files: a carousel's slides sit under the same storage
+ * prefix and stay.
+ */
+async function deletePostImages(draftId: string) {
+  const removed = await db
+    .delete(postMediaTable)
+    .where(eq(postMediaTable.draftId, draftId))
+    .returning({ imageUrl: postMediaTable.imageUrl, baseImageUrl: postMediaTable.baseImageUrl })
+  await deleteStoredImages(removed.flatMap(r => [r.imageUrl, r.baseImageUrl]))
+}
+
 export async function updatePostMediaAction(
   draftId: string,
   payload: {
@@ -566,8 +585,7 @@ export async function updatePostMediaAction(
     if (!existingDraft) throw new Error('Post draft not found')
 
     if (payload.mode === 'none' || !payload.imageUrl) {
-      await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
-      await deleteDraftImages(draftId)
+      await deletePostImages(draftId)
       return { success: true, media: null }
     }
 
@@ -616,8 +634,7 @@ export async function removePostMediaAction(draftId: string) {
     })
     if (!draft) throw new Error('Post draft not found')
 
-    await db.delete(postMediaTable).where(eq(postMediaTable.draftId, draftId))
-    await deleteDraftImages(draftId)
+    await deletePostImages(draftId)
 
     return { success: true }
   } catch (err: any) {
@@ -710,5 +727,54 @@ export async function saveImageSettings(settings: {
       success: false as const,
       error: err?.message || 'Could not save the image settings.'
     }
+  }
+}
+
+/**
+ * What goes out with a post's text: text only, its single image, or its
+ * carousel. Nothing is deleted: an image or slides set aside stay, ready if
+ * the reviewer switches back. A carousel needs its slides first (the slides
+ * route makes them), so switching to one without any says so. The checks
+ * run again, since "swipe" is right on a carousel and wrong without one.
+ */
+export async function setPostMediaFormat(draftId: string, mediaFormat: string) {
+  await requireUser()
+  try {
+    const identityId = await requireIdentityId()
+    if (!isMediaFormat(mediaFormat) || mediaFormat === 'video') {
+      throw new Error('Unknown post type.')
+    }
+    const draft = await db.query.postDraftsTable.findFirst({
+      where: and(eq(postDraftsTable.id, draftId), eq(postDraftsTable.accountId, identityId))
+    })
+    if (!draft) throw new Error('Post not found')
+    const formatId = formatOf(draft.formatId)
+    if (!supportsMediaFormat(formatId, mediaFormat)) {
+      throw new Error(
+        `A ${FORMATS[formatId].label} cannot go out as ${MEDIA_FORMAT_LABELS[mediaFormat].toLowerCase()}.`
+      )
+    }
+    if (draft.postedAt) {
+      throw new Error('This post is marked as posted, so what goes out with it can no longer change.')
+    }
+    if (isPublishingConfigured() && (await hasLivePublication(db, draftId))) {
+      throw new Error('This post is published on its platform, so what goes out with it can no longer change.')
+    }
+    if (mediaFormat === 'carousel') {
+      const [slide] = await db
+        .select({ id: postSlidesTable.id })
+        .from(postSlidesTable)
+        .where(eq(postSlidesTable.draftId, draftId))
+        .limit(1)
+      if (!slide) return { success: false as const, needsSlides: true as const, error: 'Make the slides first.' }
+    }
+    await db
+      .update(postDraftsTable)
+      .set({ mediaFormat, updatedAt: new Date() })
+      .where(eq(postDraftsTable.id, draftId))
+    const lintFindings = await refreshPostChecks(draftId)
+    return { success: true as const, mediaFormat, lintFindings }
+  } catch (err: any) {
+    return { success: false as const, error: err?.message || 'Could not change the post type' }
   }
 }

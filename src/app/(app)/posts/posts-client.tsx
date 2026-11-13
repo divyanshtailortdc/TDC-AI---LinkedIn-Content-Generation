@@ -5,6 +5,7 @@ import {
   copyText,
   FORMATS,
   formatOf,
+  resolveMediaFormat,
   videoScriptOf,
   type FormatId
 } from '@/lib/formats'
@@ -20,7 +21,7 @@ import { PAGE_SIZE, pageNumbers, paginate, parsePage } from '@/lib/pagination'
 import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import { platformPostText } from '@/lib/post-text'
 import { canPublishFormat } from '@/lib/publishing/platform'
-import type { BackgroundPattern } from '@/lib/brand/theme'
+import type { BackgroundPattern, ImageStyle } from '@/lib/brand/theme'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -88,6 +89,13 @@ export interface PostDetail {
   formatId?: string
   /** Format-specific structure, e.g. an Instagram caption's visual idea. */
   payload?: Record<string, unknown> | null
+  /**
+   * What goes out with the text, as chosen: 'text', 'image' or 'carousel';
+   * null follows the post's image (resolveMediaFormat).
+   */
+  mediaFormat?: string | null
+  /** How many carousel slides it has (kept even when set to another type). */
+  slideCount?: number
   ideaId?: string | null
   /** Every format the post's idea already has, this one included. */
   ideaFormats?: string[]
@@ -123,6 +131,8 @@ export interface PostDetail {
     reviewChecked?: boolean
     /** An uploaded reference image guided its composition and style. */
     usedReference?: boolean
+    /** The image style it was made in; unset for older, stock or edited images. */
+    imageStyle?: ImageStyle
   } | null
   /** Why drafting could not make this post's image, when it tried and failed. */
   mediaFailure?: string | null
@@ -146,6 +156,8 @@ export interface BrandSummary {
   footerText: string | null
   /** The identity's website as an image would show it, as a placeholder hint. */
   website: string | null
+  /** The Brand Theme's image style: the default for a new image. */
+  style: ImageStyle
 }
 
 const LINT_RULE_LABELS: Record<string, string> = {
@@ -1296,6 +1308,16 @@ function mediaBadge(post: PostDetail): { label: string; video: boolean } | null 
     const length = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
     return { label: `${length} ${kind}`, video: true }
   }
+  // What goes out with the text (resolveMediaFormat): a carousel's slides,
+  // nothing for a post set to text only, else its image.
+  const media = resolveMediaFormat(formatOf(post.formatId), post.mediaFormat, {
+    image: Boolean(post.media)
+  })
+  if (media === 'carousel') {
+    const count = post.slideCount ?? 0
+    return { label: count ? `${count} slides` : 'Carousel', video: false }
+  }
+  if (media === 'text') return null
   if (post.media) return { label: '1 image', video: false }
   return null
 }

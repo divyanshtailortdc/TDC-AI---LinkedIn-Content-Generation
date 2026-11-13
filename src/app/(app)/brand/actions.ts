@@ -5,6 +5,7 @@ import { brandThemesTable } from '@/db/schema'
 import {
   BRAND_THEME_PATH,
   BrandThemePayloadSchema,
+  DEFAULT_IMAGE_STYLE,
   type BrandThemePayload
 } from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
@@ -14,7 +15,8 @@ import { parseSetupPayload } from '@/lib/setup-payloads'
 import { revalidatePath } from 'next/cache'
 
 /**
- * Saves the identity's brand theme: its logo and two colours. The logo comes
+ * Saves the identity's brand theme: its logo, colours, typefaces and image
+ * style. The logo comes
  * as a data URL from the form (undefined keeps the saved file, null removes
  * it) and is decoded and re-encoded here, so whatever is stored is a real
  * image of a sane size.
@@ -31,7 +33,7 @@ export async function saveBrandTheme(rawPayload: BrandThemePayload) {
       backgroundColor: payload.backgroundColor ?? null,
       headingFont: payload.headingFont ?? null,
       bodyFont: payload.bodyFont ?? null,
-      visualStyle: payload.visualStyle ?? 'auto',
+      visualStyle: payload.visualStyle ?? DEFAULT_IMAGE_STYLE,
       // The background pattern and website are set from the image panel on
       // the Posts page (saveImageSettings), so a save here leaves them alone.
       showLogo: payload.showLogo ?? true,

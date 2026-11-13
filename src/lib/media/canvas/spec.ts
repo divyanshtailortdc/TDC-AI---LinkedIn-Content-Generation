@@ -5,11 +5,11 @@ import type { IconName } from './icon-names'
 import type { CanvasPalette } from './palette'
 
 /**
- * What one image is made of, before it is drawn. Every generated image has
- * the same layout: a text column on the left (logo, tagline, headline with
- * highlighted words, subheadline, website) and a visual on the right (a
- * diagram drawn from labelled nodes, or an illustration from the image model
- * with labelled badges over it), on a light patterned background.
+ * What one image is made of, before it is drawn: the text (logo, tagline,
+ * headline with highlighted words, subheadline, website) and a visual (a
+ * diagram drawn from labelled nodes, or a picture from the image model in
+ * the image style: a photograph or 3D scene filling its side, or an
+ * illustration with labelled badges), on the brand's light background.
  *
  * Pure, so the layout rules are testable without rendering.
  */
@@ -46,6 +46,67 @@ export const TEXT_COLUMN = {
   padY: 88
 } as const
 
+/**
+ * The size a picture is generated at for a panel: the panel's shape, 1024 to
+ * 2048 px on its long edge, in the multiples of 16 the image models need. It
+ * is then cropped to the panel exactly.
+ */
+export function pictureGenerationSize(panel: {
+  width: number
+  height: number
+}): { width: number; height: number } {
+  const long = Math.max(panel.width, panel.height)
+  const scale = long < 1024 ? 1024 / long : long > 2048 ? 2048 / long : 1
+  const edge = (n: number) => Math.max(256, Math.ceil((n * scale) / 16) * 16)
+  return { width: edge(panel.width), height: edge(panel.height) }
+}
+
+/** A tall canvas's margin above or below the visual panel. */
+export const STACK_MARGIN = 96
+
+/** Too narrow for text and panel side by side (4:5): they are stacked. */
+export const isStacked = (size: { width: number; height: number }) =>
+  size.width / size.height < 1.3
+
+/** Where top_bottom's picture band starts: just below the header's text. */
+export const PICTURE_BAND_TOP = 456
+
+/**
+ * Where a photograph or 3D scene goes: the whole visual side of the layout,
+ * out to the image's edges, so it reads as a photograph in an editorial
+ * spread rather than a picture pasted onto a graphic. The text keeps the
+ * rest, exactly where the layout always puts it.
+ */
+export function picturePanel(
+  layout: CanvasLayout,
+  size: { width: number; height: number }
+): { left: number; top: number; width: number; height: number } {
+  if (isStacked(size)) {
+    // The text keeps its height; the picture takes the panel and its margin.
+    const height = VISUAL_PANEL.height + STACK_MARGIN
+    return {
+      left: 0,
+      top: layout === 'split_right' ? 0 : size.height - height,
+      width: size.width,
+      height
+    }
+  }
+  if (layout === 'top_bottom') {
+    return {
+      left: 0,
+      top: PICTURE_BAND_TOP,
+      width: size.width,
+      height: size.height - PICTURE_BAND_TOP
+    }
+  }
+  return {
+    left: layout === 'split_right' ? 0 : size.width - VISUAL_PANEL.width,
+    top: 0,
+    width: VISUAL_PANEL.width,
+    height: size.height
+  }
+}
+
 export const CANVAS_LAYOUTS = [
   'split_left',
   'split_right',
@@ -56,7 +117,17 @@ export type CanvasLayout = (typeof CANVAS_LAYOUTS)[number]
 
 export const isCanvasLayout = (value: unknown): value is CanvasLayout =>
   (CANVAS_LAYOUTS as readonly unknown[]).includes(value)
-  
+
+/**
+ * The layouts with room for a picture: centered_hero's card covers nearly
+ * the whole image and has nowhere to show one.
+ */
+export const PICTURE_LAYOUTS = [
+  'split_left',
+  'split_right',
+  'top_bottom'
+] as const satisfies readonly CanvasLayout[]
+
 export const DIAGRAM_FORMS = [
   'hub_spoke',
   'flow',
@@ -102,11 +173,18 @@ export interface CanvasCopy {
 export type CanvasVisual =
   | { kind: 'diagram'; diagram: DiagramSpec }
   | {
-      kind: 'illustration'
-      /** PNG, VISUAL_PANEL-sized or larger; transparent where it was white. */
+      /** A picture from the image model, in the chosen image style. */
+      kind: 'picture'
       image: Buffer
-      /** True when its background could not be cut away; it is shown as a card. */
-      framed: boolean
+      mediaType: 'image/png' | 'image/jpeg'
+      /**
+       * bleed: a photograph or 3D scene filling the visual side to the
+       * image's edges. cutout: an illustration whose white was made
+       * transparent, standing on the background. card: one whose background
+       * could not be cut away, shown as a framed card.
+       */
+      display: 'bleed' | 'cutout' | 'card'
+      /** Labelled pills over a cutout or card; none over a bleed picture. */
       badges: CanvasNode[]
     }
 

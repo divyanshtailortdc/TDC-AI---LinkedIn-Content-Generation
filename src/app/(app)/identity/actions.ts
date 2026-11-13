@@ -5,6 +5,7 @@ import { accountsTable, platformConnectionsTable } from '@/db/schema'
 import { IDENTITY_PATH, setActiveIdentity } from '@/lib/identity'
 import {
   cleanChannelSettings,
+  isCreatablePlatform,
   isPlatformId,
   STARTING_FORMATS,
   type ChannelSettings,
@@ -94,7 +95,7 @@ function channelsFromFormData(formData: FormData): {
 } | null {
   const picked = jsonField(formData, 'platforms')
   const platforms = Array.isArray(picked)
-    ? Array.from(new Set(picked.filter(isPlatformId)))
+    ? Array.from(new Set(picked.filter(isPlatformId))).filter(isCreatablePlatform)
     : []
   if (platforms.length === 0) return null
   const styles = jsonField(formData, 'styles') as Record<string, unknown> | null

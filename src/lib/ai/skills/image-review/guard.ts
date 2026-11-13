@@ -1,3 +1,5 @@
+import { imageStyleLabel, type ImageStyle } from '@/lib/brand/theme'
+import { styleRetryLines } from '@/lib/media/style-prompt'
 import type { ImageReview, ImageReviewVerdict } from './schema'
 
 /** Below this the image is not about the post, whatever else is right with it. */
@@ -145,4 +147,56 @@ export function retryInstructions(
     )
   }
   return lines.join(' ')
+}
+
+/**
+ * What is wrong with a picture made for a designed image, before the layout
+ * goes around it: it may carry no lettering and no logo, must be free of the
+ * flaws that give a generated image away, and must be in the style asked
+ * for. Relevance is the brief's job, judged on the whole design.
+ */
+export function pictureIssues(review: ImageReview, style: ImageStyle): string[] {
+  return [...letteringIssues(review, { headline: '' }), ...lookIssues(review, style)]
+}
+
+/** The flaws that give a generated image away, and a look other than the style asked for. */
+export function lookIssues(review: ImageReview, style: ImageStyle): string[] {
+  const issues: string[] = []
+  const artifacts = (review.artifacts ?? []).map(a => a.trim()).filter(Boolean)
+  if (artifacts.length > 0) {
+    issues.push(`Looks generated: ${artifacts.slice(0, 3).join('; ')}.`)
+  }
+  if (review.matchesStyle === false) {
+    issues.push(`Does not look like the ${imageStyleLabel(style)} style it was asked for.`)
+  }
+  return issues
+}
+
+/** What to tell the image model on its second attempt at such a picture. */
+export function pictureRetryInstructions(
+  review: ImageReview,
+  style: ImageStyle
+): string {
+  // Only the lettering and logo lines: the subject is the brief's.
+  const lettering = retryInstructions(
+    {
+      ...review,
+      unsupportedDetails: [],
+      logoCoversContent: false,
+      copiesReference: false,
+      keepsReferenceColors: false,
+      followsBrand: true,
+      genericStock: false,
+      conveysPost: true
+    },
+    { headline: '' }
+  )
+  const looks = styleRetryLines(style, {
+    artifacts: (review.artifacts ?? []).map(a => a.trim()).filter(Boolean),
+    styleMismatch: review.matchesStyle === false,
+    lettering:
+      review.unintendedText.some(t => t.trim()) ||
+      review.brandMarks.some(m => m.trim())
+  })
+  return [lettering, looks].filter(Boolean).join(' ')
 }

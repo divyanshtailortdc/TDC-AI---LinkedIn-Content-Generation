@@ -18,7 +18,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { addPostVersion } from './actions'
 import type { PostDetail } from './posts-client'
 
-/** The enabled formats the post's idea has no post in yet, that can be created (no Reels). */
+/** The enabled formats the post's idea has no post in yet, that can be created. */
 function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[] {
   const have = new Set(
     (post.ideaFormats?.length ? post.ideaFormats : [post.formatId ?? 'linkedin.post'])

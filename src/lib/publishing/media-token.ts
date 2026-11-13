@@ -28,6 +28,18 @@ export function createMediaToken(
   return `${payload}.${mac(key, payload)}`
 }
 
+/**
+ * What a token opens: a post's image, or one slide of its carousel
+ * (createMediaToken with slideSubject). The subject never holds a ".".
+ */
+export const slideSubject = (draftId: string, slideId: string) => `${draftId}~${slideId}`
+
+/** The post and, for a carousel slide, the slide a token's subject names. */
+export function parseMediaSubject(subject: string): { draftId: string; slideId: string | null } {
+  const [draftId = '', slideId] = subject.split('~')
+  return { draftId, slideId: slideId || null }
+}
+
 /** The post id the token opens, or null when it is forged, malformed or expired. */
 export function verifyMediaToken(
   key: Buffer,

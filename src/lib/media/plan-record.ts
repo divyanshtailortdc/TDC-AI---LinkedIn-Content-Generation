@@ -32,6 +32,8 @@ export function mediaPlanMetadata(
     logo: plan.logo,
     review: plan.review,
     usedReference: plan.usedReference,
+    imageStyle: plan.imageStyle,
+    generationPrompt: plan.generationPrompt,
     usage: plan.usage,
     ...extra
   }

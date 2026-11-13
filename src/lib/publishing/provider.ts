@@ -107,6 +107,9 @@ export type PostImage = {
   altText: string | null
 }
 
+/** One drawn slide of a carousel post, in swipe order. */
+export type PostSlideImage = PostImage & { id: string }
+
 export type CreatedPost = {
   /** The platform's id for the post (for X, Buffer's). */
   postId: string
@@ -157,6 +160,28 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
   commentInPost?: boolean
   /** The platform refuses a post without an image (Instagram). */
   requiresImage?: boolean
+  /**
+   * How it publishes a carousel, when it does: one PDF document shown page
+   * by page (LinkedIn), or several images in one post (Instagram, Facebook
+   * through Buffer), at most `maxSlides`.
+   */
+  carousel?: { delivery: 'document' | 'images'; maxSlides: number }
+  /**
+   * Readies a carousel's slides and returns what createPost attaches as
+   * `carousel.refs`: the uploaded document's URN, or one link per slide.
+   * Publishes nothing, so a failure here is safe to retry.
+   */
+  prepareCarousel?: (
+    ctx: ProviderContext<C>,
+    input: {
+      authorId: string
+      draftId: string
+      slides: PostSlideImage[]
+      /** The carousel's title: a document post shows it (its cover's headline). */
+      title: string
+      now: Date
+    }
+  ) => Promise<string[]>
   /** The longest post the platform takes, as `measure` counts. */
   maxPostLength: number
   measure: (text: string) => number
@@ -183,6 +208,8 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
       /** Only for a provider with `commentInPost`. */
       comment?: string
       image?: { ref: string; altText: string | null }
+      /** Only for a provider with `carousel`: what prepareCarousel returned. */
+      carousel?: { refs: string[]; title: string; altTexts: Array<string | null> }
     }
   ) => Promise<CreatedPost>
   /** Where a `pending` post stands; only for providers that return one. */

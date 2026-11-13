@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { CANVAS_PATTERNS, type CanvasPattern } from '@/lib/brand/theme'
+import {
+  CANVAS_PATTERNS,
+  isPictureStyle,
+  type CanvasPattern,
+  type ImageStyle
+} from '@/lib/brand/theme'
 import {
   BLUEPRINT_ALIGNS,
   BLUEPRINT_ARROW_STYLES,
@@ -14,23 +19,45 @@ import {
 import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
 import {
   CANVAS_LAYOUTS,
+  DIAGRAM_FORMS,
+  isDiagramForm,
+  PICTURE_LAYOUTS,
   type CanvasLayout,
   type CanvasNode,
   type DiagramForm
 } from '@/lib/media/canvas/spec'
+import { imagePromptFieldGuide } from '@/lib/media/style-prompt'
 import type { CallUsage } from '../../usage'
 
-/** What fills the image's right side: one of the diagram forms, or an illustration. */
-export type VisualType = DiagramForm | 'illustration'
+/**
+ * What fills the image's visual side: one of the diagram forms (the minimal
+ * graphic style), or a picture from the image model in one of the others.
+ */
+export type VisualType = DiagramForm | 'picture'
 
 export const VISUAL_TYPES = [
-  'hub_spoke',
-  'flow',
-  'stack',
-  'cards',
-  'comparison',
-  'illustration'
+  ...DIAGRAM_FORMS,
+  'picture'
 ] as const satisfies readonly VisualType[]
+
+/**
+ * A visual type as stored: images made before image styles called their
+ * picture an "illustration".
+ */
+export function normalizeVisualType(value: unknown): VisualType | undefined {
+  if (value === 'illustration' || value === 'picture') return 'picture'
+  return isDiagramForm(value) ? value : undefined
+}
+
+/** The visual types a style can be drawn with, narrowed to the reviewer's choice. */
+export function visualTypesFor(
+  style: ImageStyle,
+  chosen?: readonly VisualType[]
+): readonly VisualType[] {
+  if (isPictureStyle(style)) return ['picture']
+  const diagrams = (chosen || []).filter(isDiagramForm)
+  return diagrams.length > 0 ? diagrams : DIAGRAM_FORMS
+}
 
 export interface TextOverlaySpec {
   headline: string
@@ -47,19 +74,21 @@ export interface CanvasCopySpec {
   subheadline: string
 }
 
-/** The diagram or illustration visual. */
+/** The diagram or picture visual. */
 export interface VisualSpec {
   type: VisualType
   /** The centre of a hub-and-spoke diagram. */
   hub: CanvasNode | null
-  /** The diagram's nodes, or the badges over an illustration. */
+  /** The diagram's nodes; for a picture, the badges over an illustration. */
   nodes: CanvasNode[]
   /** Outer badges (e.g. AI agents, chat pills, automated checks). */
   badges?: CanvasNode[]
   /** A comparison's two column titles. */
   groups: string[]
-  /** What the image model draws, for an illustration; empty for a diagram. */
-  illustrationPrompt: string
+  /** What the image model shows, for a picture; empty for a diagram. */
+  imagePrompt: string
+  /** The art director's adaptation of the image style to the brand and post. */
+  styleDirection?: string
 }
 
 export interface MediaBrief {
@@ -70,6 +99,8 @@ export interface MediaBrief {
   /** The single visual idea the image expresses. */
   primaryConcept: string
   visualMetaphor: string
+  /** The image style the brief was written for. */
+  imageStyle?: ImageStyle
   layout?: CanvasLayout
   visualType: VisualType
   copy?: CanvasCopySpec
@@ -119,7 +150,16 @@ const NodeSchema = z.object({
     )
 })
 
-export const MediaBriefSchema = z.object({
+/**
+ * The brief the art director writes, for one image style: a picture style
+ * offers only the layouts with room for a picture and a single visual type,
+ * and describes imagePrompt in that style's terms (an "illustrationPrompt"
+ * field had the model write illustrations when a photograph was wanted).
+ */
+const briefShape = (
+  style: ImageStyle,
+  types: readonly VisualType[]
+) => ({
   postTopic: z
     .string()
     .describe("The subject of the post, in the post's own vocabulary."),
@@ -137,7 +177,9 @@ export const MediaBriefSchema = z.object({
   visualMetaphor: z
     .string()
     .describe(
-      'How the right-hand visual shows that idea: what sits where and how the parts relate.'
+      isPictureStyle(style)
+        ? 'How the picture shows that idea: what it shows and why that carries the point.'
+        : 'How the diagram shows that idea: what sits where and how the parts relate.'
     ),
   tagline: z
     .string()
@@ -159,22 +201,35 @@ export const MediaBriefSchema = z.object({
     .describe(
       'One sentence under the headline, at most 18 words, adding the why or the how. No claims the post does not make.'
     ),
-  layout: z
-    .enum(CANVAS_LAYOUTS)
-    .default('split_left')
-    .describe(
-      'The canvas composition layout: "split_left" (text left, visual right), "split_right" (visual left, text right), "top_bottom" (wide headline top, horizontal visual/flow stage bottom), or "centered_hero" (elevated central card with headline and feature cards). Vary layouts across posts so consecutive feed images do not look identical.'
-    ),
+  layout: isPictureStyle(style)
+    ? z
+        .enum(PICTURE_LAYOUTS)
+        .default('split_left')
+        .describe(
+          'The composition: "split_left" (text left, picture filling the right side), "split_right" (picture filling the left side, text right) or "top_bottom" (headline across the top, the picture as a wide band across the bottom). Vary layouts across posts so consecutive feed images do not look identical.'
+        )
+    : z
+        .enum(CANVAS_LAYOUTS)
+        .default('split_left')
+        .describe(
+          'The canvas composition layout: "split_left" (text left, visual right), "split_right" (visual left, text right), "top_bottom" (wide headline top, horizontal visual/flow stage bottom), or "centered_hero" (elevated central card with headline and feature cards). Vary layouts across posts so consecutive feed images do not look identical.'
+        ),
   visualType: z
-    .enum(VISUAL_TYPES)
-    .describe('What fills the visual area; follow the rules in the request.'),
+    .enum(types as unknown as [VisualType, ...VisualType[]])
+    .describe(
+      isPictureStyle(style)
+        ? 'Always "picture" in this style.'
+        : 'What fills the visual area; follow the rules in the request.'
+    ),
   hub: NodeSchema.nullable().describe(
     'For hub_spoke only: the thing at the centre that the nodes connect to. Null for every other type.'
   ),
   nodes: z
     .array(NodeSchema)
     .describe(
-      "The labelled parts of the diagram, in reading order; for an illustration, 2 or 3 badges naming what it shows. Each comes from the post's own content."
+      isPictureStyle(style)
+        ? `2 or 3 short labels naming what the picture shows, from the post's own content${style === 'illustration' ? ', drawn as badges over it' : ''}. They are also drawn as cards if the picture cannot be made.`
+        : "The labelled parts of the diagram, in reading order. Each comes from the post's own content."
     ),
   badges: z
     .array(NodeSchema)
@@ -188,11 +243,17 @@ export const MediaBriefSchema = z.object({
     .describe(
       'For comparison only: the two column titles, 1 to 3 words each (e.g. "Before", "After"). The nodes list the left column first, then the right, the same number in each. Empty otherwise.'
     ),
-  illustrationPrompt: z
+  imagePrompt: z
+    .string()
+    .default('')
+    .describe(imagePromptFieldGuide(style)),
+  styleDirection: z
     .string()
     .default('')
     .describe(
-      'For illustration only: what the image model draws, as a flat vector illustration on a plain white background. Name objects by their look, never by words printed on them. Never ask for text, labels, logos or people\'s hands. Empty for a diagram.'
+      isPictureStyle(style)
+        ? "One or two sentences fitting the image style to this brand, its industry and audience, and this post, as the request's IMAGE STYLE section asks."
+        : 'Empty: a diagram has no picture to direct.'
     ),
   backgroundPattern: z
     .enum(CANVAS_PATTERNS)
@@ -215,7 +276,9 @@ export const MediaBriefSchema = z.object({
     )
 })
 
-export type MediaBriefOutput = z.infer<typeof MediaBriefSchema>
+const BriefBaseSchema = z.object(briefShape('photorealistic', ['picture']))
+
+export type MediaBriefOutput = z.infer<typeof BriefBaseSchema>
 
 const BlueprintBlockSchema = z.object({
   role: z
@@ -298,12 +361,26 @@ export const BlueprintSchema = z.object({
     .describe('The arrows and connector lines between elements; empty when it has none.')
 })
 
-/** The brief with the reference image's structure, when one is attached. */
-export const ReferenceMediaBriefSchema = MediaBriefSchema.extend({
-  blueprint: BlueprintSchema.describe(
-    "The reference image's structure: its elements where it has them, filled with this post's content."
-  )
-})
+/**
+ * The brief's schema for one image style and the reviewer's chosen type,
+ * with the reference image's structure when one is attached.
+ */
+export function mediaBriefSchema(options: {
+  style: ImageStyle
+  allowedTypes?: readonly VisualType[]
+  reference?: boolean
+}) {
+  const types = visualTypesFor(options.style, options.allowedTypes)
+  const shape = briefShape(options.style, types)
+  return options.reference
+    ? z.object({
+        ...shape,
+        blueprint: BlueprintSchema.describe(
+          "The reference image's structure: its elements where it has them, filled with this post's content."
+        )
+      })
+    : z.object(shape)
+}
 
 /** An image this post already had, so a new one can be told apart from it. */
 export interface PriorVisual {
@@ -357,7 +434,12 @@ export interface DeriveMediaBriefInput {
   offerings?: string[]
   /** The brand theme as the art director reads it (renderBrandForArtDirector). */
   brand?: string
-  /** The visual types the brand theme allows; all of them when unset. */
+  /**
+   * How the picture is rendered: the reviewer's choice for this image, else
+   * the brand theme's. Photorealistic when unset.
+   */
+  imageStyle?: ImageStyle
+  /** The diagram form the reviewer chose, for minimal graphic design; any when unset. */
   allowedTypes?: readonly VisualType[]
   /** Earlier images for this post, newest first; a new one must differ from them. */
   previousVersions?: PriorVisual[]

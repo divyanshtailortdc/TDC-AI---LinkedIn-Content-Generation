@@ -1,4 +1,6 @@
 import { getPlatform } from '@/lib/platforms'
+import { carouselWording } from '@/lib/formats/media'
+import type { MediaFormat } from '@/lib/formats/types'
 import {
   extractNumbers,
   mentionsFigure
@@ -100,6 +102,11 @@ export interface LintOptions {
   recentCtas?: string[] | null
   /** Thresholds, skipped checks and the author's own posts; see writing-rules. */
   writing?: WritingSettings | null
+  /**
+   * What goes out with the text (src/lib/formats/media.ts). Set, wording
+   * about swiping or slides is checked against it; absent skips the check.
+   */
+  mediaFormat?: MediaFormat | null
 }
 
 /**
@@ -234,6 +241,33 @@ export function runLinter(opts: LintOptions): LintFinding[] {
             }
       )
     }
+  }
+
+  // 1a. "Swipe" only with slides: a post that goes out without a carousel
+  // and tells readers to swipe sends them looking for slides that are not
+  // there. The caption of a carousel may say it.
+  if (opts.mediaFormat) {
+    const wording = carouselWording(
+      [opts.hook, opts.body, opts.cta, opts.video?.caption].filter(Boolean).join('\n')
+    )
+    findings.push(
+      wording && opts.mediaFormat !== 'carousel'
+        ? {
+            rule: 'carousel_wording',
+            severity: 'error',
+            message: `The post says "${wording}", but it goes out without slides. Remove it, or make the post a carousel.`,
+            passed: false
+          }
+        : {
+            rule: 'carousel_wording',
+            severity: 'info',
+            message:
+              opts.mediaFormat === 'carousel'
+                ? 'The caption goes with the carousel.'
+                : 'No mention of slides or swiping.',
+            passed: true
+          }
+    )
   }
 
   // 1b. A video: how long it takes to say, its caption and its title.

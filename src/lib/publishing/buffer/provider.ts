@@ -5,7 +5,8 @@ import {
   createMediaToken,
   isPrivateOrigin,
   type MediaVariant,
-  mediaUrl
+  mediaUrl,
+  slideSubject
 } from '../media-token'
 import { type BufferPlatformId, PUBLISHABLE_FORMATS } from '../platform'
 import type {
@@ -74,6 +75,8 @@ type BufferNetwork = {
   requiresImage?: boolean
   /** The network's own createPost metadata. */
   metadata?: (post: { comment?: string }) => Record<string, unknown>
+  /** Most images in one post, when the network takes a carousel. */
+  maxCarouselImages?: number
 }
 
 const NETWORKS = {
@@ -98,6 +101,8 @@ const NETWORKS = {
     maxImageBytes: 10 * MB,
     imageVariant: 'facebook',
     commentInPost: true,
+    // Several photos in one post, which Facebook shows as a grid.
+    maxCarouselImages: FORMATS['facebook.post'].media.carousel!.maxSlides,
     metadata: ({ comment }) => ({
       facebook: { type: 'post', ...(comment && { firstComment: comment }) }
     })
@@ -111,6 +116,8 @@ const NETWORKS = {
     maxImageBytes: null,
     imageVariant: 'instagram',
     requiresImage: true,
+    // A carousel post: every slide in one post, swiped through.
+    maxCarouselImages: FORMATS['instagram.caption'].media.carousel!.maxSlides,
     // A feed post, not a story or Reel. The caption's comment field is a
     // link-in-bio note for the author: never posted.
     metadata: () => ({ instagram: { type: 'post', shouldShareToFeed: true } })
@@ -160,6 +167,14 @@ function bufferProvider(
   network: BufferNetwork
 ): PublishingProvider<BufferConfig> {
   const name = network.platform.name
+  // Buffer would only answer "Image could not be read from its URL".
+  const assertReachable = (ctx: ProviderContext<BufferConfig>) => {
+    if (isPrivateOrigin(ctx.config.appUrl)) {
+      throw new PostImageError(
+        `Buffer cannot download this post's images from ${new URL(ctx.config.appUrl).origin}, which only this computer can reach. Set PUBLISHING_MEDIA_URL to a public address of the app (in local development, a tunnel), then try again.`
+      )
+    }
+  }
   const buffer = (ctx: ProviderContext<BufferConfig>) =>
     contextOf(ctx, network)
   return {
@@ -211,12 +226,7 @@ function bufferProvider(
     // Buffer fetches the image itself, from a signed link to this app that
     // serves this post's image for a day (src/app/api/publishing-media).
     prepareImage: async (ctx, { draftId, image, now }) => {
-      // Buffer would only answer "Image could not be read from its URL".
-      if (isPrivateOrigin(ctx.config.appUrl)) {
-        throw new PostImageError(
-          `Buffer cannot download this post's image from ${new URL(ctx.config.appUrl).origin}, which only this computer can reach. Set PUBLISHING_MEDIA_URL to a public address of the app (in local development, a tunnel), then try again.`
-        )
-      }
+      assertReachable(ctx)
       const max = network.maxImageBytes
       if (max !== null && image.bytes.length > max) {
         throw new PostImageError(
@@ -230,12 +240,44 @@ function bufferProvider(
       )
     },
 
+    // A carousel: one signed link per slide, in order; Buffer fetches each.
+    ...(network.maxCarouselImages
+      ? {
+          carousel: { delivery: 'images' as const, maxSlides: network.maxCarouselImages },
+          prepareCarousel: async (ctx, { draftId, slides, now }) => {
+            assertReachable(ctx)
+            const max = network.maxImageBytes
+            const big = slides.findIndex(s => max !== null && s.bytes.length > max)
+            if (big !== -1) {
+              throw new PostImageError(
+                `Slide ${big + 1} is larger than the ${max! / MB} MB ${name} allows.`
+              )
+            }
+            return slides.map(slide =>
+              mediaUrl(
+                ctx.config.appUrl,
+                createMediaToken(
+                  ctx.config.encryptionKey,
+                  slideSubject(draftId, slide.id),
+                  now.getTime()
+                ),
+                network.imageVariant
+              )
+            )
+          }
+        } satisfies Partial<PublishingProvider<BufferConfig>>
+      : {}),
+
     createPost: async (ctx, post): Promise<CreatedPost> => {
       let state = await createPost(buffer(ctx), {
         channelId: post.authorId,
         text: post.text,
         replies: post.replies,
         image: post.image && { url: post.image.ref, altText: post.image.altText },
+        images: post.carousel?.refs.map((url, i) => ({
+          url,
+          altText: post.carousel?.altTexts[i] ?? null
+        })),
         metadata: network.metadata?.({ comment: post.comment })
       })
       // Usually sent within seconds: wait a little so Publish now can say so.

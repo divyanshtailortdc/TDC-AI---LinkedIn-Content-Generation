@@ -465,7 +465,7 @@ describe('guardMediaBrief', () => {
     readerTakeaway: 'Name a decision owner for exceptions.',
     primaryConcept: 'A pipeline where unscoped exceptions accumulate into an unowned pile',
     visualMetaphor: 'A process line with exceptions peeling off into a growing stack',
-    visualType: 'illustration',
+    visualType: 'picture',
     textOverlay: { headline: 'The exception path is the work', supportingPoints: [] },
     avoidConcepts: [],
     whyItFits: 'Shows the accumulation mechanism.'

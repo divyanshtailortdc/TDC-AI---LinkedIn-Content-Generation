@@ -6,6 +6,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
+import type { ImageStyle } from '~/lib/brand/theme'
 import { FORMATS, formatOf } from '@/lib/formats'
 import { loadBrandRendering } from './brand-assets'
 import {
@@ -40,6 +41,8 @@ export interface PromptMediaRecord {
   /** Lettering and logo problems the vision check found. */
   issues: string[]
   reviewChecked: boolean
+  /** The style a prompt alone was made in; unset for an edit or a reference. */
+  imageStyle?: ImageStyle
 }
 
 /**
@@ -70,6 +73,11 @@ export async function createPromptMediaForDraft(input: {
    * made from it and the prompt alone. Ignored with referenceMediaId.
    */
   referenceImage?: string
+  /**
+   * The default look of an image made from a prompt alone (the brand
+   * theme's when unset); an edit or a reference keeps its own.
+   */
+  style?: ImageStyle
   abortSignal?: AbortSignal
 }): Promise<PromptMediaOutcome> {
   // The same check every other post action makes: a post of someone else's
@@ -125,6 +133,7 @@ export async function createPromptMediaForDraft(input: {
       editImage,
       referenceImage,
       brand,
+      style: input.style,
       // No postText: the image is checked against what the reviewer asked
       // for, not the post.
       // The shape the post's platform shows (X 16:9, Instagram 4:5…).
@@ -204,6 +213,7 @@ export async function createPromptMediaForDraft(input: {
           bytes: generated.bytes,
           referenceImageCount: generated.referenceImageCount,
           ...(referenceImage ? { usedReference: true } : {}),
+          ...(generated.imageStyle ? { imageStyle: generated.imageStyle } : {}),
           seed: generated.seed,
           logo: generated.logo,
           // Shown with the image; the subject is the reviewer's own choice.
@@ -241,7 +251,8 @@ export async function createPromptMediaForDraft(input: {
       regenerationAttempt: newMedia.regenerationAttempt,
       hasLogo: Boolean(generated.logo),
       issues: generated.issues,
-      reviewChecked: generated.reviewChecked
+      reviewChecked: generated.reviewChecked,
+      imageStyle: generated.imageStyle
     }
   }
 }

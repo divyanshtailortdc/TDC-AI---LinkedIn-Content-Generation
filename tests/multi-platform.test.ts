@@ -659,29 +659,47 @@ describe('image shape per post type', () => {
 })
 
 describe('formats posts can be created in', () => {
-  it('offers every format but Instagram Reels, from ideas and as a version', async () => {
-    const { CREATABLE_FORMATS, FORMAT_IDS, isCreatableFormat } = await import('../src/lib/formats')
-    assert.ok(!CREATABLE_FORMATS.includes('instagram.reel'))
-    assert.strictEqual(isCreatableFormat('instagram.reel'), false)
-    assert.strictEqual(isCreatableFormat('instagram.caption'), true)
+  it('offers no Reel, video or script: every format but Instagram Reels and YouTube Shorts', async () => {
+    const { CREATABLE_FORMATS, FORMAT_IDS, FORMATS, isCreatableFormat } = await import('../src/lib/formats')
     assert.deepStrictEqual(
       FORMAT_IDS.filter(id => !isCreatableFormat(id)),
-      ['instagram.reel']
+      ['instagram.reel', 'youtube.short']
     )
+    assert.ok(CREATABLE_FORMATS.every(id => FORMATS[id].structure !== 'script'))
+  })
+
+  it('offers no platform with nothing to create: YouTube is left out', async () => {
+    const { CREATABLE_PLATFORMS, STARTING_FORMATS } = await import('../src/lib/formats')
+    assert.deepStrictEqual([...CREATABLE_PLATFORMS], ['linkedin', 'x', 'threads', 'facebook', 'instagram'])
+    assert.deepStrictEqual(STARTING_FORMATS.youtube, [])
   })
 })
 
-describe('Reels turned on before', () => {
+describe('scripts turned on before', () => {
   it('are dropped from what an identity drafts, so ideation and Preferences never see them', async () => {
     const { resolveChannels } = await import('../src/lib/formats')
     assert.deepStrictEqual(
-      resolveChannels({ enabledFormats: ['instagram.caption', 'instagram.reel'] }).enabledFormats,
+      resolveChannels({ enabledFormats: ['instagram.caption', 'instagram.reel', 'youtube.short'] }).enabledFormats,
       ['instagram.caption']
     )
-    // Only a Reel was on: back to the default, never an empty list.
+    // Only scripts were on: back to the default, never an empty list.
     assert.deepStrictEqual(
-      resolveChannels({ enabledFormats: ['instagram.reel'] }).enabledFormats,
+      resolveChannels({ enabledFormats: ['youtube.short'] }).enabledFormats,
       ['linkedin.post']
     )
+  })
+
+  it('are never drafted for an older idea that targets them', async () => {
+    const { formatsToDraft } = await import('../src/lib/formats')
+    assert.deepStrictEqual(
+      formatsToDraft({ targetFormats: ['instagram.reel', 'instagram.caption'] }),
+      ['instagram.caption']
+    )
+    assert.deepStrictEqual(formatsToDraft({ targetFormats: ['youtube.short'] }), ['linkedin.post'])
+  })
+
+  it('leave a run aimed at YouTube planning for every platform instead', async () => {
+    const { ideationChannels } = await import('../src/lib/ai/skills/ideation/prompt')
+    assert.strictEqual(ideationChannels(['linkedin.post'], 'youtube'), null)
   })
 })

@@ -1,13 +1,20 @@
+import {
+  DEFAULT_IMAGE_STYLE,
+  imageStyleLabel,
+  isPictureStyle,
+  type ImageStyle
+} from '@/lib/brand/theme'
 import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
 import { NODE_LIMITS } from '@/lib/media/canvas/spec'
+import { artDirectionFor } from '@/lib/media/style-prompt'
 import {
-  VISUAL_TYPES,
+  visualTypesFor,
   type DeriveMediaBriefInput,
   type VisualType
 } from './schema'
 
 export const INSTRUCTIONS =
-  "You are an art director for high-performing B2B social media content. You create visually diverse, stunning branded canvas graphics. Every post must feel fresh and unique in a user's feed rather than repeating the same layout template. You choose the ideal layout format (split_left, split_right, top_bottom, or centered_hero) and visual form to express the post's core message with crisp typographical hierarchy, brand colours, and clean vector diagrams."
+  "You are an art director for high-performing social media content. Each image you design is a branded layout drawn by code (the headline, tagline and logo in the brand's typefaces and colours) with one visual: a picture from an image model in the image style you are given, or a clean diagram. You choose the layout and write the visual so it carries this post's specific point and looks like it belongs to this brand: its industry, its audience and its colours. Every post must feel fresh in the feed rather than repeating the same template."
 
 const section = (title: string, body: string | null | undefined) =>
   body?.trim() ? `${title}\n${body.trim()}\n\n` : ''
@@ -25,8 +32,30 @@ const TYPE_GUIDE: Record<VisualType, string> = {
   stack: `stack: ${NODE_LIMITS.stack.min}-${NODE_LIMITS.stack.max} layers, the top first, each resting on the one below. For an architecture, a set of foundations, what builds on what.`,
   cards: `cards: ${NODE_LIMITS.cards.min}-${NODE_LIMITS.cards.max} separate points side by side, each with a short detail. For key takeaways, reasons, features of an offer.`,
   comparison: `comparison: two columns (groups) with the same number of rows each, 2-4. For before and after, old way and new way, a choice between two options.`,
+  picture: "picture: the image model's picture, in the image style above."
+}
+
+/** The layouts each kind of visual can be drawn in, as the art director reads them. */
+const PICTURE_LAYOUT_GUIDE = `- split_left (default): the brand logo, tagline, headline (its highlighted words in the accent colour), subheadline and website on the left; the picture fills the right side to the image's edges.
+- split_right: the picture fills the left side; the text on the right. Alternates the rhythm in the feed.
+- top_bottom: the logo, tagline, headline and subheadline across the top; the picture as a wide panoramic band across the bottom. Best for a wide scene: a room, a site, a row of people or things.
+Every word is set by code in the brand's typefaces, so the picture itself carries no text.`
+
+const DIAGRAM_LAYOUT_GUIDE = `- top_bottom: Headline, tagline and logo across the top; a wide horizontal stage across the bottom. RECOMMENDED for multi-step sequences ("flow" with 3-5 steps laid out horizontally with arrows), 3-4 side-by-side cards, or wide comparisons. This breaks feed monotony and creates an expansive, modern visual.
+- centered_hero: An elevated central manifesto/brief card with the headline, subheadline, and 2-3 key takeaway cards inside. BEST for opinion posts, bold thesis statements, event/conference announcements, or punchy single-claim posts.
+- split_right: Visual on the left, text column on the right. Inverts the traditional split to provide alternating rhythm in the feed.
+- split_left (default): Left: the brand logo, then the tagline, the headline with its highlighted words in the accent colour, the subheadline, and the website at the bottom. Right: the visual, on a light background with a subtle dot or grid pattern.`
+
+/** The last requirement: what the visual may and may not show, per style. */
+const VISUAL_RULE: Record<ImageStyle, string> = {
+  photorealistic:
+    "The picture is a real scene a camera could capture in this account's world: no text, signs, labels, logos or screens full of words, no famous or named people, nothing a photographer could not actually shoot.",
+  '3d_render':
+    'The picture is a 3D scene of real objects: no text, labels or logos, no human figures, no characters or mascots.',
   illustration:
-    'illustration: a flat vector illustration from the image model, with 2-3 labelled badges laid over it. For a story, a scene, a moment or a feeling that a diagram would flatten.'
+    'The picture is a clean flat vector illustration on a plain white background. It shows objects, simple shapes and stylised figures, never text, labels, logos, screens full of words, detailed faces or hands, or anything photographic.',
+  minimal_graphic:
+    'The visual is a diagram of labelled nodes; nothing else is drawn.'
 }
 
 /**
@@ -50,7 +79,7 @@ Then fill every block with this post's content. Take none of its objects, wordin
 - A block's box holds only its own element: a box of words ends where the next element begins, never running under it, unless the words sit inside that element; and no box of words reaches the image's edge.
 - A stat block shows a figure this post states, with its caption in detail when the caption sits under it; a caption set beside the figure is a label block of its own.
 - A stat's figure must appear in this post. When the post has fewer figures than the reference has stats, make the rest cards.
-- A photo, illustration, screenshot or device area is an image block ("circle" for a round avatar): write illustrationPrompt for what goes in the first one.
+- A photo, illustration, screenshot or device area is an image block ("circle" for a round avatar): write imagePrompt for what goes in the first one, in the image style above.
 - Follow the reference even when an earlier image had a similar structure; only the words and subject must differ.
 - Still fill layout, visualType and nodes: they are drawn if the blueprint cannot be.`
 
@@ -79,7 +108,9 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
       )
     : ''
 
-  const allowed = input.allowedTypes?.length ? input.allowedTypes : VISUAL_TYPES
+  const style = input.imageStyle ?? DEFAULT_IMAGE_STYLE
+  const picture = isPictureStyle(style)
+  const allowed = visualTypesFor(style, input.allowedTypes)
   const earlier = input.current ? [] : (input.previousVersions || []).slice(0, 5)
   const lastType = earlier[0]?.visualType
   const lastLayout = earlier[0]?.layout
@@ -97,8 +128,8 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
       }${
         lastLayout ? `, and a layout format other than ${words(lastLayout)} to maintain visual diversity in the feed` : ''
       }${
-        allowed.length === 1 && allowed[0] === 'illustration'
-          ? ', and an illustration of a different subject'
+        allowed.length === 1 && allowed[0] === 'picture'
+          ? ', and a picture of a different subject or scene'
           : ''
       }.${input.rejectionReason?.trim() ? `\nThe reviewer said about the last one: "${input.rejectionReason.trim()}".` : ''}`
     : ''
@@ -115,14 +146,22 @@ export function buildPrompt(input: DeriveMediaBriefInput): string {
           hub: input.current.visual.hub,
           nodes: input.current.visual.nodes,
           groups: input.current.visual.groups,
-          illustrationPrompt: input.current.visual.illustrationPrompt
+          imagePrompt: input.current.visual.imagePrompt,
+          styleDirection: input.current.visual.styleDirection
         },
         null,
         2
       )}
 The reviewer asked for this change: "${input.current.change.trim()}"
-Apply only that change and return everything else exactly as it is, word for word. Keep illustrationPrompt identical unless the change is about the illustration itself: an unchanged prompt reuses the illustration already drawn.`
+Apply only that change and return everything else exactly as it is, word for word. Keep imagePrompt identical unless the change is about the picture itself: an unchanged prompt reuses the picture already made.`
     : ''
+
+  const styleSection = `${artDirectionFor(style)}
+${
+  picture
+    ? "Fit the style to who posts this, their industry and audience, and the brand's colours: the same style looks different for a hospital, a law firm and a coffee roaster. Any visual direction or earlier images below set the subject, not the style: whatever medium they name, show it in this style."
+    : "Pick the diagram form that matches how the post's point is built."
+}`
 
   return `Design the image that will accompany this social media post.
 
@@ -146,28 +185,33 @@ ${section('THE ARGUMENT', input.thesis)}${section(
   )}${section('WHO POSTS IT AND WHO SEES IT', input.accountContext)}${section(
     'BRAND THEME',
     input.brand
-  )}${section(
+  )}${section(`IMAGE STYLE — ${imageStyleLabel(style)}`, styleSection)}${section(
     'REFERENCE IMAGE (attached) — the reviewer wants the new image built like it',
     input.referenceImage ? REFERENCE_GUIDE : ''
   )}${section('EARLIER IMAGES FOR THIS POST', earlierBlock)}${section(
-    'VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above. Words in quotation marks are text the reviewer wants on the image: use them exactly, as the headline unless they say otherwise.',
+    'VISUAL DIRECTION ALREADY CHOSEN FOR THIS POST — build on it unless it no longer fits the post above. It sets the subject; the image style sets the look. Words in quotation marks are text the reviewer wants on the image: use them exactly, as the headline unless they say otherwise.',
     input.direction
   )}${section('THE CURRENT DESIGN — this is an edit', current)}THE LAYOUT (fixed, drawn by code)
 Choose one layout that best fits the post's structure to ensure diverse aesthetics across the feed:
-- top_bottom: Headline, tagline and logo across the top; a wide horizontal stage across the bottom. RECOMMENDED for multi-step sequences ("flow" with 3-5 steps laid out horizontally with arrows), 3-4 side-by-side cards, or wide comparisons. This breaks feed monotony and creates an expansive, modern visual.
-- centered_hero: An elevated central manifesto/brief card with the headline, subheadline, and 2-3 key takeaway cards inside. BEST for opinion posts, bold thesis statements, event/conference announcements, or punchy single-claim posts.
-- split_right: Visual on the left, text column on the right. Inverts the traditional split to provide alternating rhythm in the feed.
-- split_left (default): Left: the brand logo, then the tagline, the headline with its highlighted words in the accent colour, the subheadline, and the website at the bottom. Right: the visual, on a light background with a subtle dot or grid pattern.
+${picture ? PICTURE_LAYOUT_GUIDE : DIAGRAM_LAYOUT_GUIDE}
 
 FEED DIVERSITY RULE:
-Never generate all images in the same format. If earlier images exist, pick a different layout format! For sequential steps, use top_bottom. For announcements or manifesto claims, use centered_hero.
+Never generate all images in the same format. If earlier images exist, pick a different layout format!${
+    picture
+      ? ''
+      : ' For sequential steps, use top_bottom. For announcements or manifesto claims, use centered_hero.'
+  }
 
-VISUAL TYPES you may use:
+${
+  picture
+    ? 'THE VISUAL: visualType is "picture"; the nodes are 2 or 3 short labels naming what it shows.'
+    : `VISUAL TYPES you may use:
 ${allowed.map(t => `- ${TYPE_GUIDE[t]}`).join('\n')}
 ${
   allowed.length === 1
     ? "The reviewer chose this visual type: use it, and shape the post's point to fit it."
     : "Pick the one whose shape matches how the post's point is built."
+}`
 }
 
 ICONS for nodes and the hub: ${ICON_NAMES.join(', ')}.
@@ -177,7 +221,7 @@ Requirements:
 - No generic business, AI or technology filler (synergy, innovation, digital transformation, growth) unless the post is literally about that.
 - Never state a statistic, date, venue, price or offer that the post and goal above do not state. Product and service names only from the post or the offerings above.
 - Labels are 1-3 words and say what the thing is; details are at most 6 words.
-- An illustration is a clean flat vector scene with a plain white background. It shows objects and simple shapes, never text, labels, logos, screens full of words, real people's faces, hands, desks, coffee cups or anything photographic.`
+- ${VISUAL_RULE[style]}`
 }
 
 /** The same request, plus why the previous concept was rejected. */

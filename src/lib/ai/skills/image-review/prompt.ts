@@ -1,4 +1,15 @@
+import { imageStyleLabel } from '@/lib/brand/theme'
 import type { ReviewImageInput } from './schema'
+
+/** What each style should look like, for judging matchesStyle. */
+const STYLE_LOOKS = {
+  photorealistic:
+    'a real photograph a professional could have taken: natural light, real materials and textures, believable people and proportions',
+  '3d_render':
+    'a polished 3D render with realistic materials and studio lighting',
+  illustration: 'a flat editorial illustration',
+  minimal_graphic: 'a minimal flat graphic design'
+} as const
 
 export const INSTRUCTIONS =
   'You check AI-generated images before they are published with a social media post. You read every letter exactly as it is drawn and report problems plainly. Never assume text is correct because it was intended: image models misspell words and invent lettering.'
@@ -36,7 +47,14 @@ ${
 
 BRAND
 ${input.brand?.trim() || 'No brand colours were set.'}${reference}
-
+${
+  input.style
+    ? `
+INTENDED STYLE
+${imageStyleLabel(input.style)}: it should look like ${STYLE_LOOKS[input.style]}. Say whether it does, and list any flaws that give it away as generated.
+`
+    : ''
+}
 ${
   input.logoCorner
     ? `The brand's real logo has been laid over the ${input.logoCorner} corner. That logo is expected: do not list its lettering as unintended text or as a brand mark. Say whether it overlaps or hides part of the headline, a face or a key object. Any other logo, emblem, wordmark, brand or company name drawn anywhere else is a defect, however plausible it looks.`

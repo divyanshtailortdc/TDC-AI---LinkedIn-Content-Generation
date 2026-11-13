@@ -35,14 +35,15 @@ export class LinkedInApiError extends PlatformApiError {
  * What a request sends. The image and a deletion are safe to send twice:
  * neither publishes anything.
  */
-type Sending = 'post' | 'image' | 'comment' | 'delete'
+type Sending = 'post' | 'image' | 'document' | 'comment' | 'delete'
 const NOUNS: Record<Sending, string> = {
   post: 'the post',
   image: 'the image',
+  document: 'the carousel document',
   comment: 'the comment',
   delete: 'the deletion'
 }
-const REPEATABLE = new Set<Sending>(['image', 'delete'])
+const REPEATABLE = new Set<Sending>(['image', 'document', 'delete'])
 
 export type ApiContext = {
   accessToken: string
@@ -227,12 +228,70 @@ export async function uploadImage(
   return imageUrn
 }
 
+/**
+ * LinkedIn's longest document: 100 MB and 300 pages. A carousel is far
+ * smaller; refused here rather than after the upload.
+ */
+export const DOCUMENT_MAX_BYTES = 100 * 1024 * 1024
+
+/**
+ * Uploads a PDF (a carousel's slides, one per page) and returns its URN, for
+ * a document post, which LinkedIn shows page by page in the feed. Publishes
+ * nothing, so it is safe to send again.
+ */
+export async function uploadDocument(
+  ctx: ApiContext,
+  ownerUrn: string,
+  pdf: Buffer
+): Promise<string> {
+  if (pdf.length > DOCUMENT_MAX_BYTES) {
+    throw new PostImageError("The carousel's slides come to more than LinkedIn's 100 MB.")
+  }
+  const init = await send(
+    ctx,
+    `${API_BASE}/documents?action=initializeUpload`,
+    {
+      method: 'POST',
+      headers: headers(ctx),
+      body: JSON.stringify({ initializeUploadRequest: { owner: ownerUrn } })
+    },
+    'document'
+  )
+  const body = (await init.json().catch(() => null)) as {
+    value?: { uploadUrl?: string; document?: string }
+  } | null
+  const uploadUrl = body?.value?.uploadUrl
+  const documentUrn = body?.value?.document
+  if (!uploadUrl || !documentUrn || !uploadUrl.startsWith('https://')) {
+    throw new LinkedInApiError(
+      'LinkedIn did not accept the carousel upload.',
+      'platform_unavailable'
+    )
+  }
+  await send(
+    ctx,
+    uploadUrl,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${ctx.accessToken}` },
+      body: new Uint8Array(pdf)
+    },
+    'document'
+  )
+  return documentUrn
+}
+
+/** A document post's title: LinkedIn requires one and shows it over the document. */
+export const DOCUMENT_TITLE_MAX = 400
+
 export async function createPost(
   ctx: ApiContext,
   post: {
     authorUrn: string
     commentary: string
     image?: { urn: string; altText?: string | null }
+    /** A carousel: the uploaded document, with the title shown over it. */
+    document?: { urn: string; title: string }
   }
 ): Promise<string> {
   const res = await send(
@@ -250,16 +309,25 @@ export async function createPost(
           targetEntities: [],
           thirdPartyDistributionChannels: []
         },
-        ...(post.image && {
-          content: {
-            media: {
-              id: post.image.urn,
-              ...(post.image.altText && {
-                altText: post.image.altText.slice(0, 4086)
-              })
+        ...(post.document
+          ? {
+              content: {
+                media: {
+                  id: post.document.urn,
+                  title: post.document.title.slice(0, DOCUMENT_TITLE_MAX) || 'Carousel'
+                }
+              }
             }
-          }
-        }),
+          : post.image && {
+              content: {
+                media: {
+                  id: post.image.urn,
+                  ...(post.image.altText && {
+                    altText: post.image.altText.slice(0, 4086)
+                  })
+                }
+              }
+            }),
         lifecycleState: 'PUBLISHED',
         isReshareDisabledByAuthor: false
       })

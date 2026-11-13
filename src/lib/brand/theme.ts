@@ -2,12 +2,13 @@ import { z } from 'zod'
 import { DEFAULT_FONT, findFont } from './fonts'
 
 /**
- * An identity's brand theme: its logo, colours, typefaces and the look of the
- * visual side of every image generated for it.
+ * An identity's brand theme: its logo, colours, typefaces and the image
+ * style of every image generated for it.
  *
- * Every image is laid out the same way by the canvas renderer
- * (src/lib/media/canvas): the text on the left, a diagram or illustration on
- * the right, on a light background. The theme fills that layout in.
+ * Every image is laid out by the canvas renderer (src/lib/media/canvas): the
+ * text in the brand's typefaces and colours on a light background, beside a
+ * picture in the image style (a photograph by default) or, for minimal
+ * graphic design, a diagram. The theme fills that layout in.
  *
  * Pure and free of Node APIs, so the Brand Theme form, the server actions and
  * the media prompt builders share one definition. The logo bytes are not part
@@ -16,27 +17,64 @@ import { DEFAULT_FONT, findFont } from './fonts'
 
 export { BRAND_THEME_PATH } from './theme-path'
 
-export const VISUAL_STYLES = [
+/**
+ * How the picture in every image is rendered. The brand theme sets the
+ * default and the image panel can override it for one image; either way the
+ * style goes into the image model's prompt (src/lib/media/style-prompt.ts)
+ * and decides how the picture sits in the layout.
+ */
+export const IMAGE_STYLES = [
   {
-    value: 'auto',
-    label: 'Decide per post',
+    value: 'photorealistic',
+    label: 'Photorealistic',
     description:
-      'A diagram when the post explains how things connect, an illustration when it tells a story.'
-  },
-  {
-    value: 'diagram',
-    label: 'Diagram',
-    description:
-      'Hub-and-spoke, flows, layers, cards or a comparison, drawn with exact labels.'
+      'A real-looking photograph of the post’s world, lit and framed like editorial photography.'
   },
   {
     value: 'illustration',
     label: 'Illustration',
     description:
-      'A flat vector illustration drawn by the image model, with labelled badges.'
+      'A clean drawn illustration in your brand colours, with labelled badges.'
+  },
+  {
+    value: '3d_render',
+    label: '3D Render',
+    description:
+      'A polished 3D scene with realistic materials and studio lighting.'
+  },
+  {
+    value: 'minimal_graphic',
+    label: 'Minimal Graphic Design',
+    description:
+      'A clean diagram — steps, layers, key points or a comparison — with exact labels.'
   }
 ] as const
-export type VisualStyle = (typeof VISUAL_STYLES)[number]['value']
+export type ImageStyle = (typeof IMAGE_STYLES)[number]['value']
+
+/** Every image is a photograph unless the brand or the reviewer says otherwise. */
+export const DEFAULT_IMAGE_STYLE: ImageStyle = 'photorealistic'
+
+export const isImageStyle = (value: unknown): value is ImageStyle =>
+  IMAGE_STYLES.some(s => s.value === value)
+
+/** The styles whose picture comes from the image model; the other is a diagram drawn by code. */
+export type PictureStyle = Exclude<ImageStyle, 'minimal_graphic'>
+export const isPictureStyle = (style: ImageStyle): style is PictureStyle =>
+  style !== 'minimal_graphic'
+
+/**
+ * A stored style, including the values saved before styles existed: 'auto'
+ * (the column's default, never exposed in the form) becomes the photographic
+ * default, 'diagram' the minimal graphic it always drew.
+ */
+export function resolveImageStyle(value: string | null | undefined): ImageStyle {
+  if (isImageStyle(value)) return value
+  if (value === 'diagram') return 'minimal_graphic'
+  return DEFAULT_IMAGE_STYLE
+}
+
+export const imageStyleLabel = (style: ImageStyle) =>
+  IMAGE_STYLES.find(s => s.value === style)?.label ?? style
 
 export const BACKGROUND_PATTERNS = [
   { value: 'auto', label: 'Auto' },
@@ -90,7 +128,8 @@ export interface ResolvedBrandTheme {
   /** Families from FONT_CHOICES. */
   headingFont: string
   bodyFont: string
-  visualStyle: VisualStyle
+  /** How the picture in every image is rendered; see IMAGE_STYLES. */
+  visualStyle: ImageStyle
   backgroundPattern: BackgroundPattern
   /** Whether the logo goes on images; ignored until one is uploaded. */
   showLogo: boolean
@@ -108,7 +147,7 @@ export const DEFAULT_BRAND_THEME: ResolvedBrandTheme = {
   backgroundColor: null,
   headingFont: DEFAULT_FONT,
   bodyFont: DEFAULT_FONT,
-  visualStyle: 'auto',
+  visualStyle: DEFAULT_IMAGE_STYLE,
   backgroundPattern: 'dots',
   showLogo: true,
   footerText: null,
@@ -182,9 +221,7 @@ export function resolveBrandTheme(
       background && isLightBackground(background) ? background : null,
     headingFont: findFont(row.headingFont)?.family ?? DEFAULT_FONT,
     bodyFont: findFont(row.bodyFont)?.family ?? DEFAULT_FONT,
-    visualStyle: isOption(VISUAL_STYLES, row.visualStyle)
-      ? row.visualStyle
-      : 'auto',
+    visualStyle: resolveImageStyle(row.visualStyle),
     backgroundPattern: isOption(BACKGROUND_PATTERNS, row.backgroundPattern)
       ? row.backgroundPattern
       : 'dots',
@@ -342,8 +379,10 @@ export const BrandThemePayloadSchema = z.object({
   headingFont: fontField('Headline typeface'),
   bodyFont: fontField('Body typeface'),
   visualStyle: z
-    .enum(VISUAL_STYLES.map(s => s.value) as [VisualStyle, ...VisualStyle[]])
-    .default('auto'),
+    .enum(IMAGE_STYLES.map(s => s.value) as [ImageStyle, ...ImageStyle[]], {
+      error: 'Choose one of the listed image styles.'
+    })
+    .default(DEFAULT_IMAGE_STYLE),
   backgroundPattern: z
     .enum(
       BACKGROUND_PATTERNS.map(p => p.value) as [

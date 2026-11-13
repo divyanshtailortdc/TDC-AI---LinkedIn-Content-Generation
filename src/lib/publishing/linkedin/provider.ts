@@ -7,6 +7,7 @@ import {
   createPost,
   deletePost,
   postUrl,
+  uploadDocument,
   uploadImage
 } from './api'
 import {
@@ -57,12 +58,26 @@ export const linkedInProvider: PublishingProvider<LinkedInAppConfig> = {
   authorIdOf: personUrn,
   prepareImage: (ctx, { authorId, image }) =>
     uploadImage(api(ctx), authorId, image),
+  // A carousel is a document post: the slides as one PDF, a page each,
+  // which LinkedIn shows page by page in the feed.
+  carousel: { delivery: 'document', maxSlides: 20 },
+  prepareCarousel: async (ctx, { authorId, slides, title }) => {
+    const { slidesToPdf } = await import('@/lib/media/carousel/export')
+    const pdf = await slidesToPdf(
+      slides.map(s => ({ bytes: s.bytes, mediaType: s.mediaType })),
+      title
+    )
+    return [await uploadDocument(api(ctx), authorId, pdf)]
+  },
   createPost: async (ctx, post) => ({
     postId: await createPost(api(ctx), {
       authorUrn: post.authorId,
       commentary: post.text,
       image: post.image
         ? { urn: post.image.ref, altText: post.image.altText }
+        : undefined,
+      document: post.carousel?.refs[0]
+        ? { urn: post.carousel.refs[0], title: post.carousel.title }
         : undefined
     }),
     url: null,

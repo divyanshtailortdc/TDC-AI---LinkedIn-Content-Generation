@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ImageStyle } from '@/lib/brand/theme'
 import type { CallUsage } from '../../usage'
 
 export const ImageReviewSchema = z.object({
@@ -66,6 +67,18 @@ export const ImageReviewSchema = z.object({
     .describe(
       'True when the image uses the brand colours and style described, or when none were given.'
     ),
+  artifacts: z
+    .array(z.string())
+    .default([])
+    .describe(
+      'Visible flaws that give away a generated image, each described briefly: malformed hands or faces, extra or merged fingers or limbs, warped or melted objects, impossible geometry, bent lines that should be straight, duplicated objects, plastic or waxy skin. Empty when there are none.'
+    ),
+  matchesStyle: z
+    .boolean()
+    .default(true)
+    .describe(
+      'Only when an intended style is given: true when the image is plainly in that style, false when, for example, an intended photograph looks illustrated, cartoonish or computer-rendered. True when no style is given.'
+    ),
   relevanceScore: z
     .number()
     .int()
@@ -98,6 +111,8 @@ export interface ReviewImageInput {
   logoCorner?: string
   /** The reference image the new one was meant to follow for layout and style. */
   reference?: { data: Uint8Array; mediaType: string }
+  /** The image style it was asked for, so a photograph that looks drawn is caught. */
+  style?: ImageStyle
   abortSignal?: AbortSignal
 }
 

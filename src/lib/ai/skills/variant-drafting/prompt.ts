@@ -8,7 +8,8 @@ import {
   videoScriptOf,
   WORDS_PER_SECOND,
   type FormatId,
-  type FormatSpec
+  type FormatSpec,
+  type MediaFormat
 } from '@/lib/formats'
 import { channelNote, forFormat } from '../../channel-context'
 import {
@@ -51,6 +52,33 @@ export interface ApprovedSibling {
   formatId: FormatId
   /** Plain text: a single post's parts, or a thread's posts split by "---". */
   text: string
+}
+
+/**
+ * What goes out with the post's text, as drafting planned it, and whether
+ * the writer may make a single-image post a carousel instead (a new post in
+ * a format that takes one; never a rewrite, which keeps its media).
+ */
+export interface MediaPlan {
+  format: MediaFormat
+  mayChooseCarousel?: boolean
+}
+
+/** Starts a visual idea that asks for a carousel (see suggestsCarousel). */
+export const CAROUSEL_VISUAL_PREFIX = 'Carousel:'
+
+function mediaRule(media: MediaPlan | undefined): string | null {
+  if (!media || media.format === 'video') return null
+  if (media.format === 'carousel') {
+    return 'This post goes out as a carousel: slides designed separately from this text. What you write is the caption beside them: open on the hook, give the context or story the slides do not, and say in a line what the slides walk through; you may invite people to swipe. Do not list every point the slides make, and do not number points.'
+  }
+  if (media.format === 'image' && media.mayChooseCarousel) {
+    return `This post goes out with one image. When the idea is clearly best told as slides (steps, a short list, a framework, a before and after), make it a carousel instead: start visualIdea with "${CAROUSEL_VISUAL_PREFIX}", say what the slides show, and write the caption for a carousel. Otherwise never mention swiping, slides or a carousel.`
+  }
+  if (media.format === 'image') {
+    return 'This post goes out with one image. Never mention swiping, slides or a carousel.'
+  }
+  return 'Never mention swiping, slides or a carousel: this post has none.'
 }
 
 /** The style a format's posts are written in: its platform's. */
@@ -187,7 +215,11 @@ function renderExemplars(ctx: GenerationContext, spec: FormatSpec): string {
     .join('\n\n')}`
 }
 
-function renderProduceList(ctx: GenerationContext, spec: FormatSpec): string {
+function renderProduceList(
+  ctx: GenerationContext,
+  spec: FormatSpec,
+  media?: MediaPlan
+): string {
   const hashtags =
     spec.hashtags === 'voice'
       ? `follow the author's policy: "${ctx.prefs.constraints.hashtag_policy}"`
@@ -229,9 +261,13 @@ ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly wh
 5. hashtags — ${hashtags}, without the # symbol
 6. alternateHooks — 2 to 3 genuinely different openings
 7. visualIdea — ${
-    spec.id === 'instagram.caption'
-      ? 'the image or short carousel this caption goes with'
-      : isCasualStyle(styleOfFormat(ctx, spec.id))
+    media?.format === 'carousel'
+      ? "what the carousel's slides show, in one sentence"
+      : spec.id === 'instagram.caption'
+        ? media?.mayChooseCarousel
+          ? 'the image this caption goes with, or the carousel as the media rule says'
+          : 'the image this caption goes with'
+        : isCasualStyle(styleOfFormat(ctx, spec.id))
         ? 'what the author should photograph or film to go with this post, in one or two sentences'
         : 'leave empty'
   }
@@ -260,11 +296,14 @@ export function buildFormatPrompt(
   /** How this idea's posts on other platforms already open. */
   siblingOpenings: string[] = [],
   /** This idea's posts the reviewer approved on other platforms. */
-  approvedSiblings: ApprovedSibling[] = []
+  approvedSiblings: ApprovedSibling[] = [],
+  /** What goes out with the text. */
+  media?: MediaPlan
 ): string {
   const spec = FORMATS[formatId]
   const platform = PLATFORMS[spec.platform]
   const ctx = forFormat(baseCtx, formatId)
+  const visual = mediaRule(media)
   const note = channelNote(ctx, spec.platform)
 
   const recentHooks = ctx.history.drafts
@@ -299,6 +338,7 @@ export function buildFormatPrompt(
     ...spec.rules.map(r => `- ${r}`),
     `- ${emojiRule(ctx, spec)}`,
     `- Links: ${linkRule(ctx, spec)}`,
+    ...(visual ? [`- Media: ${visual}`] : []),
     ...(siblingOpenings.length > 0
       ? [
           '',
@@ -315,7 +355,7 @@ export function buildFormatPrompt(
       : []),
     ...(exemplars ? ['', exemplars] : []),
     '',
-    renderProduceList(ctx, spec)
+    renderProduceList(ctx, spec, media)
   ]
   return lines.join('\n')
 }
@@ -357,11 +397,12 @@ export function buildRegeneratePrompt(
   },
   instruction: string | null,
   siblingOpenings: string[] = [],
-  approvedSiblings: ApprovedSibling[] = []
+  approvedSiblings: ApprovedSibling[] = [],
+  media?: MediaPlan
 ): string {
   const spec = FORMATS[formatId]
   const shown = renderVersion(formatId, current)
-  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings, approvedSiblings)}
+  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings, approvedSiblings, media)}
 
 The reviewer asked for a new version of this ${spec.label}.${
     instruction
@@ -387,12 +428,13 @@ export function buildRevisionPrompt(
   previous: VariantDraft,
   failedChecks: string[],
   siblingOpenings: string[] = [],
-  approvedSiblings: ApprovedSibling[] = []
+  approvedSiblings: ApprovedSibling[] = [],
+  media?: MediaPlan
 ): string {
   const spec = FORMATS[formatId]
   const shown = renderVersion(formatId, previous)
   const length = formatCharCount(formatId, previous)
-  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings, approvedSiblings)}
+  return `${buildFormatPrompt(baseCtx, formatId, siblingOpenings, approvedSiblings, media)}
 
 Your previous draft failed these checks. Rewrite it so every one passes, keeping the argument and the voice intact.
 
