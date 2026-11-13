@@ -851,7 +851,7 @@ export function GoalsClient({
                         className={cn(
                           'relative space-y-4 rounded-xl border p-5 transition-all',
                           isSelected
-                            ? 'border-accent/60 bg-accent/[0.04] ring-2 ring-accent/20 shadow-xs'
+                            ? 'border-accent/60 bg-accent/4 ring-2 ring-accent/20 shadow-xs'
                             : g.isActive
                               ? 'border-border bg-surface hover:border-border/80'
                               : 'border-border bg-surface/50 opacity-80'
@@ -890,7 +890,7 @@ export function GoalsClient({
                                   )}
                                 >
                                   {isSelected && (
-                                    <Check className="h-3 w-3 stroke-[3]" />
+                                    <Check className="h-3 w-3 stroke-3" />
                                   )}
                                 </div>
                               </label>

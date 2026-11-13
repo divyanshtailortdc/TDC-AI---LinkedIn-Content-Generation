@@ -68,9 +68,9 @@ export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
             <div className="space-y-4">
               <div className="space-y-2 pt-2">
                 <Bar className="h-8 w-40" />
-                <Bar className="h-4 w-[32rem] max-w-full" />
+                <Bar className="h-4 w-lg max-w-full" />
               </div>
-              <Bar className="h-8 w-[36rem] max-w-full" />
+              <Bar className="h-8 w-xl max-w-full" />
               <Bar className="h-10 w-full" />
               <Bar className="h-4 w-64" />
               <div className="grid grid-cols-1 gap-4 pt-2 @xl:grid-cols-2 @min-[54rem]:grid-cols-3 @min-[68rem]:grid-cols-4 @min-[92rem]:grid-cols-5">
@@ -80,7 +80,7 @@ export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
                     className="border-border bg-surface space-y-3 rounded-2xl border p-4 shadow-xs"
                   >
                     <Bar className="h-5 w-1/2" />
-                    <Bar className="aspect-[5/2] w-full rounded-lg" />
+                    <Bar className="aspect-5/2 w-full rounded-lg" />
                     <Bar className="h-4 w-4/5" />
                     <Bar className="h-3 w-full" />
                   </div>

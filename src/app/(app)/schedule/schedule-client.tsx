@@ -397,7 +397,7 @@ export function ScheduleClient({
               ) : (
                 <ul
                   key={unplannedPageInfo.page}
-                  className="divide-border max-h-[32rem] divide-y overflow-y-auto"
+                  className="divide-border max-h-128 divide-y overflow-y-auto"
                 >
                   {unplannedRows.map(post => (
                     <li

@@ -1859,24 +1859,6 @@ export function PostDetailClient({
             <span aria-hidden className="bg-border hidden h-5 w-px sm:block" />
             <button
               type="button"
-              disabled={isSaving}
-              onClick={() => void handleToggleHidden()}
-              aria-label={activePost.hiddenAt ? 'Unhide post' : 'Hide post'}
-              title={
-                activePost.hiddenAt
-                  ? 'Show it in the posts list again'
-                  : 'Hide it from the posts list (Filters → Hidden posts shows it)'
-              }
-              className="border-border text-muted hover:bg-surface-hover hover:text-foreground flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {activePost.hiddenAt ? (
-                <Eye className="h-4 w-4" />
-              ) : (
-                <EyeOff className="h-4 w-4" />
-              )}
-            </button>
-            <button
-              type="button"
               // The server refuses too: it may be on its platform any moment.
               disabled={
                 isSaving || activePost.publication?.status === 'publishing'
