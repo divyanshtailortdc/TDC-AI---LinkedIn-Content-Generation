@@ -76,6 +76,7 @@ export function IdeasClient({
   platform = null,
   platformOptions = [],
   platformCounts,
+  enabledFormats,
   picker
 }: {
   /** One page of the ideas the status filter shows; pageInfo says which. */
@@ -94,6 +95,8 @@ export function IdeasClient({
   platformOptions?: PlatformId[]
   /** How many ideas each platform tab holds under the status filter. */
   platformCounts?: { all: number; byPlatform: Partial<Record<PlatformId, number>> }
+  /** The formats the identity writes: all Create posts offers. */
+  enabledFormats: FormatId[]
   /** For Generate ideas: the goals and platforms a run can be for. */
   picker?: RunPickerData
 }) {
@@ -843,6 +846,7 @@ export function IdeasClient({
           suggested={ideas
             .filter((i) => dialogTargetIds.includes(i.id))
             .flatMap((i) => i.formatFit ?? [])}
+          enabledFormats={enabledFormats}
           initialPlatforms={platform ? [platform] : undefined}
           confirmLabel={
             createDialog.kind === 'approve' ? 'Approve & create' : 'Create posts'

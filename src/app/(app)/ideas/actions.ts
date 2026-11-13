@@ -5,10 +5,12 @@ import { feedbackTable, ideasTable } from '@/db/schema'
 import {
   canHaveImage,
   cleanFormats,
+  FORMATS,
   isCreatableFormat,
   type FormatId
 } from '@/lib/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
+import { loadChannels } from '@/lib/channels'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { requireUser } from '@/lib/session'
@@ -26,13 +28,20 @@ import {
 } from '~/lib/ai/pipeline/drafting-run'
 
 /**
- * The formats picked in "Create posts": any that can be created,
- * whatever the identity turned on in its preferences; refused when none are.
+ * The formats picked in "Create posts": ones that can be created and that the
+ * identity turned on in its preferences. Refused when none are picked, or
+ * when one is turned off (a page opened before Preferences changed).
  */
-function chosenFormats(raw: unknown): FormatId[] {
+function chosenFormats(raw: unknown, enabled: readonly FormatId[]): FormatId[] {
   const formats = cleanFormats(raw).filter(isCreatableFormat)
   if (formats.length === 0) {
     throw new Error('Choose at least one platform to write these posts for.')
+  }
+  const off = formats.find(f => !enabled.includes(f))
+  if (off) {
+    throw new Error(
+      `Turn on ${FORMATS[off].label}s under Identity → Preferences first.`
+    )
   }
   return formats
 }
@@ -201,7 +210,10 @@ export async function draftSelectedIdeas(options: {
     const runId = run?.id ?? null
 
     if (options.formats !== undefined) {
-      const formats = chosenFormats(options.formats)
+      const formats = chosenFormats(
+        options.formats,
+        (await loadChannels(accountId)).enabledFormats
+      )
       // Only chosen formats that can carry an image (not a video script).
       const imageFormats =
         options.imageFormats === undefined

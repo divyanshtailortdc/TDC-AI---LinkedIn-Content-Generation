@@ -56,6 +56,8 @@ interface RunDetailProps {
   initialFindings: any[]
   initialIdeas: any[]
   account: any
+  /** The formats the run's identity writes: all Create posts offers. */
+  enabledFormats: FormatId[]
 }
 
 const ACTIVE_STATUSES = ACTIVE_RUN_STATUSES
@@ -173,7 +175,8 @@ export function RunDetailClient({
   initialSteps,
   initialFindings,
   initialIdeas,
-  account
+  account,
+  enabledFormats
 }: RunDetailProps) {
   const router = useRouter()
   // Creating posts asks first which platforms and types of post to write
@@ -1037,6 +1040,7 @@ export function RunDetailClient({
           suggested={ideas
             .filter((i) => selectedApproved.includes(i.id))
             .flatMap((i) => i.formatFit ?? [])}
+          enabledFormats={enabledFormats}
           confirmLabel="Create posts"
           onCancel={() => setCreateDialogOpen(false)}
           onConfirm={(formats, imageFormats) => {

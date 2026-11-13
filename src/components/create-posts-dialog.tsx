@@ -15,6 +15,7 @@ import {
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
 import { ArrowRight, Check, Image as ImageIcon, Sparkles } from 'lucide-react'
+import Link from 'next/link'
 import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -23,13 +24,15 @@ import { createPortal } from 'react-dom'
  * posts are for, then the type of post on each (an X post or a thread).
  * Create stays disabled until every chosen platform has its type. A platform
  * with one type (a LinkedIn post, an Instagram post) has it chosen with the
- * platform. CREATABLE_FORMATS are offered, whatever the identity turned on
- * in Identity → Preferences.
+ * platform. Only the formats the identity turned on in Identity →
+ * Preferences are offered, so an identity set up for Instagram alone is
+ * asked about Instagram alone (and has it picked already).
  */
 export function CreatePostsDialog({
   title,
   description,
   suggested,
+  enabledFormats,
   initialPlatforms,
   confirmLabel,
   onCancel,
@@ -39,6 +42,8 @@ export function CreatePostsDialog({
   description: React.ReactNode
   /** The formats ideation judged the ideas suit, marked as suggested. */
   suggested?: readonly string[]
+  /** The formats the identity writes (resolveChannels): the only ones offered. */
+  enabledFormats: readonly FormatId[]
   /** Picked when it opens (the platform whose ideas are shown); still changeable. */
   initialPlatforms?: readonly PlatformId[]
   confirmLabel: string
@@ -51,19 +56,23 @@ export function CreatePostsDialog({
 }) {
   const titleId = useId()
   const descriptionId = useId()
-  const platforms = platformsOf([...CREATABLE_FORMATS])
+  const offered = CREATABLE_FORMATS.filter(f => enabledFormats.includes(f))
+  const platforms = platformsOf(offered)
   const formatsOf = (platform: PlatformId) =>
-    CREATABLE_FORMATS.filter(f => FORMATS[f].platform === platform)
+    offered.filter(f => FORMATS[f].platform === platform)
   const isSuggested = (id: string) => suggested?.includes(id) ?? false
 
-  const [chosen, setChosen] = useState<PlatformId[]>(() =>
-    platforms.filter(p => initialPlatforms?.includes(p))
-  )
+  // Picked at the start: the platform being viewed, or the only one there is.
+  // One the identity no longer posts on is not offered, so not picked.
+  const picked =
+    platforms.length === 1
+      ? platforms
+      : platforms.filter(p => initialPlatforms?.includes(p))
+  const [chosen, setChosen] = useState<PlatformId[]>(picked)
   // A platform picked at the start with one type has it chosen too.
   const [types, setTypes] = useState<Partial<Record<PlatformId, FormatId>>>(() =>
     Object.fromEntries(
-      platforms
-        .filter(p => initialPlatforms?.includes(p))
+      picked
         .flatMap(p => {
           const only = formatsOf(p)
           return only.length === 1 ? [[p, only[0]!]] : []
@@ -186,8 +195,17 @@ export function CreatePostsDialog({
               })}
             </div>
             <p className="text-muted mt-2 text-[11px] leading-relaxed">
-              Pick one or more. Each idea gets a post on every platform you
-              pick.
+              {platforms.length > 1
+                ? 'Pick one or more. Each idea gets a post on every platform you pick. '
+                : ''}
+              Other platforms are turned on under{' '}
+              <Link
+                href="/identity/preferences"
+                className="text-accent hover:underline"
+              >
+                Identity → Preferences
+              </Link>
+              .
             </p>
           </fieldset>
 

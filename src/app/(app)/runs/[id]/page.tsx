@@ -1,4 +1,5 @@
 import { db } from '@/db'
+import { loadChannels } from '@/lib/channels'
 import { recoverInterruptedRuns } from '@/lib/ai/run-lifecycle'
 import { findOwnedAccount, findOwnedRun } from '@/lib/ownership'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
@@ -21,9 +22,11 @@ export default async function SingleRunPage({ params }: RunPageProps) {
   if (!owned) notFound()
 
   // Everything else at once: the ownership check gave the account.
-  let [details, account] = await Promise.all([
+  // The run's identity's formats, which may not be the active identity's.
+  let [details, account, channels] = await Promise.all([
     getRunDetails(owned.id, owned.accountId),
-    findOwnedAccount(db, user.id, owned.accountId)
+    findOwnedAccount(db, user.id, owned.accountId),
+    loadChannels(owned.accountId)
   ])
 
   // A run interrupted by a restart reads as failed, not as still in
@@ -54,6 +57,7 @@ export default async function SingleRunPage({ params }: RunPageProps) {
       initialFindings={findings}
       initialIdeas={ideas}
       account={account}
+      enabledFormats={channels.enabledFormats}
     />
   )
 }

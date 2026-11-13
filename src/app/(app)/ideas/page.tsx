@@ -70,6 +70,7 @@ export default async function IdeasPage({
       platform={platform}
       platformOptions={platformOptions}
       platformCounts={platformCounts}
+      enabledFormats={channels.enabledFormats}
       picker={picker}
     />
   )
