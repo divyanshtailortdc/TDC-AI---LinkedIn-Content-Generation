@@ -298,7 +298,7 @@ function PublishControlsInner({
       () => deletePostFromPlatform(id),
       () => ({
         title: `Deleted from ${name}`,
-        message: 'The post stays here, and cannot be published again.'
+        message: 'The post stays here. You can edit it and publish it again.'
       })
     )
 
@@ -307,25 +307,9 @@ function PublishControlsInner({
   // is null): nothing to offer here but the publication's state.
   const canPublish = publishing?.status === 'connected'
 
-  // Deleted from the platform: still the record of it, and it stays published so
-  // it is not published again.
-  if (publication?.status === 'published' && publication.deletedAt) {
-    return (
-      <span className="inline-flex flex-col items-start gap-0.5 text-[12px]">
-        <span className="text-muted inline-flex gap-1 font-semibold">
-          <Trash2 className="h-3.5 w-3.5 shrink-0" />
-          Deleted from {name}
-        </span>
-        {mounted && (
-          <span className="text-muted self-end">
-            {formatDateTime(publication.deletedAt)}
-          </span>
-        )}
-      </span>
-    )
-  }
-
-  if (publication?.status === 'published') {
+  // Deleted from the platform: it falls through to Publish now and Schedule,
+  // since it can go out again (the page shows its red "Deleted from" tag).
+  if (publication?.status === 'published' && !publication.deletedAt) {
     // The post's link, then Delete, after the date.
     const links = [
       publication.postUrl && (
@@ -386,8 +370,8 @@ function PublishControlsInner({
             description={
               <>
                 The post is removed from {name} for good, with its first
-                comment, reactions and comments. It stays here, and cannot be
-                published again.
+                comment, reactions and comments. It stays here, and you can
+                edit it and publish it again as a new post.
               </>
             }
             confirmLabel={`Delete from ${name}`}
@@ -463,7 +447,8 @@ function PublishControlsInner({
     )
   }
 
-  // No publication yet, or the last one failed or was cancelled.
+  // No publication yet, the last one failed or was cancelled, or it was
+  // deleted from the platform.
   const lastFailed = publication?.status === 'failed'
   // Publishing not set up on this server: nothing to offer but the last failure.
   if (!lastFailed && !canPublish && !publishing) return null

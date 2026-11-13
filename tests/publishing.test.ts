@@ -834,7 +834,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   })
 
   describe('deleting', () => {
-    it('deletes a published post from LinkedIn; it stays published, so it never goes out again', async () => {
+    it('deletes a published post from LinkedIn and unlocks it: it can be edited and published again', async () => {
       const k = await newUser('k', 'google')
       await connect(k, 'MEMBER_K')
       const draft = await newPost(k.accountId)
@@ -857,9 +857,69 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       // Once deleted, deleting again does not call LinkedIn.
       await deletePublishedPost(deps(), k.userId, published.id)
       assert.strictEqual(linkedIn.deleteCalls().length, 1)
+
+      // The post is unlocked: no longer posted, still approved, changeable.
+      const [post] = await database
+        .select()
+        .from(schema.postDraftsTable)
+        .where(eq(schema.postDraftsTable.id, draft))
+      assert.strictEqual(post!.postedAt, null)
+      assert.strictEqual(post!.plannedFor, null)
+      assert.strictEqual(post!.status, 'approved')
+      const { hasLivePublication } = await import(
+        '../src/lib/publishing/publication-queries'
+      )
+      const { assertPostChangeable, PostLockedError } = await import(
+        '../src/lib/publishing/post-lock'
+      )
+      assert.strictEqual(await hasLivePublication(database, draft), false)
+      await assertPostChangeable(post!, database)
+
+      // Published again as a new post; the deleted one stays as the record.
+      const again = await publishNow(k.userId, draft)
+      assert.strictEqual(again.status, 'published')
+      assert.notStrictEqual(again.id, published.id)
+      assert.strictEqual(linkedIn.postCalls().length, 2)
+      const [record] = await database
+        .select()
+        .from(schema.publicationsTable)
+        .where(eq(schema.publicationsTable.id, published.id))
+      assert.strictEqual(record!.status, 'published')
+      assert.ok(record!.deletedAt, 'the deleted publication keeps its deletedAt')
+
+      // Out again: locked again, and not published a third time.
+      const [reposted] = await database
+        .select()
+        .from(schema.postDraftsTable)
+        .where(eq(schema.postDraftsTable.id, draft))
+      await assert.rejects(
+        assertPostChangeable(reposted!, database),
+        PostLockedError
+      )
       assert.strictEqual(
         await codeOf(publishNow(k.userId, draft)),
         'already_posted'
+      )
+    })
+
+    it('the one-live index ignores a publication deleted from its platform', async () => {
+      const q = await newUser('live-index', 'google')
+      const draft = await newPost(q.accountId)
+      const row = (status: 'scheduled' | 'published', deletedAt: Date | null) => ({
+        userId: q.userId,
+        draftId: draft,
+        trigger: 'manual' as const,
+        status,
+        deletedAt,
+        scheduledAt: new Date(),
+        nextAttemptAt: new Date()
+      })
+      await database.insert(schema.publicationsTable).values(row('published', new Date()))
+      // A deleted publication leaves room for a new one...
+      await database.insert(schema.publicationsTable).values(row('scheduled', null))
+      // ...but there is still only one live one at a time.
+      await assert.rejects(
+        database.insert(schema.publicationsTable).values(row('published', null))
       )
     })
 
@@ -1032,6 +1092,37 @@ describe('LinkedIn publishing', { skip: !url }, () => {
           )
         )
       assert.strictEqual(rows.length, 0)
+    })
+
+    it('queues a post again once its earlier publication was deleted from its platform', async () => {
+      const u = await setUp('dq', new Date(slot.getTime() - 24 * 3600_000))
+      const draft = await newPost(u.accountId, {
+        plannedFor: day,
+        updatedAt: before
+      })
+      await database.insert(schema.publicationsTable).values({
+        userId: u.userId,
+        draftId: draft,
+        trigger: 'manual',
+        status: 'published',
+        publishedAt: new Date(before.getTime() - 3600_000),
+        deletedAt: new Date(before.getTime() - 1000),
+        createdAt: new Date(before.getTime() - 3600_000),
+        scheduledAt: slot,
+        nextAttemptAt: slot
+      })
+      await queueAutoPublications(database, today)
+      await queueAutoPublications(database, today)
+      const rows = await database
+        .select()
+        .from(schema.publicationsTable)
+        .where(
+          and(
+            eq(schema.publicationsTable.draftId, draft),
+            eq(schema.publicationsTable.status, 'scheduled')
+          )
+        )
+      assert.strictEqual(rows.length, 1)
     })
 
     it("sweeps only its own identity's posts, not the owner's other identity's", async () => {

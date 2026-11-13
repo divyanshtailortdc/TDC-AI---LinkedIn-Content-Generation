@@ -1505,8 +1505,9 @@ export const publicationsTable = pgTable(
     externalPostId: text('linkedin_post_urn'),
     publishedAt: commonFieldDefs.date('published_at'),
     /**
-     * When the user deleted the post from the platform. The row stays 'published',
-     * so the one-live-publication index still stops it going out again.
+     * When the user deleted the post from the platform. The row stays
+     * 'published' as the record ("Deleted from X"), but the one-live index
+     * skips it, so the post can be published again as a new row.
      */
     deletedAt: commonFieldDefs.date('deleted_at'),
     error: text('error'),
@@ -1537,11 +1538,14 @@ export const publicationsTable = pgTable(
       sql`${table.trigger} in (${sqlList(PUBLICATION_TRIGGERS)})`
     ),
     // A post can be waiting, in flight or published once: what stops a
-    // second click, tab or worker from publishing it twice.
+    // second click, tab or worker from publishing it twice. One deleted from
+    // its platform no longer counts, so the post can go out again.
     uniqueIndex('linkedin_publications_one_live_per_draft_uq')
       .on(table.draftId)
       .where(
-        sql.raw(`status in (${LIVE_PUBLICATION_STATUSES.map(s => `'${s}'`).join(', ')})`)
+        sql.raw(
+          `status in (${LIVE_PUBLICATION_STATUSES.map(s => `'${s}'`).join(', ')}) and deleted_at is null`
+        )
       ),
     index('linkedin_publications_due_idx').on(table.status, table.nextAttemptAt),
     index('linkedin_publications_user_created_idx').on(

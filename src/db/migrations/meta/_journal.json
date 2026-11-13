@@ -330,6 +330,13 @@
       "when": 1794546077888,
       "tag": "0046_carousels",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794562503148,
+      "tag": "0047_publications_live_ignores_deleted",
+      "breakpoints": true
     }
   ]
 }

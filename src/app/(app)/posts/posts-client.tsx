@@ -21,6 +21,7 @@ import { PAGE_SIZE, pageNumbers, paginate, parsePage } from '@/lib/pagination'
 import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import { platformPostText } from '@/lib/post-text'
 import { canPublishFormat } from '@/lib/publishing/platform'
+import { isOnPlatform } from '@/lib/publishing/status'
 import type { BackgroundPattern, ImageStyle } from '@/lib/brand/theme'
 import Link from 'next/link'
 import {
@@ -65,7 +66,7 @@ import type { PublicationSummary } from '@/lib/publishing/engine'
 import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { LIST_PARAMS } from './list-params'
-import { PostStatusPill } from './post-status'
+import { DeletedFromPlatformTag, PostStatusPill } from './post-status'
 
 export interface PostDetail {
   id: string
@@ -143,6 +144,11 @@ export interface PostDetail {
   hiddenAt?: string | null
   /** The latest attempt to publish it to its platform, if any. */
   publication?: PublicationSummary | null
+  /**
+   * When it was last deleted from its platform through the app (ISO), for its
+   * "Deleted from X" tag; null when never.
+   */
+  deletedFromPlatformAt?: string | null
 }
 
 /** What every generated image gets from the Brand Theme. */
@@ -263,7 +269,8 @@ const STATUS_CHIPS: Record<
 
 /** Which status chip a post is under. */
 function statusOf(post: PostDetail): Exclude<StatusFilter, 'all'> {
-  if (post.postedAt || post.publication?.status === 'published') {
+  // Out on its platform. One deleted from it counts as approved again.
+  if (post.postedAt || isOnPlatform(post.publication)) {
     return 'published'
   }
   if (post.status === 'approved') return 'approved'
@@ -1337,7 +1344,7 @@ function PostAction({
 }) {
   const publication = post.publication
   const platform = getPlatform(post.platform)
-  const live = Boolean(post.postedAt) || publication?.status === 'published'
+  const live = Boolean(post.postedAt) || isOnPlatform(publication)
   const chip = 'relative z-10 inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium'
   const button =
     'relative z-10 inline-flex h-7 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition-colors'
@@ -1557,6 +1564,11 @@ function PostCard(props: PostItemProps) {
 
       <div className="pointer-events-none px-3.5 pt-3">
        <div className="relative">
+        {/* Deleted from its platform: a red tag on the picture's top right. */}
+        <DeletedFromPlatformTag
+          post={post}
+          className="absolute top-2 right-2 z-10 bg-white/95 shadow-sm dark:bg-neutral-900/90"
+        />
         {post.media?.id ? (
           <Thumbnail
             mediaId={post.media.id}

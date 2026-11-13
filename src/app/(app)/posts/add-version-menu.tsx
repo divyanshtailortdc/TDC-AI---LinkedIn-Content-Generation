@@ -15,6 +15,7 @@ import {
   type FormatId
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
+import { isOnPlatform } from '@/lib/publishing/status'
 import {
   Check,
   ChevronDown,
@@ -38,7 +39,8 @@ function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[
 /** Where a version stands, in a word. */
 function versionStatus(post: PostDetail): string {
   const published = post.publication?.status
-  if (post.postedAt || published === 'published') return 'Posted'
+  // Deleted from its platform: not posted any more (it reads approved again).
+  if (post.postedAt || isOnPlatform(post.publication)) return 'Posted'
   if (published === 'publishing') return 'Publishing'
   if (published === 'scheduled') return 'Scheduled'
   const labels: Record<string, string> = {

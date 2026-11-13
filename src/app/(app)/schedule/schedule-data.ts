@@ -41,7 +41,10 @@ export type PlannedPost = {
   /** YYYY-MM-DD, or null when not planned yet. */
   plannedFor: string | null
   postedAt: Date | null
-  /** Published (or being published) through the platform's API: it stays posted. */
+  /**
+   * Published (or being published) through the platform's API, and not
+   * deleted from it since: it stays posted.
+   */
   publishedFromApp: boolean
   goalTitle: string | null
   createdAt: Date
@@ -57,8 +60,8 @@ const unpostedStatuses = inArray(postDraftsTable.status, [
 ])
 
 /**
- * Whether the post has a publication in flight or out, the rule setPostPosted
- * refuses "not posted" by. Plain false when publishing is not set up, so the
+ * Whether the post has a publication in flight or out (not deleted from its
+ * platform), the rule setPostPosted refuses "not posted" by. Plain false when publishing is not set up, so the
  * page does not depend on its table.
  */
 function publishedFromApp(publishingOn: boolean) {
@@ -70,7 +73,9 @@ function publishedFromApp(publishingOn: boolean) {
       .where(
         and(
           eq(publicationsTable.draftId, postDraftsTable.id),
-          inArray(publicationsTable.status, ['publishing', 'published'])
+          inArray(publicationsTable.status, ['publishing', 'published']),
+          // Deleted from its platform: no longer out (as hasLivePublication).
+          isNull(publicationsTable.deletedAt)
         )
       )
   ).mapWith(Boolean)

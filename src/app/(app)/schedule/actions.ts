@@ -154,7 +154,8 @@ export async function planPost(draftId: string, day: string | null) {
  * Records that the reviewer published an approved post on its platform, or undoes
  * that. A post with no planned day is placed on `day` (the reviewer's today),
  * so the calendar shows when it went out. Marking it posted cancels its
- * queued publication; a post published through the API stays posted.
+ * queued publication; a post published through the API stays posted,
+ * unless it was deleted from its platform since.
  */
 export async function setPostPosted(
   draftId: string,

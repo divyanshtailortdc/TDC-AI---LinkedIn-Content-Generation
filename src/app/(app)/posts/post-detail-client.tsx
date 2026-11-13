@@ -64,6 +64,7 @@ import { getUserFacingRelevance } from '@/lib/media/relevance-label'
 import { getPlatform } from '@/lib/platforms'
 import { platformPostText, toPlatformText } from '@/lib/post-text'
 import { canPublishFormat } from '@/lib/publishing/platform'
+import { isOnPlatform } from '@/lib/publishing/status'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -129,7 +130,11 @@ import {
   trackPostsPage,
   type MediaJobOutcome
 } from './media-jobs'
-import { PostStatusPill } from './post-status'
+import {
+  DeletedFromPlatformTag,
+  deletedFromPlatformAt,
+  PostStatusPill
+} from './post-status'
 import { RegenerateControl, VersionHistory } from './post-versions'
 import type { BrandSummary, PostDetail } from './posts-client'
 import { getPostPublication } from './publish-actions'
@@ -205,10 +210,11 @@ export function PostDetailClient({
     `/posts/${id}${listQuery ? `?${listQuery}` : ''}`
   // Where the open post goes out: its preview, copy and wording follow it.
   const activePlatform = getPlatform(activePost?.platform)
-  // Published on its platform (or going out now): it can no longer be rejected,
-  // matching rejectDraft on the server.
+  // Published on its platform and still there (or going out now): it can no
+  // longer be rejected, matching rejectDraft on the server. One deleted from
+  // its platform can.
   const activePublished =
-    activePost?.publication?.status === 'published' ||
+    isOnPlatform(activePost?.publication) ||
     activePost?.publication?.status === 'publishing'
   const [isEditing, setIsEditing] = useState(false)
   // The edit buffer lives in PostTextEditor, so a keystroke there re-renders
@@ -1531,16 +1537,17 @@ export function PostDetailClient({
   const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
   // Set aside by "Text only": the image is kept but does not go out.
   const imageSetAside = activePost.mediaFormat === 'text'
-  // Published or marked posted: what went out stays as it is.
+  // Published (and still there) or marked posted: what went out stays as it
+  // is. Deleted from its platform, it can change again.
   const mediaLocked =
     Boolean(activePost.postedAt) ||
-    activePost.publication?.status === 'published' ||
+    isOnPlatform(activePost.publication) ||
     activePost.publication?.status === 'publishing'
   // Why, for the notes and tooltips that say it can no longer change.
   const lockedReason =
     activePost.publication?.status === 'publishing'
       ? `This post is being published on ${activePlatform.name}`
-      : activePost.publication?.status === 'published'
+      : isOnPlatform(activePost.publication)
         ? `This post is published on ${activePlatform.name}`
         : 'This post is marked as posted'
 
@@ -1675,8 +1682,9 @@ export function PostDetailClient({
   const publishing = usePlatformPublishing(activePost.platform)
   const isApproved = activePost.status === 'approved'
   const isLive =
-    Boolean(activePost.postedAt) ||
-    activePost.publication?.status === 'published'
+    Boolean(activePost.postedAt) || isOnPlatform(activePost.publication)
+  // Deleted from its platform, not out again since: the red tag, and a hint.
+  const deletedAt = deletedFromPlatformAt(activePost)
 
   // What to do next, in one sentence, for where the post stands (shown when
   // hovering the status in the top bar).
@@ -1688,7 +1696,9 @@ export function PostDetailClient({
         ? 'Check the preview and the image, edit anything you want, then approve the post.'
         : isLive
           ? `This post is on ${activePlatform.name}.`
-          : canPublish && publishing
+          : deletedAt
+            ? `Deleted from ${activePlatform.name}. Edit it if you like, then publish it again, schedule it, or copy it.`
+            : canPublish && publishing
             ? `Approved. Publish it to ${activePlatform.name} now, schedule it, or copy it and post it yourself.`
             : `Approved. Copy it and post it on ${activePlatform.name} yourself.`
 
@@ -1739,6 +1749,8 @@ export function PostDetailClient({
       <span title={nextStep} className="flex">
         <PostStatusPill post={activePost} />
       </span>
+      {/* Deleted from its platform: a red tag beside its status. */}
+      <DeletedFromPlatformTag post={activePost} />
       {isApproved ? (
         <>
           {canPublish && (
@@ -1753,8 +1765,24 @@ export function PostDetailClient({
               slideCount={slides?.length ?? activePost.slideCount ?? 0}
               onChange={publication => {
                 const id = activePost.id
+                // Deleted from its platform: deletePublishedPost cleared its
+                // posted_at, so the page unlocks without a reload.
+                const deleted = Boolean(
+                  publication?.status === 'published' && publication.deletedAt
+                )
                 setPosts(prev =>
-                  prev.map(p => (p.id === id ? { ...p, publication } : p))
+                  prev.map(p =>
+                    p.id === id
+                      ? {
+                          ...p,
+                          publication,
+                          ...(deleted && {
+                            postedAt: null,
+                            deletedFromPlatformAt: publication!.deletedAt
+                          })
+                        }
+                      : p
+                  )
                 )
               }}
             />

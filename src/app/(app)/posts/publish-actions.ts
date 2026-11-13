@@ -157,8 +157,9 @@ export async function cancelPostPublication(
 }
 
 /**
- * Deletes the user's published post from the platform. The post stays in the app,
- * and its publication stays as the record (it cannot be published again).
+ * Deletes the user's published post from the platform. The post stays in the
+ * app, unlocked: it can be edited and published again, and its publication
+ * stays as the record ("Deleted from X").
  */
 export async function deletePostFromPlatform(
   publicationId: string

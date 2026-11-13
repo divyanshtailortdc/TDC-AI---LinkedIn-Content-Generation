@@ -9,6 +9,7 @@ import {
   postMediaTable,
   postRevisionsTable,
   postSlidesTable,
+  publicationsTable,
   ideasTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
@@ -21,7 +22,7 @@ import {
 import { isImageStyle } from '@/lib/brand/theme'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
-import { and, count, desc, eq, inArray, type SQL } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNotNull, max, type SQL } from 'drizzle-orm'
 import type { PostDetail } from './posts-client'
 
 /** A run makes a handful of posts; this only bounds a pathological one. */
@@ -118,7 +119,8 @@ export async function loadPostsPage(
     publications,
     ideaFormatRows,
     revisionCounts,
-    slideCounts
+    slideCounts,
+    deletions
   ] = await Promise.all([
     draftIds.length > 0
       ? db
@@ -206,8 +208,30 @@ export async function loadPostsPage(
           .from(postSlidesTable)
           .where(inArray(postSlidesTable.draftId, draftIds))
           .groupBy(postSlidesTable.draftId)
+      : Promise.resolve([]),
+    // When each post was last deleted from its platform through the app, for
+    // its "Deleted from X" tag: kept once a newer publication exists too.
+    isPublishingConfigured() && draftIds.length > 0
+      ? db
+          .select({
+            draftId: publicationsTable.draftId,
+            deletedAt: max(publicationsTable.deletedAt)
+          })
+          .from(publicationsTable)
+          .where(
+            and(
+              inArray(publicationsTable.draftId, draftIds),
+              isNotNull(publicationsTable.deletedAt)
+            )
+          )
+          .groupBy(publicationsTable.draftId)
       : Promise.resolve([])
   ])
+  const deletedByDraft = new Map(
+    deletions.flatMap(r =>
+      r.draftId && r.deletedAt ? [[r.draftId, new Date(r.deletedAt).toISOString()] as const] : []
+    )
+  )
   const slidesByDraft = new Map(slideCounts.map(r => [r.draftId, r.count]))
   const versionsByDraft = new Map(revisionCounts.map(r => [r.draftId, r.count]))
   const formatsByIdea = new Map<string, string[]>()
@@ -302,7 +326,8 @@ export async function loadPostsPage(
       lintFindings: (draft.lintFindings as any[]) || [],
       postedAt: draft.postedAt?.toISOString() ?? null,
       hiddenAt: draft.hiddenAt?.toISOString() ?? null,
-      publication: publications.get(draft.id) ?? null
+      publication: publications.get(draft.id) ?? null,
+      deletedFromPlatformAt: deletedByDraft.get(draft.id) ?? null
     }
   })
 

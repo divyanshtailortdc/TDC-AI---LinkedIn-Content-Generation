@@ -607,11 +607,13 @@ export async function getPublication(
 
 /**
  * Deletes a published post from the platform, as the user who published it
- * and through the platform account it was published as. The row stays 'published'
- * with deletedAt set: it is the record of the post, and still the live
- * publication that stops it being published again. One already deleted is
- * returned as it is. Throws PublishRequestError for a refusal, and for
- * the platform's errors.
+ * and through the platform account it was published as. The row stays
+ * 'published' with deletedAt set, as the record of the post ("Deleted from
+ * X"), but it no longer counts as live (the one-live index and
+ * hasLivePublication skip it). The post itself is unlocked: its posted_at and
+ * planned day are cleared, it stays approved, and it can be edited and
+ * published again as a new row. One already deleted is returned as it is.
+ * Throws PublishRequestError for a refusal, and for the platform's errors.
  */
 export async function deletePublishedPost(
   deps: PublishDeps,
@@ -675,11 +677,23 @@ export async function deletePublishedPost(
   }
 
   const now = nowOf(deps)
-  const [row] = await database
-    .update(publicationsTable)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(publicationsTable.id, publication.id))
-    .returning()
+  const row = await database.transaction(async tx => {
+    const [deleted] = await tx
+      .update(publicationsTable)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(publicationsTable.id, publication.id))
+      .returning()
+    // No longer out, so no longer posted: it can be edited and published
+    // again. The planned day goes too, or a re-publish would keep it (see
+    // recordPublished's coalesce); it shows under Unscheduled until planned.
+    if (publication.draftId) {
+      await tx
+        .update(postDraftsTable)
+        .set({ postedAt: null, plannedFor: null, updatedAt: now })
+        .where(eq(postDraftsTable.id, publication.draftId))
+    }
+    return deleted
+  })
   return row ?? { ...publication, deletedAt: now, updatedAt: now }
 }
 
@@ -1524,7 +1538,8 @@ const queuedSlots = new Map<string, string>()
  * changed before that time. Nothing from before the user turned it on is
  * swept up, and a post with any earlier publication (failed, cancelled or
  * done) is left alone: auto-publishing never retries what a person or an
- * earlier attempt already decided.
+ * earlier attempt already decided. Publications from before the post was
+ * deleted from its platform do not count: that post is unlocked again.
  */
 export async function queueAutoPublications(
   database: PublishingDb,
@@ -1587,11 +1602,18 @@ export async function queueAutoPublications(
           // Approved, planned and edited before the slot: a post approved or
           // moved onto its day after the time is not published at once.
           lte(postDraftsTable.updatedAt, slot),
+          // Only attempts since it was last deleted from its platform count:
+          // a post deleted there can be auto-published again.
           notExists(
             database
               .select({ one: sql`1` })
               .from(publicationsTable)
-              .where(eq(publicationsTable.draftId, postDraftsTable.id))
+              .where(
+                and(
+                  eq(publicationsTable.draftId, postDraftsTable.id),
+                  sql`${publicationsTable.createdAt} > coalesce((select max(p2.deleted_at) from ${publicationsTable} p2 where p2.draft_id = ${postDraftsTable.id}), '-infinity'::timestamptz)`
+                )
+              )
           )
         )
       )

@@ -1,6 +1,6 @@
 import { publicationsTable } from '@/db/schema'
 import type { PlatformId } from '@/lib/platforms'
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import type { PublishingDb } from './connection'
 import type { PublicationErrorCode, PublicationStatus } from './status'
 
@@ -55,7 +55,11 @@ export async function cancelPendingPublications(
   return rows.length
 }
 
-/** Whether the post has a publication in one of `statuses` (default: in flight or out). */
+/**
+ * Whether the post has a publication in one of `statuses` (default: in flight
+ * or out). One deleted from its platform does not count: that post is no
+ * longer out, so it can change and be published again.
+ */
 export async function hasLivePublication(
   database: PublishingDb,
   draftId: string,
@@ -67,7 +71,8 @@ export async function hasLivePublication(
     .where(
       and(
         eq(publicationsTable.draftId, draftId),
-        inArray(publicationsTable.status, [...statuses])
+        inArray(publicationsTable.status, [...statuses]),
+        isNull(publicationsTable.deletedAt)
       )
     )
     .limit(1)

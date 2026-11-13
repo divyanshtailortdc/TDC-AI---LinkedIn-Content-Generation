@@ -31,9 +31,12 @@ export const PUBLICATION_STATUSES = [
 export type PublicationStatus = (typeof PUBLICATION_STATUSES)[number]
 
 /**
- * A post has at most one publication in these states (a partial unique
- * index): one waiting, in flight or done. That index is what makes a double
- * click, two tabs or a second worker unable to publish the same post twice.
+ * A post has at most one publication in these states that has not been
+ * deleted from its platform (a partial unique index): one waiting, in flight
+ * or out. That index is what makes a double click, two tabs or a second
+ * worker unable to publish the same post twice. A publication deleted from
+ * its platform through the app stays 'published' as the record, but no longer
+ * counts: the post can be published again.
  */
 export const LIVE_PUBLICATION_STATUSES = [
   'scheduled',
@@ -61,3 +64,14 @@ export type PublicationErrorCode =
   | 'rejected_by_platform'
   | 'unknown_outcome'
   | 'internal'
+
+/**
+ * Whether the post is out on its platform now: published and not deleted
+ * from it since. Client-safe, so every screen and check agrees with
+ * hasLivePublication and the one-live index.
+ */
+export function isOnPlatform(
+  publication: { status: string; deletedAt?: string | Date | null } | null | undefined
+): boolean {
+  return publication?.status === 'published' && !publication.deletedAt
+}
