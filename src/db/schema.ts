@@ -589,6 +589,9 @@ export const ideasTable = pgTable('ideas', {
     .$type<{
       mode: 'ai_generated' | 'stock' | 'none'
       brief?: string
+      // The formats whose posts get an image, as ticked in Create posts.
+      // Absent on ideas from before that choice (imageChosenFor).
+      imageFormats?: string[]
     }>()
     .default({ mode: 'none' }),
   noveltyNote: text('novelty_note'),

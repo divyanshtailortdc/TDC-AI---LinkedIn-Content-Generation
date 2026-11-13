@@ -3,16 +3,18 @@
 import { PlatformMark } from '@/components/platform-mark'
 import { cn } from '@/lib/cn'
 import {
+  canHaveImage,
   CREATABLE_FORMATS,
   FORMATS,
   formatHint,
+  needsImage,
   PLATFORMS,
   platformsOf,
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
-import { ArrowRight, Check, Sparkles } from 'lucide-react'
+import { ArrowRight, Check, Image as ImageIcon, Sparkles } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -41,8 +43,11 @@ export function CreatePostsDialog({
   initialPlatforms?: readonly PlatformId[]
   confirmLabel: string
   onCancel: () => void
-  /** The chosen formats, one per platform, in the registry's order. */
-  onConfirm: (formats: FormatId[]) => void
+  /**
+   * The chosen formats, one per platform, in the registry's order, and those
+   * of them whose posts get an image ("Add an image").
+   */
+  onConfirm: (formats: FormatId[], imageFormats: FormatId[]) => void
 }) {
   const titleId = useId()
   const descriptionId = useId()
@@ -65,10 +70,11 @@ export function CreatePostsDialog({
         })
     )
   )
-
+  const [noImage, setNoImage] = useState<PlatformId[]>([])
   const togglePlatform = (platform: PlatformId) => {
     if (chosen.includes(platform)) {
       setChosen(prev => prev.filter(p => p !== platform))
+      setNoImage(prev => prev.filter(p => p !== platform))
       setTypes(prev => {
         const next = { ...prev }
         delete next[platform]
@@ -85,6 +91,11 @@ export function CreatePostsDialog({
   const missingType = chosen.find(p => !types[p])
   const ready = chosen.length > 0 && !missingType
   const formats = chosen.flatMap(p => (types[p] ? [types[p]!] : []))
+  const imageFormats = formats.filter(
+    f =>
+      canHaveImage(f) &&
+      (needsImage(f) || !noImage.includes(FORMATS[f].platform))
+  )
 
   // Modal: the page behind must not act on its keys. Listening in the capture
   // phase runs before the page's own listeners (as ConfirmDialog does);
@@ -191,7 +202,8 @@ export function CreatePostsDialog({
             ) : (
               <div className="space-y-4">
                 {chosen.map(platform => (
-                  <div key={platform} role="radiogroup" aria-label={`${PLATFORMS[platform].label} post type`}>
+                  <div key={platform}>
+                  <div role="radiogroup" aria-label={`${PLATFORMS[platform].label} post type`}>
                     {chosen.length > 1 && (
                       <p className="text-muted mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase">
                         <PlatformMark platform={platform} className="h-3 w-3" />
@@ -244,6 +256,21 @@ export function CreatePostsDialog({
                       })}
                     </div>
                   </div>
+                  {/* Once its type is chosen: an image with the post or not */}
+                  {types[platform] && canHaveImage(types[platform]!) && (
+                    <ImageChoice
+                      formatId={types[platform]!}
+                      on={!noImage.includes(platform)}
+                      onChange={on =>
+                        setNoImage(prev =>
+                          on
+                            ? prev.filter(p => p !== platform)
+                            : [...prev, platform]
+                        )
+                      }
+                    />
+                  )}
+                  </div>
                 ))}
               </div>
             )}
@@ -259,7 +286,12 @@ export function CreatePostsDialog({
               ? 'Pick a platform.'
               : missingType
                 ? `Pick the type of ${PLATFORMS[missingType].label} post.`
-                : `${formats.map(f => FORMATS[f].label).join(', ')}.`}
+                : `${formats
+                    .map(
+                      f =>
+                        `${FORMATS[f].label}${imageFormats.includes(f) ? ' with image' : ''}`
+                    )
+                    .join(', ')}.`}
           </p>
           <button
             type="button"
@@ -271,7 +303,7 @@ export function CreatePostsDialog({
           <button
             type="button"
             disabled={!ready}
-            onClick={() => onConfirm(formats)}
+            onClick={() => onConfirm(formats, imageFormats)}
             className="bg-accent text-background hover:bg-accent-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles aria-hidden className="h-3.5 w-3.5" />
@@ -282,5 +314,45 @@ export function CreatePostsDialog({
       </div>
     </div>,
     document.body
+  )
+}
+
+/**
+ * "Add an image" under a platform's post types: the image is designed with
+ * the post. Ticked by default; always on (and locked) for a post that is a
+ * picture, such as an Instagram post.
+ */
+function ImageChoice({
+  formatId,
+  on,
+  onChange
+}: {
+  formatId: FormatId
+  on: boolean
+  onChange: (on: boolean) => void
+}) {
+  const required = needsImage(formatId)
+  return (
+    <label
+      className={cn(
+        'mt-2 flex items-center gap-2.5 px-1 text-xs',
+        required ? 'cursor-default' : 'cursor-pointer'
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={required || on}
+        disabled={required}
+        onChange={e => onChange(e.target.checked)}
+        className="accent-accent h-4 w-4 shrink-0"
+      />
+      <ImageIcon aria-hidden className="text-muted h-3.5 w-3.5 shrink-0" />
+      <span className="text-foreground font-medium">Add an image</span>
+      {required && (
+        <span className="text-muted">
+          · {PLATFORMS[FORMATS[formatId].platform].label} posts need one
+        </span>
+      )}
+    </label>
   )
 }

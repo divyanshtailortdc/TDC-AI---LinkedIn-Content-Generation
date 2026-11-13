@@ -4,16 +4,24 @@ import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
 import {
+  canHaveImage,
   FORMAT_IDS,
   FORMATS,
   formatHint,
   formatOf,
   isCreatableFormat,
   isFormatId,
+  needsImage,
   type FormatId
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
-import { ChevronDown, Loader2, Plus } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  Image as ImageIcon,
+  Loader2,
+  Plus
+} from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { addPostVersion } from './actions'
 import type { PostDetail } from './posts-client'
@@ -144,6 +152,8 @@ export function AddVersionMenu({
 }) {
   const [open, setOpen] = useState(false)
   const [writing, setWriting] = useState<FormatId | null>(null)
+  // "Add an image": on until taken off, as in Create posts.
+  const [withImage, setWithImage] = useState(true)
   const wrapper = useRef<HTMLDivElement>(null)
   const panelId = useId()
 
@@ -170,7 +180,7 @@ export function AddVersionMenu({
     setOpen(false)
     setWriting(formatId)
     try {
-      const res = await addPostVersion(post.id, formatId)
+      const res = await addPostVersion(post.id, formatId, withImage)
       if (res.success && res.post) {
         onAdded(res.post)
         showToast({
@@ -229,8 +239,41 @@ export function AddVersionMenu({
             Write this idea for another platform, from the same evidence. It
             opens here for review.
           </p>
+          {/* Whether the version comes with an image designed for it */}
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={withImage}
+            onClick={() => setWithImage(on => !on)}
+            className="hover:bg-surface-hover mb-1 flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                withImage
+                  ? 'border-accent bg-accent text-background'
+                  : 'border-border'
+              )}
+            >
+              {withImage && <Check className="h-3 w-3" />}
+            </span>
+            <ImageIcon aria-hidden className="text-muted h-3.5 w-3.5 shrink-0" />
+            <span className="text-foreground text-xs font-semibold">
+              Add an image
+            </span>
+          </button>
           {missing.map(id => {
             const spec = FORMATS[id]
+            // What this version gets: an Instagram post always has an image,
+            // a video script never does.
+            const imageNote = !canHaveImage(id)
+              ? 'no image'
+              : needsImage(id)
+                ? 'with an image (needed)'
+                : withImage
+                  ? 'with an image'
+                  : 'text only'
             return (
               <button
                 key={id}
@@ -253,6 +296,7 @@ export function AddVersionMenu({
                     {canPublishFormat(spec.platform, id)
                       ? 'Publish or schedule it from here'
                       : 'Copy it and post it by hand'}
+                    {` · ${imageNote}`}
                   </span>
                 </span>
               </button>

@@ -170,7 +170,12 @@ export async function updateDraft(
  * review screen) and returns it, ready to show. Takes about as long as
  * drafting one post; only formats the identity has turned on are offered.
  */
-export async function addPostVersion(draftId: string, formatId: string) {
+export async function addPostVersion(
+  draftId: string,
+  formatId: string,
+  /** "Add an image" in the menu; absent: the format's default. */
+  withImage?: boolean
+) {
   await requireUser()
   try {
     if (!z.string().uuid().safeParse(draftId).success || !isFormatId(formatId)) {
@@ -201,7 +206,9 @@ export async function addPostVersion(draftId: string, formatId: string) {
     const { draftId: newId } = await draftAdditionalFormat(
       accountId,
       source.ideaId,
-      formatId
+      formatId,
+      // From the browser: only a real boolean counts.
+      typeof withImage === 'boolean' ? withImage : undefined
     )
     const { posts } = await loadPostsPage(accountId, { ids: [newId] })
     revalidatePath('/posts')

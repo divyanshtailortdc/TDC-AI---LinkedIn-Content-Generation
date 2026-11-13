@@ -180,6 +180,9 @@ export function RunDetailClient({
   // (CreatePostsDialog); the last answer is kept for Try again.
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [lastFormats, setLastFormats] = useState<FormatId[] | undefined>()
+  // The formats ticked "Add an image", sent with the formats and kept for
+  // Try again, as lastFormats is.
+  const imageFormatsRef = useRef<FormatId[] | undefined>(undefined)
   const [run, setRun] = useState(initialRun)
   const [steps, setSteps] = useState(initialSteps)
   const [findings, setFindings] = useState(initialFindings)
@@ -462,7 +465,8 @@ export function RunDetailClient({
       const res = await draftSelectedIdeas({
         runId: run.id,
         ideaIds: approvedIds,
-        formats
+        formats,
+        imageFormats: formats ? imageFormatsRef.current : undefined
       })
       if (!res.success) {
         await fail(res.error || 'Drafting failed. Please try again.')
@@ -1035,8 +1039,9 @@ export function RunDetailClient({
             .flatMap((i) => i.formatFit ?? [])}
           confirmLabel="Create posts"
           onCancel={() => setCreateDialogOpen(false)}
-          onConfirm={(formats) => {
+          onConfirm={(formats, imageFormats) => {
             setCreateDialogOpen(false)
+            imageFormatsRef.current = imageFormats
             void handleDraftSelected(selection, formats)
           }}
         />

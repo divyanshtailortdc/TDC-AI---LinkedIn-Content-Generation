@@ -44,10 +44,11 @@ export function linkedInConfig(): PublishingAppConfig | null {
   }
 }
 
-/** X_PUBLISHING, FACEBOOK_PUBLISHING or INSTAGRAM_PUBLISHING. */
+/** X_PUBLISHING, THREADS_PUBLISHING, FACEBOOK_PUBLISHING or INSTAGRAM_PUBLISHING. */
 const bufferSwitch = (platform: BufferPlatformId) =>
   ({
     x: env.X_PUBLISHING,
+    threads: env.THREADS_PUBLISHING,
     facebook: env.FACEBOOK_PUBLISHING,
     instagram: env.INSTAGRAM_PUBLISHING
   })[platform]

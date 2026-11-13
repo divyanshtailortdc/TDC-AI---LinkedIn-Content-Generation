@@ -309,6 +309,12 @@ export const CREATABLE_FORMATS: readonly FormatId[] = FORMAT_IDS.filter(
 
 export const isCreatableFormat = (id: FormatId) => CREATABLE_FORMATS.includes(id)
 
+/** A post in this format can carry an image: every format but a video script. */
+export const canHaveImage = (id: FormatId) => FORMATS[id].structure !== 'script'
+
+/** A post in this format cannot go out without an image (an Instagram post). */
+export const needsImage = (id: FormatId) => Boolean(FORMATS[id].withImage)
+
 /**
  * The platforms posts can be created for: those with a creatable format.
  * Not YouTube, whose only format was the Short script. Pickers (setup,

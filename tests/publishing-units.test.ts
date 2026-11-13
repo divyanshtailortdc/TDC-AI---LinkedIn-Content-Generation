@@ -604,6 +604,52 @@ describe('Facebook and Instagram through Buffer', () => {
     assert.strictEqual(bufferInstagramProvider.requiresImage, true)
     assert.deepStrictEqual(bufferInstagramProvider.formats, ['instagram.caption'])
   })
+
+  it("Threads sends its reply as a thread under Threads' own key; X keeps twitter", async () => {
+    const { bufferThreadsProvider, bufferXProvider } = await import(
+      '../src/lib/publishing/buffer/provider'
+    )
+    const inputs: any[] = []
+    const fetchFn = (async (_url: string | URL, init: RequestInit = {}) => {
+      inputs.push(JSON.parse(String(init.body)).variables.input)
+      return Response.json({
+        data: {
+          createPost: {
+            __typename: 'PostActionSuccess',
+            post: { id: 'P1', status: 'sent', externalLink: null, sentAt: null }
+          }
+        }
+      })
+    }) as typeof fetch
+    const ctx = {
+      accessToken: 'KEY',
+      fetchFn,
+      config: {
+        oauth: null,
+        apiUrl: 'https://buffer.example/graphql',
+        appUrl: 'https://app.example.com',
+        encryptionKey: key,
+        inlineWaitMs: 0
+      }
+    }
+    await bufferThreadsProvider.createPost(ctx, { authorId: 'T1', text: 'Post', replies: ['Reply'] })
+    await bufferThreadsProvider.createPost(ctx, { authorId: 'T1', text: 'Post' })
+    await bufferXProvider.createPost(ctx, { authorId: 'X1', text: 'Post', replies: ['Reply'] })
+    assert.deepStrictEqual(inputs[0].metadata, {
+      threads: {
+        thread: [
+          { text: 'Post', assets: [] },
+          { text: 'Reply', assets: [] }
+        ]
+      }
+    })
+    // A post without a reply needs no metadata at all.
+    assert.strictEqual(inputs[1].metadata, undefined)
+    assert.deepStrictEqual(Object.keys(inputs[2].metadata), ['twitter'])
+    assert.deepStrictEqual(bufferThreadsProvider.formats, ['threads.post'])
+    assert.strictEqual(bufferThreadsProvider.threads, true)
+    assert.strictEqual(bufferThreadsProvider.maxPostLength, 500)
+  })
 })
 
 describe('image links Buffer can reach', () => {

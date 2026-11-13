@@ -75,10 +75,13 @@ import {
   cleanFormats,
   DEFAULT_FORMAT,
   FORMATS,
+  canHaveImage,
   formatCharCount,
   formatOf,
   formatsToDraft,
+  imageChosenFor,
   isCasualStyle,
+  needsImage,
   plannedMediaFormat,
   postTexts,
   resolveMediaFormat,
@@ -803,11 +806,13 @@ async function prepareFormatPost(
     lintFindings = runLinter(lintOptions(draft))
   }
 
-  // Even in a casual or fun style, unlike LinkedIn: the post is the picture, it cannot
-  // go out without one, and the reviewer can swap in their own photo.
+  // An image when Create posts asked for one ("Add an image": an X or a
+  // Facebook post too). Without that choice, only a format that is a
+  // picture: an Instagram post, even in a casual or fun style, as it cannot
+  // go out without one (the reviewer can swap in their own photo).
   const visualIdea = visualIdeaOf(draft)
   const image =
-    spec.withImage && options.withMedia !== false && !carousel
+    (options.withMedia ?? Boolean(spec.withImage)) && !carousel
       ? await planPostImage(
           ctx,
           idea,
@@ -880,9 +885,9 @@ async function prepareFormats(
         DEFAULT_FORMAT,
         // LinkedIn reads its own sample posts once others are tagged.
         prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
-          // Casual or fun posts carry the author's own photos and videos: no
-          // generated graphic.
-          withMedia: !linkedInIsCasual(ctx)
+          // As ticked in Create posts. Without that choice, casual or fun
+          // posts carry the author's own photos and videos: no generated graphic.
+          withMedia: imageChosenFor(idea, DEFAULT_FORMAT) ?? !linkedInIsCasual(ctx)
         })
       )
     : null
@@ -892,7 +897,9 @@ async function prepareFormats(
     const [first, ...rest] = others
     const firstResult = await settle(
       first!,
-      prepareFormatPost(ctx, idea, first!, recordStep)
+      prepareFormatPost(ctx, idea, first!, recordStep, {
+        withMedia: imageChosenFor(idea, first!)
+      })
     )
     // The rest are told how the first opens, so they open differently.
     const firstOpening = 'post' in firstResult ? [firstResult.post.values.hook] : []
@@ -900,7 +907,10 @@ async function prepareFormats(
       rest.map(f =>
         settle(
           f,
-          prepareFormatPost(ctx, idea, f, recordStep, { siblingOpenings: firstOpening })
+          prepareFormatPost(ctx, idea, f, recordStep, {
+            siblingOpenings: firstOpening,
+            withMedia: imageChosenFor(idea, f)
+          })
         )
       )
     )
@@ -1052,8 +1062,17 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
 export async function draftAdditionalFormat(
   accountId: string,
   ideaId: string,
-  formatId: FormatId
+  formatId: FormatId,
+  /**
+   * "Add an image" in the Add a version menu. A format that needs one always
+   * gets one, and a video script never does. Undefined: the format's default.
+   */
+  withImage?: boolean
 ): Promise<{ draftId: string }> {
+  const chosenImage =
+    withImage === undefined
+      ? undefined
+      : canHaveImage(formatId) && (needsImage(formatId) || withImage)
   const idea = await db.query.ideasTable.findFirst({
     where: and(eq(ideasTable.id, ideaId), eq(ideasTable.accountId, accountId))
   })
@@ -1081,9 +1100,10 @@ export async function draftAdditionalFormat(
   const post =
     formatId === DEFAULT_FORMAT
       ? await prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
-          withMedia: !linkedInIsCasual(ctx)
+          withMedia: chosenImage ?? !linkedInIsCasual(ctx)
         })
       : await prepareFormatPost(ctx, idea, formatId, recordStep, {
+          withMedia: chosenImage,
           ...(await siblingsOf(ideaId, formatId))
         })
 

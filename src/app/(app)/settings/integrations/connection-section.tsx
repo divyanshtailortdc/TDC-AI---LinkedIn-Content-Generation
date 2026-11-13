@@ -186,10 +186,11 @@ export function ConnectionSection({
               </span>
             </h2>
             <p className="text-muted mt-1 text-xs leading-relaxed">
+              Approved posts are published to this {name} account
               {viaBuffer ? (
                 <>
-                  Connect the {name} account TDC AI publishes your approved
-                  posts to, through{' '}
+                  {' '}
+                  through{' '}
                   <a
                     href="https://buffer.com"
                     target="_blank"
@@ -198,16 +199,10 @@ export function ConnectionSection({
                   >
                     Buffer
                   </a>
-                  : your {name} account is connected in Buffer, and TDC AI
-                  hands Buffer each post to publish. TDC AI never sees your{' '}
-                  {name} password.
+                  .
                 </>
               ) : (
-                <>
-                  Connect the {name} account TDC AI publishes your approved
-                  posts to. This is separate from how you sign in: signing in
-                  with {name} does not let TDC AI post for you.
-                </>
+                '.'
               )}
             </p>
           </div>
@@ -234,8 +229,7 @@ export function ConnectionSection({
 
           {!configured ? (
             <FormAlert variant="info">
-              Publishing to {name} is not set up on this server yet. An
-              administrator needs to set it up (see docs/PUBLISHING.md).
+              Not set up on this server yet (see docs/PUBLISHING.md).
             </FormAlert>
           ) : !connection || status === 'disconnected' ? (
             keyFormOpen ? null : (
@@ -245,12 +239,10 @@ export function ConnectionSection({
                 </p>
                 <p className="text-muted mx-auto mt-1 max-w-md text-xs leading-relaxed">
                   {viaBuffer && withKey
-                    ? `Connect your ${bufferAccount} in Buffer (its free plan is enough), create a Buffer API key, and paste it here.`
+                    ? `Add your ${bufferAccount} in Buffer, then paste a Buffer API key here.`
                     : viaBuffer
-                      ? `Connect your ${bufferAccount} in Buffer first (its free plan is enough). Buffer will then ask you to allow TDC AI to see your channels and create posts.`
-                      : `${name} will ask you to allow TDC AI to see your name and photo and to create posts for you.`}{' '}
-                  Nothing is posted until you approve a post and choose to
-                  publish it.
+                      ? `Add your ${bufferAccount} in Buffer first, then connect.`
+                      : 'Nothing is posted until you approve and publish it.'}
                 </p>
               </div>
             )
@@ -261,14 +253,13 @@ export function ConnectionSection({
                   {connection.lastError ??
                     `${name} no longer accepts this connection.`}{' '}
                   {withKey
-                    ? 'Connect again with a working Buffer API key; scheduled posts will fail until you do.'
-                    : 'Reconnect to keep publishing; scheduled posts will fail until you do.'}
+                    ? 'Connect again with a working Buffer API key.'
+                    : 'Reconnect to keep publishing.'}
                 </FormAlert>
               )}
               {connected && !connection.canPublish && (
                 <FormAlert>
-                  {name} did not grant permission to create posts. Reconnect
-                  and allow it.
+                  {name} did not allow posting. Reconnect and allow it.
                 </FormAlert>
               )}
               <div className="border-border flex flex-wrap items-center gap-3.5 rounded-xl border px-4 py-3.5">
@@ -332,51 +323,28 @@ export function ConnectionSection({
                   </Button>
                 </div>
               </div>
-              <p className="text-muted text-[11px] leading-relaxed">
-                {viaBuffer && withKey ? (
-                  <>
-                    Posts go out through Buffer and count toward your Buffer
-                    plan&apos;s limits. Disconnecting deletes the Buffer API
-                    key saved here; to revoke the key itself, delete it in
-                    Buffer (Settings → API).
-                  </>
-                ) : viaBuffer ? (
-                  <>
-                    Posts go out through Buffer and count toward your Buffer
-                    plan&apos;s limits. TDC AI renews its access by itself.
-                    Disconnecting deletes TDC AI&apos;s access here; to remove
-                    it in Buffer too, remove TDC AI from the apps in your
-                    Buffer account settings.
-                  </>
-                ) : (
-                  <>
-                    {name} grants access for a limited time; reconnect before
-                    it runs out. Disconnecting deletes TDC AI&apos;s access
-                    here. To also remove it on {name}, remove TDC AI from the
-                    apps allowed in your {name} privacy settings.
-                  </>
-                )}
-              </p>
             </>
           )}
         </div>
-      </section>
 
-      {configured && connection && connected && (
-        <AutoPublishSection platform={platform} connection={connection} />
-      )}
+        {/* Its auto-publishing, in the same card: one card per platform,
+            with its account and its schedule together. */}
+        {configured && connection && connected && (
+          <AutoPublishSection platform={platform} connection={connection} />
+        )}
+      </section>
 
       {confirmingDisconnect && (
         <ConfirmDialog
           title={`Disconnect ${name}?`}
           description={
             <>
-              TDC AI will no longer be able to publish to{' '}
+              TDC AI stops publishing to{' '}
               <span className="text-foreground font-medium">
                 {connection?.name ?? `your ${name}`}
               </span>
-              . Posts scheduled to publish are cancelled and auto-publishing
-              turns off. How you sign in does not change.
+              . Scheduled posts are cancelled and auto-publishing turns off.
+              {withKey && ' The saved Buffer API key is deleted.'}
             </>
           }
           confirmLabel="Yes, disconnect"
@@ -390,7 +358,10 @@ export function ConnectionSection({
   )
 }
 
-/** Opt-in auto-publishing: approved posts planned for a day go out that day. */
+/**
+ * Opt-in auto-publishing: approved posts planned for a day go out that day.
+ * The lower part of its platform's card, below a divider.
+ */
 function AutoPublishSection({
   platform,
   connection
@@ -447,33 +418,48 @@ function AutoPublishSection({
     enabled && !connection.autoPublish ? setConfirming(true) : void save()
 
   return (
-    <section
+    <div
+      role="group"
       aria-labelledby={titleId}
-      className="border-border bg-surface rounded-2xl border p-5 shadow-xs"
+      className="border-border mt-5 border-t pt-5"
     >
-      <h2
+      <h3
         id={titleId}
-        className="text-foreground flex items-center gap-2.5 text-base font-semibold"
+        className="text-foreground flex flex-wrap items-center gap-2.5 text-sm font-semibold"
       >
         <span className="bg-accent/10 rounded-lg p-1.5">
           <CalendarClock aria-hidden className="text-accent h-4 w-4" />
         </span>
-        Auto-publishing to {platform.name}
-      </h2>
-      <p className="text-muted mt-1 text-xs leading-relaxed">
-        When on, every <strong className="text-foreground">approved</strong>{' '}
-        {platform.name} post planned for a day on the{' '}
+        Auto-publishing
+        {/* What is saved, so the schedule reads at a glance. */}
+        <span
+          className={cn(
+            'rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+            connection.autoPublish
+              ? STATUS.connected.className
+              : STATUS.disconnected.className
+          )}
+        >
+          {connection.autoPublish
+            ? `On · daily at ${connection.autoPublishTime}`
+            : 'Off'}
+        </span>
+      </h3>
+      {/* The rules for posts approved late, or for a time already past, are
+          in the hover text; the line says only what it does. */}
+      <p
+        className="text-muted mt-1 text-xs leading-relaxed"
+        title="Only approved posts are published. A post approved or planned for today after this time is not published automatically: publish it yourself."
+      >
+        Approved posts planned on the{' '}
         <Link href="/schedule" className="text-accent hover:underline">
           Schedule
         </Link>{' '}
-        page is published to {platform.name} automatically at the time below on that
-        day. Posts waiting for review are never published, and nothing is
-        published for a time that already passed when you turn it on. A post
-        approved, edited or planned for today after that time is not published
-        automatically; publish it yourself. Off by default.
+        go out on their day at this time.
       </p>
 
-      <div className="mt-4 flex flex-wrap items-end gap-4">
+      {/* Boxed like the account row above, Save lined up with its buttons. */}
+      <div className="border-border mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border px-4 py-3.5">
         <label
           htmlFor={toggleId}
           className="flex cursor-pointer items-center gap-2.5"
@@ -487,7 +473,7 @@ function AutoPublishSection({
             className="accent-accent h-4 w-4 cursor-pointer"
           />
           <span className="text-foreground text-sm font-medium">
-            Publish approved, planned posts automatically
+            Publish automatically
           </span>
         </label>
         <div className="flex items-center gap-2">
@@ -516,6 +502,7 @@ function AutoPublishSection({
           loading={saving}
           disabled={!dirty || !time}
           onClick={onSave}
+          className="ml-auto"
         >
           Save
         </Button>
@@ -526,9 +513,8 @@ function AutoPublishSection({
           title="Turn on auto-publishing?"
           description={
             <>
-              From now on, approved posts planned for a day are published to
-              your {platform.name} at {time} ({zone}) that day, without asking again.
-              You can turn this off at any time.
+              Approved posts planned on the Schedule go out to {platform.name}{' '}
+              at {time} ({zone}) on their day. You can turn this off any time.
             </>
           }
           confirmLabel="Yes, turn it on"
@@ -538,6 +524,6 @@ function AutoPublishSection({
           onConfirm={() => void save()}
         />
       )}
-    </section>
+    </div>
   )
 }

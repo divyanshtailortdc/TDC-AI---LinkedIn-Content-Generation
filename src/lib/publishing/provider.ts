@@ -4,6 +4,7 @@ import type { BufferOAuthConfig } from './buffer/oauth'
 import {
   bufferFacebookProvider,
   bufferInstagramProvider,
+  bufferThreadsProvider,
   bufferXProvider
 } from './buffer/provider'
 import type { CallbackResult } from './callback-results'
@@ -20,7 +21,8 @@ import { canPublishTo, type PublishingPlatformId } from './platform'
  *   linkedin   LinkedIn's REST API, connected through LinkedIn's OAuth (./linkedin)
  *   x          X through Buffer's API, connected through Buffer's OAuth (an
  *              app client), or with a Buffer API key for testing (./buffer)
- *   facebook   A Facebook Page through Buffer, connected the same way
+ *   threads    A Threads account through Buffer, connected the same way
+ *   facebook   A Facebook Page through Buffer, likewise
  *   instagram  An Instagram professional account through Buffer, likewise
  *
  * No `server-only` import, so tests can run what uses it.
@@ -54,6 +56,7 @@ export type PlatformConfig = LinkedInAppConfig | BufferConfig
 export type PublishConfigs = {
   linkedin?: LinkedInAppConfig
   x?: BufferConfig
+  threads?: BufferConfig
   facebook?: BufferConfig
   instagram?: BufferConfig
 }
@@ -237,6 +240,7 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
 const PROVIDERS: Record<PublishingPlatformId, PublishingProvider<any>> = {
   linkedin: linkedInProvider,
   x: bufferXProvider,
+  threads: bufferThreadsProvider,
   facebook: bufferFacebookProvider,
   instagram: bufferInstagramProvider
 }

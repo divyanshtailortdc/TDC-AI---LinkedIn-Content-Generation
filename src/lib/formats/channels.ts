@@ -1,7 +1,9 @@
 import {
+  canHaveImage,
   cleanFormats,
   FORMATS,
   isCreatableFormat,
+  needsImage,
   isPlatformId,
   PLATFORMS,
   platformsOf
@@ -179,6 +181,24 @@ export function formatsToDraft(idea: {
   if (chosen.length > 0) return chosen
   const fit = cleanFormats(idea.formatFit).filter(isCreatableFormat)
   return fit.length > 0 ? fit : [DEFAULT_FORMAT]
+}
+
+/**
+ * Whether drafting makes an image for an idea's post in `formatId`, as chosen
+ * in Create posts ("Add an image", kept in suggestedMedia.imageFormats). A
+ * format that needs one always gets one and a video script never does.
+ * Undefined when nothing was chosen (an idea from before the choice): the
+ * caller's own default applies.
+ */
+export function imageChosenFor(
+  idea: { suggestedMedia?: unknown },
+  formatId: FormatId
+): boolean | undefined {
+  if (!canHaveImage(formatId)) return false
+  if (needsImage(formatId)) return true
+  const chosen = (idea.suggestedMedia as { imageFormats?: unknown } | null)
+    ?.imageFormats
+  return Array.isArray(chosen) ? chosen.includes(formatId) : undefined
 }
 
 /**

@@ -2,12 +2,17 @@
 
 import { db } from '@/db'
 import { feedbackTable, ideasTable } from '@/db/schema'
-import { cleanFormats, isCreatableFormat, type FormatId } from '@/lib/formats'
+import {
+  canHaveImage,
+  cleanFormats,
+  isCreatableFormat,
+  type FormatId
+} from '@/lib/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { requireUser } from '@/lib/session'
-import { and, eq, inArray, notInArray } from 'drizzle-orm'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { enqueueDrafting, resumeAbandonedDrafting } from '~/jobs/drafting-queue'
@@ -169,6 +174,11 @@ export async function draftSelectedIdeas(options: {
    * chose, or LinkedIn).
    */
   formats?: string[]
+  /**
+   * Of those, the ones whose posts get an image ("Add an image"). Absent:
+   * each format's default (imageChosenFor).
+   */
+  imageFormats?: string[]
 }) {
   const user = await requireUser()
   try {
@@ -192,11 +202,28 @@ export async function draftSelectedIdeas(options: {
 
     if (options.formats !== undefined) {
       const formats = chosenFormats(options.formats)
+      // Only chosen formats that can carry an image (not a video script).
+      const imageFormats =
+        options.imageFormats === undefined
+          ? undefined
+          : cleanFormats(options.imageFormats).filter(
+              f => formats.includes(f) && canHaveImage(f)
+            )
       // Set before the claim, so the drafting queue reads them. Ideas not yet
-      // approved keep theirs: they are skipped below and not drafted.
+      // approved keep theirs: they are skipped below and not drafted. The
+      // image choice goes into the idea's image plan, merged with what is
+      // there, so a drafting resumed after a restart has it too.
       await db
         .update(ideasTable)
-        .set({ targetFormats: formats, updatedAt: new Date() })
+        .set({
+          targetFormats: formats,
+          ...(imageFormats && {
+            // ::text first: cast straight to jsonb, the driver encodes the
+            // parameter again, and || would make the plan an array.
+            suggestedMedia: sql`coalesce(${ideasTable.suggestedMedia}, '{"mode":"none"}'::jsonb) || ${JSON.stringify({ imageFormats })}::text::jsonb`
+          }),
+          updatedAt: new Date()
+        })
         .where(
           and(
             inArray(ideasTable.id, ideaIds),

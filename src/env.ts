@@ -66,8 +66,10 @@ export const env = createEnv({
     // connects X in their own Buffer account; the app needs no X developer
     // app. On whenever TOKEN_ENCRYPTION_KEY is set; "off" hides it.
     X_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
-    // Facebook Pages and Instagram (professional accounts) through Buffer too
-    // (docs/PUBLISHING_FACEBOOK_INSTAGRAM.md), with the same Buffer app client.
+    // Threads, Facebook Pages and Instagram (professional accounts) through
+    // Buffer too (docs/PUBLISHING_FACEBOOK_INSTAGRAM.md), with the same Buffer
+    // app client.
+    THREADS_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     FACEBOOK_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     INSTAGRAM_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     /** Buffer's GraphQL endpoint; only a test stub needs another. */
@@ -87,7 +89,7 @@ export const env = createEnv({
     BUFFER_CLIENT_SECRET: z.string().optional(),
     /**
      * X's callback; defaults to {BETTER_AUTH_URL}/api/integrations/x/callback.
-     * Facebook and Instagram use /api/integrations/{facebook,instagram}/callback
+     * Threads, Facebook and Instagram use /api/integrations/{threads,facebook,instagram}/callback
      * on the same origin. Buffer requires HTTPS, even on localhost.
      */
     BUFFER_REDIRECT_URI: z.url().optional(),
@@ -159,6 +161,7 @@ export const env = createEnv({
     LINKEDIN_PUBLISH_SCOPES: process.env.LINKEDIN_PUBLISH_SCOPES,
     LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
     X_PUBLISHING: process.env.X_PUBLISHING,
+    THREADS_PUBLISHING: process.env.THREADS_PUBLISHING,
     FACEBOOK_PUBLISHING: process.env.FACEBOOK_PUBLISHING,
     INSTAGRAM_PUBLISHING: process.env.INSTAGRAM_PUBLISHING,
     BUFFER_API_URL: process.env.BUFFER_API_URL,

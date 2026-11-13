@@ -108,6 +108,9 @@ export function IdeasClient({
     | null
   >(null)
   const [lastFormats, setLastFormats] = useState<FormatId[] | undefined>()
+  // The formats ticked "Add an image" in Create posts, sent with the formats
+  // (runDrafting) and kept for Try again, as lastFormats is.
+  const imageFormatsRef = useRef<FormatId[] | undefined>(undefined)
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
   // The server sends a new page after every action here (each revalidates
   // /ideas) and on each page or filter change. It replaces the local copy,
@@ -358,7 +361,8 @@ export function IdeasClient({
     try {
       const res = await draftSelectedIdeas({
         ideaIds: targetIds,
-        formats
+        formats,
+        imageFormats: formats ? imageFormatsRef.current : undefined
       })
       if (res.success) {
         setTicked((prev) => prev.filter((id) => !targetIds.includes(id)))
@@ -529,9 +533,10 @@ export function IdeasClient({
         ? selection
         : selectedApproved
   const dialogPosts = `${dialogTargetIds.length} post${dialogTargetIds.length === 1 ? '' : 's'}`
-  const confirmCreate = (formats: FormatId[]) => {
+  const confirmCreate = (formats: FormatId[], imageFormats: FormatId[]) => {
     const open = createDialog
     setCreateDialog(null)
+    imageFormatsRef.current = imageFormats
     // Not awaited: drafting shows its own progress.
     if (open?.kind === 'single') void draftSingle(open.id, formats)
     else if (open?.kind === 'approve') void handleApproveSelectedAndDraft(formats)

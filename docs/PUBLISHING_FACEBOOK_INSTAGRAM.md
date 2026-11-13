@@ -1,6 +1,6 @@
-# Publishing to Facebook and Instagram (through Buffer)
+# Publishing to Threads, Facebook and Instagram (through Buffer)
 
-Facebook and Instagram posts are published the same way as X posts: through the customer's own Buffer account, with the same Buffer app client. Read [PUBLISHING_X.md](PUBLISHING_X.md) first. It covers why the app uses Buffer, the connect flow, tokens, the confirmation worker, error handling and limits, and all of that applies here unchanged. This page covers only what is different.
+Threads, Facebook and Instagram posts are published the same way as X posts: through the customer's own Buffer account, with the same Buffer app client. Read [PUBLISHING_X.md](PUBLISHING_X.md) first. It covers why the app uses Buffer, the connect flow, tokens, the confirmation worker, error handling and limits, and all of that applies here unchanged. This page covers only what is different.
 
 - [What can be published](#what-can-be-published)
 - [What is sent to Buffer](#what-is-sent-to-buffer)
@@ -14,6 +14,7 @@ Facebook and Instagram posts are published the same way as X posts: through the 
 
 | Platform | What Buffer can connect | Format published | Formats copied by hand |
 | --- | --- | --- | --- |
+| Threads | A **Threads** account | `threads.post` | none |
 | Facebook | A **Facebook Page** | `facebook.post` | none |
 | Instagram | An Instagram **business or creator** account (Buffer cannot connect personal accounts) | `instagram.caption`, shown as **Instagram post**: a picture with its caption | `instagram.reel` (posts have no video) |
 
@@ -21,14 +22,15 @@ This is set in `PUBLISHABLE_FORMATS` in `src/lib/publishing/platform.ts`. Each p
 
 ## What is sent to Buffer
 
-Both use `createPost` with `mode: shareNow`, like X. Each network has its own `metadata`:
+All use `createPost` with `mode: shareNow`, like X. Each network has its own `metadata`:
 
 | Platform | `metadata` | First comment field |
 | --- | --- | --- |
+| Threads | `{ threads: { thread: [post, reply] } }`, only when the post has a reply | **Published** as a reply under the post, inside the same Buffer post, as on X (`threads`, with `threadKey: 'threads'`) |
 | Facebook | `{ facebook: { type: "post", firstComment } }` | **Published** as the first comment, inside the same Buffer post (`commentInPost`), so there is no second request |
 | Instagram | `{ instagram: { type: "post", shouldShareToFeed: true } }` | **Never published.** For an Instagram post this field is the "Link-in-bio note", a reminder for the author and not a comment |
 
-The text is exactly what Copy gives. Length is checked before Buffer is called: 2,200 characters for an Instagram caption (Instagram's limit) and 63,206 for Facebook (Facebook's limit; drafting aims far shorter).
+The text is exactly what Copy gives. Length is checked before Buffer is called: 500 characters for a Threads post and its reply (counted in UTF-16 units, as Buffer does), 2,200 for an Instagram caption (Instagram's limit) and 63,206 for Facebook (Facebook's limit; drafting aims far shorter).
 
 Delete from the platform is not offered, because Buffer's API cannot remove a published post. As with X, the user deletes it on Facebook or Instagram.
 
@@ -38,6 +40,7 @@ Buffer downloads the image from the same signed link X uses (`/api/publishing-me
 
 | Platform | Image required? | What is served |
 | --- | --- | --- |
+| Threads | No | As for Facebook (`?for=facebook`): unchanged, except WebP, which becomes JPEG. Up to 8 MB |
 | Facebook | No | The image unchanged, except WebP, which becomes JPEG. Up to 10 MB |
 | Instagram | **Yes** | Always JPEG, at most 1440 px wide, **padded** with white into Instagram's 4:5 to 1.91:1 range. Padding means nothing is cropped. The app's own 2048×1072 images already fit once resized |
 
@@ -49,20 +52,22 @@ The variant is not part of the signature. It only changes how the one image the 
 
 This uses the Buffer app client and `TOKEN_ENCRYPTION_KEY` already set up for X ([PUBLISHING_X.md → Setup](PUBLISHING_X.md#setup)). There is no new secret and no migration.
 
-1. **Register the two extra redirect URIs** on the Buffer app client (Buffer → Settings → API → App Clients), exactly, for each environment:
+1. **Register the three extra redirect URIs** on the Buffer app client (Buffer → Settings → API → App Clients), exactly, for each environment:
+   - `https://<your-domain>/api/integrations/threads/callback`
    - `https://<your-domain>/api/integrations/facebook/callback`
    - `https://<your-domain>/api/integrations/instagram/callback`
    - local: the same paths on `https://localhost:3000`
 
    These callbacks use the origin of `BUFFER_REDIRECT_URI` when that is set, otherwise `BETTER_AUTH_URL`.
-2. **Environment** (optional). Facebook and Instagram are on whenever Buffer publishing is set up. To hide one:
+2. **Environment** (optional). Threads, Facebook and Instagram are on whenever Buffer publishing is set up. To hide one:
    ```bash
+   THREADS_PUBLISHING="off"
    FACEBOOK_PUBLISHING="off"
    INSTAGRAM_PUBLISHING="off"
    ```
 3. **Each customer**, once per platform:
-   1. In Buffer, connect the Facebook Page, or the Instagram business or creator account, as a channel. Buffer's free plan allows 3 channels in total, X included.
-   2. In the app, go to **Settings → Integrations → Facebook (or Instagram) → Connect**, and allow TDC AI on Buffer's screen.
+   1. In Buffer, connect the Threads account, the Facebook Page, or the Instagram business or creator account, as a channel. Buffer's free plan allows 3 channels in total, X included.
+   2. In the app, go to **Settings → Integrations → Threads (or Facebook, or Instagram) → Connect**, and allow TDC AI on Buffer's screen.
 
 Without `BUFFER_CLIENT_ID`, each card asks for a Buffer API key instead (testing), as X does.
 
@@ -90,6 +95,7 @@ Buffer, Facebook and Instagram themselves cannot run in CI. Check them by hand w
 
 - **"No Instagram account is connected in this Buffer account"**: the Instagram account is not a channel in Buffer, or it is a personal account. Switch it to a business or creator account in Instagram, then connect it in Buffer.
 - **"Instagram posts need an image"**: add an image to the post. Instagram does not take text-only posts.
-- **Buffer says the redirect URI is invalid** when connecting Facebook or Instagram: register `/api/integrations/facebook/callback` and `/api/integrations/instagram/callback` on the app client (see [Setup](#setup)).
+- **Buffer says the redirect URI is invalid** when connecting Threads, Facebook or Instagram: register `/api/integrations/threads/callback`, `/api/integrations/facebook/callback` and `/api/integrations/instagram/callback` on the app client (see [Setup](#setup)).
+- **"No Threads account is connected in this Buffer account"**: connect Threads as a channel in Buffer first. If it is connected and still not found, Buffer may name Threads channels differently from `threads`; the name is in `NETWORKS.threads.services` (`src/lib/publishing/buffer/provider.ts`).
 - **"Image could not be read from its URL"**: Buffer could not download the picture. Locally, set `PUBLISHING_MEDIA_URL` to a tunnel and restart. In production, check that `BETTER_AUTH_URL` is publicly reachable and that `/api/publishing-media/…?for=instagram` returns a JPEG. Nothing was posted, so **Try again** is safe.
 - **Connecting a second platform logged out the first** (the first connection shows Expired): this would mean Buffer revokes an earlier authorization when the same app client is authorized again. Buffer's documentation does not say either way, and each platform keeps its own grant. If it happens, report it; the fix would be to share one Buffer grant across the three platforms.

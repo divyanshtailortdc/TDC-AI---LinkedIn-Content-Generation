@@ -34,7 +34,7 @@ import {
 } from './oauth'
 
 /**
- * X, Facebook and Instagram as publishing providers, through Buffer (./api),
+ * X, Threads, Facebook and Instagram as publishing providers, through Buffer (./api),
  * one provider per network from the same code. Each customer authorizes
  * their own Buffer account through Buffer's consent screen (the app client,
  * ./oauth), once per network, or, without one set up, pastes a Buffer API
@@ -43,6 +43,7 @@ import {
  *
  *   x          An X thread, and the reply under a post, go out as one Buffer
  *              post whose thread holds every post in order.
+ *   threads    A Threads post; its reply goes out with it the same way.
  *   facebook   A Facebook Page post; its first comment goes out with it.
  *   instagram  A feed post: the caption with its image, which Instagram
  *              requires (sent as a JPEG within Instagram's aspect ratios).
@@ -71,6 +72,8 @@ type BufferNetwork = {
   /** How the signed link serves the image (../media-token). */
   imageVariant?: MediaVariant
   threads?: boolean
+  /** The network's key for a thread in Buffer's metadata (createPost). */
+  threadKey?: 'twitter' | 'threads'
   commentInPost?: boolean
   requiresImage?: boolean
   /** The network's own createPost metadata. */
@@ -86,10 +89,25 @@ const NETWORKS = {
     formats: PUBLISHABLE_FORMATS.x,
     // A thread, and the reply under a post, go out in one Buffer post.
     threads: true,
+    threadKey: 'twitter',
     // A free X account's limit, as X counts it (a link 23, an emoji 2).
     maxPostLength: FORMATS['x.post'].limits.maxChars,
     measure: text => countChars(text, 'x_weighted'),
     maxImageBytes: 5 * MB
+  },
+  threads: {
+    platform: PLATFORMS.threads,
+    services: new Set(['threads']),
+    formats: PUBLISHABLE_FORMATS.threads,
+    // The reply under a post goes out with it, as a thread of two.
+    threads: true,
+    threadKey: 'threads',
+    // Threads' limit, counted in UTF-16 units as Buffer does (an emoji 2).
+    maxPostLength: FORMATS['threads.post'].limits.maxChars,
+    measure: text => countChars(text, 'utf16'),
+    maxImageBytes: 8 * MB,
+    // Threads takes JPEG and PNG: a WebP goes as JPEG, as for Facebook.
+    imageVariant: 'facebook'
   },
   facebook: {
     platform: PLATFORMS.facebook,
@@ -273,6 +291,7 @@ function bufferProvider(
         channelId: post.authorId,
         text: post.text,
         replies: post.replies,
+        threadKey: network.threadKey,
         image: post.image && { url: post.image.ref, altText: post.image.altText },
         images: post.carousel?.refs.map((url, i) => ({
           url,
@@ -312,5 +331,6 @@ function bufferProvider(
 }
 
 export const bufferXProvider = bufferProvider(NETWORKS.x)
+export const bufferThreadsProvider = bufferProvider(NETWORKS.threads)
 export const bufferFacebookProvider = bufferProvider(NETWORKS.facebook)
 export const bufferInstagramProvider = bufferProvider(NETWORKS.instagram)

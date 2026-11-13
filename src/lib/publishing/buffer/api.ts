@@ -279,11 +279,12 @@ function toState(post: PostNode, name: string): BufferPostState {
  * Buffer answers before the network has it: the state is usually `pending`,
  * and getPost follows it to `sent`.
  *
- * With `replies`, it is an X thread: Buffer publishes
- * `metadata.twitter.thread` (every post, the first included) in order, each
- * a reply to the one before, and the top-level text and image must be the
- * first post's. `metadata` is the network's own (`facebook`: the post type
- * and first comment; `instagram`: the post type).
+ * With `replies`, it is a thread: Buffer publishes
+ * `metadata.<threadKey>.thread` (`twitter` for X, `threads` for Threads;
+ * every post, the first included) in order, each a reply to the one before,
+ * and the top-level text and image must be the first post's. `metadata` is
+ * the network's own (`facebook`: the post type and first comment;
+ * `instagram`: the post type).
  */
 export async function createPost(
   ctx: BufferContext,
@@ -291,6 +292,8 @@ export async function createPost(
     channelId: string
     text: string
     replies?: string[]
+    /** The network's key for a thread in Buffer's metadata; X's by default. */
+    threadKey?: 'twitter' | 'threads'
     image?: { url: string; altText?: string | null }
     /** A carousel: several images in one post, in order (instead of `image`). */
     images?: Array<{ url: string; altText?: string | null }>
@@ -310,7 +313,7 @@ export async function createPost(
   const metadata = {
     ...post.metadata,
     ...(replies.length > 0 && {
-      twitter: {
+      [post.threadKey ?? 'twitter']: {
         thread: [
           { text: post.text, assets },
           ...replies.map(text => ({ text, assets: [] }))
