@@ -70,24 +70,55 @@ export function CarouselViewer(props: CarouselViewerProps) {
   return <Swiper {...props} />
 }
 
-function SlideImage({ slide, eager }: { slide: ViewerSlide; eager?: boolean }) {
+/**
+ * One slide in its frame. `whole` shows all of it: a frame capped in height
+ * is wider than the slide's 4:5 in a wide column, and cropping it to fill
+ * would cut the slide's text, so its own colours, blurred, fill the sides
+ * (as the single-image preview does). Without it the slide fills its cell,
+ * as Facebook crops photos to its grid.
+ */
+function SlideImage({
+  slide,
+  eager,
+  whole
+}: {
+  slide: ViewerSlide
+  eager?: boolean
+  whole?: boolean
+}) {
   if (!slide.imageUrl) {
     return (
-      <div className="dark:bg-surface-hover flex h-full w-full flex-col items-center justify-center gap-1 bg-neutral-100 text-[11px] text-neutral-500">
+      <span className="dark:bg-surface-hover flex h-full w-full flex-col items-center justify-center gap-1 bg-neutral-100 text-[11px] text-neutral-500">
         <ImageOff className="h-5 w-5" />
         {slide.status === 'failed' ? 'Not drawn' : 'Loading…'}
-      </div>
+      </span>
     )
   }
-  return (
+  const loading = eager ? 'eager' : 'lazy'
+  const image = (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={slide.imageUrl}
       alt={slide.altText || `Slide ${slide.position}`}
-      loading={eager ? 'eager' : 'lazy'}
+      loading={loading}
       draggable={false}
-      className="h-full w-full object-cover select-none"
+      className={`h-full w-full select-none ${whole ? 'relative object-contain' : 'object-cover'}`}
     />
+  )
+  if (!whole) return image
+  return (
+    <span className="dark:bg-surface-hover/60 relative block h-full w-full overflow-hidden bg-neutral-100">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={slide.imageUrl}
+        alt=""
+        aria-hidden
+        loading={loading}
+        draggable={false}
+        className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl select-none"
+      />
+      {image}
+    </span>
   )
 }
 
@@ -171,7 +202,7 @@ function Swiper({
               aria-label={`Slide ${i + 1} of ${slides.length}`}
               className={`h-full w-full shrink-0 snap-center ${onOpen ? 'cursor-zoom-in' : 'cursor-default'}`}
             >
-              <SlideImage slide={slide} eager={i < 2} />
+              <SlideImage slide={slide} eager={i < 2} whole />
             </button>
           ))}
         </div>
@@ -229,8 +260,10 @@ function FacebookGrid({ slides, onOpen, onIndexChange }: CarouselViewerProps) {
     onOpen?.(i)
   }
   return (
+    // Square at any column width: capping the width (not the height) keeps
+    // the cells from stretching wide and cropping the slides.
     <div
-      className={`grid w-full gap-0.5 ${shown.length === 2 ? 'grid-cols-2' : 'grid-cols-2 grid-rows-2'} aspect-square max-h-[min(34rem,60vh)]`}
+      className={`mx-auto grid w-full gap-0.5 ${shown.length === 2 ? 'grid-cols-2' : 'grid-cols-2 grid-rows-2'} aspect-square max-w-[min(34rem,60vh)]`}
     >
       {shown.map((slide, i) => (
         <button

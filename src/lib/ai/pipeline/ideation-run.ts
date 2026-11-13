@@ -34,6 +34,8 @@ import {
   selectIdeas,
   spreadGoals
 } from '../idea-selection'
+import { ideaQuality } from '../idea-diversity'
+import { dropSemanticRepeats } from '../semantic-repeats'
 import { checkNovelty } from '../../novelty'
 import { inferRegion } from '../region'
 import { recordStepUsage, refreshRunTotals } from '../run-accounting'
@@ -525,6 +527,17 @@ async function researchAndIdeate(
   // record on the step: the run is already settled.
   signal.throwIfAborted()
 
+  // Earlier ideas reworded, and two of this batch saying the same thing: the
+  // word-overlap check below misses both, so they are dropped by meaning
+  // first (../semantic-repeats). The better of two alike is kept.
+  const earlierIdeas = ctx.history.ideas.filter(i => i.runId !== runId)
+  const repeats = await dropSemanticRepeats(validated, earlierIdeas, {
+    priority: ideaQuality,
+    abortSignal: signal
+  })
+  validated = repeats.kept
+  discarded.push(...repeats.dropped)
+
   // ------------------------------------------------------------ selection
   // Repeats of earlier work go first, so they cannot take a place from a
   // fresh idea; then the most varied set up to the target is kept, with
@@ -572,7 +585,14 @@ async function researchAndIdeate(
       ideationUsage = addUsage(ideationUsage, retry.usage)
       candidates = [...candidates, ...retry.candidates]
       discarded.push(...retry.discarded)
-      const reviewed = await reviewAgainstGoals(retry.valid)
+      // Nor may the retry repeat the first batch.
+      const retryRepeats = await dropSemanticRepeats(
+        await reviewAgainstGoals(retry.valid),
+        [...earlierIdeas, ...validated],
+        { priority: ideaQuality, abortSignal: signal }
+      )
+      const reviewed = retryRepeats.kept
+      discarded.push(...retryRepeats.dropped)
       validated = [...validated, ...reviewed]
       if (selected.length === 0) {
         const again = selectIdeas(reviewed, pastWork, targetIdeas, goalIds)

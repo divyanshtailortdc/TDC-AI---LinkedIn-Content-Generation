@@ -3,7 +3,9 @@ import type { Idea } from '@/db/schema'
 import {
   describeCta,
   describeHashtags,
+  motifList,
   platformOf,
+  recentMotifs,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
   renderConstraintsBlock,
@@ -127,9 +129,15 @@ export function buildPrompt(
     recentHooks.length > 0
       ? `\nThis author's latest posts opened with the lines below. Open differently, and do not reuse their phrasing or signature lines:\n${recentHooks.map(h => `- ${h}`).join('\n')}\n`
       : ''
+  // Only when the history shows a habit, so other prompts stay as they were.
+  const overused = recentMotifs(ctx, { drafts: 'own' })
+  const habits =
+    overused.length > 0
+      ? `\nThis author's recent ideas and posts keep using the same specifics: ${motifList(overused)}. Use other examples, objects, places and situations in this post, unless the idea is about one of them.\n`
+      : ''
 
   return `Write the post for this approved idea.
-${recent}
+${recent}${habits}
 Title: ${idea.title}
 Thesis: ${idea.thesis || ''}
 Angle: ${idea.angle || ''}

@@ -14,6 +14,8 @@ import {
 import { channelNote, forFormat } from '../../channel-context'
 import {
   describeCta,
+  motifList,
+  recentMotifs,
   renderAlsoSupportsBlock,
   renderAudienceBlock,
   renderGoalBlock,
@@ -310,6 +312,8 @@ export function buildFormatPrompt(
     .map(d => d.hook.trim())
     .filter(Boolean)
     .slice(0, 5)
+  // The specifics this account keeps reusing (a food, a setting, a joke).
+  const overused = recentMotifs(ctx, { drafts: 'own' })
   const exemplars = renderExemplars(ctx, spec)
 
   const lines = [
@@ -351,6 +355,12 @@ export function buildFormatPrompt(
           '',
           `This author's latest ${spec.label}s opened with the lines below. Open differently, and do not reuse their phrasing:`,
           ...recentHooks.map(h => `- ${h}`)
+        ]
+      : []),
+    ...(overused.length > 0
+      ? [
+          '',
+          `This author's recent ideas and posts keep using the same specifics: ${motifList(overused)}. Use other examples, objects, places and situations in this ${spec.label}, unless the idea is about one of them.`
         ]
       : []),
     ...(exemplars ? ['', exemplars] : []),

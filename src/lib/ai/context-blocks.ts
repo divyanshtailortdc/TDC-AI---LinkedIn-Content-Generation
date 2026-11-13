@@ -28,6 +28,7 @@ import {
   type StyleMix
 } from '@/lib/formats'
 import { parseHashtagPolicy, type HashtagRange } from './hashtags'
+import { recurringMotifs, type Motif } from './recurring-motifs'
 
 export { parseHashtagPolicy }
 
@@ -752,6 +753,59 @@ const bullets = (values: string[]) => values.map(v => `- ${v}`).join('\n')
  * rejected, and what they said when rejecting. `currentRunId` leaves out the
  * run being generated, so a rerun does not treat its own ideas as history.
  */
+/**
+ * Everything the account says it is about: its profile, offerings, readers
+ * and goals. Words from here are its subject, never a habit to break.
+ */
+export function accountSubjectText(ctx: GenerationContext): string {
+  const strings = (value: object | null | undefined): string[] =>
+    Object.entries(value ?? {}).flatMap(([key, v]) =>
+      /(id|url|at)$/i.test(key)
+        ? []
+        : typeof v === 'string'
+          ? [v]
+          : Array.isArray(v)
+            ? v.filter((x): x is string => typeof x === 'string')
+            : []
+    )
+  return [
+    ...strings(ctx.account),
+    ...ctx.offerings.flatMap(strings),
+    ...ctx.audiences.flatMap(strings),
+    ...[...ctx.goals, ...ctx.selectedGoals].flatMap(strings)
+  ].join(' ')
+}
+
+/**
+ * The concrete things this account's recent ideas and posts keep returning
+ * to (a food, a setting, a running joke), as recurringMotifs counts them.
+ * `drafts`: 'all' reads posts in every format (ideation); 'own' only those
+ * of the context's format (drafting, whose context forFormat narrowed).
+ * Six items at least: a smaller history shows no habit.
+ */
+export function recentMotifs(
+  ctx: GenerationContext,
+  options: { drafts: 'all' | 'own'; excludeRunId?: string | null }
+): Motif[] {
+  const posts = [
+    ...ctx.history.drafts,
+    ...(options.drafts === 'all' ? (ctx.history.otherDrafts ?? []) : [])
+  ]
+  return recurringMotifs(
+    [
+      ...ctx.history.ideas
+        .filter(i => !options.excludeRunId || i.runId !== options.excludeRunId)
+        .map(i => `${i.title} ${i.hookConcept}`),
+      ...posts.map(d => `${d.hook} ${d.body}`)
+    ],
+    { exclude: accountSubjectText(ctx), minTexts: 6, max: 6 }
+  )
+}
+
+/** "fries (6), group chat (5)": a motif list for a prompt. */
+export const motifList = (motifs: Motif[]) =>
+  motifs.map(m => `${m.phrase} (${m.count})`).join(', ')
+
 export function renderIdeationHistoryBlock(
   ctx: GenerationContext,
   currentRunId?: string | null
@@ -761,12 +815,17 @@ export function renderIdeationHistoryBlock(
   )
   const covered = unique([
     ...ctx.history.drafts.slice(0, 12).map(d => d.hook),
-    // A drafted idea is already covered by its post's hook above.
+    // Posts in every other format too: an account on Instagram alone has
+    // all its posts here.
+    ...(ctx.history.otherDrafts ?? []).slice(0, 12).map(d => d.hook),
+    // Drafted ideas as well: a post's opening line does not say what its
+    // idea was about, so the idea came back in other words.
     ...earlier
-      .filter(i => i.status !== 'rejected' && i.status !== 'drafted')
-      .slice(0, 15)
+      .filter(i => i.status !== 'rejected')
+      .slice(0, 25)
       .map(i => i.title)
   ])
+  const motifs = recentMotifs(ctx, { drafts: 'all', excludeRunId: currentRunId })
   const rejected = unique(
     earlier
       .filter(i => i.status === 'rejected')
@@ -789,6 +848,11 @@ export function renderIdeationHistoryBlock(
   if (reasons.length > 0) {
     sections.push(
       `WHAT THE REVIEWER SAID WHEN REJECTING EARLIER WORK — apply it:\n${bullets(reasons.map(r => `"${r}"`))}`
+    )
+  }
+  if (motifs.length > 0) {
+    sections.push(
+      `RECURRING LATELY — this account's recent ideas and posts keep coming back to these (how many of them mention each). Stay on its subject and goals, but give every new idea a different moment, setting, example and joke, and no two ideas in this batch the same one. Use one of these only where an idea cannot exist without it:\n${bullets(motifs.map(m => `${m.phrase} (${m.count})`))}`
     )
   }
   return sections.join('\n\n')
