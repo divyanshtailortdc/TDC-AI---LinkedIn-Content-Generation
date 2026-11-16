@@ -108,7 +108,9 @@ export type IdentityFieldDefinition = {
 /**
  * Worded for anyone who posts, from a founder to a dancer to a café. The
  * columns keep their original names: industry holds what they post about,
- * linkedinUrl their main profile on any platform.
+ * linkedinUrl their main profile link. The Profile form shows a link per
+ * platform instead (src/lib/profile-links.ts); linkedinUrl's wording is the
+ * AI setup's, which reads one link.
  */
 export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
   {

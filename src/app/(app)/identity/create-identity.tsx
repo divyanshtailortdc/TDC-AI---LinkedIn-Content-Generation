@@ -12,6 +12,7 @@ import {
 } from '@/components/ai-setup/draft-store'
 import {
   IdentityFields,
+  linkFieldKey,
   SectionCard,
   validateIdentityValues,
   type AccountType,
@@ -31,6 +32,13 @@ import {
   type PlatformId
 } from '@/lib/formats'
 import { EMPTY_PROFILE, optionalUrlError } from '@/lib/identity-profile'
+import {
+  mainProfileLink,
+  platformOfLink,
+  profileLinkErrors,
+  profileLinkPlaceholder,
+  type ProfileLinks
+} from '@/lib/profile-links'
 import { profileSuggestionValues } from '@/lib/settings-merge'
 import {
   AlertCircle,
@@ -38,7 +46,6 @@ import {
   ArrowRight,
   Check,
   Globe,
-  Link2,
   Loader2,
   Sparkles,
   UsersRound
@@ -52,7 +59,8 @@ import { createAccount } from './actions'
  * Onboarding: creating the identity, in three short steps.
  *
  * 1. Where do you post? The platforms decide which formats are drafted.
- * 2. Tell us about you, in your own words (and a link or two). The AI fills
+ * 2. Tell us about you, in your own words (and your profile link on each
+ *    platform, and your website). The AI fills
  *    in the profile and picks how posts should sound on each platform; or
  *    the person fills it in themselves.
  * 3. Review: the profile, who is posting (a person or a brand) and a card
@@ -85,6 +93,14 @@ const PLATFORM_HINTS: Record<PlatformId, string> = {
 type Styles = Partial<Record<PlatformId, ContentStyle>>
 type Notes = Partial<Record<PlatformId, PlatformCardNote>>
 
+/** The typed links of the picked platforms, trimmed; empty ones left out. */
+const linksFor = (platforms: PlatformId[], links: ProfileLinks): ProfileLinks =>
+  Object.fromEntries(
+    platforms
+      .map(p => [p, links[p]?.trim() ?? ''] as const)
+      .filter(([, url]) => url)
+  )
+
 /** Every picked platform's style: the one chosen, else its default. */
 const stylesFor = (platforms: PlatformId[], chosen: Styles): Record<string, ContentStyle> =>
   Object.fromEntries(platforms.map(p => [p, chosen[p] ?? DEFAULT_STYLES[p]]))
@@ -101,8 +117,9 @@ export function CreateIdentity({
   useState(() => resetDraft(NEW_IDENTITY_KEY))
   const [step, setStep] = useState<Step>('where')
   const [platforms, setPlatforms] = useState<PlatformId[]>([])
-  const [about, setAbout] = useState({ description: '', linkedinUrl: '', websiteUrl: '' })
+  const [about, setAbout] = useState<About>({ description: '', links: {}, websiteUrl: '' })
   const [values, setValues] = useState<IdentityValues>(EMPTY_PROFILE)
+  const [links, setLinks] = useState<ProfileLinks>({})
   const [accountType, setAccountType] = useState<AccountType>('personal')
   const [styles, setStyles] = useState<Styles>({})
   const [notes, setNotes] = useState<Notes>({})
@@ -116,35 +133,37 @@ export function CreateIdentity({
     setValues(prev => ({
       ...prev,
       description: prev.description || about.description.trim(),
-      linkedinUrl: prev.linkedinUrl || about.linkedinUrl.trim(),
       websiteUrl: prev.websiteUrl || about.websiteUrl.trim()
     }))
+    setLinks(prev => ({ ...linksFor(platforms, about.links), ...linksFor(platforms, prev) }))
     setStep('review')
   }
 
   const applyAnalysis = (analysis: IdentitySetupAnalysis) => {
     const suggested = profileSuggestionValues(analysis.suggestions.profile)
+    // The AI suggests one profile link; the form keeps one per platform.
     const filled = Object.entries(suggested).filter(
-      ([, v]) => typeof v === 'string' && v.trim()
+      ([key, v]) => key !== 'linkedinUrl' && typeof v === 'string' && v.trim()
     ) as Array<[keyof IdentityValues, string]>
     setValues({
       ...EMPTY_PROFILE,
       description: about.description.trim(),
       ...Object.fromEntries(filled),
       // Links the person typed are theirs; the AI's only fill a blank.
-      ...(about.linkedinUrl.trim() ? { linkedinUrl: about.linkedinUrl.trim() } : {}),
       ...(about.websiteUrl.trim() ? { websiteUrl: about.websiteUrl.trim() } : {})
     })
+    const typed = linksFor(platforms, about.links)
+    const aiLink = suggested.linkedinUrl?.trim()
+    const aiOn = aiLink ? platformOfLink(aiLink) : null
+    const aiLinkFits = Boolean(aiLink && aiOn && platforms.includes(aiOn) && !typed[aiOn])
+    setLinks(aiLinkFits && aiOn ? { ...typed, [aiOn]: aiLink } : typed)
     setAiFilled(
-      new Set(
-        filled
-          .map(([key]) => key)
-          .filter(
-            key =>
-              !(key === 'linkedinUrl' && about.linkedinUrl.trim()) &&
-              !(key === 'websiteUrl' && about.websiteUrl.trim())
-          )
-      )
+      new Set([
+        ...filled
+          .map(([key]) => key as string)
+          .filter(key => !(key === 'websiteUrl' && about.websiteUrl.trim())),
+        ...(aiLinkFits && aiOn ? [linkFieldKey(aiOn)] : [])
+      ])
     )
     setAccountType(analysis.accountType)
     const picked = analysis.styles ?? {}
@@ -247,6 +266,8 @@ export function CreateIdentity({
             platforms={platforms}
             values={values}
             setValues={setValues}
+            links={links}
+            setLinks={setLinks}
             accountType={accountType}
             setAccountType={setAccountType}
             styles={stylesFor(platforms, styles)}
@@ -404,7 +425,7 @@ function WhereStep({
   )
 }
 
-type About = { description: string; linkedinUrl: string; websiteUrl: string }
+type About = { description: string; links: ProfileLinks; websiteUrl: string }
 
 function AboutStep({
   platforms,
@@ -426,15 +447,23 @@ function AboutStep({
 }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [urlErrors, setUrlErrors] = useState<{ linkedinUrl?: string; websiteUrl?: string }>({})
+  const [urlErrors, setUrlErrors] = useState<{
+    links?: Partial<Record<PlatformId, string>>
+    websiteUrl?: string
+  }>({})
   // Cancel aborts the request (which stops the analysis on the server); a
   // response that still arrives after it is ignored.
   const controller = useRef<AbortController | null>(null)
   const requestId = useRef(0)
 
-  const set = (field: keyof About, next: string) => {
+  const set = (field: 'description' | 'websiteUrl', next: string) => {
     onChange({ ...value, [field]: next })
-    if (field !== 'description') setUrlErrors(prev => ({ ...prev, [field]: undefined }))
+    if (field === 'websiteUrl') setUrlErrors(prev => ({ ...prev, websiteUrl: undefined }))
+    setError(null)
+  }
+  const setLink = (platform: PlatformId, next: string) => {
+    onChange({ ...value, links: { ...value.links, [platform]: next } })
+    setUrlErrors(prev => ({ ...prev, links: { ...prev.links, [platform]: undefined } }))
     setError(null)
   }
 
@@ -443,21 +472,23 @@ function AboutStep({
       setError('Write a few words about yourself first, or fill it in yourself.')
       return
     }
+    const links = linksFor(platforms, value.links)
     const found = {
-      linkedinUrl: optionalUrlError(value.linkedinUrl),
+      links: profileLinkErrors(links),
       websiteUrl: optionalUrlError(value.websiteUrl)
     }
     setUrlErrors(found)
-    if (found.linkedinUrl || found.websiteUrl) return
+    if (Object.keys(found.links).length > 0 || found.websiteUrl) return
     setError(null)
     setAnalyzing(true)
     const current = ++requestId.current
     controller.current?.abort()
     const abort = new AbortController()
     controller.current = abort
+    // The analysis reads one profile link: the main one.
     const input = {
       description: value.description.trim(),
-      linkedinUrl: value.linkedinUrl.trim(),
+      linkedinUrl: mainProfileLink(links) ?? '',
       websiteUrl: value.websiteUrl.trim()
     }
     try {
@@ -527,17 +558,20 @@ or: I run Ledgerly, a bookkeeping service for D2C brands, and want founders to s
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <LinkInput
-          id="about-profile"
-          label="Main profile link"
-          hint="(optional)"
-          placeholder="https://www.instagram.com/your-handle"
-          icon={<Link2 className="h-4 w-4" />}
-          value={value.linkedinUrl}
-          error={urlErrors.linkedinUrl}
-          disabled={analyzing}
-          onChange={v => set('linkedinUrl', v)}
-        />
+        {platforms.map(platform => (
+          <LinkInput
+            key={platform}
+            id={`about-link-${platform}`}
+            label={`${PLATFORMS[platform].label} profile`}
+            hint="(optional)"
+            placeholder={profileLinkPlaceholder(platform)}
+            icon={<PlatformMark platform={platform} className="h-4 w-4" />}
+            value={value.links[platform] ?? ''}
+            error={urlErrors.links?.[platform]}
+            disabled={analyzing}
+            onChange={v => setLink(platform, v)}
+          />
+        ))}
         <LinkInput
           id="about-website"
           label="Website"
@@ -647,6 +681,8 @@ function ReviewStep({
   platforms,
   values,
   setValues,
+  links,
+  setLinks,
   accountType,
   setAccountType,
   styles,
@@ -663,6 +699,9 @@ function ReviewStep({
   platforms: PlatformId[]
   values: IdentityValues
   setValues: React.Dispatch<React.SetStateAction<IdentityValues>>
+  /** A profile link per picked platform. */
+  links: ProfileLinks
+  setLinks: React.Dispatch<React.SetStateAction<ProfileLinks>>
   accountType: AccountType
   setAccountType: (value: AccountType) => void
   styles: Record<string, ContentStyle>
@@ -679,7 +718,11 @@ function ReviewStep({
   const router = useRouter()
   const formRef = useRef<HTMLFormElement>(null)
   const [errors, setErrors] = useState<IdentityFieldErrors>({})
+  const [linkErrors, setLinkErrors] = useState<Partial<Record<PlatformId, string>>>({})
   const [saving, setSaving] = useState(false)
+  // Only the picked platforms' links are kept; one typed for a platform
+  // since unpicked is left out.
+  const pickedLinks = linksFor(platforms, links)
   // The header and the button below can both save; only one create may run.
   // (The server creates at most one identity per user anyway.)
   const creating = useRef(false)
@@ -689,9 +732,17 @@ function ReviewStep({
   const save = async (): Promise<boolean> => {
     if (creating.current) return false
     const found = validateIdentityValues(values)
+    const badLinks = profileLinkErrors(pickedLinks)
     setErrors(found)
-    if (Object.keys(found).length > 0 || !formRef.current) {
-      const first = Object.keys(found)[0]
+    setLinkErrors(badLinks)
+    if (
+      Object.keys(found).length > 0 ||
+      Object.keys(badLinks).length > 0 ||
+      !formRef.current
+    ) {
+      const first =
+        Object.keys(found)[0] ??
+        platforms.filter(p => badLinks[p]).map(linkFieldKey)[0]
       if (first) {
         const field = formRef.current?.querySelector<HTMLElement>(`#${first}`)
         field?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -734,6 +785,7 @@ function ReviewStep({
       <input type="hidden" name="platforms" value={JSON.stringify(platforms)} />
       <input type="hidden" name="styles" value={JSON.stringify(styles)} />
       <input type="hidden" name="notes" value={JSON.stringify(notes)} />
+      <input type="hidden" name="profileLinks" value={JSON.stringify(pickedLinks)} />
 
       {usedAi && (
         <div className="border-accent/30 bg-accent/5 flex items-start gap-3 rounded-xl border px-4 py-3">
@@ -789,6 +841,18 @@ function ReviewStep({
         aiFilled={aiFilled}
         accountType={accountType}
         onAccountTypeChange={setAccountType}
+        links={{
+          platforms,
+          values: links,
+          errors: linkErrors,
+          onChange: (platform, value) => {
+            setLinks(prev => ({ ...prev, [platform]: value }))
+            onEdited(linkFieldKey(platform))
+            if (linkErrors[platform]) {
+              setLinkErrors(prev => ({ ...prev, [platform]: undefined }))
+            }
+          }
+        }}
         onChange={(field, value) => {
           setValues(prev => ({ ...prev, [field]: value }))
           onEdited(field)

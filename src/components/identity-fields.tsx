@@ -1,5 +1,7 @@
 'use client'
 
+import { PlatformMark } from '@/components/platform-mark'
+import { PLATFORMS, type PlatformId } from '@/lib/formats'
 import {
   IDENTITY_FIELDS,
   IdentityProfileSchema,
@@ -8,14 +10,30 @@ import {
   type IdentityFieldDefinition,
   type IdentityProfileField
 } from '@/lib/identity-profile'
-import { Building2, Globe, Link2, Sparkles, User } from 'lucide-react'
+import { profileLinkPlaceholder, type ProfileLinks } from '@/lib/profile-links'
+import { Building2, Globe, Sparkles, User } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export type IdentityValues = Record<IdentityProfileField, string>
 export type { AccountType }
 
+/** A field's wording; profile links are fields too, named `link-<platform>`. */
+type FieldDef = Omit<IdentityFieldDefinition, 'name'> & { name: string }
+
+/** The aiFilled key of a platform's profile link. */
+export const linkFieldKey = (platform: PlatformId) => `link-${platform}`
+
+/** The profile link fields: one per platform, beside the profile's own fields. */
+export type ProfileLinkFields = {
+  /** The platforms shown, in order. */
+  platforms: readonly PlatformId[]
+  values: ProfileLinks
+  errors?: Partial<Record<PlatformId, string>>
+  onChange: (platform: PlatformId, value: string) => void
+}
+
 /** The schema's limit for a text field; URL fields have none. */
-const maxLengthOf = (name: IdentityProfileField): number | undefined =>
+const maxLengthOf = (name: string): number | undefined =>
   name in PROFILE_MAX_LENGTH
     ? PROFILE_MAX_LENGTH[name as keyof typeof PROFILE_MAX_LENGTH]
     : undefined
@@ -178,7 +196,7 @@ function FieldLabel({
   rightHint,
   aiFilled = false
 }: {
-  def: IdentityFieldDefinition
+  def: FieldDef
   /** Short guidance at the far end of the label row. */
   rightHint?: string
   /** The value is still the one the AI assistant put there. */
@@ -224,7 +242,7 @@ function FieldFooter({
   length,
   max
 }: {
-  def: IdentityFieldDefinition
+  def: FieldDef
   error?: string
   /** Length of the typed text, and the limit it is held to, if any. */
   length: number
@@ -266,7 +284,7 @@ function IdentityField({
   aiFilled = false,
   onChange
 }: {
-  def: IdentityFieldDefinition
+  def: FieldDef
   value: string
   error?: string
   rightHint?: string
@@ -374,8 +392,7 @@ const BRAND_FIELDS: Partial<
   },
   targetAudience: {
     placeholder: 'e.g. Heads of Sales at B2B SaaS companies; coffee lovers in Bengaluru'
-  },
-  linkedinUrl: { placeholder: 'https://www.linkedin.com/company/your-brand' }
+  }
 }
 
 /** The Profile fields, laid out the same on the create and edit pages. */
@@ -386,12 +403,18 @@ export function IdentityFields({
   onAccountTypeChange,
   readOnly = false,
   aiFilled,
+  links,
   onChange
 }: {
   values: IdentityValues
   errors?: IdentityFieldErrors
-  /** Fields still holding an AI suggestion, marked until the user edits them. */
+  /**
+   * Fields still holding an AI suggestion, marked until the user edits them;
+   * a profile link by its linkFieldKey.
+   */
   aiFilled?: ReadonlySet<string>
+  /** A profile link field per platform, under Online presence. */
+  links: ProfileLinkFields
   accountType: AccountType
   /** Leave out to show who is posting read-only. */
   onAccountTypeChange?: (value: AccountType) => void
@@ -457,7 +480,28 @@ export function IdentityFields({
 
       <SectionCard title="Online presence">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-          {field('linkedinUrl', { icon: <Link2 className="h-4 w-4" /> })}
+          {/* A profile link for each platform it posts on, then the website. */}
+          {links.platforms.map(platform => (
+            <IdentityField
+              key={platform}
+              def={{
+                name: linkFieldKey(platform),
+                label: `${PLATFORMS[platform].label} profile`,
+                type: 'url',
+                hint: '(optional)',
+                placeholder: profileLinkPlaceholder(
+                  platform,
+                  accountType === 'company'
+                )
+              }}
+              value={links.values[platform] ?? ''}
+              error={links.errors?.[platform]}
+              icon={<PlatformMark platform={platform} className="h-4 w-4" />}
+              readOnly={readOnly}
+              aiFilled={aiFilled?.has(linkFieldKey(platform))}
+              onChange={value => links.onChange(platform, value)}
+            />
+          ))}
           {field('websiteUrl', { icon: <Globe className="h-4 w-4" /> })}
         </div>
       </SectionCard>

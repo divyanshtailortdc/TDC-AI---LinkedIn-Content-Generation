@@ -132,12 +132,28 @@ describe('who is posting', () => {
     assert.ok(IdentityProfileSchema.safeParse({ ...profile, offerings: undefined }).success)
   })
 
-  it('labels the profile link by what it is', () => {
-    assert.match(renderIdentityBlock(funCtx), /^Profile: https:\/\/www\.instagram\.com\/priyadances$/m)
+  it('labels each profile link by its platform', () => {
+    // Saved before links were kept per platform: only in linkedin_url.
+    assert.match(renderIdentityBlock(funCtx), /^Instagram: https:\/\/www\.instagram\.com\/priyadances$/m)
     const onLinkedIn = context({
       account: account({ linkedinUrl: 'https://www.linkedin.com/in/priya' })
     })
     assert.match(renderIdentityBlock(onLinkedIn), /^LinkedIn: https:\/\/www\.linkedin\.com\/in\/priya$/m)
+    const both = renderIdentityBlock(
+      context({
+        account: account({
+          linkedinUrl: 'https://www.linkedin.com/in/priya',
+          profileLinks: {
+            instagram: 'https://www.instagram.com/priyadances',
+            linkedin: 'https://www.linkedin.com/in/priya'
+          }
+        })
+      })
+    )
+    assert.match(both, /^LinkedIn: https:\/\/www\.linkedin\.com\/in\/priya\nInstagram: https:\/\/www\.instagram\.com\/priyadances$/m)
+    // A link on no platform's site, saved before, is still given.
+    const other = context({ account: account({ linkedinUrl: 'https://linktr.ee/priya' }) })
+    assert.match(renderIdentityBlock(other), /^Profile: https:\/\/linktr\.ee\/priya$/m)
   })
 
   it('describes an identity saved as a "creator" as a person', () => {

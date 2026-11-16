@@ -15,6 +15,7 @@ import type {
 import type { ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform, type PlatformId, type PlatformSpec } from '@/lib/platforms'
 import { parseAccountType } from '@/lib/identity-profile'
+import { otherProfileLink, profileLinksOf } from '@/lib/profile-links'
 import {
   goalServes,
   isCasualStyle,
@@ -299,10 +300,6 @@ export function styleMixFor(
   return mixOf(scope.map(p => styleFor(ctx, p)))
 }
 
-/** The profile link's label: LinkedIn when it is one, else the profile it is. */
-const profileLinkLabel = (url: string) =>
-  /(^|\.)linkedin\.com\//i.test(url.replace(/^https?:\/\//i, '')) ? 'LinkedIn' : 'Profile'
-
 export function renderIdentityBlock(ctx: GenerationContext): string {
   const a = ctx.account
   const lines = [
@@ -314,7 +311,12 @@ export function renderIdentityBlock(ctx: GenerationContext): string {
   if (a.industry) lines.push(`Industry: ${a.industry}`)
   if (a.bio) lines.push(`Bio: ${a.bio}`)
   if (a.websiteUrl) lines.push(`Website: ${a.websiteUrl}`)
-  if (a.linkedinUrl) lines.push(`${profileLinkLabel(a.linkedinUrl)}: ${a.linkedinUrl}`)
+  // A profile link per platform, named for it; a link saved before those
+  // were kept per platform, on no platform's site, as just a profile.
+  const links = Object.entries(profileLinksOf(a)) as Array<[PlatformId, string]>
+  for (const [platform, url] of links) lines.push(`${PLATFORMS[platform].label}: ${url}`)
+  const other = otherProfileLink(a)
+  if (links.length === 0 && other) lines.push(`Profile: ${other}`)
 
   if (ctx.offerings.length > 0) {
     lines.push('', 'What they offer:')

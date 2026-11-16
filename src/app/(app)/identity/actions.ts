@@ -19,6 +19,16 @@ import {
 } from '@/lib/identity-profile'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
 import { findOwnedAccount, ownedByUser } from '@/lib/ownership'
+import {
+  cleanProfileLinks,
+  mainProfileLink,
+  mergeProfileLinks,
+  otherProfileLink,
+  platformOfLink,
+  profileLinkErrors,
+  profileLinksOf,
+  type ProfileLinks
+} from '@/lib/profile-links'
 import { requireUser } from '@/lib/session'
 import { AccountIdSchema } from '@/lib/setup-payloads'
 import { and, eq, gt, isNull } from 'drizzle-orm'
@@ -83,6 +93,22 @@ function jsonField(formData: FormData, key: string): unknown {
 }
 
 /**
+ * Profile links typed into a form, by platform: a link with a problem fails
+ * the save with its message rather than being dropped.
+ */
+function typedProfileLinks(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const typed = Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => isPlatformId(entry[0]) && typeof entry[1] === 'string'
+    )
+  )
+  const problems = Object.values(profileLinkErrors(typed as ProfileLinks))
+  if (problems.length > 0) throw new Error(problems.join(' '))
+  return typed
+}
+
+/**
  * Where a new identity posts and how each platform should sound (its style,
  * and for every platform but LinkedIn who follows it there, its tone and its
  * emoji), from the setup's first and last steps. Each picked platform starts
@@ -138,6 +164,11 @@ export async function createAccount(formData: FormData) {
     throw new Error(parsed.error.issues.map(i => i.message).join(', '))
   }
   const data = parsed.data
+  // A link per platform; the main one is also the account's single link.
+  const profileLinks = cleanProfileLinks(
+    typedProfileLinks(jsonField(formData, 'profileLinks'))
+  )
+  const mainLink = mainProfileLink(profileLinks)
 
   const repeated = await db.query.accountsTable.findFirst({
     where: and(
@@ -160,12 +191,13 @@ export async function createAccount(formData: FormData) {
       userId: user.id,
       name: data.name,
       accountType,
-      handle: extractAndSanitizeHandle(data.linkedinUrl, data.name),
+      handle: extractAndSanitizeHandle(mainLink, data.name),
       headline: deriveHeadline(data),
       bio: data.description,
       company: data.company || null,
       industry: data.industry,
-      linkedinUrl: data.linkedinUrl || null,
+      linkedinUrl: mainLink,
+      profileLinks,
       websiteUrl: data.websiteUrl || null
     },
     data,
@@ -203,7 +235,13 @@ export async function createAccount(formData: FormData) {
 const updateAccountSchema = IdentityProfileSchema.extend({
   id: AccountIdSchema,
   /** A person or a brand; left out keeps the saved type. */
-  accountType: z.enum(ACCOUNT_TYPES).optional()
+  accountType: z.enum(ACCOUNT_TYPES).optional(),
+  /**
+   * The Profile form's link per platform, over the saved ones; an empty one
+   * removes that platform's link. Left out, `linkedinUrl` (one link, as the
+   * AI setup suggests it) goes to the platform it is on.
+   */
+  profileLinks: z.record(z.string(), z.string()).optional()
 })
 
 export type UpdateAccountInput = z.input<typeof updateAccountSchema>
@@ -224,13 +262,28 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     if (!existing) {
       return { success: false, error: 'Identity not found' }
     }
-    // The handle only follows the LinkedIn URL; renaming keeps the old handle.
-    let handle = existing.handle
-    if (
+    const saved = profileLinksOf(existing)
+    let profileLinks: ProfileLinks = saved
+    if (validated.profileLinks) {
+      profileLinks = mergeProfileLinks(
+        saved,
+        typedProfileLinks(validated.profileLinks)
+      )
+    } else if (
       validated.linkedinUrl &&
       validated.linkedinUrl !== (existing.linkedinUrl || '')
     ) {
-      handle = extractAndSanitizeHandle(validated.linkedinUrl, validated.name)
+      // One link from the AI setup: it replaces that platform's. A link on no
+      // platform has no place to go.
+      const on = platformOfLink(validated.linkedinUrl)
+      if (on) profileLinks = mergeProfileLinks(saved, { [on]: validated.linkedinUrl })
+    }
+    const mainLink = mainProfileLink(profileLinks) ?? otherProfileLink(existing)
+
+    // The handle only follows the main link; renaming keeps the old handle.
+    let handle = existing.handle
+    if (mainLink && mainLink !== (existing.linkedinUrl || '')) {
+      handle = extractAndSanitizeHandle(mainLink, validated.name)
     }
 
     await updateIdentity(
@@ -247,7 +300,8 @@ export async function updateAccountAction(input: UpdateAccountInput) {
         bio: validated.description,
         company: validated.company || null,
         industry: validated.industry,
-        linkedinUrl: validated.linkedinUrl || null,
+        linkedinUrl: mainLink,
+        profileLinks,
         websiteUrl: validated.websiteUrl || null,
         updatedAt: new Date()
       },

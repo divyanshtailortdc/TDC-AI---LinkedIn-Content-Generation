@@ -101,7 +101,15 @@ export const accountsTable = pgTable('accounts', {
     .notNull(),
   company: text('company'),
   websiteUrl: text('website_url'),
+  // The main profile link (src/lib/profile-links.ts, mainProfileLink): the
+  // LinkedIn one, else the first platform's. Rewritten from profile_links on
+  // every save; read for the handle and the AI setup's research.
   linkedinUrl: text('linkedin_url'),
+  // The profile link on each platform, by platform id ({ instagram: url }).
+  profileLinks: jsonb('profile_links')
+    .$type<Record<string, string>>()
+    .default({})
+    .notNull(),
   industry: text('industry'),
   // No longer read or written: identities used to be deactivatable. The
   // migration that dropped the feature disabled the schedules of the ones

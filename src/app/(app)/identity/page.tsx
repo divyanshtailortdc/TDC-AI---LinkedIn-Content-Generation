@@ -9,6 +9,7 @@ import {
   preferencesTable,
   voiceConfigsTable
 } from '@/db/schema'
+import { resolveChannels } from '@/lib/formats'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
 import { asc, eq } from 'drizzle-orm'
 import { ArrowRight, Check, Play, Sparkles } from 'lucide-react'
@@ -26,8 +27,9 @@ export default async function IdentityPage() {
   const account = await getIdentity()
   if (!account) return <CreateIdentity />
   const id = account.id
-  // These four are only checked for existence, so only their ids are read
-  // (a knowledge document's row carries its full text).
+  // These are only checked for existence, so only their ids are read (a
+  // knowledge document's row carries its full text). Preferences also say
+  // where the identity posts, which decides its profile link fields.
   const [voiceConfig, knowledgeDoc, goal, preference, offerings, audiences] =
     await Promise.all([
       db.query.voiceConfigsTable.findFirst({
@@ -43,7 +45,7 @@ export default async function IdentityPage() {
         where: eq(goalsTable.accountId, id)
       }),
       db.query.preferencesTable.findFirst({
-        columns: { id: true },
+        columns: { id: true, enabledFormats: true },
         where: eq(preferencesTable.accountId, id)
       }),
       db.query.offeringsTable.findMany({
@@ -111,6 +113,7 @@ export default async function IdentityPage() {
         account={account}
         initialOfferings={offerings}
         initialAudiences={audiences}
+        platforms={resolveChannels(preference).platforms}
       />
     </SetupShell>
   )

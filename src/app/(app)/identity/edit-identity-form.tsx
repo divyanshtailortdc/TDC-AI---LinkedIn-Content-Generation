@@ -12,8 +12,15 @@ import {
   type IdentityValues
 } from '@/components/identity-fields'
 import { showToast } from '@/components/toast-notification'
+import type { PlatformId } from '@/lib/formats'
 import { parseAccountType, profileFromRecords } from '@/lib/identity-profile'
 import { IDENTITY_PATH } from '@/lib/identity-path'
+import {
+  linkPlatforms,
+  profileLinkErrors,
+  profileLinksOf,
+  type ProfileLinks
+} from '@/lib/profile-links'
 import { AlertCircle, X } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
@@ -28,16 +35,36 @@ interface EditIdentityFormProps {
     bio?: string | null
     industry?: string | null
     linkedinUrl?: string | null
+    profileLinks?: unknown
     websiteUrl?: string | null
   }
+  /** Where the identity posts: each gets a profile link field. */
+  platforms: PlatformId[]
   /** Oldest first; the first row backs the profile's Offerings field. */
   initialOfferings: Array<{ name: string; description?: string | null }>
   /** Oldest first; the first row backs the profile's Target Audience field. */
   initialAudiences: Array<{ name: string }>
 }
 
+/**
+ * The profile's values as the form holds them. The single main link is not
+ * one of its fields: the form edits a link per platform, and the main one
+ * follows from those when saved.
+ */
+const formValues = (...args: Parameters<typeof profileFromRecords>): IdentityValues => ({
+  ...profileFromRecords(...args),
+  linkedinUrl: ''
+})
+
+/** Two sets of links hold the same link for every platform. */
+const sameLinks = (a: ProfileLinks, b: ProfileLinks) =>
+  [...new Set([...Object.keys(a), ...Object.keys(b)])].every(
+    p => (a[p as PlatformId] ?? '').trim() === (b[p as PlatformId] ?? '').trim()
+  )
+
 export function EditIdentityForm({
   account,
+  platforms,
   initialOfferings,
   initialAudiences
 }: EditIdentityFormProps) {
@@ -47,8 +74,12 @@ export function EditIdentityForm({
     parseAccountType(account.accountType)
   )
   const [fields, setFields] = useState<IdentityValues>(() =>
-    profileFromRecords(account, initialOfferings[0], initialAudiences[0])
+    formValues(account, initialOfferings[0], initialAudiences[0])
   )
+  const [links, setLinks] = useState<ProfileLinks>(() => profileLinksOf(account))
+  const [linkErrors, setLinkErrors] = useState<Partial<Record<PlatformId, string>>>({})
+  // Fixed while the form is open, so a field emptied while editing stays.
+  const [shownPlatforms] = useState(() => linkPlatforms(platforms, profileLinksOf(account)))
 
   const values = fields
 
@@ -57,17 +88,16 @@ export function EditIdentityForm({
   // these back.
   const [saved, setSaved] = useState<{
     values: IdentityValues
+    links: ProfileLinks
     accountType: AccountType
   }>(() => ({
-    values: profileFromRecords(
-      account,
-      initialOfferings[0],
-      initialAudiences[0]
-    ),
+    values: formValues(account, initialOfferings[0], initialAudiences[0]),
+    links: profileLinksOf(account),
     accountType: parseAccountType(account.accountType)
   }))
   const dirty =
     accountType !== saved.accountType ||
+    !sameLinks(links, saved.links) ||
     (Object.keys(values) as Array<keyof IdentityValues>).some(
       key => values[key] !== saved.values[key]
     )
@@ -82,8 +112,10 @@ export function EditIdentityForm({
   /** Back to the saved profile, as plain text. */
   const cancelEditing = () => {
     setFields(saved.values)
+    setLinks(saved.links)
     setAccountType(saved.accountType)
     setFieldErrors({})
+    setLinkErrors({})
     setError(null)
   }
   // Anything that changes a value (the AI filling fields) needs to be seen and saved, so the header keeps the
@@ -100,6 +132,8 @@ export function EditIdentityForm({
     }
 
     const errors = validateIdentityValues(values)
+    const badLinks = profileLinkErrors(links)
+    setLinkErrors(badLinks)
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       setError('Please fill in all required fields marked with *.')
@@ -111,11 +145,24 @@ export function EditIdentityForm({
       return false
     }
     setFieldErrors({})
+    if (Object.keys(badLinks).length > 0) {
+      setError('Please fix the profile links marked in red.')
+      showToast({
+        type: 'error',
+        title: 'Validation Error',
+        message: 'Please fix the profile links marked in red.'
+      })
+      return false
+    }
 
+    // Every shown link is sent, an emptied one as '' so it is removed.
     const res = await updateAccountAction({
       id: account.id,
       ...values,
-      accountType
+      accountType,
+      profileLinks: Object.fromEntries(
+        shownPlatforms.map(p => [p, links[p]?.trim() ?? ''])
+      )
     })
     if (!res.success) {
       setError(res.error || 'Failed to update identity')
@@ -132,7 +179,7 @@ export function EditIdentityForm({
       message: `Identity "${values.name.trim()}" has been saved.`
     })
     // What was just saved is the new baseline, shown as plain text again.
-    setSaved({ values, accountType })
+    setSaved({ values, links, accountType })
     return true
   }
   useStepSave(save)
@@ -169,6 +216,17 @@ export function EditIdentityForm({
           accountType={accountType}
           onAccountTypeChange={setAccountType}
           readOnly={!editing}
+          links={{
+            platforms: shownPlatforms,
+            values: links,
+            errors: linkErrors,
+            onChange: (platform, value) => {
+              setLinks(prev => ({ ...prev, [platform]: value }))
+              if (linkErrors[platform]) {
+                setLinkErrors(prev => ({ ...prev, [platform]: undefined }))
+              }
+            }
+          }}
           onChange={(field, value) => {
             // The two links live in the store shared with the assistant.
             setValues({ [field]: value })

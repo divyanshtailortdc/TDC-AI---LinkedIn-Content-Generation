@@ -60,6 +60,7 @@ const account: Account = {
   company: 'Ledgerly',
   websiteUrl: null,
   linkedinUrl: null,
+  profileLinks: {},
   industry: 'Accounting',
   isActive: true,
   createdAt: now,

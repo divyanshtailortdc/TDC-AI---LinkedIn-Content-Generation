@@ -53,6 +53,7 @@ function account(overrides: Partial<Account>): Account {
     company: null,
     websiteUrl: null,
     linkedinUrl: null,
+    profileLinks: {},
     industry: null,
     isActive: true,
     createdAt: now,
