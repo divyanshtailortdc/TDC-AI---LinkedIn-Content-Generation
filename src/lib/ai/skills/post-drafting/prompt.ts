@@ -19,6 +19,7 @@ import {
   type GenerationContext
 } from '../../context-blocks'
 import { isCasualStyle } from '@/lib/formats'
+import { renderInsightsForDrafting } from '@/lib/profile-insights/render'
 import {
   CASUAL_TRUTH_RULES,
   casualPersona,
@@ -61,6 +62,12 @@ export function buildInstructions(ctx: GenerationContext): string {
   // the prompt it always had.
   const style = styleFor(ctx, platformOf(ctx).id)
   const casual = isCasualStyle(style) ? style : null
+  // How the author's public posts here already read; only when known, so
+  // the prompt is otherwise the one it always was.
+  const profile = renderInsightsForDrafting(
+    ctx.platformInsights?.[platformOf(ctx).id],
+    platformOf(ctx).id
+  )
 
   return `${
     casual
@@ -98,7 +105,7 @@ ${
 - Do not summarise at the end. The last line before the call to action adds something new.
 - Write the way this author would say it to one reader across a table, not the way a report is written.`
 }
-${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
+${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${profile ? `\n${profile}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
 }
 
 /** The approved idea, its evidence, and exactly what to produce. */

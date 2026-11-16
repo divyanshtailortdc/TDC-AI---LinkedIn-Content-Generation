@@ -49,7 +49,13 @@ const SEARCH_TIMEOUT_MS = 10_000
  */
 export async function searchWeb(
   query: string,
-  options: { freshnessDays: number; resultCount?: number; country?: string }
+  options: {
+    freshnessDays: number
+    resultCount?: number
+    country?: string
+    /** Which page of results, from 1. Serper's free plan allows at most 10 a page. */
+    page?: number
+  }
 ): Promise<Finding[]> {
   if (!env.SERPER_API_KEY) return []
   const tbs = freshnessToTbs(options.freshnessDays)
@@ -63,6 +69,7 @@ export async function searchWeb(
       body: JSON.stringify({
         q: query,
         num: options.resultCount ?? 5,
+        ...(options.page && options.page > 1 ? { page: options.page } : {}),
         ...(tbs ? { tbs } : {}),
         // Google's country codes are ISO ones, except "uk" for the United Kingdom.
         ...(options.country
@@ -92,6 +99,59 @@ export async function searchWeb(
     return findings
   } catch (err) {
     console.warn(`Serper search error for "${query}":`, err)
+    return []
+  }
+}
+
+export type ImageFinding = {
+  /** The page the image is on. */
+  pageUrl: string
+  title: string
+  /** The search engine's own small copy of the image. */
+  thumbnailUrl: string
+  width?: number
+  height?: number
+}
+
+/**
+ * One image search, over Serper's Google Images. Only the search engine's
+ * thumbnails are kept, never the original's address: that is the platform's
+ * own server. No results, rather than a throw, when it fails.
+ */
+export async function searchImages(
+  query: string,
+  options: { resultCount?: number } = {}
+): Promise<ImageFinding[]> {
+  if (!env.SERPER_API_KEY) return []
+  try {
+    const res = await fetch('https://google.serper.dev/images', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': env.SERPER_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ q: query, num: options.resultCount ?? 10 }),
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+    })
+    if (!res.ok) {
+      console.warn(`Serper image search failed (${res.status}) for "${query}"`)
+      return []
+    }
+    const data = await res.json()
+    const images: ImageFinding[] = []
+    for (const item of data.images || []) {
+      if (!item.link || !item.thumbnailUrl) continue
+      images.push({
+        pageUrl: stripTrackingParams(item.link),
+        title: item.title || '',
+        thumbnailUrl: item.thumbnailUrl,
+        ...(typeof item.imageWidth === 'number' ? { width: item.imageWidth } : {}),
+        ...(typeof item.imageHeight === 'number' ? { height: item.imageHeight } : {})
+      })
+    }
+    return images
+  } catch (err) {
+    console.warn(`Serper image search error for "${query}":`, err)
     return []
   }
 }

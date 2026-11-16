@@ -14,6 +14,7 @@ import {
 import { showToast } from '@/components/toast-notification'
 import type { PlatformId } from '@/lib/formats'
 import { parseAccountType, profileFromRecords } from '@/lib/identity-profile'
+import type { ProfileInsightView } from '@/lib/profile-insights/types'
 import { IDENTITY_PATH } from '@/lib/identity-path'
 import {
   linkPlatforms,
@@ -25,6 +26,7 @@ import { AlertCircle, X } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 import { updateAccountAction } from './actions'
+import { ProfileInsightRow, useProfileInsights } from './profile-insights'
 
 interface EditIdentityFormProps {
   account: {
@@ -44,6 +46,8 @@ interface EditIdentityFormProps {
   initialOfferings: Array<{ name: string; description?: string | null }>
   /** Oldest first; the first row backs the profile's Target Audience field. */
   initialAudiences: Array<{ name: string }>
+  /** What each profile link's analysis says (src/lib/profile-insights). */
+  insights: ProfileInsightView[]
 }
 
 /**
@@ -66,8 +70,10 @@ export function EditIdentityForm({
   account,
   platforms,
   initialOfferings,
-  initialAudiences
+  initialAudiences,
+  insights
 }: EditIdentityFormProps) {
+  const insightsApi = useProfileInsights(account.id, insights)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<IdentityFieldErrors>({})
   const [accountType, setAccountType] = useState<AccountType>(
@@ -225,7 +231,17 @@ export function EditIdentityForm({
               if (linkErrors[platform]) {
                 setLinkErrors(prev => ({ ...prev, [platform]: undefined }))
               }
-            }
+            },
+            // What each saved link's public posts show about how you post there.
+            footer: platform => (
+              <ProfileInsightRow
+                platform={platform}
+                savedLink={saved.links[platform] ?? ''}
+                typedLink={links[platform] ?? ''}
+                editing={editing}
+                api={insightsApi}
+              />
+            )
           }}
           onChange={(field, value) => {
             // The two links live in the store shared with the assistant.

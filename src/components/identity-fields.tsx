@@ -30,6 +30,8 @@ export type ProfileLinkFields = {
   values: ProfileLinks
   errors?: Partial<Record<PlatformId, string>>
   onChange: (platform: PlatformId, value: string) => void
+  /** Shown under a platform's field: what was learned from that profile. */
+  footer?: (platform: PlatformId) => ReactNode
 }
 
 /** The schema's limit for a text field; URL fields have none. */
@@ -482,25 +484,27 @@ export function IdentityFields({
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           {/* A profile link for each platform it posts on, then the website. */}
           {links.platforms.map(platform => (
-            <IdentityField
-              key={platform}
-              def={{
-                name: linkFieldKey(platform),
-                label: `${PLATFORMS[platform].label} profile`,
-                type: 'url',
-                hint: '(optional)',
-                placeholder: profileLinkPlaceholder(
-                  platform,
-                  accountType === 'company'
-                )
-              }}
-              value={links.values[platform] ?? ''}
-              error={links.errors?.[platform]}
-              icon={<PlatformMark platform={platform} className="h-4 w-4" />}
-              readOnly={readOnly}
-              aiFilled={aiFilled?.has(linkFieldKey(platform))}
-              onChange={value => links.onChange(platform, value)}
-            />
+            <div key={platform} className="min-w-0 space-y-1.5">
+              <IdentityField
+                def={{
+                  name: linkFieldKey(platform),
+                  label: `${PLATFORMS[platform].label} profile`,
+                  type: 'url',
+                  hint: '(optional)',
+                  placeholder: profileLinkPlaceholder(
+                    platform,
+                    accountType === 'company'
+                  )
+                }}
+                value={links.values[platform] ?? ''}
+                error={links.errors?.[platform]}
+                icon={<PlatformMark platform={platform} className="h-4 w-4" />}
+                readOnly={readOnly}
+                aiFilled={aiFilled?.has(linkFieldKey(platform))}
+                onChange={value => links.onChange(platform, value)}
+              />
+              {links.footer?.(platform)}
+            </div>
           ))}
           {field('websiteUrl', { icon: <Globe className="h-4 w-4" /> })}
         </div>

@@ -11,6 +11,7 @@ import {
 } from '@/db/schema'
 import { resolveChannels } from '@/lib/formats'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
+import { profileInsightViews } from '@/lib/profile-insights/analyze'
 import { asc, eq } from 'drizzle-orm'
 import { ArrowRight, Check, Play, Sparkles } from 'lucide-react'
 import Link from 'next/link'
@@ -30,8 +31,15 @@ export default async function IdentityPage() {
   // These are only checked for existence, so only their ids are read (a
   // knowledge document's row carries its full text). Preferences also say
   // where the identity posts, which decides its profile link fields.
-  const [voiceConfig, knowledgeDoc, goal, preference, offerings, audiences] =
-    await Promise.all([
+  const [
+    voiceConfig,
+    knowledgeDoc,
+    goal,
+    preference,
+    offerings,
+    audiences,
+    insights
+  ] = await Promise.all([
       db.query.voiceConfigsTable.findFirst({
         columns: { id: true },
         where: eq(voiceConfigsTable.accountId, id)
@@ -55,7 +63,9 @@ export default async function IdentityPage() {
       db.query.audiencesTable.findMany({
         where: eq(audiencesTable.accountId, id),
         orderBy: [asc(audiencesTable.createdAt)]
-      })
+      }),
+      // What each profile link's public posts showed.
+      profileInsightViews(id)
     ])
 
   const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
@@ -114,6 +124,7 @@ export default async function IdentityPage() {
         initialOfferings={offerings}
         initialAudiences={audiences}
         platforms={resolveChannels(preference).platforms}
+        insights={insights}
       />
     </SetupShell>
   )

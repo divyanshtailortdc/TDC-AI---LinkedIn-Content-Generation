@@ -11,6 +11,7 @@ import {
   type PlatformId,
   type StyleMix
 } from '@/lib/formats'
+import { renderInsightsForIdeation } from '@/lib/profile-insights/render'
 import { isGenericPage } from '@/lib/urls'
 import {
   audienceSegments,
@@ -229,6 +230,12 @@ export function buildInstructions(
   const region = inferRegion(ctx)
   const style = ideationStyle(ctx, channels)
   const casual = style === 'casual'
+  // What the account already posts on the run's platforms, when its profiles
+  // were analyzed; nothing otherwise.
+  const existing = renderInsightsForIdeation(
+    ctx.platformInsights,
+    channels ? platformsInScope(channels) : [platformOf(ctx).id]
+  )
 
   return `${strategistLine(ctx, channels, style)}
 
@@ -246,7 +253,7 @@ ${
     ? `${region.name}. Every idea must hold in this market: never present another market's launches, prices, availability, rules or figures as if they applied here, and say which market a piece of evidence describes when it is not this one.`
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
-${renderChannelsBlock(channels)}${casual ? CASUAL_IDEAS_BLOCK : style === 'mixed' ? renderMixedStylesBlock(ctx, channels) : ''}
+${renderChannelsBlock(channels)}${existing}${casual ? CASUAL_IDEAS_BLOCK : style === 'mixed' ? renderMixedStylesBlock(ctx, channels) : ''}
 THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject. An idea achieves its goal only when all three hold:
 1. Reader: it is written for the people the goal is meant to reach.
 2. Message: its argument lands the goal's message, so a reader who agrees with it has come round to that message, not just to its topic.

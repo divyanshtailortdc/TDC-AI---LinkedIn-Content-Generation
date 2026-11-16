@@ -8,6 +8,7 @@ import {
   ideasTable,
   knowledgeDocumentsTable,
   offeringsTable,
+  platformInsightsTable,
   postDraftsTable,
   preferencesTable,
   samplePostsTable,
@@ -16,7 +17,9 @@ import {
 } from '@/db/schema'
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform } from '@/lib/platforms'
-import { DEFAULT_FORMAT } from '@/lib/formats'
+import { DEFAULT_FORMAT, isPlatformId } from '@/lib/formats'
+import type { PlatformInsights } from '@/lib/profile-insights/render'
+import { cleanProfileInsights } from '@/lib/profile-insights/types'
 import { isOldNews } from '~/lib/intel/settings'
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import {
@@ -144,6 +147,27 @@ async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
 }
 
 /**
+ * What each platform's public profile showed, for every platform with an
+ * analysis that produced (or was given) insights. A failed refresh keeps
+ * the insights from before, so those are read whatever the latest status.
+ */
+async function loadPlatformInsights(accountId: string): Promise<PlatformInsights> {
+  const rows = await db
+    .select({
+      platform: platformInsightsTable.platform,
+      insights: platformInsightsTable.insights
+    })
+    .from(platformInsightsTable)
+    .where(eq(platformInsightsTable.accountId, accountId))
+  const out: PlatformInsights = {}
+  for (const row of rows) {
+    const insights = cleanProfileInsights(row.insights)
+    if (insights && isPlatformId(row.platform)) out[row.platform] = insights
+  }
+  return out
+}
+
+/**
  * `goalIds` are the goals this generation serves, in the order given; ids
  * that are not this account's are ignored. Without it, the account's active
  * goals, newest first: what settings screens and goal suggestions read.
@@ -174,7 +198,8 @@ export async function loadGenerationContext(
     goals,
     preferences,
     history,
-    brand
+    brand,
+    platformInsights
   ] = await Promise.all([
     db.query.accountsTable.findFirst({ where: eq(accountsTable.id, accountId) }),
     db.query.voiceConfigsTable.findFirst({
@@ -205,7 +230,8 @@ export async function loadGenerationContext(
       where: eq(preferencesTable.accountId, accountId)
     }),
     full ? loadReviewHistory(accountId) : EMPTY_HISTORY,
-    full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined)
+    full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined),
+    full ? loadPlatformInsights(accountId) : {}
   ])
 
   if (!account) {
@@ -236,7 +262,8 @@ export async function loadGenerationContext(
     prefs: resolvePreferences(preferences, voice, platform),
     history,
     brand,
-    platform
+    platform,
+    platformInsights
   }
 }
 

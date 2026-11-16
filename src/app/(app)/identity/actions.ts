@@ -20,6 +20,10 @@ import {
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
 import { findOwnedAccount, ownedByUser } from '@/lib/ownership'
 import {
+  runProfileAnalysis,
+  syncProfileAnalyses
+} from '@/lib/profile-insights/analyze'
+import {
   cleanProfileLinks,
   mainProfileLink,
   mergeProfileLinks,
@@ -33,6 +37,7 @@ import { requireUser } from '@/lib/session'
 import { AccountIdSchema } from '@/lib/setup-payloads'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { z } from 'zod'
 
 function extractAndSanitizeHandle(
@@ -146,6 +151,25 @@ function channelsFromFormData(formData: FormData): {
   }
 }
 
+/**
+ * Starts analyzing each profile link that was added or changed, and drops
+ * the analysis of each link removed (src/lib/profile-insights). The analyses
+ * run after the response; the Profile page follows them. Never fails the
+ * save it follows: the links are saved either way.
+ */
+async function analyzeChangedLinks(
+  accountId: string,
+  saved: ProfileLinks,
+  next: ProfileLinks
+) {
+  try {
+    const claims = await syncProfileAnalyses(accountId, saved, next)
+    if (claims.length > 0) after(() => Promise.all(claims.map(runProfileAnalysis)))
+  } catch (error) {
+    console.error('Could not start analyzing profile links:', error)
+  }
+}
+
 /** A create repeated within this long (a second click, a retried request) makes nothing. */
 const REPEAT_CREATE_MS = 60_000
 
@@ -214,6 +238,8 @@ export async function createAccount(formData: FormData) {
         isNull(platformConnectionsTable.accountId)
       )
     )
+  // Each profile link given is read for how the identity posts there.
+  await analyzeChangedLinks(created.id, {}, profileLinks)
   // Every page from here on works on the new identity.
   await setActiveIdentity(created.id)
 
@@ -307,6 +333,7 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       },
       validated
     )
+    await analyzeChangedLinks(validated.id, saved, profileLinks)
     revalidatePath('/')
     revalidatePath(IDENTITY_PATH, 'layout')
 

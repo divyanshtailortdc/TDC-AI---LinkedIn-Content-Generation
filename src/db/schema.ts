@@ -47,6 +47,13 @@ import {
   type PublicationTrigger
 } from '../lib/publishing/status'
 import { DEFAULT_PLATFORM_ID, type PlatformId } from '../lib/platforms'
+import {
+  INSIGHT_STATUSES,
+  type InsightPost,
+  type InsightSources,
+  type InsightStatus,
+  type ProfileInsights
+} from '../lib/profile-insights/types'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -1569,6 +1576,55 @@ export const publicationsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 26. Platform Insights (1 per Account and platform) — what an identity's
+//     public profile on a platform shows (src/lib/profile-insights)
+// ---------------------------------------------------------------------------
+
+export const platformInsightsTable = pgTable(
+  'platform_insights',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    platform: varchar('platform', { length: 30 }).$type<PlatformId>().notNull(),
+    // The profile link analyzed: the identity's profile_links entry for this
+    // platform. A different link starts over, with nothing kept.
+    profileUrl: text('profile_url').notNull(),
+    // How the latest analysis went. A failed refresh keeps the insights an
+    // earlier one made, and drafting goes on using them.
+    status: varchar('status', { length: 20 })
+      .$type<InsightStatus>()
+      .default('analyzing')
+      .notNull(),
+    // The latest insights made (or edited); null until one succeeds.
+    insights: jsonb('insights').$type<ProfileInsights>(),
+    // The posts they were made from, shown beside them (never sent to drafting).
+    posts: jsonb('posts').$type<InsightPost[]>().default([]).notNull(),
+    sources: jsonb('sources').$type<InsightSources>().default({}).notNull(),
+    // Why the latest analysis could not be made, in words for the user.
+    error: text('error'),
+    // The latest analysis began: a row still 'analyzing' long after this was
+    // interrupted, and this tells a run apart from the one that replaced it.
+    startedAt: commonFieldDefs.date('started_at'),
+    analyzedAt: commonFieldDefs.date('analyzed_at'),
+    // Set when the user edits the insights; a refresh replaces the edits.
+    editedAt: commonFieldDefs.date('edited_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    unique('platform_insights_account_platform_unique').on(
+      table.accountId,
+      table.platform
+    ),
+    check(
+      'platform_insights_status_check',
+      sql`${table.status} in (${sqlList(INSIGHT_STATUSES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -1681,3 +1737,4 @@ export type IntelMention = typeof intelMentionsTable.$inferSelect
 
 export type PlatformConnection = typeof platformConnectionsTable.$inferSelect
 export type Publication = typeof publicationsTable.$inferSelect
+export type PlatformInsightRow = typeof platformInsightsTable.$inferSelect

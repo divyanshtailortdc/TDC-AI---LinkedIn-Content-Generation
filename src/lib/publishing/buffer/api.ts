@@ -375,3 +375,73 @@ export async function getPost(
   )
   return toState(data.post, nameOf(ctx))
 }
+
+// ---------------------------------------------------------------------------
+// Sent posts, for learning how the account posts (src/lib/profile-insights)
+// ---------------------------------------------------------------------------
+
+/** A post Buffer sent on a channel. */
+export type SentPost = {
+  id: string
+  text: string
+  sentAt: Date | null
+  /** The post on the network, when Buffer has its link. */
+  url: string | null
+  /** Buffer's thumbnails of its images. */
+  imageUrls: string[]
+}
+
+type SentPostNode = {
+  id: string
+  text?: string | null
+  sentAt?: string | null
+  externalLink?: string | null
+  assets?: Array<{ thumbnail?: string | null; mimeType?: string | null }> | null
+}
+
+/**
+ * The newest posts Buffer sent on a channel (only what went out through
+ * Buffer: Buffer does not hold posts made on the network itself), newest
+ * first. Reads need the posts:read scope the app already asks for.
+ */
+export async function listSentPosts(
+  ctx: BufferContext,
+  channelId: string,
+  limit = 30
+): Promise<SentPost[]> {
+  const { channel } = await graphql<{ channel: { organizationId: string } }>(
+    ctx,
+    'query Channel($input: ChannelInput!) { channel(input: $input) { organizationId } }',
+    { input: { id: channelId } },
+    'read'
+  )
+  const data = await graphql<{ posts: { edges?: Array<{ node: SentPostNode }> } }>(
+    ctx,
+    `query SentPosts($first: Int, $input: PostsInput!) {
+      posts(first: $first, input: $input) {
+        edges { node { id text sentAt externalLink assets { thumbnail mimeType } } }
+      }
+    }`,
+    {
+      first: limit,
+      input: {
+        organizationId: channel.organizationId,
+        filter: { status: ['sent'], channelIds: [channelId] }
+      }
+    },
+    'read'
+  )
+  const posts = (data.posts?.edges ?? []).map(({ node }): SentPost => {
+    const sentAt = node.sentAt ? new Date(node.sentAt) : null
+    return {
+      id: node.id,
+      text: (node.text ?? '').trim(),
+      sentAt: sentAt && !Number.isNaN(sentAt.getTime()) ? sentAt : null,
+      url: node.externalLink?.startsWith('https://') ? node.externalLink : null,
+      imageUrls: (node.assets ?? [])
+        .filter(a => a.mimeType?.startsWith('image/') && a.thumbnail?.startsWith('https://'))
+        .map(a => a.thumbnail!)
+    }
+  })
+  return posts.sort((a, b) => (b.sentAt?.getTime() ?? 0) - (a.sentAt?.getTime() ?? 0))
+}

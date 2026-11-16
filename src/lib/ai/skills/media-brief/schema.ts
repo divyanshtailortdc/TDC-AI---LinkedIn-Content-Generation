@@ -435,6 +435,11 @@ export interface DeriveMediaBriefInput {
   /** The brand theme as the art director reads it (renderBrandForArtDirector). */
   brand?: string
   /**
+   * How the account's posts on this post's platform look, learned from its
+   * public profile (src/lib/profile-insights); absent when unknown.
+   */
+  platformLook?: { platform: string; description: string }
+  /**
    * How the picture is rendered: the reviewer's choice for this image, else
    * the brand theme's. Photorealistic when unset.
    */

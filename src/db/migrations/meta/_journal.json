@@ -344,6 +344,13 @@
       "when": 1794805074808,
       "tag": "0048_profile_links",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794808998680,
+      "tag": "0049_platform_insights",
+      "breakpoints": true
     }
   ]
 }

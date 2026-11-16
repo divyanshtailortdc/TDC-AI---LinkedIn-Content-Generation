@@ -11,6 +11,7 @@ import {
   type FormatSpec,
   type MediaFormat
 } from '@/lib/formats'
+import { renderInsightsForDrafting } from '@/lib/profile-insights/render'
 import { channelNote, forFormat } from '../../channel-context'
 import {
   describeCta,
@@ -315,6 +316,8 @@ export function buildFormatPrompt(
   // The specifics this account keeps reusing (a food, a setting, a joke).
   const overused = recentMotifs(ctx, { drafts: 'own' })
   const exemplars = renderExemplars(ctx, spec)
+  // How the author's public posts on this platform already read, when known.
+  const profile = renderInsightsForDrafting(ctx.platformInsights?.[spec.platform], spec.platform)
 
   const lines = [
     `Write the ${spec.label} for this idea.`,
@@ -337,6 +340,7 @@ export function buildFormatPrompt(
           note.rubric
         ]
       : []),
+    ...(profile ? ['', profile] : []),
     '',
     'FORMAT RULES',
     ...spec.rules.map(r => `- ${r}`),
