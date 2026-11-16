@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { platformOfLink } from './profile-links'
 import { findLinks, normalizeUrlForCompare } from './urls'
 
 /**
@@ -181,6 +182,35 @@ export function extractSiteLinks(html: string, pageUrl: string): SiteLink[] {
   })
 
   return collect.links().slice(0, MAX_LINKS)
+}
+
+/** Past this, a page's links to social platforms are a feed, not its own accounts. */
+const MAX_PLATFORM_LINKS = 40
+
+/**
+ * Every link a page's HTML has to a social platform, in page order, each
+ * once. Kept apart from extractSiteLinks: a site's own accounts are usually
+ * icons with no words, at the very end of the page, where that list has
+ * stopped or left them out.
+ */
+export function extractPlatformLinks(html: string, pageUrl: string): string[] {
+  const $ = cheerio.load(html)
+  const found = new Map<string, string>()
+  $('a[href]').each((_, el) => {
+    const url = resolveHref($(el).attr('href') ?? '', pageUrl)
+    if (url && platformOfLink(url)) found.set(normalizeUrlForCompare(url), url)
+  })
+  return [...found.values()].slice(0, MAX_PLATFORM_LINKS)
+}
+
+/** Every web address in text (a page as a reader wrote it out) that is on a social platform. */
+export function platformLinksInText(text: string): string[] {
+  const found = new Map<string, string>()
+  for (const match of text.matchAll(/https?:\/\/[^\s)\]"'<>]+/g)) {
+    const url = match[0].replace(/[.,;:!?]+$/, '')
+    if (platformOfLink(url)) found.set(normalizeUrlForCompare(url), url)
+  }
+  return [...found.values()].slice(0, MAX_PLATFORM_LINKS)
 }
 
 /** A markdown link: "[label](https://…)". */

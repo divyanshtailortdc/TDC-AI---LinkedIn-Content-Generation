@@ -539,8 +539,14 @@ export const AnalyzeIdentityInputSchema = z.object({
     .trim()
     .min(1, 'Describe yourself or your business before analyzing.')
     .max(8000, 'Keep the description under 8,000 characters.'),
+  /** One profile link, on any platform (the Profile step's assistant gives one). */
   linkedinUrl: optionalUrlInput,
   websiteUrl: optionalUrlInput,
+  /**
+   * The user's profile link on each platform, by platform id. Their accounts
+   * on the platforms in guidance that have none here are looked for.
+   */
+  profileLinks: z.record(z.string(), z.string().max(500)).optional(),
   guidance: AnalysisGuidanceSchema.optional()
 })
 
@@ -676,6 +682,13 @@ export type IdentitySetupAnalysis = {
    * there and how freely they use emoji. Missing from drafts saved before.
    */
   channelNotes?: Partial<Record<PlatformId, SetupChannelNote>>
+  /**
+   * Their account on each platform in the guidance they gave no link for,
+   * found by research: linked from their website, else picked from search
+   * results. LinkedIn's is the profile suggestion's linkedinUrl instead.
+   * Missing from drafts saved before.
+   */
+  profileLinks?: Partial<Record<PlatformId, string>>
   suggestions: IdentitySetupSuggestions
   warnings: string[]
   sources: SourceFetchStatus[]

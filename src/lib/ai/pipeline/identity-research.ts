@@ -1,3 +1,9 @@
+import type { PlatformId } from '@/lib/formats'
+import {
+  canonicalProfileLink,
+  platformOfLink,
+  profilesAmong
+} from '@/lib/profile-links'
 import { isHomepage, normalizeUrlForCompare, toWebUrl } from '@/lib/urls'
 import type { SetupSource } from '../skills/profile-setup/prompt'
 import {
@@ -10,8 +16,8 @@ import {
 
 /**
  * The web research that runs before the AI sees an identity: find the
- * person's or company's real website and LinkedIn page, and read a couple of
- * pages about them.
+ * person's or company's real website and LinkedIn page, their accounts on
+ * the other platforms they post on, and read a couple of pages about them.
  *
  * Which search results are theirs is the AI's call (see link-pick.ts): it
  * reads each result's address, title and snippet against the user's own
@@ -31,7 +37,12 @@ export type LinkPickInput = {
   /** Each search result once, in the order found. */
   hits: SearchHit[]
   /** False for a link the user already gave. */
-  need: { website: boolean; linkedin: boolean }
+  need: {
+    website: boolean
+    linkedin: boolean
+    /** Platforms besides LinkedIn to find their own account on. */
+    profiles?: PlatformId[]
+  }
 }
 
 type Pick = { url: string; reason: string; confidence: 'high' | 'medium' }
@@ -40,6 +51,8 @@ type Pick = { url: string; reason: string; confidence: 'high' | 'medium' }
 export type LinkPicks = {
   website: Pick
   linkedin: Pick
+  /** Their account on each platform asked for that a result is theirs on. */
+  profiles?: Array<Pick & { platform: string }>
   background: Array<{ url: string; reason: string }>
 }
 
@@ -61,6 +74,11 @@ export type ResearchResult = {
   /** Pages found by search that were picked as being about this entity and read. */
   sources: SetupSource[]
   verified: { websiteUrl?: VerifiedLink; linkedinUrl?: VerifiedLink }
+  /**
+   * Their account on platforms asked for (findProfiles): linked from the
+   * website research found, else picked from search results.
+   */
+  profiles: Partial<Record<PlatformId, VerifiedLink>>
   /** Things that could not be verified, worded for the person reading them. */
   notes: string[]
 }
@@ -74,6 +92,30 @@ const sameUrl = (a: string, b: string) =>
 const sameHost = (a: string, b: string) =>
   new URL(a).hostname.toLowerCase() === new URL(b).hostname.toLowerCase()
 
+/** A search for one platform's accounts under a name. */
+const PROFILE_SEARCH: Record<PlatformId, string> = {
+  linkedin: 'site:linkedin.com',
+  x: '(site:x.com OR site:twitter.com)',
+  threads: '(site:threads.com OR site:threads.net)',
+  facebook: 'site:facebook.com',
+  instagram: 'site:instagram.com',
+  youtube: 'site:youtube.com'
+}
+
+/** Accounts a website links to, as verified links. */
+export function profilesOnSite(
+  links: readonly string[] | undefined,
+  platforms: readonly PlatformId[],
+  evidence: string
+): Partial<Record<PlatformId, VerifiedLink>> {
+  return Object.fromEntries(
+    Object.entries(profilesAmong(links ?? [], platforms)).map(([platform, url]) => [
+      platform,
+      { url, evidence, confidence: 'high' as const }
+    ])
+  )
+}
+
 /** The AI's own words on a link, shortened for a note. */
 const evidenceOf = (reason: string) =>
   reason.trim().slice(0, 300) || 'Picked from the search results.'
@@ -83,13 +125,17 @@ export async function researchIdentity(
     description: string
     entity: Entity | null
     provided: { linkedinUrl?: string; websiteUrl?: string }
+    /** Platforms besides LinkedIn to find their account on. */
+    findProfiles?: PlatformId[]
   },
   deps: ResearchDeps
 ): Promise<ResearchResult> {
   const { description, entity, provided } = input
+  const findProfiles = (input.findProfiles ?? []).filter(p => p !== 'linkedin')
   const result: ResearchResult = {
     sources: [],
     verified: {},
+    profiles: {},
     notes: []
   }
 
@@ -133,6 +179,9 @@ export async function researchIdentity(
       `"${entity.name}" ${entity.hint ?? ''} ${place}`
         .replace(/\s+/g, ' ')
         .trim()
+    ),
+    ...findProfiles.map(platform =>
+      deps.search(`${PROFILE_SEARCH[platform]} "${entity.name}"`)
     )
   ])
   const hits = [
@@ -147,7 +196,11 @@ export async function researchIdentity(
           description,
           entity,
           hits,
-          need: { website: needWebsite, linkedin: needLinkedin }
+          need: {
+            website: needWebsite,
+            linkedin: needLinkedin,
+            profiles: findProfiles
+          }
         })
       : null
   if (hits.length > 0 && !picks) {
@@ -187,6 +240,23 @@ export async function researchIdentity(
       result.notes.push(
         `LinkedIn: no ${linkedinKind} for ${entity.name} was found${missed(pick)}. Paste the URL if you have one.`
       )
+    }
+  }
+
+  // --- Accounts on the other platforms: copied from a result on that
+  // platform, and kept as the account's own address.
+  for (const platform of findProfiles) {
+    const pick = picks?.profiles?.find(
+      p => p.platform === platform && p.url.trim()
+    )
+    const hit = pick ? fromResults(pick.url) : undefined
+    const profile = hit ? canonicalProfileLink(platform, hit.url) : null
+    if (pick && hit && profile && platformOfLink(hit.url) === platform) {
+      result.profiles[platform] = {
+        url: profile,
+        evidence: evidenceOf(pick.reason),
+        confidence: pick.confidence
+      }
     }
   }
 
@@ -246,6 +316,16 @@ export async function researchIdentity(
       `Website: no official site for ${entity.name} was found${missed(websitePick)}. Paste it if you have one.`
     )
   }
+
+  // The accounts their own site links to are theirs, whatever search found.
+  Object.assign(
+    result.profiles,
+    profilesOnSite(
+      websitePage?.platformLinks,
+      findProfiles,
+      `Linked from ${website ?? 'their website'}.`
+    )
+  )
 
   // Pages that could not be read give the AI nothing to quote.
   for (const page of [websitePage, ...pages]) {

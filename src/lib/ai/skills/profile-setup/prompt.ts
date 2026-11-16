@@ -20,6 +20,11 @@ export type SetupSource = {
   status: SourceFetchStatus
   content?: string
   links?: SiteLink[]
+  /**
+   * A website's links to social platforms (its own accounts among them);
+   * only read for a site's homepage. Never shown to the model.
+   */
+  platformLinks?: string[]
 }
 
 export const INSTRUCTIONS = `You help set up a social media content engine for a person or business. From their own description, and any pages that could be fetched, you suggest settings for five sections: profile, voice, goals, preferences and knowledge.

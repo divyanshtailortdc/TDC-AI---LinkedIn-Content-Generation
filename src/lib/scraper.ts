@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio'
 import { readableText } from './html-text'
 import { resolvePublicHttpUrl, safeFetch, UnsafeUrlError } from './safe-url'
-import { extractSiteLinks, type SiteLink } from './site-links'
+import { extractPlatformLinks, extractSiteLinks, type SiteLink } from './site-links'
 
 export type ScrapedContent = {
   title: string
@@ -151,11 +151,14 @@ function readHtml(html: string, pageUrl: string): ScrapedContent | null {
  * site-links.ts). scrapeUrl prefers a reader that renders the page, which
  * suits sites built in the browser but gives text only, and can be slow; this
  * gives a business's own site both its links and a fallback for its text.
- * Null when the page is not HTML or turns the request away.
+ * `platformLinks` are its links to social platforms, its own accounts among
+ * them. Null when the page is not HTML or turns the request away.
  */
-export async function scrapeHtml(
-  url: string
-): Promise<{ page: ScrapedContent | null; links: SiteLink[] } | null> {
+export async function scrapeHtml(url: string): Promise<{
+  page: ScrapedContent | null
+  links: SiteLink[]
+  platformLinks: string[]
+} | null> {
   const response = await safeFetch(url, {
     headers: BROWSER_HEADERS,
     signal: AbortSignal.timeout(10000)
@@ -169,7 +172,11 @@ export async function scrapeHtml(
   const html = (await response.text()).slice(0, MAX_HTML_CHARS)
   // Relative links resolve against where the page ended up after redirects.
   const pageUrl = response.url || url
-  return { page: readHtml(html, pageUrl), links: extractSiteLinks(html, pageUrl) }
+  return {
+    page: readHtml(html, pageUrl),
+    links: extractSiteLinks(html, pageUrl),
+    platformLinks: extractPlatformLinks(html, pageUrl)
+  }
 }
 
 /**

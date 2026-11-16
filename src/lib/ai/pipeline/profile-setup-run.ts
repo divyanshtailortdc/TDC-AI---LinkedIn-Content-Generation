@@ -9,7 +9,13 @@ import {
   scrapeUrl,
   type ScrapedContent
 } from '@/lib/scraper'
-import { markdownLinks, withUnseenLinks } from '@/lib/site-links'
+import type { PlatformId } from '@/lib/formats'
+import {
+  cleanProfileLinks,
+  platformOfLink,
+  type ProfileLinks
+} from '@/lib/profile-links'
+import { markdownLinks, platformLinksInText, withUnseenLinks } from '@/lib/site-links'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import { SkillError } from '../run-skill'
 import { suggestSetup, type SetupSource } from '../skills/profile-setup'
@@ -23,7 +29,11 @@ import {
   type IdentitySetupAnalysis,
   type SourceFetchStatus
 } from '../skills/profile-setup/schema'
-import { researchIdentity, type ResearchResult } from './identity-research'
+import {
+  profilesOnSite,
+  researchIdentity,
+  type ResearchResult
+} from './identity-research'
 import { readSitePages } from './site-pages'
 
 /**
@@ -177,11 +187,20 @@ async function fetchSource(
     }
 
     const text = page.content.slice(0, SITE_HOME_PROMPT_CHARS)
-    const fromHtml = (await html)?.links ?? []
+    const read = await html
+    const fromHtml = read?.links ?? []
     // When the HTML could not be read, the links in the reader's text remain.
     const links =
       fromHtml.length > 0 ? fromHtml : markdownLinks(page.content, url)
-    return { status, content: withUnseenLinks(text, links, url), links }
+    const platformLinks = read?.platformLinks.length
+      ? read.platformLinks
+      : platformLinksInText(page.content)
+    return {
+      status,
+      content: withUnseenLinks(text, links, url),
+      links,
+      platformLinks
+    }
   } catch (error) {
     return {
       status: {
@@ -227,11 +246,13 @@ async function researchOnline(
     description: string
     linkedinUrl?: string
     websiteUrl?: string
+    findProfiles: PlatformId[]
   }
 ): Promise<ResearchResult> {
   const empty = (note: string): ResearchResult => ({
     sources: [],
     verified: {},
+    profiles: {},
     notes: [note]
   })
 
@@ -246,7 +267,8 @@ async function researchOnline(
             provided: {
               linkedinUrl: input.linkedinUrl,
               websiteUrl: input.websiteUrl
-            }
+            },
+            findProfiles: input.findProfiles
           },
           {
             searchConfigured: isWebSearchConfigured,
@@ -317,7 +339,22 @@ export async function analyzeIdentitySetup(
       false
     )
   }
-  const { description, linkedinUrl, websiteUrl, guidance } = parsed.data
+  const { description, websiteUrl, guidance } = parsed.data
+  // A link per platform. The single link (from the Profile step's assistant)
+  // counts for the platform it is on; one on no platform's site (a
+  // link-in-bio page) is only passed on as theirs.
+  const single = parsed.data.linkedinUrl
+  const singleOn = single ? platformOfLink(single) : null
+  const typedLinks: ProfileLinks = cleanProfileLinks({
+    ...(single && singleOn ? { [singleOn]: single } : {}),
+    ...parsed.data.profileLinks
+  })
+  const otherLink = single && !singleOn ? single : undefined
+  const linkedinUrl = typedLinks.linkedin
+  // Their accounts on the other platforms they post on, where they gave none.
+  const wantedProfiles = (guidance?.platforms ?? []).filter(
+    p => p !== 'linkedin' && !typedLinks[p]
+  )
 
   // Checked before fetching so a missing key does not cost the page fetches.
   if (!isAICapable) {
@@ -343,13 +380,20 @@ export async function analyzeIdentitySetup(
       fetchSource(url, kind, { links: kind === 'website' })
     )
   )
-  // The website they gave is explored while research runs.
+  // The website they gave is explored while research runs. The accounts it
+  // links to are theirs, so those are not searched for.
   const providedSite = providedSources.find(s => s.status.kind === 'website')
+  const onProvidedSite = profilesOnSite(
+    providedSite?.platformLinks,
+    wantedProfiles,
+    'Linked from the website you gave.'
+  )
   const [research, providedSitePages] = await Promise.all([
     researchOnline(entityLookup, {
       description,
       linkedinUrl,
-      websiteUrl
+      websiteUrl,
+      findProfiles: wantedProfiles.filter(p => !onProvidedSite[p])
     }),
     providedSite
       ? readOwnSite(description, providedSite, signal)
@@ -385,7 +429,14 @@ export async function analyzeIdentitySetup(
     result = await suggestSetup({
       description,
       sources,
-      providedUrls: requested.map(([url]) => url),
+      // The links they typed on other platforms are theirs too; none is read.
+      providedUrls: [
+        ...new Set([
+          ...requested.map(([url]) => url),
+          ...Object.values(typedLinks),
+          ...(otherLink ? [otherLink] : [])
+        ])
+      ],
       guidance,
       research: { verified: research.verified, notes: research.notes },
       signal
@@ -418,6 +469,11 @@ export async function analyzeIdentitySetup(
     accountType: result.accountType,
     styles: result.styles,
     channelNotes: result.channelNotes,
+    profileLinks: Object.fromEntries(
+      Object.entries({ ...research.profiles, ...onProvidedSite }).map(
+        ([platform, link]) => [platform, link.url]
+      )
+    ),
     suggestions: result.suggestions,
     warnings: result.warnings,
     sources: sources.map(s => s.status),

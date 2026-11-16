@@ -4,6 +4,7 @@ import {
   type ContentStyle
 } from '@/lib/formats/styles'
 import type { PlatformId } from '@/lib/platforms'
+import { platformOfLink } from '@/lib/profile-links'
 import { findLinks, normalizeUrlForCompare } from '@/lib/urls'
 import { z } from 'zod'
 import { chooseWebsite } from './links'
@@ -372,6 +373,10 @@ export function summarizeLines(lines: LineBasis[]) {
 
 const CONFIDENCE_ORDER = ['low', 'medium', 'high']
 
+/** Whether a link is on a social platform's site (LinkedIn, Instagram, X...). */
+const onPlatform = (url: string) =>
+  platformOfLink(/^https?:\/\//i.test(url) ? url : `https://${url}`) !== null
+
 /** Longest link a suggestion or knowledge source may hold (see the schema). */
 const MAX_URL_LENGTH = 500
 
@@ -551,13 +556,13 @@ export function sanitizeIdentitySetup(
   const sitePages = new Set(
     (context.siteSourceUrls ?? []).map(normalizeUrlForCompare)
   )
+  // A profile on a social platform the user gave is theirs, but the
+  // platform's site is not.
   const officialHosts = new Set(
     [...context.providedUrls, context.verifiedLinks?.websiteUrl?.url]
-      .map(url => (url ? hostOf(url) : null))
-      .filter(
-        (host): host is string =>
-          Boolean(host) && !/(^|\.)linkedin\.com$/.test(host!)
-      )
+      .filter((url): url is string => Boolean(url) && !onPlatform(url!))
+      .map(url => hostOf(url))
+      .filter((host): host is string => Boolean(host))
   )
   const isOfficial = (url: string) => {
     const host = hostOf(url)
@@ -860,10 +865,12 @@ export function sanitizeIdentitySetup(
   // Profile links: what the user typed into the form wins, then the model's
   // checked choice, then what research verified. Which page is the website is
   // the model's call; chooseWebsite only checks it is grounded (see links.ts).
+  // The typed website is the typed link on no social platform's site.
   const typed = (linkedin: boolean) =>
-    context.providedUrls.find(
-      url =>
-        /(^|\.)linkedin\.com/i.test(normalizeUrlForCompare(url)) === linkedin
+    context.providedUrls.find(url =>
+      linkedin
+        ? /(^|\.)linkedin\.com/i.test(normalizeUrlForCompare(url))
+        : !onPlatform(url)
     )
   const { website, warnings: websiteWarnings } = chooseWebsite({
     proposed: proposedWebsite,

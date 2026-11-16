@@ -227,7 +227,11 @@ describe('researchIdentity: the AI picks, code checks the picks are copied from 
     await run(picked(), { inputs })
     assert.strictEqual(inputs.length, 1)
     assert.strictEqual(inputs[0]?.description, SAMSUNG)
-    assert.deepStrictEqual(inputs[0]?.need, { website: true, linkedin: true })
+    assert.deepStrictEqual(inputs[0]?.need, {
+      website: true,
+      linkedin: true,
+      profiles: []
+    })
     const urls = inputs[0]!.hits.map(h => h.url)
     assert.strictEqual(urls.filter(u => u === 'https://www.samsung.com/us/').length, 1)
     assert.ok(urls.includes('https://news.samsung.com/global/'))
@@ -375,7 +379,7 @@ describe('researchIdentity: the AI picks, code checks the picks are copied from 
       }
     })
     assert.strictEqual(queries.length, 1, 'only the background search runs')
-    assert.deepStrictEqual(inputs[0]?.need, { website: false, linkedin: false })
+    assert.deepStrictEqual(inputs[0]?.need, { website: false, linkedin: false, profiles: [] })
     assert.deepStrictEqual(result.verified, {})
     assert.deepStrictEqual(result.notes, [])
   })
@@ -439,6 +443,140 @@ describe('researchIdentity: the AI picks, code checks the picks are copied from 
   })
 })
 
+describe('researchIdentity: their accounts on the other platforms', () => {
+  const zomato: Entity = { name: 'Zomato', kind: 'company', location: 'India' }
+  const DESCRIPTION_Z =
+    'Zomato is a food discovery and delivery platform that links people with restaurants across India.'
+  const results: Record<string, SearchHit[]> = {
+    instagram: [
+      hit('https://www.instagram.com/zomato/p/C1x2y3/', 'Zomato on Instagram: "Order now"'),
+      hit('https://www.instagram.com/zomatofans/', 'Zomato Fans (@zomatofans)')
+    ],
+    x: [hit('https://twitter.com/zomato/status/123', 'zomato on X')],
+    facebook: [hit('https://www.facebook.com/zomato', 'Zomato | Facebook')],
+    website: [hit('https://www.zomato.com/', 'Zomato: food delivery')]
+  }
+  const pick = (url: string, confidence: 'high' | 'medium' = 'high') => ({
+    url,
+    reason: 'The official account.',
+    confidence
+  })
+  const run = (
+    picks: Partial<LinkPicks>,
+    options: {
+      findProfiles?: Parameters<typeof researchIdentity>[0]['findProfiles']
+      queries?: string[]
+      inputs?: LinkPickInput[]
+      siteLinks?: string[]
+    } = {}
+  ) =>
+    researchIdentity(
+      {
+        description: DESCRIPTION_Z,
+        entity: zomato,
+        provided: { linkedinUrl: 'https://www.linkedin.com/company/zomato' },
+        findProfiles: options.findProfiles ?? ['instagram', 'x']
+      },
+      {
+        searchConfigured: true,
+        search: async query => {
+          options.queries?.push(query)
+          if (query.includes('instagram.com')) return results.instagram!
+          if (query.includes('twitter.com')) return results.x!
+          if (query.includes('facebook.com')) return results.facebook!
+          if (query.includes('official website')) return results.website!
+          return []
+        },
+        fetchPage: async (url, opts) => ({
+          status: { url, kind: 'web', status: 'fetched', title: 'Zomato' },
+          content: 'Zomato home',
+          ...(opts?.links ? { links: [], platformLinks: options.siteLinks ?? [] } : {})
+        }),
+        pickLinks: async input => {
+          options.inputs?.push(input)
+          return {
+            website: pick(''),
+            linkedin: pick(''),
+            background: [],
+            ...picks
+          }
+        }
+      }
+    )
+
+  it("searches each platform asked for, and keeps the account a picked result is from", async () => {
+    const queries: string[] = []
+    const inputs: LinkPickInput[] = []
+    const research = await run(
+      {
+        profiles: [
+          { platform: 'instagram', ...pick('https://www.instagram.com/zomato/p/C1x2y3/') },
+          { platform: 'x', ...pick('https://twitter.com/zomato/status/123', 'medium') }
+        ]
+      },
+      { queries, inputs, findProfiles: ['linkedin', 'instagram', 'x'] }
+    )
+    assert.ok(queries.includes('site:instagram.com "Zomato"'))
+    assert.ok(queries.includes('(site:x.com OR site:twitter.com) "Zomato"'))
+    // LinkedIn has its own search, and was given here.
+    assert.ok(!queries.some(q => q.includes('linkedin.com')))
+    assert.deepStrictEqual(inputs[0]?.need.profiles, ['instagram', 'x'])
+    assert.deepStrictEqual(research.profiles, {
+      instagram: {
+        url: 'https://www.instagram.com/zomato/',
+        evidence: 'The official account.',
+        confidence: 'high'
+      },
+      x: { url: 'https://x.com/zomato', evidence: 'The official account.', confidence: 'medium' }
+    })
+  })
+
+  it('keeps no account that is not among the results, or not on its platform', async () => {
+    const research = await run({
+      profiles: [
+        { platform: 'instagram', ...pick('https://www.instagram.com/zomato_official/') },
+        { platform: 'x', ...pick('https://www.facebook.com/zomato') }
+      ]
+    })
+    assert.deepStrictEqual(research.profiles, {})
+  })
+
+  it('prefers the accounts their own website links to', async () => {
+    const research = await run(
+      {
+        website: pick('https://www.zomato.com'),
+        profiles: [{ platform: 'instagram', ...pick('https://www.instagram.com/zomatofans/') }]
+      },
+      {
+        siteLinks: [
+          'https://twitter.com/intent/tweet?text=hi',
+          'https://twitter.com/zomato',
+          'https://www.instagram.com/zomato/'
+        ]
+      }
+    )
+    assert.deepStrictEqual(research.profiles, {
+      instagram: {
+        url: 'https://www.instagram.com/zomato/',
+        evidence: 'Linked from https://www.zomato.com.',
+        confidence: 'high'
+      },
+      x: {
+        url: 'https://x.com/zomato',
+        evidence: 'Linked from https://www.zomato.com.',
+        confidence: 'high'
+      }
+    })
+  })
+
+  it('searches no platform when none is asked for', async () => {
+    const queries: string[] = []
+    const research = await run({}, { queries, findProfiles: [] })
+    assert.strictEqual(queries.length, 2)
+    assert.deepStrictEqual(research.profiles, {})
+  })
+})
+
 describe('the guard enforces what research found', () => {
   const base = {
     description: DESCRIPTION,
@@ -457,6 +595,20 @@ describe('the guard enforces what research found', () => {
       confidence: 'medium' as const
     }
   }
+
+  it('never takes a typed social profile for the website', () => {
+    const instagram = 'https://www.instagram.com/ledgerly/'
+    const alone = sanitizeIdentitySetup(
+      { profile: { fields: [entry('name', 'Ledgerly')] } },
+      { ...base, providedUrls: [instagram] }
+    )
+    assert.strictEqual(alone.suggestions.profile.websiteUrl, undefined)
+    const both = sanitizeIdentitySetup(
+      { profile: { fields: [entry('name', 'Ledgerly')] } },
+      { ...base, providedUrls: [instagram, 'https://ledgerly.in/'] }
+    )
+    assert.strictEqual(both.suggestions.profile.websiteUrl?.value, 'https://ledgerly.in/')
+  })
 
   it('fills empty link fields with verified links, sourced to themselves', () => {
     const { suggestions } = sanitizeIdentitySetup(

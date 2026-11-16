@@ -52,6 +52,86 @@ export function platformOfLink(url: string): PlatformId | null {
   return HOSTS.find(([pattern]) => pattern.test(host))?.[1] ?? null
 }
 
+/** First path segments that are a platform's own pages, not an account. */
+const NOT_ACCOUNTS: Partial<Record<PlatformId, ReadonlySet<string>>> = {
+  x: new Set(
+    'i home search explore hashtag intent share settings messages notifications login signup tos privacy compose jobs download'.split(' ')
+  ),
+  facebook: new Set(
+    'sharer sharer.php share share.php dialog groups events watch photo photo.php photos story.php permalink.php login login.php help pages people hashtag marketplace gaming plugins tr l.php reel reels posts video videos media business privacy policies'.split(' ')
+  ),
+  instagram: new Set('p reel reels tv explore stories accounts about legal direct web developer'.split(' ')),
+  youtube: new Set('watch shorts playlist results feed embed live hashtag channel c user about'.split(' '))
+}
+
+/**
+ * The profile a link on `platform` belongs to, as that profile's own address
+ * (https://www.instagram.com/zomato/ for a link to one of its posts), or null
+ * when the link names no account: a share button, a hashtag, a search.
+ */
+export function canonicalProfileLink(platform: PlatformId, url: string): string | null {
+  if (platformOfLink(url) !== platform) return null
+  const parsed = new URL(url.trim())
+  const parts = parsed.pathname
+    .split('/')
+    .filter(Boolean)
+    .map(part => {
+      try {
+        return decodeURIComponent(part)
+      } catch {
+        return part
+      }
+    })
+  const first = parts[0] ?? ''
+  const isAccount = (pattern: RegExp) =>
+    pattern.test(first) && !NOT_ACCOUNTS[platform]?.has(first.toLowerCase())
+  switch (platform) {
+    case 'linkedin': {
+      const slug = parts[1]
+      const section = first.toLowerCase()
+      return ['in', 'company', 'school'].includes(section) && slug
+        ? `https://www.linkedin.com/${section}/${slug.toLowerCase()}`
+        : null
+    }
+    case 'x':
+      return isAccount(/^\w{1,15}$/) ? `https://x.com/${first}` : null
+    case 'threads':
+      return /^@[\w.]{1,30}$/.test(first) ? `https://www.threads.com/${first}` : null
+    case 'instagram':
+      return isAccount(/^[\w.]{1,30}$/) ? `https://www.instagram.com/${first}/` : null
+    case 'facebook': {
+      const id = parsed.searchParams.get('id')
+      if (first.toLowerCase() === 'profile.php' && id && /^\d+$/.test(id)) {
+        return `https://www.facebook.com/profile.php?id=${id}`
+      }
+      return isAccount(/^[\w.-]{2,}$/) ? `https://www.facebook.com/${first}` : null
+    }
+    case 'youtube': {
+      if (/^@[\w.-]{1,100}$/.test(first)) return `https://www.youtube.com/${first}`
+      const section = first.toLowerCase()
+      if (['channel', 'c', 'user'].includes(section) && parts[1]) {
+        return `https://www.youtube.com/${section}/${parts[1]}`
+      }
+      return isAccount(/^[\w.-]{2,}$/) ? `https://www.youtube.com/${first}` : null
+    }
+  }
+}
+
+/**
+ * Of a page's links, the first profile on each of `platforms`: a business's
+ * own site links its accounts, usually as icons in the footer.
+ */
+export function profilesAmong(links: readonly string[], platforms: readonly PlatformId[]): ProfileLinks {
+  const found: ProfileLinks = {}
+  for (const link of links) {
+    const platform = platformOfLink(link)
+    if (!platform || !platforms.includes(platform) || found[platform]) continue
+    const profile = canonicalProfileLink(platform, link)
+    if (profile) found[platform] = profile
+  }
+  return found
+}
+
 /** What is wrong with a link typed for `platform`, or undefined when it is fine or empty. */
 export function profileLinkError(platform: PlatformId, value: string): string | undefined {
   const url = value.trim()

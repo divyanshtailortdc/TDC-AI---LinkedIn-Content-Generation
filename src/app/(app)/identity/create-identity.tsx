@@ -152,17 +152,22 @@ export function CreateIdentity({
       // Links the person typed are theirs; the AI's only fill a blank.
       ...(about.websiteUrl.trim() ? { websiteUrl: about.websiteUrl.trim() } : {})
     })
+    // Links the person typed are theirs; the AI's fill the picked platforms
+    // left blank: its LinkedIn page (the one link the profile suggests), and
+    // the accounts research found on the others.
     const typed = linksFor(platforms, about.links)
+    const found: ProfileLinks = { ...analysis.profileLinks }
     const aiLink = suggested.linkedinUrl?.trim()
     const aiOn = aiLink ? platformOfLink(aiLink) : null
-    const aiLinkFits = Boolean(aiLink && aiOn && platforms.includes(aiOn) && !typed[aiOn])
-    setLinks(aiLinkFits && aiOn ? { ...typed, [aiOn]: aiLink } : typed)
+    if (aiLink && aiOn && !found[aiOn]) found[aiOn] = aiLink
+    const aiLinks = platforms.filter(p => !typed[p] && found[p]?.trim())
+    setLinks({ ...typed, ...Object.fromEntries(aiLinks.map(p => [p, found[p]!.trim()])) })
     setAiFilled(
       new Set([
         ...filled
           .map(([key]) => key as string)
           .filter(key => !(key === 'websiteUrl' && about.websiteUrl.trim())),
-        ...(aiLinkFits && aiOn ? [linkFieldKey(aiOn)] : [])
+        ...aiLinks.map(linkFieldKey)
       ])
     )
     setAccountType(analysis.accountType)
@@ -501,6 +506,8 @@ function AboutStep({
           description: input.description,
           linkedinUrl: input.linkedinUrl || undefined,
           websiteUrl: input.websiteUrl || undefined,
+          // Every link typed; the picked platforms without one are looked up.
+          profileLinks: links,
           guidance: { platforms }
         })
       })

@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { PLATFORMS, PLATFORM_IDS } from '@/lib/formats'
 import { z } from 'zod'
 import type { LinkPickInput, LinkPicks } from '../../pipeline/identity-research'
 import { runSkill } from '../../run-skill'
@@ -8,7 +9,8 @@ import { runSkill } from '../../run-skill'
  * Skill: which web search results belong to this person or business? A
  * small, quick call that reads each result's address, title and snippet
  * against the user's own description, and picks their main website, their
- * LinkedIn page and a couple of pages about them. Telling the main site from
+ * LinkedIn page, their accounts on the other platforms they post on, and a
+ * couple of pages about them. Telling the main site from
  * a newsroom, or the right business from a namesake, is a judgment made from
  * context, so it is made here rather than by fixed rules.
  *
@@ -33,6 +35,11 @@ const PickSchema = z.object({
 const LinkPicksSchema = z.object({
   website: PickSchema,
   linkedin: PickSchema,
+  profiles: z.array(
+    PickSchema.extend({
+      platform: z.enum(PLATFORM_IDS.filter(p => p !== 'linkedin') as [string, ...string[]])
+    })
+  ),
   background: z.array(
     z.object({
       url: z.string().describe('Copied exactly from a result.'),
@@ -45,6 +52,7 @@ const INSTRUCTIONS = `You check web search results for one person or business an
 
 - website: their main website. Give the root of the host a result is on, with the host copied exactly as the result writes it, "www." included (https://www.example.com for a result at https://www.example.com/us/products). A newsroom, careers, investor, blog, shop or support site is part of their web presence but not their main website, whether it is a subdomain or a separate domain: when only those appear, leave website empty. For a person who runs a business named in the description, that business's site counts. Never pick a site of a different person or business with the same or a similar name, a social network, a directory, a marketplace listing, a job board, a booking tool or a news article.
 - linkedin: their own LinkedIn profile (a person) or company page (a business), copied exactly from a result.
+- profiles: one entry per platform listed under "Find their accounts on", with their own account there (a profile, page or channel), copied exactly from a result. A result that is one of their own posts counts, since its address names their account. Never a fan or parody account, a namesake, a hashtag or search page, or someone else's post that mentions them. A business's official account usually carries its name and a verified or official note in the title or snippet. Leave a platform out when no result clearly is theirs.
 - background: at most 2 results from other, independent sites that say something substantial about this exact person or business, such as press coverage, an interview or a profile, copied exactly. Not their own site or its sections, not social networks or directories.
 - A name match alone is not enough. When no result clearly belongs to them, leave url empty: a missing link is better than a wrong one.
 - confidence: "high" when the evidence leaves little doubt, "medium" when it is the likeliest of several.
@@ -61,7 +69,10 @@ function buildPrompt(input: LinkPickInput): string {
     entity.hint && `What they do: ${entity.hint}`,
     !need.website && 'The user gave their own website: leave website empty.',
     !need.linkedin &&
-      'The user gave their own LinkedIn page: leave linkedin empty.'
+      'The user gave their own LinkedIn page: leave linkedin empty.',
+    need.profiles?.length
+      ? `Find their accounts on: ${need.profiles.map(p => `${PLATFORMS[p].label} (platform "${p}")`).join(', ')}`
+      : 'Leave profiles empty.'
   ].filter(Boolean)
   const results = input.hits.map(
     (hit, index) =>
