@@ -47,6 +47,8 @@ import {
   MessageSquare,
   Plus,
   Sparkles,
+  Square,
+  SquareMinus,
   Target,
   Trash2,
   Wand2,
@@ -803,7 +805,14 @@ export function GoalsClient({
                       }
                       className="border-border text-foreground hover:bg-surface-hover flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer"
                     >
-                      <CheckSquare className="text-accent h-3.5 w-3.5" />
+                      {/* Reads like a checkbox: empty, partly or fully ticked. */}
+                      {selectedActiveCount === activeCount ? (
+                        <CheckSquare className="text-accent h-3.5 w-3.5" />
+                      ) : selectedActiveCount > 0 ? (
+                        <SquareMinus className="text-accent h-3.5 w-3.5" />
+                      ) : (
+                        <Square className="text-muted h-3.5 w-3.5" />
+                      )}
                       {selectedActiveCount === activeCount
                         ? 'Deselect all'
                         : `Select all active (${activeCount})`}
