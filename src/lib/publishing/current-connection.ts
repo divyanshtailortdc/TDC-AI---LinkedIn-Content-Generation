@@ -10,6 +10,8 @@ import { toConnectionSummary, type ConnectionSummary } from './connection'
 const SUMMARY_COLUMNS = {
   platform: platformConnectionsTable.platform,
   status: platformConnectionsTable.status,
+  memberId: platformConnectionsTable.memberId,
+  bufferConnectionId: platformConnectionsTable.bufferConnectionId,
   name: platformConnectionsTable.name,
   pictureUrl: platformConnectionsTable.pictureUrl,
   connectedAt: platformConnectionsTable.connectedAt,

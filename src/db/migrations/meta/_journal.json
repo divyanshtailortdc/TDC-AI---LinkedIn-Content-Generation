@@ -344,6 +344,20 @@
       "when": 1794805074808,
       "tag": "0048_profile_links",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794813788628,
+      "tag": "0049_buffer_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794813789443,
+      "tag": "0050_linkedin_via_buffer",
+      "breakpoints": true
     }
   ]
 }

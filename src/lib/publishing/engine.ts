@@ -1374,7 +1374,12 @@ export async function confirmPendingPublications(
       const provider = providerFor(publication.platform)
       const connection = await connectionFor(database, publication)
       const check = provider.checkPost
-      if (!check || !connection?.accessToken || connection.status !== 'connected') {
+      // A credential of its own, or (most connections) its owner's Buffer
+      // connection's: either can follow the post.
+      const hasCredential = Boolean(
+        connection?.accessToken || connection?.bufferConnectionId
+      )
+      if (!check || !connection || !hasCredential || connection.status !== 'connected') {
         await giveUp(
           `${name} could not confirm the post: the connection was removed while it was being published. Check your ${name} profile before trying again.`,
           'unknown_outcome'

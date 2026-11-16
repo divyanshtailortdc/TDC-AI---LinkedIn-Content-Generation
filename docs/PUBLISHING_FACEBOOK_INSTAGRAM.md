@@ -52,13 +52,7 @@ The variant is not part of the signature. It only changes how the one image the 
 
 This uses the Buffer app client and `TOKEN_ENCRYPTION_KEY` already set up for X ([PUBLISHING_X.md → Setup](PUBLISHING_X.md#setup)). There is no new secret and no migration.
 
-1. **Register the three extra redirect URIs** on the Buffer app client (Buffer → Settings → API → App Clients), exactly, for each environment:
-   - `https://<your-domain>/api/integrations/threads/callback`
-   - `https://<your-domain>/api/integrations/facebook/callback`
-   - `https://<your-domain>/api/integrations/instagram/callback`
-   - local: the same paths on `https://localhost:3000`
-
-   These callbacks use the origin of `BUFFER_REDIRECT_URI` when that is set, otherwise `BETTER_AUTH_URL`.
+1. **No extra redirect URIs** since 2026-11-13: every network shares the one Buffer connection and its callback, `/api/integrations/buffer/callback` ([BUFFER_OAUTH.md](BUFFER_OAUTH.md)). The old `/api/integrations/{threads,facebook,instagram}/callback` URIs can be removed from the app client.
 2. **Environment** (optional). Threads, Facebook and Instagram are on whenever Buffer publishing is set up. To hide one:
    ```bash
    THREADS_PUBLISHING="off"
@@ -67,9 +61,9 @@ This uses the Buffer app client and `TOKEN_ENCRYPTION_KEY` already set up for X 
    ```
 3. **Each customer**, once per platform:
    1. In Buffer, connect the Threads account, the Facebook Page, or the Instagram business or creator account, as a channel. Buffer's free plan allows 3 channels in total, X included.
-   2. In the app, go to **Settings → Integrations → Threads (or Facebook, or Instagram) → Connect**, and allow TDC AI on Buffer's screen.
+   2. In the app, go to **Settings → Integrations**, **Connect Buffer** once (if not done already), then **Choose account** on the Threads, Facebook or Instagram card. Connecting Buffer already picks the first usable channel of each network for the active identity.
 
-Without `BUFFER_CLIENT_ID`, each card asks for a Buffer API key instead (testing), as X does.
+Without `BUFFER_CLIENT_ID`, Buffer cannot be connected; API keys are no longer accepted.
 
 Buffer downloads images from `PUBLISHING_MEDIA_URL`, or from `BETTER_AUTH_URL` when that is unset, so the address must be reachable from the internet. For Instagram this always matters, because every Instagram post has an image. Locally, point `PUBLISHING_MEDIA_URL` at a tunnel ([PUBLISHING_X.md → Local development](PUBLISHING_X.md#local-development)). Without one, the app refuses image posts before calling Buffer and says what to set.
 
@@ -95,7 +89,7 @@ Buffer, Facebook and Instagram themselves cannot run in CI. Check them by hand w
 
 - **"No Instagram account is connected in this Buffer account"**: the Instagram account is not a channel in Buffer, or it is a personal account. Switch it to a business or creator account in Instagram, then connect it in Buffer.
 - **"Instagram posts need an image"**: add an image to the post. Instagram does not take text-only posts.
-- **Buffer says the redirect URI is invalid** when connecting Threads, Facebook or Instagram: register `/api/integrations/threads/callback`, `/api/integrations/facebook/callback` and `/api/integrations/instagram/callback` on the app client (see [Setup](#setup)).
+- **Buffer says the redirect URI is invalid**: register `/api/integrations/buffer/callback` on the app client ([BUFFER_OAUTH.md → Setup](BUFFER_OAUTH.md#setup)).
 - **"No Threads account is connected in this Buffer account"**: connect Threads as a channel in Buffer first. If it is connected and still not found, Buffer may name Threads channels differently from `threads`; the name is in `NETWORKS.threads.services` (`src/lib/publishing/buffer/provider.ts`).
 - **"Image could not be read from its URL"**: Buffer could not download the picture. Locally, set `PUBLISHING_MEDIA_URL` to a tunnel and restart. In production, check that `BETTER_AUTH_URL` is publicly reachable and that `/api/publishing-media/…?for=instagram` returns a JPEG. Nothing was posted, so **Try again** is safe.
-- **Connecting a second platform logged out the first** (the first connection shows Expired): this would mean Buffer revokes an earlier authorization when the same app client is authorized again. Buffer's documentation does not say either way, and each platform keeps its own grant. If it happens, report it; the fix would be to share one Buffer grant across the three platforms.
+- **Connecting a second platform logged out the first**: no longer possible. Since 2026-11-13 all networks share one Buffer grant per user ([BUFFER_OAUTH.md](BUFFER_OAUTH.md)).

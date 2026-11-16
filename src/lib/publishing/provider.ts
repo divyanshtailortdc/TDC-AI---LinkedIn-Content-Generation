@@ -4,12 +4,10 @@ import type { BufferOAuthConfig } from './buffer/oauth'
 import {
   bufferFacebookProvider,
   bufferInstagramProvider,
+  bufferLinkedInProvider,
   bufferThreadsProvider,
   bufferXProvider
 } from './buffer/provider'
-import type { CallbackResult } from './callback-results'
-import { linkedInProvider } from './linkedin/provider'
-import type { LinkedInAppConfig, MemberInfo, TokenSet } from './linkedin/oauth'
 import { canPublishTo, type PublishingPlatformId } from './platform'
 
 /**
@@ -18,9 +16,10 @@ import { canPublishTo, type PublishingPlatformId } from './platform'
  * post's (or a connection's) platform and never import a provider's own
  * modules, so adding a platform adds a provider here rather than changing them.
  *
- *   linkedin   LinkedIn's REST API, connected through LinkedIn's OAuth (./linkedin)
- *   x          X through Buffer's API, connected through Buffer's OAuth (an
- *              app client), or with a Buffer API key for testing (./buffer)
+ *   linkedin   A LinkedIn profile or page through Buffer, like the others
+ *              (since 2026-11-16; ./linkedin, the direct REST API, is no longer used)
+ *   x          X through Buffer's API: a channel of the Buffer account the
+ *              user connected once through Buffer's OAuth (./buffer)
  *   threads    A Threads account through Buffer, connected the same way
  *   facebook   A Facebook Page through Buffer, likewise
  *   instagram  An Instagram professional account through Buffer, likewise
@@ -39,10 +38,17 @@ export type BaseConfig = { encryptionKey: Buffer }
  */
 export type BufferConfig = BaseConfig & {
   /**
-   * The app client customers authorize through Buffer's consent screen; null
-   * without one, when each user pastes a Buffer API key instead (testing).
+   * The app client users authorize through Buffer's consent screen; null
+   * without one, when nobody can connect Buffer (connections made earlier
+   * with a pasted API key still publish).
    */
   oauth: BufferOAuthConfig | null
+  /**
+   * Encrypts the Buffer connections' tokens (BUFFER_TOKEN_ENCRYPTION_KEY);
+   * `encryptionKey` when unset. `encryptionKey` itself still reads older
+   * connections' own tokens and signs image links and OAuth state.
+   */
+  tokenEncryptionKey?: Buffer
   apiUrl: string
   /** The app's public origin, for the signed image links Buffer fetches. */
   appUrl: string
@@ -50,11 +56,26 @@ export type BufferConfig = BaseConfig & {
   inlineWaitMs?: number
 }
 
-export type PlatformConfig = LinkedInAppConfig | BufferConfig
+/** Every platform publishes through Buffer, so every config is Buffer's. */
+export type PlatformConfig = BufferConfig
+
+/** What an OAuth token request gives: Buffer's tokens. */
+export type TokenSet = {
+  accessToken: string
+  accessTokenExpiresAt: Date
+  refreshToken: string | null
+  refreshTokenExpiresAt: Date | null
+  scopes: string[]
+}
+
+/** Space- or comma-separated scopes, each once. */
+export function parseScopes(value: string | null | undefined): string[] {
+  return [...new Set((value ?? '').split(/[\s,]+/).filter(Boolean))]
+}
 
 /** The config of each platform publishing is set up for. */
 export type PublishConfigs = {
-  linkedin?: LinkedInAppConfig
+  linkedin?: BufferConfig
   x?: BufferConfig
   threads?: BufferConfig
   facebook?: BufferConfig
@@ -68,40 +89,11 @@ export type ProviderContext<C extends BaseConfig = PlatformConfig> = {
   fetchFn?: FetchFn
 }
 
-/**
- * What a connection is saved with: OAuth tokens, or an API key (which does
- * not run out, so it has no expiry and no refresh token).
- */
-export type Credentials = Omit<TokenSet, 'accessTokenExpiresAt'> & {
-  accessTokenExpiresAt: Date | null
-}
-
-/** The account a connection publishes as. */
-export type AccountInfo = MemberInfo
-
-/**
- * A platform's OAuth flow, for the connect and callback routes
- * (/api/integrations/{platform}/connect, /callback).
- */
-export type OAuthFlow<C extends BaseConfig> = {
-  /** The consent screen, with the state and the PKCE verifier's challenge. */
-  authorizationUrl: (config: C, state: string, codeVerifier: string) => string
-  exchangeCode: (
-    config: C,
-    code: string,
-    codeVerifier: string,
-    fetchFn?: FetchFn
-  ) => Promise<TokenSet>
-  /** The account to publish as; null when there is none (no X channel in Buffer). */
-  account: (
-    config: C,
-    accessToken: string,
-    fetchFn?: FetchFn
-  ) => Promise<AccountInfo | null>
-  /** The provider's `error` on the callback, as an outcome. */
-  callbackErrorResult: (error: string) => CallbackResult
-  /** The redirect URI registered with the provider. */
-  redirectUri: (config: C) => string
+/** The account a connection publishes as: for Buffer, the channel. */
+export type AccountInfo = {
+  memberId: string
+  name: string | null
+  pictureUrl: string | null
 }
 
 export type PostImage = {
@@ -136,14 +128,6 @@ export type PostCheck = {
 
 export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
   platform: PlatformSpec
-  /**
-   * How a user connects it in Settings → Integrations with this config: a
-   * consent screen (`oauth`, through /api/integrations/{platform}/connect),
-   * or a key pasted there.
-   */
-  connectWith: (config: C) => 'oauth' | 'api_key'
-  /** The OAuth flow, when the platform has one. */
-  oauth?: OAuthFlow<C>
   /** The service posts go through, when not the platform's own API ("Buffer"). */
   via?: string
   /** The scope a grant needs to publish; null when there are no scopes. */
@@ -238,7 +222,7 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
 }
 
 const PROVIDERS: Record<PublishingPlatformId, PublishingProvider<any>> = {
-  linkedin: linkedInProvider,
+  linkedin: bufferLinkedInProvider,
   x: bufferXProvider,
   threads: bufferThreadsProvider,
   facebook: bufferFacebookProvider,
@@ -253,9 +237,4 @@ export function providerFor(platform: string): PublishingProvider<any> {
   return PROVIDERS[platform]
 }
 
-export {
-  type LinkedInAppConfig as PublishingAppConfig,
-  parseScopes,
-  type TokenSet
-} from './linkedin/oauth'
 export { PlatformApiError, PlatformOAuthError, PostImageError } from './errors'

@@ -3,28 +3,24 @@
 import { db } from '@/db'
 import { platformConnectionsTable } from '@/db/schema'
 import { getPlatform } from '@/lib/platforms'
-import type { BufferChannel } from '@/lib/publishing/buffer/api'
-import { API_KEY_SCOPES } from '@/lib/publishing/buffer/oauth'
-import { listPlatformChannels } from '@/lib/publishing/buffer/provider'
-import { bufferConfig } from '@/lib/publishing/config'
 import {
-  assertCanPublish,
-  changeAccount,
-  ConnectionError,
-  disconnect,
-  getConnection,
-  saveConnection,
-  usableAccessToken
-} from '@/lib/publishing/connection'
+  disconnectBuffer,
+  linkBufferChannel,
+  syncBufferChannels
+} from '@/lib/publishing/buffer/connection'
+import {
+  anyBufferConfig,
+  enabledBufferPlatforms
+} from '@/lib/publishing/config'
+import { ConnectionError, disconnect } from '@/lib/publishing/connection'
 import { PlatformApiError } from '@/lib/publishing/errors'
 import {
-  type BufferPlatformId,
   canPublishTo,
   isBufferPlatform,
   PUBLISHING_PLATFORM_IDS
 } from '@/lib/publishing/platform'
 import { isValidTimeZone, parseTimeOfDay } from '@/lib/schedule-time'
-import { requireIdentityId } from '@/lib/identity'
+import { getIdentity, requireIdentityId } from '@/lib/identity'
 import { requireUser } from '@/lib/session'
 import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
 import { and, eq } from 'drizzle-orm'
@@ -130,184 +126,39 @@ export async function saveAutoPublish(input: {
   }
 }
 
-const BufferKeySchema = z.object({
-  apiKey: z
-    .string()
-    .trim()
-    .min(10, 'Paste the whole Buffer API key.')
-    .max(500, 'That does not look like a Buffer API key.')
-    .regex(/^\S+$/, 'A Buffer API key has no spaces.'),
-  channelId: z.string().trim().min(1).max(200).optional()
-})
-
-type ChannelChoice = Pick<BufferChannel, 'id' | 'name' | 'avatar'>
-
-/**
- * Connects X, Facebook or Instagram through Buffer: checks the pasted Buffer
- * API key by listing that network's channels its account can post to, and
- * saves it (encrypted) with the one chosen. With more than one channel and
- * none chosen yet, returns them to pick from. The key is never sent back to
- * the browser.
- */
-export async function connectWithBuffer(
-  platform: string,
-  input: {
-    apiKey: string
-    channelId?: string
-  }
-): Promise<
-  | { success: true; name: string }
-  | { success: false; error: string; channels?: ChannelChoice[] }
-> {
-  const user = await requireUser()
-  if (!isBufferPlatform(platform)) {
-    return { success: false, error: 'Unknown platform.' }
-  }
-  const platformName = getPlatform(platform).name
-  try {
-    const config = bufferConfig(platform)
-    if (!config) {
-      return {
-        success: false,
-        error: `Publishing to ${platformName} is not set up on this server.`
-      }
-    }
-    const parsed = BufferKeySchema.safeParse(input)
-    if (!parsed.success) {
-      return {
-        success: false,
-        error: parsed.error.issues[0]?.message ?? 'Check the API key.'
-      }
-    }
-    const { apiKey, channelId } = parsed.data
-
-    let channels: BufferChannel[]
-    try {
-      channels = await listPlatformChannels(
-        { apiKey, apiUrl: config.apiUrl },
-        platform
-      )
-    } catch (err) {
-      if (err instanceof PlatformApiError) {
-        return {
-          success: false,
-          error:
-            err.code === 'reauth_required' || err.code === 'missing_permission'
-              ? 'Buffer did not accept this API key. Create one in Buffer (Settings → API) and paste it again.'
-              : err.retryable
-                ? 'Buffer could not be reached. Try again in a moment.'
-                : err.message
-        }
-      }
-      throw err
-    }
-
-    const usable = channels.filter(c => !c.isLocked)
-    if (usable.length === 0) {
-      return {
-        success: false,
-        error:
-          channels.length > 0
-            ? `Your ${platformName} channel is locked in Buffer (the free plan allows 3 channels). Unlock it in Buffer, then try again.`
-            : `No ${platformName} account is connected in this Buffer account. In Buffer, connect your ${platformName} account as a channel, then try again.`
-      }
-    }
-    const channel = channelId
-      ? usable.find(c => c.id === channelId)
-      : usable.length === 1
-        ? usable[0]
-        : undefined
-    if (!channel) {
-      return {
-        success: false,
-        error: channelId
-          ? `That ${platformName} account is no longer in Buffer. Pick another.`
-          : `Pick the ${platformName} account to publish to.`,
-        channels: usable.map(({ id, name, avatar }) => ({ id, name, avatar }))
-      }
-    }
-
-    await saveConnection(
-      db,
-      config,
-      // For the identity being worked on: each has its own connections.
-      { userId: user.id, accountId: await requireIdentityId() },
-      {
-        accessToken: apiKey,
-        // An API key does not run out; Buffer refusing it marks it expired.
-        accessTokenExpiresAt: null,
-        refreshToken: null,
-        refreshTokenExpiresAt: null,
-        scopes: API_KEY_SCOPES
-      },
-      { memberId: channel.id, name: channel.name, pictureUrl: channel.avatar },
-      { platform }
-    )
-    revalidatePath(INTEGRATIONS_SETTINGS_PATH)
-    return { success: true, name: channel.name }
-  } catch (err) {
-    console.error(
-      `Could not connect ${platformName} through Buffer for user ${user.id}:`,
-      err
-    )
-    return {
-      success: false,
-      error: `${platformName} could not be connected. Please try again.`
-    }
-  }
-}
-
-/**
- * The accounts of `platform` in the user's own Buffer account, through their
- * connection.
- */
-async function bufferChannelsOf(accountId: string, platform: BufferPlatformId) {
-  const config = bufferConfig(platform)
-  if (!config) {
-    throw new ConnectionError(
-      `Publishing to ${getPlatform(platform).name} is not set up on this server.`,
-      'not_connected'
-    )
-  }
-  const connection = await getConnection(db, accountId, platform)
-  assertCanPublish(connection, platform)
-  const accessToken = await usableAccessToken(db, config, connection)
-  const channels = await listPlatformChannels(
-    { apiKey: accessToken, apiUrl: config.apiUrl },
-    platform
-  )
-  return { connection, channels: channels.filter(c => !c.isLocked) }
-}
-
 const failureMessage = (err: unknown) =>
   err instanceof ConnectionError || err instanceof PlatformApiError
     ? err.message
     : 'Buffer could not be reached. Please try again.'
 
-/** The accounts of `platform` the user can publish as, from their Buffer account. */
-export async function listBufferAccounts(platform: string): Promise<
-  | { success: true; channels: ChannelChoice[]; currentId: string }
-  | { success: false; error: string }
+/**
+ * Reads the user's Buffer account and channels again (a channel added or
+ * removed in Buffer shows up), and sets up networks of the active identity
+ * that have none yet. Within 30 s of the last sync it changes nothing.
+ */
+export async function syncBuffer(): Promise<
+  { success: true; synced: boolean } | { success: false; error: string }
 > {
   const user = await requireUser()
-  if (!isBufferPlatform(platform)) {
-    return { success: false, error: 'Unknown platform.' }
-  }
   try {
-    const { connection, channels } = await bufferChannelsOf(
-      await requireIdentityId(),
-      platform
-    )
-    return {
-      success: true,
-      channels: channels.map(({ id, name, avatar }) => ({ id, name, avatar })),
-      currentId: connection.memberId
+    const config = anyBufferConfig()
+    if (!config) {
+      return { success: false, error: 'Buffer is not set up on this server.' }
     }
+    const identity = await getIdentity()
+    const result = await syncBufferChannels(
+      db,
+      config,
+      { userId: user.id, identityId: identity?.id ?? null },
+      { platforms: enabledBufferPlatforms() }
+    )
+    revalidatePath(INTEGRATIONS_SETTINGS_PATH)
+    return { success: true, synced: result.synced }
   } catch (err) {
     if (!(err instanceof ConnectionError || err instanceof PlatformApiError)) {
       console.error(
-        `Could not list ${getPlatform(platform).name} accounts for user ${user.id}:`,
-        err
+        `Could not sync Buffer for user ${user.id}:`,
+        err instanceof Error ? err.message : 'unknown error'
       )
     }
     return { success: false, error: failureMessage(err) }
@@ -315,49 +166,64 @@ export async function listBufferAccounts(platform: string): Promise<
 }
 
 /**
- * Publishes as another account of `platform` in the user's Buffer account.
- * Only an account Buffer lists for them now can be chosen; switching cancels
- * that platform's scheduled posts, as connecting a different account does.
+ * Publishes `platform` for the active identity as one of the channels in the
+ * user's Buffer account. Only a channel synced from their own Buffer account
+ * can be chosen; switching cancels that network's scheduled posts.
  */
-export async function switchBufferAccount(platform: string, channelId: string) {
+export async function selectBufferChannel(platform: string, channelId: string) {
   const user = await requireUser()
   if (!isBufferPlatform(platform)) {
     return { success: false as const, error: 'Unknown platform.' }
   }
   const platformName = getPlatform(platform).name
+  if (typeof channelId !== 'string' || !channelId || channelId.length > 200) {
+    return {
+      success: false as const,
+      error: `Pick the ${platformName} account to publish as.`
+    }
+  }
   try {
-    if (typeof channelId !== 'string' || !channelId) {
-      return {
-        success: false as const,
-        error: `Pick the ${platformName} account to publish as.`
-      }
-    }
-    const accountId = await requireIdentityId()
-    const { channels } = await bufferChannelsOf(accountId, platform)
-    const channel = channels.find(c => c.id === channelId)
-    if (!channel) {
-      return {
-        success: false as const,
-        error: `That ${platformName} account is no longer in your Buffer account.`
-      }
-    }
-    const row = await changeAccount(db, accountId, platform, {
-      memberId: channel.id,
-      name: channel.name,
-      pictureUrl: channel.avatar
-    })
-    if (!row) {
-      return { success: false as const, error: `Connect ${platformName} first.` }
-    }
+    const row = await linkBufferChannel(
+      db,
+      { userId: user.id, identityId: await requireIdentityId() },
+      platform,
+      channelId
+    )
     revalidatePath(INTEGRATIONS_SETTINGS_PATH)
-    return { success: true as const, name: channel.name }
+    return { success: true as const, name: row.name ?? platformName }
   } catch (err) {
-    if (!(err instanceof ConnectionError || err instanceof PlatformApiError)) {
+    if (!(err instanceof ConnectionError)) {
       console.error(
-        `Could not switch the ${platformName} account of user ${user.id}:`,
-        err
+        `Could not pick the ${platformName} channel of user ${user.id}:`,
+        err instanceof Error ? err.message : 'unknown error'
       )
     }
     return { success: false as const, error: failureMessage(err) }
+  }
+}
+
+/**
+ * Disconnects the user's Buffer account: its tokens and channels are
+ * deleted, and every network publishing through Buffer, for each of the
+ * user's identities, stops (scheduled posts cancelled).
+ */
+export async function disconnectBufferAccount() {
+  const user = await requireUser()
+  try {
+    const result = await disconnectBuffer(db, user.id)
+    if (!result) {
+      return { success: false as const, error: 'Buffer is not connected.' }
+    }
+    revalidatePath(INTEGRATIONS_SETTINGS_PATH)
+    return { success: true as const, cancelled: result.cancelled }
+  } catch (err) {
+    console.error(
+      `Could not disconnect Buffer for user ${user.id}:`,
+      err instanceof Error ? err.message : 'unknown error'
+    )
+    return {
+      success: false as const,
+      error: 'Buffer could not be disconnected. Please try again.'
+    }
   }
 }

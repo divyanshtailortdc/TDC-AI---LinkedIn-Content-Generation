@@ -46,26 +46,13 @@ export const env = createEnv({
         'TOKEN_ENCRYPTION_KEY must be 32 bytes, base64 (openssl rand -base64 32)'
       )
       .optional(),
-    // Publishing through the LinkedIn provider (docs/PUBLISHING.md): its own
-    // OAuth flow, separate from sign-in. Best a separate LinkedIn app:
-    // LinkedIn invalidates a member's earlier tokens when the same app is
-    // authorized with different scopes, so sharing the sign-in app makes
-    // every LinkedIn sign-in disconnect publishing. Unset, publishing is off.
-    LINKEDIN_PUBLISH_CLIENT_ID: z.string().optional(),
-    LINKEDIN_PUBLISH_CLIENT_SECRET: z.string().optional(),
-    /** Defaults to {BETTER_AUTH_URL}/api/integrations/linkedin/callback; an HTTPS tunnel URL in development. */
-    LINKEDIN_PUBLISH_REDIRECT_URI: z.url().optional(),
-    /** Space-separated; only scopes the LinkedIn app has been granted. */
-    LINKEDIN_PUBLISH_SCOPES: z.string().default('openid profile w_member_social'),
-    /** The LinkedIn-Version header (YYYYMM). Each version is supported for about a year. */
-    LINKEDIN_API_VERSION: z
-      .string()
-      .regex(/^\d{6}(\.\d{2})?$/, 'LINKEDIN_API_VERSION must be YYYYMM')
-      .default('202610'),
     // Publishing to X through Buffer (docs/PUBLISHING_X.md): each user
     // connects X in their own Buffer account; the app needs no X developer
     // app. On whenever TOKEN_ENCRYPTION_KEY is set; "off" hides it.
     X_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
+    // LinkedIn publishes through Buffer too (docs/BUFFER_OAUTH.md); "off"
+    // hides it. The LinkedIn developer apps are for signing in only.
+    LINKEDIN_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     // Threads, Facebook Pages and Instagram (professional accounts) through
     // Buffer too (docs/PUBLISHING_FACEBOOK_INSTAGRAM.md), with the same Buffer
     // app client.
@@ -81,18 +68,32 @@ export const env = createEnv({
      * http://localhost:3000) and keep signing in on localhost.
      */
     PUBLISHING_MEDIA_URL: z.url().optional(),
-    // Buffer app client (Buffer → Settings → API → App Clients): customers
-    // authorize their own Buffer account on Buffer's consent screen. Unset,
-    // each user pastes a Buffer API key instead (testing). The secret is for
-    // a confidential client only; leave it unset for a public one.
+    // Buffer app client (Buffer → Settings → API → App Clients): each user
+    // connects their own Buffer account once, on Buffer's consent screen
+    // (docs/BUFFER_OAUTH.md). Unset, nobody can connect Buffer; connections
+    // made earlier with a pasted API key keep publishing. The secret is for a
+    // confidential client only; leave it unset for a public one.
     BUFFER_CLIENT_ID: z.string().optional(),
     BUFFER_CLIENT_SECRET: z.string().optional(),
     /**
-     * X's callback; defaults to {BETTER_AUTH_URL}/api/integrations/x/callback.
-     * Threads, Facebook and Instagram use /api/integrations/{threads,facebook,instagram}/callback
-     * on the same origin. Buffer requires HTTPS, even on localhost.
+     * The callback registered on the Buffer app client; defaults to
+     * {BETTER_AUTH_URL}/api/integrations/buffer/callback. Only its origin is
+     * read: the path is always /api/integrations/buffer/callback. Buffer
+     * requires HTTPS, even on localhost.
      */
     BUFFER_REDIRECT_URI: z.url().optional(),
+    /**
+     * Encrypts Buffer access and refresh tokens at rest; defaults to
+     * TOKEN_ENCRYPTION_KEY. 32 bytes, base64. Changing it makes every saved
+     * Buffer connection unreadable: users must connect Buffer again.
+     */
+    BUFFER_TOKEN_ENCRYPTION_KEY: z
+      .string()
+      .refine(
+        key => Buffer.from(key, 'base64').length === 32,
+        'BUFFER_TOKEN_ENCRYPTION_KEY must be 32 bytes, base64 (openssl rand -base64 32)'
+      )
+      .optional(),
     /** Space-separated; offline_access gives the refresh token. */
     BUFFER_SCOPES: z
       .string()
@@ -155,12 +156,8 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
-    LINKEDIN_PUBLISH_CLIENT_ID: process.env.LINKEDIN_PUBLISH_CLIENT_ID,
-    LINKEDIN_PUBLISH_CLIENT_SECRET: process.env.LINKEDIN_PUBLISH_CLIENT_SECRET,
-    LINKEDIN_PUBLISH_REDIRECT_URI: process.env.LINKEDIN_PUBLISH_REDIRECT_URI,
-    LINKEDIN_PUBLISH_SCOPES: process.env.LINKEDIN_PUBLISH_SCOPES,
-    LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
     X_PUBLISHING: process.env.X_PUBLISHING,
+    LINKEDIN_PUBLISHING: process.env.LINKEDIN_PUBLISHING,
     THREADS_PUBLISHING: process.env.THREADS_PUBLISHING,
     FACEBOOK_PUBLISHING: process.env.FACEBOOK_PUBLISHING,
     INSTAGRAM_PUBLISHING: process.env.INSTAGRAM_PUBLISHING,
@@ -170,6 +167,8 @@ export const env = createEnv({
     BUFFER_CLIENT_SECRET: process.env.BUFFER_CLIENT_SECRET,
     BUFFER_REDIRECT_URI: process.env.BUFFER_REDIRECT_URI,
     BUFFER_SCOPES: process.env.BUFFER_SCOPES,
+    // Empty counts as unset, so TOKEN_ENCRYPTION_KEY stands in.
+    BUFFER_TOKEN_ENCRYPTION_KEY: process.env.BUFFER_TOKEN_ENCRYPTION_KEY || undefined,
     // LINKEDIN_TOKEN_ENCRYPTION_KEY is its old name, still read so existing
     // deployments keep decrypting their tokens.
     TOKEN_ENCRYPTION_KEY:

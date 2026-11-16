@@ -4,6 +4,7 @@ import {
   check,
   customType,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -1375,6 +1376,96 @@ export const intelMentionsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 23b. Buffer Connections (1 per user) — the user's Buffer OAuth grant
+// ---------------------------------------------------------------------------
+
+// The Buffer account a user authorized the app on (docs/BUFFER_OAUTH.md), once
+// for every network Buffer publishes to: the X, Threads, Facebook and
+// Instagram connections below borrow its token (buffer_connection_id). Tokens
+// are encrypted (BUFFER_TOKEN_ENCRYPTION_KEY, bound to user_id) and never leave
+// the server. Reconnecting updates the row in place; disconnecting keeps it
+// ('disconnected', tokens gone) so its history stays readable.
+export const bufferConnectionsTable = pgTable(
+  'buffer_connections',
+  {
+    id: commonFieldDefs.id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => authUsersTable.id, { onDelete: 'cascade' }),
+    // Buffer's Account.id, name, email and avatar, as last read.
+    bufferAccountId: text('buffer_account_id').notNull(),
+    name: text('name'),
+    email: text('email'),
+    avatarUrl: text('avatar_url'),
+    // Encrypted; null once disconnected. Buffer's refresh tokens are
+    // single-use: replaced (under a row lock) on every refresh.
+    accessToken: text('access_token'),
+    accessTokenExpiresAt: commonFieldDefs.date('access_token_expires_at'),
+    refreshToken: text('refresh_token'),
+    scopes: jsonb('scopes').$type<string[]>().default([]).notNull(),
+    status: varchar('status', { length: 20 })
+      .$type<ConnectionStatus>()
+      .default('connected')
+      .notNull(),
+    lastError: text('last_error'),
+    connectedAt: commonFieldDefs.date('connected_at').notNull().defaultNow(),
+    // The last time its channels were read from Buffer without an error.
+    lastSyncedAt: commonFieldDefs.date('last_synced_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    unique('buffer_connections_user_unique').on(table.userId),
+    index('buffer_connections_account_idx').on(table.bufferAccountId),
+    check(
+      'buffer_connections_status_check',
+      sql`${table.status} in (${sqlList(CONNECTION_STATUSES)})`
+    )
+  ]
+)
+
+// The channels (social accounts) in a connected Buffer account, as last read
+// from Buffer: what each network's connection picks the account it publishes
+// as from. Every service Buffer returns is kept (LinkedIn, TikTok, …), though
+// only X, Threads, Facebook and Instagram publish through Buffer here. A
+// channel Buffer stops returning stays, with removed_at set.
+export const bufferChannelsTable = pgTable(
+  'buffer_channels',
+  {
+    id: commonFieldDefs.id(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => bufferConnectionsTable.id, { onDelete: 'cascade' }),
+    // Copied from the connection, so every query can filter on the owner.
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => authUsersTable.id, { onDelete: 'cascade' }),
+    channelId: text('channel_id').notNull(),
+    organizationId: text('organization_id'),
+    // Buffer's Service ("twitter", "instagram", "linkedin", …) and ChannelType.
+    service: varchar('service', { length: 40 }).notNull(),
+    channelType: varchar('channel_type', { length: 40 }),
+    name: text('name').notNull(),
+    displayName: text('display_name'),
+    avatarUrl: text('avatar_url'),
+    externalLink: text('external_link'),
+    // Buffer lost the network's authorization: reconnect it in Buffer.
+    isDisconnected: boolean('is_disconnected').default(false).notNull(),
+    // Over the Buffer plan's channel limit: cannot post.
+    isLocked: boolean('is_locked').default(false).notNull(),
+    removedAt: commonFieldDefs.date('removed_at'),
+    lastSyncedAt: commonFieldDefs.date('last_synced_at').notNull().defaultNow(),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    unique('buffer_channels_connection_channel_unique').on(
+      table.connectionId,
+      table.channelId
+    ),
+    index('buffer_channels_user_service_idx').on(table.userId, table.service)
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // 24. Platform Connections (1 per user and platform) — authorization to publish
 // ---------------------------------------------------------------------------
 
@@ -1412,8 +1503,14 @@ export const platformConnectionsTable = pgTable(
     memberId: text('member_id').notNull(),
     name: text('name'),
     pictureUrl: text('picture_url'),
+    // Through Buffer: the owner's Buffer connection, whose token it publishes
+    // with; member_id is the Buffer channel, and the token columns stay null.
+    // Null for LinkedIn, and for Buffer connections made before Buffer had
+    // one connection per user (each with its own token or pasted API key).
+    // (Its foreign key is below, named to fit Postgres' 63 characters.)
+    bufferConnectionId: uuid('buffer_connection_id'),
     // Encrypted (an OAuth access token, or a Buffer API key); null once
-    // disconnected.
+    // disconnected, and for a connection through bufferConnectionId.
     accessToken: text('access_token'),
     accessTokenExpiresAt: commonFieldDefs.date('access_token_expires_at'),
     // Only for apps the platform has granted programmatic refresh; usually null.
@@ -1443,6 +1540,14 @@ export const platformConnectionsTable = pgTable(
       table.platform
     ),
     index('linkedin_connections_user_idx').on(table.userId),
+    foreignKey({
+      name: 'linkedin_connections_buffer_connection_fk',
+      columns: [table.bufferConnectionId],
+      foreignColumns: [bufferConnectionsTable.id]
+    }).onDelete('set null'),
+    index('linkedin_connections_buffer_connection_idx')
+      .on(table.bufferConnectionId)
+      .where(sql`${table.bufferConnectionId} is not null`),
     check(
       'linkedin_connections_status_check',
       sql`${table.status} in (${sqlList(CONNECTION_STATUSES)})`
@@ -1680,4 +1785,6 @@ export type IntelArticle = typeof intelArticlesTable.$inferSelect
 export type IntelMention = typeof intelMentionsTable.$inferSelect
 
 export type PlatformConnection = typeof platformConnectionsTable.$inferSelect
+export type BufferConnection = typeof bufferConnectionsTable.$inferSelect
+export type BufferChannelRow = typeof bufferChannelsTable.$inferSelect
 export type Publication = typeof publicationsTable.$inferSelect

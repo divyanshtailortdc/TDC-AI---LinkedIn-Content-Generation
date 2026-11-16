@@ -84,14 +84,15 @@ const X_LINK_NOTE =
 export const FORMATS: Record<FormatId, FormatSpec> = {
   'linkedin.post': {
     id: 'linkedin.post',
-    // A carousel goes out as a document: LinkedIn shows a PDF page by page.
+    // A carousel goes out as several images in one post, through Buffer
+    // (which, like LinkedIn, takes up to 20).
     media: {
       formats: ['image', 'text', 'carousel'],
       carousel: {
         minSlides: 2,
         maxSlides: 20,
         targetSlides: { min: 6, max: 9 },
-        delivery: 'document'
+        delivery: 'images'
       }
     },
     imageShape: '1.91:1',

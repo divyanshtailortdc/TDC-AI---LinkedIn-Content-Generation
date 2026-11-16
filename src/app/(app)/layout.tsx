@@ -64,12 +64,11 @@ export default async function AppLayout({
     <MobileNavProvider>
       <PublishingStatusProvider
         value={{
-          platforms: configuredPlatforms.map(({ id, config }) => {
+          platforms: configuredPlatforms.map(({ id }) => {
             const provider = providerFor(id)
             const connection = connections.find(c => c.platform === id)
             return {
               platform: provider.platform,
-              connectWith: provider.connectWith(config),
               status: connection?.status ?? null,
               name: connection?.name ?? null
             }

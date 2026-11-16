@@ -2,38 +2,19 @@ import assert from 'node:assert'
 import { randomBytes } from 'node:crypto'
 import { describe, it } from 'node:test'
 import {
-  createPost,
-  LinkedInApiError,
-  PostImageError,
-  uploadImage
-} from '../src/lib/publishing/linkedin/api'
-import { toLittleText } from '../src/lib/publishing/linkedin/commentary'
-import {
-  buildAuthorizationUrl,
-  callbackErrorResult,
   createOAuthState,
-  exchangeCode,
-  parseScopes,
   STATE_TTL_MS,
   verifyOAuthState
-} from '../src/lib/publishing/linkedin/oauth'
+} from '../src/lib/publishing/oauth-state'
 import {
   decryptToken,
   encryptToken,
   TokenDecryptionError
 } from '../src/lib/publishing/token-crypto'
 
-/** LinkedIn publishing pieces that need no database. */
+/** Publishing pieces that need no database. */
 
 const key = randomBytes(32)
-const config = {
-  clientId: 'client-id',
-  clientSecret: 'client-secret',
-  redirectUri: 'https://app.example.com/api/integrations/linkedin/callback',
-  scopes: ['openid', 'profile', 'w_member_social'],
-  apiVersion: '202610',
-  encryptionKey: key
-}
 
 describe('token encryption', () => {
   it('round-trips and never stores the plain token', () => {
@@ -78,21 +59,23 @@ describe('token encryption', () => {
 
 describe('OAuth state (CSRF)', () => {
   it('accepts the state this user was sent off with', () => {
-    const { state, cookie } = createOAuthState(key, 'user-a')
+    const { state, cookie } = createOAuthState(key, 'user-a', 1_000)
     assert.deepStrictEqual(
-      verifyOAuthState(key, { cookie, state, userId: 'user-a' }),
+      verifyOAuthState(key, { cookie, state, userId: 'user-a', now: 2_000 }),
       {
         ok: true,
-        accountId: null
+        accountId: null,
+        // When the flow started: what a duplicate callback is checked against.
+        issuedAt: 1_000
       }
     )
   })
 
   it('carries the identity the connection is for, and refuses it swapped', () => {
-    const { state, cookie } = createOAuthState(key, 'user-a', Date.now(), 'linkedin', 'identity-1')
+    const { state, cookie } = createOAuthState(key, 'user-a', 1_000, 'linkedin', 'identity-1')
     assert.deepStrictEqual(
-      verifyOAuthState(key, { cookie, state, userId: 'user-a' }),
-      { ok: true, accountId: 'identity-1' }
+      verifyOAuthState(key, { cookie, state, userId: 'user-a', now: 2_000 }),
+      { ok: true, accountId: 'identity-1', issuedAt: 1_000 }
     )
     // Another user, even with the same identity id, is refused.
     assert.strictEqual(
@@ -174,240 +157,6 @@ describe('OAuth state (CSRF)', () => {
       }),
       { ok: false, reason: 'expired' }
     )
-  })
-
-  it('reports a cancelled authorization as cancelled, anything else as failed', () => {
-    assert.strictEqual(
-      callbackErrorResult('user_cancelled_authorize'),
-      'cancelled'
-    )
-    assert.strictEqual(callbackErrorResult('user_cancelled_login'), 'cancelled')
-    assert.strictEqual(callbackErrorResult('invalid_scope'), 'failed')
-  })
-})
-
-describe('authorization URL and scopes', () => {
-  it('asks only for the configured scopes, with the state and redirect', () => {
-    const url = new URL(buildAuthorizationUrl(config, 'abc'))
-    assert.strictEqual(
-      url.origin + url.pathname,
-      'https://www.linkedin.com/oauth/v2/authorization'
-    )
-    assert.strictEqual(url.searchParams.get('response_type'), 'code')
-    assert.strictEqual(
-      url.searchParams.get('scope'),
-      'openid profile w_member_social'
-    )
-    assert.strictEqual(url.searchParams.get('state'), 'abc')
-    assert.strictEqual(url.searchParams.get('redirect_uri'), config.redirectUri)
-    assert.strictEqual(url.searchParams.get('client_secret'), null)
-  })
-
-  it('reads space- or comma-separated scopes', () => {
-    assert.deepStrictEqual(parseScopes('openid,profile, w_member_social'), [
-      'openid',
-      'profile',
-      'w_member_social'
-    ])
-    assert.deepStrictEqual(parseScopes(''), [])
-  })
-
-  it('exchanges the code with the secret in the body, not the URL', async () => {
-    let seen: { url: string; body: string } | null = null
-    const fetchFn = (async (url: string, init: RequestInit) => {
-      seen = { url, body: String(init.body) }
-      return Response.json({
-        access_token: 'AT',
-        expires_in: 3600,
-        scope: 'openid,profile,w_member_social'
-      })
-    }) as typeof fetch
-    const tokens = await exchangeCode(config, 'the-code', fetchFn, 0)
-    assert.strictEqual(
-      seen!.url,
-      'https://www.linkedin.com/oauth/v2/accessToken'
-    )
-    assert.ok(seen!.body.includes('client_secret=client-secret'))
-    assert.ok(seen!.body.includes('code=the-code'))
-    assert.strictEqual(tokens.accessToken, 'AT')
-    assert.strictEqual(tokens.accessTokenExpiresAt.getTime(), 3_600_000)
-    assert.strictEqual(tokens.refreshToken, null)
-    assert.ok(tokens.scopes.includes('w_member_social'))
-  })
-})
-
-describe('commentary in little text format', () => {
-  it('escapes every reserved character', () => {
-    assert.strictEqual(
-      toLittleText('a (b) [c] {d} <e> @f *g* _h_ ~i~ | \\'),
-      'a \\(b\\) \\[c\\] \\{d\\} \\<e\\> \\@f \\*g\\* \\_h\\_ \\~i\\~ \\| \\\\'
-    )
-  })
-
-  it('keeps hashtags as hashtags, and a bare # escaped', () => {
-    assert.strictEqual(
-      toLittleText('Ship it #DevOps #1 C#'),
-      'Ship it {hashtag|\\#|DevOps} \\#1 C\\#'
-    )
-    assert.strictEqual(toLittleText('#my_tag'), '{hashtag|\\#|my\\_tag}')
-  })
-
-  it('leaves emoji, Unicode bold and line breaks alone', () => {
-    assert.strictEqual(toLittleText('𝗛𝗼𝗼𝗸 🚀\n\nBody'), '𝗛𝗼𝗼𝗸 🚀\n\nBody')
-  })
-})
-
-describe('LinkedIn API errors say whether a retry is safe', () => {
-  const ctx = (status: number, headers: Record<string, string> = {}) => ({
-    accessToken: 'AT',
-    apiVersion: '202610',
-    fetchFn: (async () =>
-      new Response(
-        status === 201 ? null : JSON.stringify({ message: 'nope' }),
-        {
-          status,
-          headers
-        }
-      )) as unknown as typeof fetch
-  })
-  const post = { authorUrn: 'urn:li:person:1', commentary: 'hi' }
-  const failureOf = async (status: number) => {
-    try {
-      await createPost(ctx(status), post)
-    } catch (err) {
-      return err as LinkedInApiError
-    }
-    assert.fail('expected a failure')
-  }
-
-  it('returns the post URN from x-restli-id', async () => {
-    assert.strictEqual(
-      await createPost(ctx(201, { 'x-restli-id': 'urn:li:share:9' }), post),
-      'urn:li:share:9'
-    )
-  })
-
-  it('sends the version and protocol headers', async () => {
-    let headers: Record<string, string> = {}
-    await createPost(
-      {
-        accessToken: 'AT',
-        apiVersion: '202610',
-        fetchFn: (async (_url: string, init: RequestInit) => {
-          headers = init.headers as Record<string, string>
-          return new Response(null, {
-            status: 201,
-            headers: { 'x-restli-id': 'urn:li:share:1' }
-          })
-        }) as typeof fetch
-      },
-      post
-    )
-    assert.strictEqual(headers['LinkedIn-Version'], '202610')
-    assert.strictEqual(headers['X-Restli-Protocol-Version'], '2.0.0')
-    assert.strictEqual(headers.Authorization, 'Bearer AT')
-  })
-
-  it('401 needs a reconnect, 403 a permission; neither is retried', async () => {
-    const e401 = await failureOf(401)
-    assert.strictEqual(e401.code, 'reauth_required')
-    assert.strictEqual(e401.retryable, false)
-    assert.strictEqual((await failureOf(403)).code, 'missing_permission')
-  })
-
-  it('429 and 503 are retried: LinkedIn made nothing', async () => {
-    const e429 = await failureOf(429)
-    assert.strictEqual(e429.code, 'rate_limited')
-    assert.strictEqual(e429.retryable, true)
-    const e503 = await failureOf(503)
-    assert.strictEqual(e503.code, 'platform_unavailable')
-    assert.strictEqual(e503.retryable, true)
-  })
-
-  it('500, 502 and 504 on the post may have published it: never retried', async () => {
-    for (const status of [500, 502, 504]) {
-      const err = await failureOf(status)
-      assert.strictEqual(err.code, 'unknown_outcome', String(status))
-      assert.strictEqual(err.retryable, false, String(status))
-      assert.match(err.message, /the post may still have gone through/)
-    }
-  })
-
-  it('a 201 without an id is unconfirmable, not retried', async () => {
-    const err = await failureOf(201)
-    assert.strictEqual(err.code, 'unknown_outcome')
-    assert.strictEqual(err.retryable, false)
-  })
-
-  it('a timeout on the post is ambiguous; a refused connection is not', async () => {
-    const throwing = (cause: object) => ({
-      accessToken: 'AT',
-      apiVersion: '202610',
-      fetchFn: (async () => {
-        throw Object.assign(new TypeError('fetch failed'), { cause })
-      }) as unknown as typeof fetch
-    })
-    const timeout = await createPost(
-      throwing({ name: 'TimeoutError' }),
-      post
-    ).catch(e => e)
-    assert.strictEqual(timeout.code, 'unknown_outcome')
-    const refused = await createPost(
-      throwing({ code: 'ECONNREFUSED' }),
-      post
-    ).catch(e => e)
-    assert.strictEqual(refused.code, 'platform_unavailable')
-    assert.strictEqual(refused.retryable, true)
-  })
-
-  it('a server error during the image upload is retried: nothing is published yet', async () => {
-    const err: LinkedInApiError = await uploadImage(
-      ctx(500),
-      'urn:li:person:1',
-      {
-        bytes: Buffer.from('x'),
-        mediaType: 'image/png'
-      }
-    ).then(
-      () => assert.fail('expected a failure'),
-      e => e
-    )
-    assert.strictEqual(err.code, 'platform_unavailable')
-    assert.strictEqual(err.retryable, true)
-  })
-
-  it('an image LinkedIn rejects names the image, not the post', async () => {
-    const err: LinkedInApiError = await uploadImage(
-      ctx(422),
-      'urn:li:person:1',
-      { bytes: Buffer.from('x'), mediaType: 'image/png' }
-    ).then(
-      () => assert.fail('expected a failure'),
-      e => e
-    )
-    assert.strictEqual(err.code, 'rejected_by_platform')
-    assert.match(err.message, /^LinkedIn rejected the image: /)
-  })
-
-  it('an image that cannot be converted is refused before anything is sent', async () => {
-    let sent = false
-    const err = await uploadImage(
-      {
-        accessToken: 'AT',
-        apiVersion: '202610',
-        fetchFn: (async () => {
-          sent = true
-          return new Response(null, { status: 201 })
-        }) as unknown as typeof fetch
-      },
-      'urn:li:person:1',
-      { bytes: Buffer.from('not an image'), mediaType: 'image/webp' }
-    ).then(
-      () => assert.fail('expected a failure'),
-      e => e
-    )
-    assert.ok(err instanceof PostImageError, String(err))
-    assert.strictEqual(sent, false)
   })
 })
 
@@ -525,38 +274,18 @@ describe('Facebook and Instagram through Buffer', () => {
     )
   })
 
-  it("lists only the network's channels, and names it in Buffer's errors", async () => {
-    const { listPlatformChannels } = await import('../src/lib/publishing/buffer/provider')
-    const fetchFn = (async (_url: string | URL, init: RequestInit = {}) => {
-      const { query } = JSON.parse(String(init.body))
-      if (query.includes('organizations')) {
-        return Response.json({ data: { account: { organizations: [{ id: 'O1' }] } } })
-      }
-      return Response.json({
-        data: {
-          channels: [
-            { id: 'X1', name: 'qa', service: 'twitter', avatar: '' },
-            { id: 'F1', name: 'page', displayName: 'QA Page', service: 'facebook', avatar: 'https://cdn.example/a.png' },
-            { id: 'I1', name: 'qa.ig', service: 'instagram', avatar: '', isLocked: true },
-            { id: 'I2', name: 'old.ig', service: 'instagram', avatar: '', isDisconnected: true }
-          ]
-        }
-      })
-    }) as typeof fetch
-    const ctx = { apiKey: 'KEY', apiUrl: 'https://buffer.example/graphql', fetchFn }
-    assert.deepStrictEqual(await listPlatformChannels(ctx, 'facebook'), [
-      { id: 'F1', name: 'QA Page', avatar: 'https://cdn.example/a.png', isLocked: false }
-    ])
-    assert.deepStrictEqual(
-      (await listPlatformChannels(ctx, 'instagram')).map(c => [c.id, c.isLocked]),
-      [['I1', true]]
-    )
-
+  it("names the network in Buffer's errors", async () => {
+    const { getAccount } = await import('../src/lib/publishing/buffer/api')
     const refused = (async () =>
       Response.json({ errors: [{ message: 'no', extensions: { code: 'UNAUTHORIZED' } }] })) as typeof fetch
-    const err = await listPlatformChannels({ ...ctx, fetchFn: refused }, 'instagram').catch(e => e)
+    const err = await getAccount({
+      apiKey: 'KEY',
+      apiUrl: 'https://buffer.example/graphql',
+      fetchFn: refused,
+      platformName: 'Instagram'
+    }).catch(e => e)
     assert.strictEqual(err.code, 'reauth_required')
-    assert.match(err.message, /Connect Instagram again/)
+    assert.match(err.message, /Reconnect Buffer in Settings to keep publishing to Instagram/)
   })
 
   it('Facebook sends its first comment in the post; Instagram never sends one', async () => {
