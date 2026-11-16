@@ -70,14 +70,16 @@ function unavailableMessage(
   readable: number
 ): string {
   const label = PLATFORMS[ref.platform].label
-  const instead =
+  // LinkedIn's own posts are pasted on the Voice page; every other platform's in Preferences.
+  const paste =
     ref.platform === 'linkedin'
-      ? ' You can paste a few of your posts on the Voice page instead.'
-      : ` You can paste a few of your ${label} posts in Preferences instead${
-          isBufferPlatform(ref.platform) && !collected.bufferConnected
-            ? `, or connect ${label} in Settings → Integrations so the posts you send through Buffer can be read`
-            : ''
-        }.`
+      ? ' You can paste a few of your posts on the Voice page instead'
+      : ` You can paste a few of your ${label} posts in Preferences instead`
+  const instead = `${paste}${
+    isBufferPlatform(ref.platform) && !collected.bufferConnected
+      ? `, or connect ${label} in Settings → Integrations so the posts you send through Buffer can be read`
+      : ''
+  }.`
   if (!collected.searchConfigured && !collected.bufferConnected) {
     return `Public posts cannot be looked up: web search is not set up on this server.${instead}`
   }

@@ -67,10 +67,10 @@ describe('post types per format', () => {
     }
   })
 
-  it('offers carousels on LinkedIn (a document), Instagram and Facebook (images), never on X or Threads', () => {
+  it('offers carousels on LinkedIn, Instagram and Facebook (images, through Buffer), never on X or Threads', () => {
     assert.strictEqual(
       FORMATS['linkedin.post'].media.carousel?.delivery,
-      'document'
+      'images'
     )
     assert.strictEqual(
       FORMATS['instagram.caption'].media.carousel?.delivery,

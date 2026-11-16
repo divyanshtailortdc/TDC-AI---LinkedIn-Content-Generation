@@ -11,42 +11,17 @@ import {
 import {
   type BufferConfig,
   parseScopes,
-  type PublishConfigs,
-  type PublishingAppConfig
+  type PublishConfigs
 } from './provider'
 import { callbackPath } from './routes'
 import { parseEncryptionKey } from './token-crypto'
 
 const appUrl = () => env.BETTER_AUTH_URL ?? env.NEXT_PUBLIC_APP_URL
 
-/**
- * LinkedIn's publishing app, from the environment, or null when it is not set
- * up (no client id, secret or encryption key). Deliberately not the sign-in
- * credentials: see LINKEDIN_PUBLISH_CLIENT_ID in src/env.ts.
- */
-export function linkedInConfig(): PublishingAppConfig | null {
-  if (
-    !env.LINKEDIN_PUBLISH_CLIENT_ID ||
-    !env.LINKEDIN_PUBLISH_CLIENT_SECRET ||
-    !env.TOKEN_ENCRYPTION_KEY
-  ) {
-    return null
-  }
-  return {
-    clientId: env.LINKEDIN_PUBLISH_CLIENT_ID,
-    clientSecret: env.LINKEDIN_PUBLISH_CLIENT_SECRET,
-    redirectUri:
-      env.LINKEDIN_PUBLISH_REDIRECT_URI ??
-      new URL(callbackPath('linkedin'), appUrl()).toString(),
-    scopes: parseScopes(env.LINKEDIN_PUBLISH_SCOPES),
-    apiVersion: env.LINKEDIN_API_VERSION,
-    encryptionKey: parseEncryptionKey(env.TOKEN_ENCRYPTION_KEY)
-  }
-}
-
-/** X_PUBLISHING, THREADS_PUBLISHING, FACEBOOK_PUBLISHING or INSTAGRAM_PUBLISHING. */
+/** LINKEDIN_PUBLISHING, X_PUBLISHING, THREADS_PUBLISHING, FACEBOOK_PUBLISHING or INSTAGRAM_PUBLISHING. */
 const bufferSwitch = (platform: BufferPlatformId) =>
   ({
+    linkedin: env.LINKEDIN_PUBLISHING,
     x: env.X_PUBLISHING,
     threads: env.THREADS_PUBLISHING,
     facebook: env.FACEBOOK_PUBLISHING,
@@ -54,23 +29,19 @@ const bufferSwitch = (platform: BufferPlatformId) =>
   })[platform]
 
 /**
- * Where Buffer sends the user back after connecting `platform`. X keeps
- * BUFFER_REDIRECT_URI as set; the others use their own callback on its
- * origin. Each must be registered on the Buffer app client.
+ * Where Buffer sends the user back after they connect their Buffer account:
+ * /api/integrations/buffer/callback, on BUFFER_REDIRECT_URI's origin (the
+ * app's by default). It must be registered on the Buffer app client.
  */
-function bufferRedirectUri(platform: BufferPlatformId): string {
-  if (platform === 'x' && env.BUFFER_REDIRECT_URI) return env.BUFFER_REDIRECT_URI
-  return new URL(
-    callbackPath(platform),
-    env.BUFFER_REDIRECT_URI ?? appUrl()
-  ).toString()
-}
+const bufferRedirectUri = () =>
+  new URL(callbackPath('buffer'), env.BUFFER_REDIRECT_URI ?? appUrl()).toString()
 
 /**
- * Publishing to `platform` (X, Facebook or Instagram) through Buffer, or null
- * when it is off or there is no encryption key. With a Buffer app client id
- * (and its secret, for a confidential client), customers connect through
- * Buffer's consent screen; without one, each pastes a Buffer API key.
+ * Publishing to `platform` (X, Threads, Facebook or Instagram) through Buffer,
+ * or null when it is off or there is no encryption key. With a Buffer app
+ * client id (and its secret, for a confidential client), users connect their
+ * Buffer account on Buffer's consent screen; without one, nobody can connect
+ * Buffer, but connections made earlier with a pasted API key still publish.
  */
 export function bufferConfig(
   platform: BufferPlatformId = 'x'
@@ -84,10 +55,13 @@ export function bufferConfig(
         ? {
             clientId: env.BUFFER_CLIENT_ID,
             clientSecret: env.BUFFER_CLIENT_SECRET,
-            redirectUri: bufferRedirectUri(platform),
+            redirectUri: bufferRedirectUri(),
             scopes: parseScopes(env.BUFFER_SCOPES)
           }
         : null,
+    tokenEncryptionKey: parseEncryptionKey(
+      env.BUFFER_TOKEN_ENCRYPTION_KEY ?? env.TOKEN_ENCRYPTION_KEY
+    ),
     apiUrl: env.BUFFER_API_URL,
     // Where Buffer downloads post images from: a tunnel in local development.
     appUrl: env.PUBLISHING_MEDIA_URL ?? appUrl(),
@@ -95,7 +69,10 @@ export function bufferConfig(
   }
 }
 
-/** Any Buffer platform's config: they share the key that signs image links. */
+/**
+ * Any Buffer platform's config: they share the key that signs image links,
+ * and the app client the Buffer connection is made with.
+ */
 export function anyBufferConfig(): BufferConfig | null {
   for (const platform of BUFFER_PLATFORM_IDS) {
     const config = bufferConfig(platform)
@@ -104,11 +81,24 @@ export function anyBufferConfig(): BufferConfig | null {
   return null
 }
 
-/** The config of every platform publishing is set up for. */
+/** The networks publishing through Buffer is on for, in Settings' order. */
+export const enabledBufferPlatforms = (): BufferPlatformId[] =>
+  BUFFER_PLATFORM_IDS.filter(platform => bufferConfig(platform) !== null)
+
+/**
+ * The config users connect their Buffer account with, or null when they
+ * cannot: no network goes through Buffer, or there is no Buffer app client.
+ */
+export function bufferConnectConfig():
+  | (BufferConfig & { oauth: NonNullable<BufferConfig['oauth']> })
+  | null {
+  const config = anyBufferConfig()
+  return config?.oauth ? { ...config, oauth: config.oauth } : null
+}
+
+/** The config of every platform publishing is set up for: all through Buffer. */
 export function publishConfigs(): PublishConfigs {
   const configs: PublishConfigs = {}
-  const linkedin = linkedInConfig()
-  if (linkedin) configs.linkedin = linkedin
   for (const platform of BUFFER_PLATFORM_IDS) {
     const config = bufferConfig(platform)
     if (config) configs[platform] = config
@@ -123,11 +113,6 @@ export function publishConfigs(): PublishConfigs {
 export function isPublishingConfigured(platform?: PublishingPlatformId): boolean {
   const configs = publishConfigs()
   return platform ? Boolean(configs[platform]) : Object.keys(configs).length > 0
-}
-
-/** The config for `platform`, or null when it is not set up. */
-export function configFor(platform: PublishingPlatformId) {
-  return publishConfigs()[platform] ?? null
 }
 
 /** Everything publishing needs, against the app's database; null when nothing is set up. */

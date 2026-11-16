@@ -77,7 +77,9 @@ function requestError(
   status: number,
   errors: GraphQLError[],
   what: Sending,
-  name: string
+  name: string,
+  /** Buffer's Retry-After on a 429: seconds until the window resets. */
+  retryAfter?: string | null
 ): PlatformApiError {
   const codes = new Set(errors.map(e => e.extensions?.code).filter(Boolean))
   const detail = errors
@@ -87,7 +89,7 @@ function requestError(
     .slice(0, 300)
   if (status === 401 || codes.has('UNAUTHORIZED') || codes.has('UNAUTHENTICATED')) {
     return error(
-      `Buffer no longer accepts this connection. Connect ${name} again in Settings.`,
+      `Buffer no longer accepts this connection. Reconnect Buffer in Settings to keep publishing to ${name}.`,
       'reauth_required',
       status
     )
@@ -101,8 +103,13 @@ function requestError(
   }
   // Buffer documents that a 429 consumes nothing.
   if (status === 429 || codes.has('RATE_LIMIT_EXCEEDED')) {
+    const seconds = Number(retryAfter)
+    const wait =
+      Number.isFinite(seconds) && seconds > 0
+        ? ` for about ${Math.ceil(seconds / 60)} min`
+        : ' right now'
     return error(
-      'Buffer is limiting requests right now. It will be tried again.',
+      `Buffer is limiting requests${wait}. It will be tried again.`,
       'rate_limited',
       status
     )
@@ -163,7 +170,13 @@ async function graphql<T>(
   } | null
   const errors = Array.isArray(body?.errors) ? body.errors : []
   if (!res.ok || errors.length > 0 || !body?.data) {
-    throw requestError(res.status, errors, what, nameOf(ctx))
+    throw requestError(
+      res.status,
+      errors,
+      what,
+      nameOf(ctx),
+      res.headers.get('retry-after')
+    )
   }
   return body.data
 }
@@ -180,58 +193,110 @@ export type BufferChannel = {
   /** Buffer's free plan locks channels past its limit; a locked one cannot post. */
   isLocked: boolean
 }
-export type XChannel = BufferChannel
 
 type ChannelNode = {
   id: string
   name: string
   displayName?: string | null
   service: string
+  type?: string | null
   avatar?: string | null
+  externalLink?: string | null
+  organizationId?: string | null
   isDisconnected?: boolean
   isLocked?: boolean
 }
 
-/**
- * The channels of one network (Buffer's `service` names: X_SERVICES,
- * "facebook", "instagram") the key's account can post to, across its
- * organizations.
- */
-export async function listChannels(
-  ctx: BufferContext,
-  services: ReadonlySet<string>
-): Promise<BufferChannel[]> {
+/** The authorized Buffer account (Buffer's `account` query). */
+export type BufferAccount = {
+  id: string
+  name: string | null
+  email: string | null
+  avatar: string | null
+  organizationIds: string[]
+}
+
+/** Every channel of the account, on any network, as Buffer describes it. */
+export type BufferChannelDetail = BufferChannel & {
+  /** Buffer's own `name` for it (usually the handle); `name` is the display name. */
+  handle: string
+  /** Buffer's Service: "twitter", "facebook", "instagram", "linkedin", … */
+  service: string
+  /** Buffer's ChannelType ("profile", "page", "business", …). */
+  type: string | null
+  organizationId: string | null
+  /** The account on the network, when Buffer gives a link to it. */
+  externalLink: string | null
+  /** Buffer lost the network's authorization: it must be reconnected in Buffer. */
+  isDisconnected: boolean
+}
+
+const httpsOrNull = (value: string | null | undefined) =>
+  value?.startsWith('https://') ? value : null
+
+/** The account behind the token or key, with its organizations' ids. */
+export async function getAccount(ctx: BufferContext): Promise<BufferAccount> {
   const { account } = await graphql<{
-    account: { organizations: Array<{ id: string }> }
-  }>(ctx, 'query Organizations { account { organizations { id } } }', {}, 'read')
-  const channels: BufferChannel[] = []
-  for (const organization of account.organizations ?? []) {
+    account: {
+      id: string
+      name?: string | null
+      email?: string | null
+      avatar?: string | null
+      organizations?: Array<{ id: string }>
+    }
+  }>(
+    ctx,
+    'query Account { account { id name email avatar organizations { id } } }',
+    {},
+    'read'
+  )
+  return {
+    id: account.id,
+    name: account.name?.trim() || null,
+    email: account.email?.trim() || null,
+    avatar: httpsOrNull(account.avatar),
+    organizationIds: (account.organizations ?? []).map(o => o.id)
+  }
+}
+
+/**
+ * Every channel in the given organizations (from getAccount), on every
+ * network, disconnected and locked ones included: one request per
+ * organization.
+ */
+export async function listAllChannels(
+  ctx: BufferContext,
+  organizationIds: readonly string[]
+): Promise<BufferChannelDetail[]> {
+  const channels: BufferChannelDetail[] = []
+  for (const organizationId of organizationIds) {
     const data = await graphql<{ channels: ChannelNode[] }>(
       ctx,
       `query Channels($input: ChannelsInput!) {
         channels(input: $input) {
-          id name displayName service avatar isDisconnected isLocked
+          id name displayName service type avatar externalLink organizationId isDisconnected isLocked
         }
       }`,
-      { input: { organizationId: organization.id } },
+      { input: { organizationId } },
       'read'
     )
     for (const channel of data.channels ?? []) {
-      if (!services.has(channel.service) || channel.isDisconnected) continue
       channels.push({
         id: channel.id,
         name: channel.displayName || channel.name,
-        avatar: channel.avatar?.startsWith('https://') ? channel.avatar : null,
-        isLocked: Boolean(channel.isLocked)
+        avatar: httpsOrNull(channel.avatar),
+        isLocked: Boolean(channel.isLocked),
+        handle: channel.name,
+        service: channel.service,
+        type: channel.type ?? null,
+        organizationId: channel.organizationId ?? organizationId,
+        externalLink: httpsOrNull(channel.externalLink),
+        isDisconnected: Boolean(channel.isDisconnected)
       })
     }
   }
   return channels
 }
-
-/** The X channels the key's account can post to. */
-export const listXChannels = (ctx: BufferContext) =>
-  listChannels(ctx, X_SERVICES)
 
 // ---------------------------------------------------------------------------
 // Posts

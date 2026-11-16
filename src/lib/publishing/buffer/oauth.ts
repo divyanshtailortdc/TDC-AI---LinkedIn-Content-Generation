@@ -1,6 +1,6 @@
 import type { CallbackResult } from '../callback-results'
 import { PlatformOAuthError } from '../errors'
-import type { TokenSet } from '../linkedin/oauth'
+import type { TokenSet } from '../provider'
 import { pkceChallenge } from '../oauth-state'
 
 /**
@@ -26,8 +26,17 @@ const TOKEN_URL = 'https://auth.buffer.com/token'
 /** The scope publishing needs; account:read lists the channels. */
 export const BUFFER_PUBLISH_SCOPE = 'posts:write'
 
-/** What a Buffer API key can do: everything an app client may ask for. */
-export const API_KEY_SCOPES = ['account:read', 'posts:read', BUFFER_PUBLISH_SCOPE]
+/**
+ * What a grant must include to be saved: reading the account and its
+ * channels, and creating posts. posts:read (following a post until sent) and
+ * offline_access (the refresh token) are asked for too, but a grant without
+ * them still publishes: it only cannot follow posts, or runs out in an hour.
+ */
+export const BUFFER_REQUIRED_SCOPES = ['account:read', BUFFER_PUBLISH_SCOPE] as const
+
+/** The required scopes the grant lacks; empty when it has them all. */
+export const missingBufferScopes = (granted: readonly string[]) =>
+  BUFFER_REQUIRED_SCOPES.filter(scope => !granted.includes(scope))
 
 export type BufferOAuthConfig = {
   clientId: string

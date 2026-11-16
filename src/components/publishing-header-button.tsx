@@ -21,8 +21,6 @@ import {
 /** The signed-in user's connection to one platform, as Publish controls use it. */
 export type PlatformPublishingStatus = {
   platform: PlatformSpec
-  /** The consent screen (OAuth), or a key pasted in Settings (through Buffer). */
-  connectWith: 'oauth' | 'api_key'
   status: ConnectionStatus | null
   name: string | null
 }
@@ -250,7 +248,7 @@ export function PublishingHeaderButton() {
         <p className="text-muted px-2.5 pt-1 pb-1.5 text-[11px] font-semibold tracking-wide uppercase">
           Publish to
         </p>
-        {rows.map(({ platform, connectWith, row }) => {
+        {rows.map(({ platform, row }) => {
           const content = (
             <>
               <PlatformMark
@@ -271,21 +269,8 @@ export function PublishingHeaderButton() {
               </span>
             </>
           )
-          // A consent screen: a plain link, the route redirects to the
-          // platform. A pasted key is entered in Settings.
-          return row.state === 'not_connected' && connectWith === 'oauth' ? (
-            <a
-              key={platform.id}
-              href={`/api/integrations/${platform.id}/connect`}
-              role="menuitem"
-              onClick={close}
-              title={`Connect the ${platform.name} account approved posts are published to`}
-              data-platform={platform.id}
-              className={cn(ITEM, ACTIVE_ITEM)}
-            >
-              {content}
-            </a>
-          ) : (
+          // Every network is connected on the Buffer card in Settings.
+          return (
             <Link
               key={platform.id}
               href={INTEGRATIONS_SETTINGS_PATH}

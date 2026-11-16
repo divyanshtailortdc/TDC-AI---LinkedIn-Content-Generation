@@ -1,15 +1,29 @@
+import { db } from '@/db'
 import { getIdentity } from '@/lib/identity'
+import { getBufferSummary } from '@/lib/publishing/buffer/connection'
 import {
-  callbackMessage,
+  bufferCallbackMessage,
   isCallbackResult
 } from '@/lib/publishing/callback-results'
-import { publishConfigs } from '@/lib/publishing/config'
+import {
+  anyBufferConfig,
+  bufferConnectConfig,
+  enabledBufferPlatforms,
+  publishConfigs
+} from '@/lib/publishing/config'
 import { getCurrentConnections } from '@/lib/publishing/current-connection'
-import { PUBLISHING_PLATFORM_IDS } from '@/lib/publishing/platform'
-import { providerFor } from '@/lib/publishing/provider'
-import { PLATFORM_PARAM, RESULT_PARAM } from '@/lib/publishing/routes'
+import {
+  isBufferPlatform,
+  PUBLISHING_PLATFORM_IDS
+} from '@/lib/publishing/platform'
+import {
+  BUFFER_FLOW,
+  PLATFORM_PARAM,
+  RESULT_PARAM
+} from '@/lib/publishing/routes'
+import { getSessionUser } from '@/lib/session'
 import type { Metadata } from 'next'
-import { ConnectionSection } from './connection-section'
+import { BufferSection } from './buffer-section'
 
 export const metadata: Metadata = {
   title: 'Integrations · TDC Content Engine'
@@ -23,14 +37,20 @@ export default async function IntegrationsSettingsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   // Each identity connects its own accounts: these are the active one's.
-  const identity = await getIdentity()
+  const [identity, user] = await Promise.all([getIdentity(), getSessionUser()])
   const configs = publishConfigs()
   const anyConfigured = Object.keys(configs).length > 0
-  const [connections, query] = await Promise.all([
+  // Buffer is connected once per user, for every identity.
+  const bufferOn = anyBufferConfig() !== null
+  const [connections, buffer, query] = await Promise.all([
     // One read with the layout's when both render; none when not set up.
     anyConfigured && identity ? getCurrentConnections(identity.id) : [],
+    bufferOn && user ? getBufferSummary(db, user.id) : null,
     searchParams
   ])
+  const bufferConnectable = bufferConnectConfig() !== null
+  // The identity's networks published through Buffer: all on the Buffer card.
+  const bufferNetworks = connections.filter(c => isBufferPlatform(c.platform))
   // The outcome of an OAuth callback, as a message on its platform's card
   // (LinkedIn's when none is named); nothing from the provider.
   const outcome = query[RESULT_PARAM]
@@ -49,28 +69,24 @@ export default async function IntegrationsSettingsPage({
           'Set up an identity first: each identity connects its own accounts.'
         )}
       </p>
-      {PUBLISHING_PLATFORM_IDS.map(id => {
-        const provider = providerFor(id)
-        const config = configs[id]
-        return (
-          <ConnectionSection
-            key={id}
-            platform={provider.platform}
-            connectWith={config ? provider.connectWith(config) : 'oauth'}
-            via={provider.via ?? null}
-            configured={Boolean(config)}
-            connection={connections.find(c => c.platform === id) ?? null}
-            notice={
-              result && resultPlatform === id
-                ? {
-                    variant: result === 'connected' ? 'success' : 'error',
-                    message: callbackMessage(result, provider.platform.name)
-                  }
-                : null
-            }
-          />
-        )
-      })}
+      {/* LinkedIn, X, Threads, Facebook and Instagram: one Buffer card for them all. */}
+      {bufferOn && (
+        <BufferSection
+          configured={bufferConnectable}
+          buffer={buffer}
+          networks={bufferNetworks}
+          enabledPlatforms={enabledBufferPlatforms()}
+          hasIdentity={Boolean(identity)}
+          notice={
+            result && resultPlatform === BUFFER_FLOW
+              ? {
+                  variant: result === 'connected' ? 'success' : 'error',
+                  message: bufferCallbackMessage(result)
+                }
+              : null
+          }
+        />
+      )}
     </div>
   )
 }

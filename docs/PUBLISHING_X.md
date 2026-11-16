@@ -1,5 +1,7 @@
 # Publishing to X (through Buffer)
 
+> **Connecting changed on 2026-11-13:** users now connect their Buffer account once, for every network, at `/api/integrations/buffer/callback`, and pick the X channel in Settings. API keys are no longer accepted. See [BUFFER_OAUTH.md](BUFFER_OAUTH.md); where it differs from the connect flow, setup and API-key notes below, it wins. Publishing itself is unchanged.
+
 How approved X posts are published, and how to set it up. The generic parts (states, retries, duplicates, security, the worker) are in [PUBLISHING.md](PUBLISHING.md); this page covers only what is different for X. Facebook and Instagram go through Buffer the same way, with the differences in [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md).
 
 - [Why Buffer](#why-buffer)
@@ -31,9 +33,9 @@ So for X, the "connection" is the customer's Buffer authorization plus the Buffe
 | Signed image links Buffer fetches | `src/lib/publishing/media-token.ts`, `src/app/api/publishing-media/[token]/route.ts` |
 | Waiting for Buffer to confirm (`confirmPendingPublications`) | `src/lib/publishing/engine.ts` |
 | Buffer OAuth (authorization URL with PKCE, code exchange, refresh) | `src/lib/publishing/buffer/oauth.ts`, `src/lib/publishing/oauth-state.ts` |
-| Connect and callback routes (shared with LinkedIn) | `src/app/api/integrations/[platform]/connect/route.ts`, `callback/route.ts` |
-| Refreshing under a row lock (single-use refresh tokens) | `usableAccessToken` in `src/lib/publishing/connection.ts` |
-| Changing the X account, or connecting with a key (testing) | `src/app/(app)/settings/integrations/actions.ts` (`switchXAccount`, `connectXWithBuffer`), `buffer-connect-form.tsx` |
+| Connect and callback routes (the Buffer account, for every network) | `src/app/api/integrations/buffer/connect/route.ts`, `callback/route.ts` |
+| Refreshing under a row lock (single-use refresh tokens) | `usableBufferToken` in `src/lib/publishing/buffer/token.ts` |
+| Picking or changing the X account | `selectBufferChannel` in `src/app/(app)/settings/integrations/actions.ts`, `buffer-section.tsx` |
 | Database: `platform` on `linkedin_connections` and `linkedin_publications` | migration `0041_x_publishing.sql` |
 
 ### Writing posts for X
@@ -63,13 +65,12 @@ Settings → Integrations → X → "Connect X"
       state ≠ cookie, other user, other platform's flow, expired, forged → "state_error"
       POST https://auth.buffer.com/token  (client_secret and code_verifier in the body, server only)
       granted scopes lack posts:write → "missing_permission"
-      query account / channels → the first X channel (service "twitter") that is not locked
-      none → "no_account" (connect X in Buffer first)
-      saveConnection(platform 'x'): member_id = Buffer channel id, tokens encrypted (AES-256-GCM, bound to the user)
-  → 303 /settings/integrations?connection=connected&platform=x
+      query account / channels → saved with the Buffer connection; X gets the first X channel that is not locked
+  → 303 /settings/integrations?connection=connected&platform=buffer
+  (this was X's own flow before 2026-11-13; it is now the one Buffer flow, see BUFFER_OAUTH.md)
 ```
 
-With several X accounts in the Buffer account, **Change account** on the X card lists them and switches without connecting again (scheduled X posts are cancelled, as when connecting a different account).
+With several X accounts in the Buffer account, **Publish here** on another one in the Buffer card switches without connecting again (scheduled X posts are cancelled, as when connecting a different account).
 
 **Tokens.** Buffer's access token lasts about an hour; `offline_access` gives a refresh token, and the app renews the access token by itself before it runs out. Buffer's refresh tokens are **single-use**: each refresh returns a new one, and sending an old one again revokes the whole grant. So `usableAccessToken` refreshes with the connection's row locked (`SELECT … FOR UPDATE`): a worker, Publish now and the confirmation pass take turns, and whoever waited uses the token the first one got. If Buffer refuses the refresh (`invalid_grant`, the customer removed the app in Buffer), the X connection is marked expired and the customer clicks **Reconnect**.
 
@@ -141,17 +142,17 @@ Each published X post uses about 2–5 API requests (create, then a few status r
    2. Name "TDC AI" (shown on the consent screen), logo and privacy policy link optional. Choose **private** (the app has a server that keeps the secret).
    3. Permissions: `account:read`, `posts:read`, `posts:write`, `offline_access`.
    4. Redirect URIs, exactly (Buffer compares them character for character and requires HTTPS, even on localhost):
-      - local: `https://localhost:3000/api/integrations/x/callback`
-      - production: `https://<your-domain>/api/integrations/x/callback`
+      - local: `https://localhost:3000/api/integrations/buffer/callback`
+      - production: `https://<your-domain>/api/integrations/buffer/callback`
    5. Save, then copy the client ID and secret. A **public** client has no secret: set only `BUFFER_CLIENT_ID` and leave `BUFFER_CLIENT_SECRET` unset. Never pair one client's ID with another's secret; Buffer answers `401 client authentication failed`.
 2. **Environment.** `TOKEN_ENCRYPTION_KEY` must be set (the same key LinkedIn uses), plus:
    ```bash
    BUFFER_CLIENT_ID="…"
    BUFFER_CLIENT_SECRET="…"          # confidential client only; server only, never in the browser or git
-   # BUFFER_REDIRECT_URI defaults to {BETTER_AUTH_URL}/api/integrations/x/callback
+   # BUFFER_REDIRECT_URI defaults to {BETTER_AUTH_URL}/api/integrations/buffer/callback
    # BUFFER_SCOPES defaults to "account:read posts:read posts:write offline_access"
    ```
-   X publishing is on whenever `TOKEN_ENCRYPTION_KEY` is set (`X_PUBLISHING="off"` hides it); without `BUFFER_CLIENT_ID`, users paste API keys instead. `BETTER_AUTH_URL` must be the app's public HTTPS address in production: Buffer downloads post images from it.
+   X publishing is on whenever `TOKEN_ENCRYPTION_KEY` is set (`X_PUBLISHING="off"` hides it); without `BUFFER_CLIENT_ID`, nobody can connect Buffer (connections made earlier with an API key keep publishing). `BETTER_AUTH_URL` must be the app's public HTTPS address in production: Buffer downloads post images from it.
 3. **Database.** Apply migration `0041_x_publishing` (adds columns and swaps one unique constraint; existing rows become LinkedIn's):
    ```bash
    npm run db:migrate
@@ -211,8 +212,8 @@ Buffer's real API and X itself cannot run in CI; check them by hand with a test 
 - **"No X account is connected in this Buffer account"**: connect X as a channel in Buffer first.
 - **"Your X channel is locked in Buffer"**: the free plan allows 3 channels; remove one or upgrade in Buffer.
 - **"The request could not be verified"** after Buffer's screen: the app was opened on a different address than `BETTER_AUTH_URL` (the state cookie belongs to one host), or more than 10 minutes passed. Open the app at exactly `BETTER_AUTH_URL` and connect again.
-- **Buffer says the redirect URI is invalid**: the callback URL registered on the app client differs from `BUFFER_REDIRECT_URI` / `{BETTER_AUTH_URL}/api/integrations/x/callback` (scheme, port and trailing slash all count).
-- **Connection shows Expired**: the customer removed TDC AI in Buffer, or the refresh token was refused; click **Reconnect** (with an API key: paste a new one).
+- **Buffer says the redirect URI is invalid**: the callback URL registered on the app client differs from `{BUFFER_REDIRECT_URI's origin or BETTER_AUTH_URL}/api/integrations/buffer/callback` (scheme, port and trailing slash all count).
+- **Connection shows Expired**: the customer removed TDC AI in Buffer, or the refresh token was refused; click **Reconnect Buffer** on the Buffer card.
 - **"Publishing…" for a long time**: the worker confirms every minute (`APP_ROLE` `all` or `worker`, or `/api/cron/jobs`). After 2 hours without an answer it fails as `unknown_outcome`: check X and the Buffer queue before **Try again**.
 - **"Image could not be read from its URL"**, or "Buffer cannot download this post's image from http://localhost:3000": the image links point at an address Buffer cannot reach. Set `PUBLISHING_MEDIA_URL` to a tunnel (see [Local development](#local-development)), restart, then **Try again**. Nothing was posted, so trying again is safe.
 - **Image posts fail, text posts work**: the image is over 5 MB, or see the line above.

@@ -46,3 +46,17 @@ export class PlatformOAuthError extends Error {
     this.name = 'PlatformOAuthError'
   }
 }
+
+/**
+ * A user's connection cannot publish: there is none, it must be connected
+ * again, or its grant does not allow posting. The message is for the user.
+ */
+export class ConnectionError extends Error {
+  constructor(
+    message: string,
+    readonly code: 'not_connected' | 'reauth_required' | 'missing_permission'
+  ) {
+    super(message)
+    this.name = 'ConnectionError'
+  }
+}

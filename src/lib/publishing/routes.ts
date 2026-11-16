@@ -17,6 +17,13 @@ export const STATE_COOKIE_PATH = '/api/integrations'
 export const callbackPath = (platform: string) =>
   `/api/integrations/${platform}/callback`
 
+/**
+ * The Buffer account connection's flow: its routes are
+ * /api/integrations/buffer/{connect,callback}, its OAuth state is signed for
+ * it, and its outcome is shown on the Buffer card.
+ */
+export const BUFFER_FLOW = 'buffer'
+
 /** The query parameters Settings → Integrations reads the outcome from. */
 export const RESULT_PARAM = 'connection'
 export const PLATFORM_PARAM = 'platform'

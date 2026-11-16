@@ -5,14 +5,15 @@ import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
 import {
   type AccountInfo,
-  type BaseConfig,
-  type Credentials,
+  type BufferConfig,
   type FetchFn,
   PlatformApiError,
   type PlatformConfig,
   PlatformOAuthError,
   providerFor
 } from './provider'
+import { markBufferExpired, usableBufferToken } from './buffer/token'
+import { ConnectionError } from './errors'
 import { cancelPendingPublications } from './publication-queries'
 import {
   decryptToken,
@@ -21,9 +22,9 @@ import {
 } from './token-crypto'
 
 /**
- * A user's publishing connection to a platform: saving it after the OAuth
- * callback (or a pasted API key), removing it, and handing out a credential
- * that still works. One per user and platform. Always looked up by the
+ * A user's publishing connection to a platform (a channel of their Buffer
+ * account, linked by ./buffer/connection.ts): removing it, switching its
+ * account, and handing out a credential that still works. One per user and platform. Always looked up by the
  * signed-in user's id, never by an id from a request, so one user can never
  * reach another's connection.
  *
@@ -37,15 +38,7 @@ export type PublishingDb = PgDatabase<PostgresJsQueryResultHKT, any, any>
 /** A token closer than this to expiring is treated as expired. */
 const EXPIRY_MARGIN_MS = 60_000
 
-export class ConnectionError extends Error {
-  constructor(
-    message: string,
-    readonly code: 'not_connected' | 'reauth_required' | 'missing_permission'
-  ) {
-    super(message)
-    this.name = 'ConnectionError'
-  }
-}
+export { ConnectionError }
 
 /** What the user is told, in the platform's name. */
 function messagesFor(platform: string) {
@@ -70,18 +63,28 @@ const canPublish = (
 /**
  * Throws a ConnectionError unless the connection is there, working and
  * allowed to post. `platform` names it in the message when there is none.
+ * Its credential is its own token, or (bufferConnectionId) its owner's
+ * Buffer connection's, which usableAccessToken checks.
  */
 export function assertCanPublish(
   connection: PlatformConnection | null,
   platform: PlatformId = connection?.platform ?? DEFAULT_PLATFORM_ID
-): asserts connection is PlatformConnection & { accessToken: string } {
+): asserts connection is PlatformConnection {
   const say = messagesFor(platform)
   if (
     !connection ||
     connection.status === 'disconnected' ||
-    !connection.accessToken
+    (!connection.accessToken && !connection.bufferConnectionId)
   ) {
     throw new ConnectionError(say.notConnected, 'not_connected')
+  }
+  // A direct LinkedIn connection (before LinkedIn went through Buffer, which
+  // migration 0050 disconnects) holds a LinkedIn token Buffer would refuse.
+  if (connection.platform === 'linkedin' && !connection.bufferConnectionId) {
+    throw new ConnectionError(
+      'LinkedIn now publishes through Buffer. Choose your LinkedIn account on the Buffer card in Settings.',
+      'not_connected'
+    )
   }
   if (connection.status === 'expired') {
     throw new ConnectionError(say.expired, 'reauth_required')
@@ -108,74 +111,6 @@ export async function getConnection(
     )
     .limit(1)
   return row ?? null
-}
-
-/** Who a connection is made by and for: the signed-in user, and their identity. */
-export type ConnectionOwner = { userId: string; accountId: string }
-
-/**
- * Saves the connection the callback (or a pasted key) just made, for the
- * identity it was started from, by its owner (the signed-in user, whose id
- * the tokens are encrypted for). Reconnecting replaces the credential in
- * place. Auto-publishing and scheduled posts survive a
- * reconnect of the same account, but not a switch to a different one:
- * auto-publishing must be turned on again knowingly, and scheduled posts
- * for that platform are cancelled.
- */
-export async function saveConnection(
-  database: PublishingDb,
-  config: Pick<BaseConfig, 'encryptionKey'>,
-  owner: ConnectionOwner,
-  tokens: Credentials,
-  member: AccountInfo,
-  options: { now?: Date; platform?: PlatformId } = {}
-): Promise<PlatformConnection> {
-  const now = options.now ?? new Date()
-  const platform = options.platform ?? DEFAULT_PLATFORM_ID
-  const { userId, accountId } = owner
-  const encrypt = (value: string | null) =>
-    value === null ? null : encryptToken(value, config.encryptionKey, userId)
-  const previous = await getConnection(database, accountId, platform)
-  const sameMember = previous?.memberId === member.memberId
-  const columns = {
-    memberId: member.memberId,
-    name: member.name,
-    pictureUrl: member.pictureUrl,
-    accessToken: encrypt(tokens.accessToken),
-    accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-    refreshToken: encrypt(tokens.refreshToken),
-    refreshTokenExpiresAt: tokens.refreshTokenExpiresAt,
-    scopes: tokens.scopes,
-    status: 'connected' as const,
-    connectedAt: now,
-    lastError: null,
-    ...(!sameMember && { autoPublish: false, autoPublishEnabledAt: null }),
-    updatedAt: now
-  }
-  return database.transaction(async tx => {
-    const [row] = await tx
-      .insert(platformConnectionsTable)
-      .values({ userId, accountId, platform, ...columns })
-      .onConflictDoUpdate({
-        target: [platformConnectionsTable.accountId, platformConnectionsTable.platform],
-        set: columns
-      })
-      .returning()
-    // Posts scheduled while connected as another account must not go out
-    // under this one: they are cancelled, as on disconnecting.
-    if (previous && !sameMember) {
-      await cancelPendingPublications(
-        tx,
-        { accountId, platform },
-        {
-          message: `Cancelled because a different ${messagesFor(platform).name} account was connected.`,
-          code: 'not_connected'
-        },
-        { includeUnsentInFlight: true, now }
-      )
-    }
-    return row!
-  })
 }
 
 /**
@@ -228,16 +163,40 @@ export async function disconnect(
 }
 
 /**
+ * The stored Buffer token each connection through a Buffer connection last
+ * got from usableAccessToken, so a 401 from Buffer expires the Buffer
+ * connection only while it still holds that token. Keyed by the connection
+ * object the engine passes to both.
+ */
+const bufferTokensInUse = new WeakMap<object, string>()
+
+/**
  * Marks the connection expired, only while it still holds the credential that
  * failed (`accessToken` as stored, encrypted): a reconnect or refresh in the
- * meantime is left alone.
+ * meantime is left alone. One through a Buffer connection expires that Buffer
+ * connection, and with it every network publishing through it.
  */
 export async function markExpired(
   database: PublishingDb,
-  connection: { id: string; accessToken: string },
+  connection: {
+    id: string
+    accessToken: string | null
+    bufferConnectionId?: string | null
+  },
   message: string,
   now = new Date()
 ) {
+  if (connection.bufferConnectionId) {
+    await markBufferExpired(
+      database,
+      connection.bufferConnectionId,
+      bufferTokensInUse.get(connection) ?? null,
+      message,
+      now
+    )
+    return
+  }
+  if (!connection.accessToken) return
   await database
     .update(platformConnectionsTable)
     .set({ status: 'expired', lastError: message, updatedAt: now })
@@ -262,6 +221,9 @@ export async function markExpired(
  * Buffer's refresh tokens are single-use, and sending one twice (two workers,
  * or a worker and Publish now) would revoke the user's whole grant. The one
  * that waited finds the new token and uses it.
+ *
+ * A connection through a Buffer connection (bufferConnectionId) uses that
+ * connection's token instead, renewed the same way (./buffer/token.ts).
  */
 export async function usableAccessToken(
   database: PublishingDb,
@@ -271,6 +233,18 @@ export async function usableAccessToken(
   now = new Date()
 ): Promise<string> {
   assertCanPublish(connection)
+  if (connection.bufferConnectionId) {
+    const { accessToken, stored } = await usableBufferToken(
+      database,
+      config as BufferConfig,
+      // The owner's own Buffer connection only.
+      { connectionId: connection.bufferConnectionId, userId: connection.userId },
+      fetchFn,
+      now
+    )
+    bufferTokensInUse.set(connection, stored)
+    return accessToken
+  }
   const say = messagesFor(connection.platform)
   const decrypt = (value: string) =>
     decryptToken(value, config.encryptionKey, connection.userId)
@@ -278,7 +252,7 @@ export async function usableAccessToken(
     (row.accessTokenExpiresAt?.getTime() ?? Infinity) - EXPIRY_MARGIN_MS >
     now.getTime()
   // Marks expired whichever credential was in use when it failed.
-  let failing = { id: connection.id, accessToken: connection.accessToken }
+  let failing = { id: connection.id, accessToken: connection.accessToken! }
   const expire = async (message: string) => {
     await markExpired(database, failing, message, now)
     return new ConnectionError(message, 'reauth_required')
@@ -286,7 +260,7 @@ export async function usableAccessToken(
 
   if (fresh(connection)) {
     try {
-      return decrypt(connection.accessToken)
+      return decrypt(connection.accessToken!)
     } catch (err) {
       if (err instanceof TokenDecryptionError) throw await expire(say.unreadable)
       throw err
@@ -305,6 +279,8 @@ export async function usableAccessToken(
         .for('update')
       const current = locked ?? null
       assertCanPublish(current, connection.platform)
+      // Moved onto a Buffer connection while this waited: its token is not here.
+      if (!current.accessToken) throw new RefreshRefused(say.expired)
       failing = { id: current.id, accessToken: current.accessToken }
       // Refreshed (or reconnected) while this waited for the lock.
       if (fresh(current)) return decrypt(current.accessToken)
@@ -431,6 +407,13 @@ export type ConnectionSummary = {
   expiresAt: string | null
   /** The platform renews the access token by itself (a refresh token). */
   renews: boolean
+  /**
+   * Publishes through the user's Buffer connection (memberId is the channel);
+   * false for LinkedIn and for older Buffer connections with their own token.
+   */
+  viaBufferConnection: boolean
+  /** The account's id on the platform: for Buffer, the channel's. */
+  memberId: string
   canPublish: boolean
   lastError: string | null
   autoPublish: boolean
@@ -449,6 +432,8 @@ export function toConnectionSummary(
     connectedAt: connection.connectedAt.toISOString(),
     expiresAt: connection.accessTokenExpiresAt?.toISOString() ?? null,
     renews: Boolean(connection.refreshToken),
+    viaBufferConnection: Boolean(connection.bufferConnectionId),
+    memberId: connection.memberId,
     canPublish: canPublish(connection),
     lastError: connection.lastError,
     autoPublish: connection.autoPublish,

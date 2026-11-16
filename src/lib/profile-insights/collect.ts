@@ -37,9 +37,8 @@ import type { InsightPost, InsightSources } from './types'
  * - the posts Buffer sent on the identity's own connected channel, through
  *   Buffer's API and the connection the user authorized for publishing.
  *
- * Neither reads the platform itself. LinkedIn's API has no way to read a
- * member's posts with the access the app holds (w_member_social only), so
- * LinkedIn is read from the search index alone.
+ * Neither reads the platform itself. LinkedIn, too, publishes through
+ * Buffer, so its sent posts are read the same way.
  */
 
 /** More posts than this add cost to the analysis, not accuracy. */
@@ -101,12 +100,20 @@ async function bufferPosts(
 }> {
   if (!isBufferPlatform(platform)) return { connected: false, posts: [] }
   const config = bufferConfig(platform)
-  const connection = await getConnection(db, accountId, platform)
+  if (!config) return { connected: false, posts: [] }
+  // Buffer is a bonus: a failure here never costs the search-index posts.
+  let connection: Awaited<ReturnType<typeof getConnection>>
+  try {
+    connection = await getConnection(db, accountId, platform)
+  } catch (err) {
+    console.warn(`Looking up the ${platform} connection failed:`, err)
+    return { connected: false, posts: [] }
+  }
   if (
-    !config ||
     !connection ||
     connection.status !== 'connected' ||
-    !connection.accessToken
+    // Its own token, or (since Buffer OAuth) its Buffer connection's.
+    (!connection.accessToken && !connection.bufferConnectionId)
   ) {
     return { connected: false, posts: [] }
   }

@@ -7,13 +7,16 @@ import postgres from 'postgres'
 import sharp from 'sharp'
 import * as schema from '../src/db/schema'
 import {
+  connectBuffer,
+  linkBufferChannel
+} from '../src/lib/publishing/buffer/connection'
+import {
   disconnect,
-  getConnection,
-  saveConnection
+  getConnection
 } from '../src/lib/publishing/connection'
-import type { LinkedInAppConfig, TokenSet } from '../src/lib/publishing/linkedin/oauth'
 import { parseMediaSubject, verifyMediaToken } from '../src/lib/publishing/media-token'
-import type { BufferConfig } from '../src/lib/publishing/provider'
+import { insertLegacyConnection } from './fixtures/legacy-connection'
+import type { BufferConfig, TokenSet } from '../src/lib/publishing/provider'
 import {
   cancelPublication,
   claimPublication,
@@ -27,35 +30,39 @@ import {
   recoverStalePublications,
   requestPublication,
   runDuePublications,
-  STALE_LOCK_MS
+  STALE_LOCK_MS,
+  toPublicationSummary
 } from '../src/lib/publishing/engine'
 
 /**
- * Publishing against a real database, with LinkedIn replaced by a stub. Runs
- * only when DATABASE_URL is set in the environment (never from .env, which
- * may be a shared database); every row it makes is removed.
+ * Publishing against a real database, with Buffer replaced by a stub. Every
+ * platform publishes through Buffer, LinkedIn too since 2026-11-16; LinkedIn's
+ * own REST API is stubbed only to prove nothing reaches it any more. Runs only
+ * when DATABASE_URL is set in the environment (never from .env, which may be
+ * a shared database); every row it makes is removed.
  */
 
 const url = process.env.DATABASE_URL
 const tag = `qa-li-${Date.now().toString(36)}`
 
-const config: LinkedInAppConfig = {
-  clientId: 'client',
-  clientSecret: 'secret',
-  redirectUri: 'https://app.example.com/api/integrations/linkedin/callback',
-  scopes: ['openid', 'profile', 'w_member_social'],
-  apiVersion: '202610',
-  encryptionKey: randomBytes(32)
-}
+const encryptionKey = randomBytes(32)
 
 const BUFFER_URL = 'https://buffer.example/graphql'
+const BUFFER_TOKEN_URL = 'https://auth.buffer.com/token'
 
 const xConfig: BufferConfig = {
-  // Connected with API keys here (the OAuth flow is checked in publishing-units).
-  oauth: null,
+  // The app client, for refreshing the Buffer connections' tokens. X,
+  // Threads, Facebook and Instagram are mostly connected the older way here,
+  // with API keys (the OAuth flow is checked in buffer-oauth.test.ts).
+  oauth: {
+    clientId: 'buffer-client',
+    clientSecret: 'buffer-secret',
+    redirectUri: 'https://app.example.com/api/integrations/buffer/callback',
+    scopes: ['account:read', 'posts:read', 'posts:write', 'offline_access']
+  },
   apiUrl: BUFFER_URL,
   appUrl: 'https://app.example.com',
-  encryptionKey: config.encryptionKey,
+  encryptionKey,
   // Publish now does not wait for Buffer in tests.
   inlineWaitMs: 0
 }
@@ -76,7 +83,17 @@ function fakeBuffer() {
     sentAt: status === 'sent' ? new Date().toISOString() : null,
     error: status === 'error' ? { message: 'Duplicate content' } : null
   })
-  const fetchFn = (async (_input: string | URL, init: RequestInit = {}) => {
+  const fetchFn = (async (input: string | URL, init: RequestInit = {}) => {
+    // A Buffer connection's refresh: a new token pair.
+    if (String(input) === BUFFER_TOKEN_URL) {
+      calls.push({ operation: 'token', variables: String(init.body) })
+      return Response.json({
+        access_token: 'REFRESHED',
+        refresh_token: 'RT-NEXT',
+        expires_in: 3600,
+        scope: 'account:read posts:read posts:write offline_access'
+      })
+    }
     const body = JSON.parse(String(init.body))
     const operation = /(mutation|query)\s+(\w+)/.exec(body.query)?.[2] ?? '?'
     const headers = (init.headers ?? {}) as Record<string, string>
@@ -201,12 +218,13 @@ function fakePlatform() {
   }
 }
 
+/** A Buffer connection's token pair, as Buffer's OAuth gives it. */
 const tokens = (overrides: Partial<TokenSet> = {}): TokenSet => ({
   accessToken: `AT-${randomBytes(4).toString('hex')}`,
-  accessTokenExpiresAt: new Date(Date.now() + 60 * 24 * 3600_000),
+  accessTokenExpiresAt: new Date(Date.now() + 3600_000),
   refreshToken: null,
   refreshTokenExpiresAt: null,
-  scopes: ['openid', 'profile', 'w_member_social'],
+  scopes: ['account:read', 'posts:read', 'posts:write', 'offline_access'],
   ...overrides
 })
 
@@ -222,11 +240,12 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     } = {}
   ) => ({
     database,
-    // Facebook and Instagram go through the same Buffer stub as X.
-    configs: { linkedin: config, x: xConfig, facebook: xConfig, instagram: xConfig },
-    // Buffer's calls to the Buffer stub, everything else to LinkedIn's.
+    // Every platform goes through the same Buffer stub, LinkedIn included.
+    configs: { linkedin: xConfig, x: xConfig, facebook: xConfig, instagram: xConfig },
+    // Buffer's calls to the Buffer stub, anything else to LinkedIn's REST stub
+    // (which nothing should reach any more).
     fetchFn: ((input: string | URL, init?: RequestInit) =>
-      String(input) === BUFFER_URL
+      String(input) === BUFFER_URL || String(input) === BUFFER_TOKEN_URL
         ? buffer.fetchFn(input, init)
         : linkedIn.fetchFn(input, init)) as typeof fetch,
     loadImage: extra.loadImage ?? (async () => null),
@@ -290,13 +309,50 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     return draft!.id
   }
 
-  /** Connects the identity `owner.accountId`, as its owner. */
-  const connect = (owner: Owner, memberId: string, t = tokens()) =>
-    saveConnection(database, config, owner, t, {
-      memberId,
-      name: `Member ${memberId}`,
-      pictureUrl: null
-    })
+  /**
+   * Connects the identity's LinkedIn as it is done since LinkedIn went
+   * through Buffer: the owner's Buffer connection (made, or renewed, with the
+   * token pair `t`) has the LinkedIn channel `memberId`, picked for the
+   * identity. Returns the identity's LinkedIn connection.
+   */
+  const connect = async (owner: Owner, memberId: string, t = tokens()) => {
+    await connectBuffer(
+      database,
+      xConfig,
+      { userId: owner.userId, identityId: null },
+      t,
+      {
+        account: {
+          id: `ACC-${owner.userId}`,
+          name: null,
+          email: null,
+          avatar: null,
+          organizationIds: []
+        },
+        channels: [
+          {
+            id: memberId,
+            name: `Member ${memberId}`,
+            handle: memberId,
+            avatar: null,
+            isLocked: false,
+            service: 'linkedin',
+            type: 'profile',
+            organizationId: null,
+            externalLink: null,
+            isDisconnected: false
+          }
+        ]
+      },
+      { platforms: [] }
+    )
+    return linkBufferChannel(
+      database,
+      { userId: owner.userId, identityId: owner.accountId },
+      'linkedin',
+      memberId
+    )
+  }
 
   const publishNow = async (userId: string, draftId: string, d = deps()) => {
     const row = await requestPublication(database, {
@@ -368,10 +424,10 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       await codeOf(publishNow(a.userId, draft)),
       'not_connected'
     )
-    assert.strictEqual(linkedIn.calls.length, 0)
+    assert.strictEqual(buffer.calls.length + linkedIn.calls.length, 0)
   })
 
-  it('1. Google sign-in, connect LinkedIn, publish', async () => {
+  it('1. Google sign-in, connect LinkedIn through Buffer, publish', async () => {
     const before = await database
       .select()
       .from(schema.authAccountsTable)
@@ -379,10 +435,15 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     const t = tokens()
     await connect(a, 'MEMBER_A', t)
 
-    // Stored encrypted; sign-in accounts untouched.
+    // The Buffer token, stored encrypted on the Buffer connection only;
+    // sign-in accounts untouched.
     const [raw] =
-      await client`select access_token from linkedin_connections where user_id = ${a.userId}`
+      await client`select access_token from buffer_connections where user_id = ${a.userId}`
     assert.ok(raw!.access_token && !raw!.access_token.includes(t.accessToken))
+    const [li] =
+      await client`select access_token, buffer_connection_id from linkedin_connections where account_id = ${a.accountId} and platform = 'linkedin'`
+    assert.strictEqual(li!.access_token, null)
+    assert.ok(li!.buffer_connection_id)
     const afterConnect = await database
       .select()
       .from(schema.authAccountsTable)
@@ -391,20 +452,23 @@ describe('LinkedIn publishing', { skip: !url }, () => {
 
     const draft = await newPost(a.accountId)
     const result = await publishNow(a.userId, draft)
-    assert.strictEqual(result.status, 'published')
-    assert.strictEqual(result.externalPostId, 'urn:li:share:1')
-    assert.strictEqual(result.authorUrn, 'urn:li:person:MEMBER_A')
+    assert.strictEqual(result.status, 'published', String(result.error))
+    assert.strictEqual(result.platform, 'linkedin')
+    assert.strictEqual(result.externalPostId, 'B1')
+    // The Buffer channel it went out on.
+    assert.strictEqual(result.authorUrn, 'MEMBER_A')
     assert.ok(result.publishedAt)
 
-    const [post] = linkedIn.postCalls()
+    const [post] = buffer.creates()
     assert.strictEqual(post!.auth, `Bearer ${t.accessToken}`)
-    assert.strictEqual(post!.body.author, 'urn:li:person:MEMBER_A')
-    assert.ok(post!.body.commentary.includes('\\(with brackets\\)'))
-    assert.ok(post!.body.commentary.includes('{hashtag|\\#|QA}'))
-    assert.ok(
-      linkedIn.calls.some(c => c.url.includes('/comments')),
-      'first comment added'
-    )
+    const input = post!.variables.input
+    assert.strictEqual(input.channelId, 'MEMBER_A')
+    // Plain text: no LinkedIn little-text escaping through Buffer.
+    assert.ok(input.text.includes('The body (with brackets) #QA'))
+    // No first comment on LinkedIn (Buffer takes one only on a paid plan).
+    assert.strictEqual(input.metadata, undefined)
+    assert.ok(!JSON.stringify(input).includes('First comment'))
+    assert.strictEqual(linkedIn.calls.length, 0, "LinkedIn's API is not used")
 
     const [saved] = await database
       .select()
@@ -425,12 +489,10 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     await connect(b, 'MEMBER_B')
     const result = await publishNow(b.userId, draft)
     assert.strictEqual(result.status, 'published')
-    assert.strictEqual(
-      linkedIn.postCalls()[0]!.body.author,
-      'urn:li:person:MEMBER_B'
-    )
+    assert.strictEqual(buffer.creates()[0]!.variables.input.channelId, 'MEMBER_B')
     // The sign-in token was never used.
-    assert.ok(linkedIn.calls.every(c => c.auth !== 'Bearer SIGN-IN-TOKEN'))
+    assert.ok(buffer.calls.every(c => c.auth !== 'Bearer SIGN-IN-TOKEN'))
+    assert.strictEqual(linkedIn.calls.length, 0)
   })
 
   it("12. user A cannot publish B's post, nor through B's connection", async () => {
@@ -451,7 +513,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     const claimed = await claimPublication(database, forged!.id)
     const result = await executePublication(deps(), claimed!)
     assert.strictEqual(result.status, 'failed')
-    assert.strictEqual(linkedIn.postCalls().length, 0)
+    assert.strictEqual(buffer.creates().length, 0)
 
     // Nor can A cancel B's publication.
     const bRow = await requestPublication(database, {
@@ -512,10 +574,10 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     )
     assert.strictEqual(result.status, 'failed')
     assert.strictEqual(result.errorCode, 'not_approved')
-    assert.strictEqual(linkedIn.postCalls().length, 0)
+    assert.strictEqual(buffer.creates().length, 0)
   })
 
-  it('uploads the image and attaches it to the post', async () => {
+  it("attaches the post's image as a signed link Buffer downloads", async () => {
     const draft = await newPost(a.accountId)
     const result = await publishNow(
       a.userId,
@@ -528,17 +590,22 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         })
       })
     )
-    assert.strictEqual(result.status, 'published')
-    const media = linkedIn.postCalls()[0]!.body.content.media
-    assert.deepStrictEqual(media, {
-      id: 'urn:li:image:IMG1',
-      altText: 'A chart'
-    })
+    assert.strictEqual(result.status, 'published', String(result.error))
+    const [asset] = buffer.creates()[0]!.variables.input.assets
+    const link = new URL(asset.image.url)
+    assert.strictEqual(link.origin, 'https://app.example.com')
+    // A WebP goes as JPEG, as for Facebook.
+    assert.strictEqual(link.searchParams.get('for'), 'facebook')
+    assert.strictEqual(asset.image.metadata.altText, 'A chart')
   })
 
-  it('9. a LinkedIn error fails the publication with its reason, not retried', async () => {
-    linkedIn.failNextPosts(() =>
-      Response.json({ message: 'commentary too long' }, { status: 422 })
+  it('9. a refusal fails the publication with its reason, not retried', async () => {
+    buffer.answerNextCreates(() =>
+      Response.json({
+        data: {
+          createPost: { __typename: 'InvalidInputError', message: 'commentary too long' }
+        }
+      })
     )
     const draft = await newPost(a.accountId)
     const result = await publishNow(a.userId, draft)
@@ -548,7 +615,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     await runDuePublications(
       deps({ now: () => new Date(Date.now() + 3600_000) })
     )
-    assert.strictEqual(linkedIn.postCalls().length, 1)
+    assert.strictEqual(buffer.creates().length, 1)
   })
 
   it('10. a scheduled post is published when due, not before', async () => {
@@ -563,7 +630,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     await runDuePublications(
       deps({ now: () => new Date(at.getTime() - 60_000) })
     )
-    assert.strictEqual(linkedIn.postCalls().length, 0)
+    assert.strictEqual(buffer.creates().length, 0)
 
     await runDuePublications(
       deps({ now: () => new Date(at.getTime() + 1_000) })
@@ -573,7 +640,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       .from(schema.publicationsTable)
       .where(eq(schema.publicationsTable.id, row.id))
     assert.strictEqual(done!.status, 'published')
-    assert.strictEqual(linkedIn.postCalls().length, 1)
+    assert.strictEqual(buffer.creates().length, 1)
   })
 
   it('refuses a time in the past', async () => {
@@ -592,7 +659,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   })
 
   it('11. retries a failure that published nothing, exactly once more', async () => {
-    linkedIn.failNextPosts(() => new Response(null, { status: 503 }))
+    buffer.answerNextCreates(() => new Response(null, { status: 503 }))
     const draft = await newPost(a.accountId)
     const first = await publishNow(a.userId, draft)
     assert.strictEqual(first.status, 'scheduled')
@@ -612,11 +679,11 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     assert.strictEqual(rows[0]!.status, 'published')
     assert.strictEqual(rows[0]!.attempts, 2)
     // One refused request, one that created the post.
-    assert.strictEqual(linkedIn.postCalls().length, 2)
+    assert.strictEqual(buffer.creates().length, 2)
   })
 
   it('11. never retries a failure that may have published the post', async () => {
-    linkedIn.failNextPosts(() => new Response(null, { status: 500 }))
+    buffer.answerNextCreates(() => new Response(null, { status: 500 }))
     const draft = await newPost(a.accountId)
     const first = await publishNow(a.userId, draft)
     assert.strictEqual(first.status, 'failed')
@@ -626,7 +693,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         deps({ now: () => new Date(Date.now() + hours * 3600_000) })
       )
     }
-    assert.strictEqual(linkedIn.postCalls().length, 1)
+    assert.strictEqual(buffer.creates().length, 1)
 
     // Neither publishing now nor scheduling it again is allowed until the
     // user confirms it is not on LinkedIn.
@@ -717,7 +784,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     assert.strictEqual(byId.get(notSent)!.status, 'scheduled')
   })
 
-  it('8. an expired token marks the connection expired and fails the post', async () => {
+  it('8. an expired Buffer token with nothing to renew it marks LinkedIn expired and fails the post', async () => {
     const c = await newUser('c', 'google')
     await connect(
       c,
@@ -732,7 +799,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       (await getConnection(database, c.accountId))!.status,
       'expired'
     )
-    assert.strictEqual(linkedIn.postCalls().length, 0)
+    assert.strictEqual(buffer.creates().length, 0)
     // Expired: nothing new can be queued until reconnecting.
     assert.strictEqual(
       await codeOf(publishNow(c.userId, await newPost(c.accountId))),
@@ -740,10 +807,14 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     )
   })
 
-  it('8. a token LinkedIn revoked (401) marks the connection expired', async () => {
+  it('8. a token Buffer revoked (401) marks the connection expired', async () => {
     const d = await newUser('d', 'google')
     await connect(d, 'MEMBER_D')
-    linkedIn.failNextPosts(() => new Response(null, { status: 401 }))
+    buffer.answerNextCreates(() =>
+      Response.json({
+        errors: [{ message: 'Unauthorized', extensions: { code: 'UNAUTHORIZED' } }]
+      })
+    )
     const result = await publishNow(d.userId, await newPost(d.accountId))
     assert.strictEqual(result.errorCode, 'reauth_required')
     assert.strictEqual(
@@ -752,7 +823,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     )
   })
 
-  it('8. an expired token is refreshed when LinkedIn gave a refresh token', async () => {
+  it('8. an expired Buffer token is refreshed first', async () => {
     const e = await newUser('e', 'google')
     await connect(
       e,
@@ -764,8 +835,8 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       })
     )
     const result = await publishNow(e.userId, await newPost(e.accountId))
-    assert.strictEqual(result.status, 'published')
-    assert.strictEqual(linkedIn.postCalls()[0]!.auth, 'Bearer REFRESHED')
+    assert.strictEqual(result.status, 'published', String(result.error))
+    assert.strictEqual(buffer.creates()[0]!.auth, 'Bearer REFRESHED')
   })
 
   it('4. disconnecting removes the tokens and cancels scheduled posts', async () => {
@@ -807,7 +878,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     assert.strictEqual(result.status, 'published')
   })
 
-  it('5. reconnecting as a different LinkedIn member turns auto-publishing off', async () => {
+  it('5. switching to a different LinkedIn account turns auto-publishing off', async () => {
     const g = await newUser('g', 'google')
     await connect(g, 'MEMBER_G')
     await database
@@ -825,7 +896,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       (await connect(g, 'MEMBER_OTHER')).autoPublish,
       false
     )
-    // Scheduled as MEMBER_G: it must not go out as MEMBER_OTHER.
+    // Scheduled for MEMBER_G: it must not go out as MEMBER_OTHER.
     const [row] = await database
       .select()
       .from(schema.publicationsTable)
@@ -834,71 +905,37 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   })
 
   describe('deleting', () => {
-    it('deletes a published post from LinkedIn and unlocks it: it can be edited and published again', async () => {
+    it('a post published through Buffer cannot be deleted from the app; one published to LinkedIn directly keeps its link', async () => {
       const k = await newUser('k', 'google')
       await connect(k, 'MEMBER_K')
-      const draft = await newPost(k.accountId)
-      const published = await publishNow(k.userId, draft)
-
-      const deleted = await deletePublishedPost(
-        deps(),
-        k.userId,
-        published.id
-      )
-      assert.strictEqual(deleted.status, 'published')
-      assert.ok(deleted.deletedAt, 'deletedAt set')
-      const [call] = linkedIn.deleteCalls()
+      const published = await publishNow(k.userId, await newPost(k.accountId))
+      assert.strictEqual(published.status, 'published', String(published.error))
+      // Buffer has no delete for a sent post: the app says so, and offers none.
       assert.strictEqual(
-        call!.url,
-        `https://api.linkedin.com/rest/posts/${encodeURIComponent(published.externalPostId!)}`
+        await codeOf(deletePublishedPost(deps(), k.userId, published.id)),
+        'not_supported'
       )
-      assert.strictEqual(call!.restliMethod, 'DELETE')
+      assert.strictEqual(toPublicationSummary(published).canDelete, false)
+      assert.strictEqual(buffer.calls.filter(c => c.operation !== 'CreatePost' && c.operation !== 'Post').length, 0)
 
-      // Once deleted, deleting again does not call LinkedIn.
-      await deletePublishedPost(deps(), k.userId, published.id)
-      assert.strictEqual(linkedIn.deleteCalls().length, 1)
-
-      // The post is unlocked: no longer posted, still approved, changeable.
-      const [post] = await database
-        .select()
-        .from(schema.postDraftsTable)
-        .where(eq(schema.postDraftsTable.id, draft))
-      assert.strictEqual(post!.postedAt, null)
-      assert.strictEqual(post!.plannedFor, null)
-      assert.strictEqual(post!.status, 'approved')
-      const { hasLivePublication } = await import(
-        '../src/lib/publishing/publication-queries'
-      )
-      const { assertPostChangeable, PostLockedError } = await import(
-        '../src/lib/publishing/post-lock'
-      )
-      assert.strictEqual(await hasLivePublication(database, draft), false)
-      await assertPostChangeable(post!, database)
-
-      // Published again as a new post; the deleted one stays as the record.
-      const again = await publishNow(k.userId, draft)
-      assert.strictEqual(again.status, 'published')
-      assert.notStrictEqual(again.id, published.id)
-      assert.strictEqual(linkedIn.postCalls().length, 2)
-      const [record] = await database
-        .select()
-        .from(schema.publicationsTable)
-        .where(eq(schema.publicationsTable.id, published.id))
-      assert.strictEqual(record!.status, 'published')
-      assert.ok(record!.deletedAt, 'the deleted publication keeps its deletedAt')
-
-      // Out again: locked again, and not published a third time.
-      const [reposted] = await database
-        .select()
-        .from(schema.postDraftsTable)
-        .where(eq(schema.postDraftsTable.id, draft))
-      await assert.rejects(
-        assertPostChangeable(reposted!, database),
-        PostLockedError
-      )
+      // A post that went out straight to LinkedIn before Buffer: its link stays.
+      const [direct] = await database
+        .insert(schema.publicationsTable)
+        .values({
+          userId: k.userId,
+          accountId: k.accountId,
+          platform: 'linkedin',
+          trigger: 'manual',
+          status: 'published',
+          externalPostId: 'urn:li:share:7',
+          publishedAt: new Date(),
+          scheduledAt: new Date(),
+          nextAttemptAt: new Date()
+        })
+        .returning()
       assert.strictEqual(
-        await codeOf(publishNow(k.userId, draft)),
-        'already_posted'
+        toPublicationSummary(direct!).postUrl,
+        'https://www.linkedin.com/feed/update/urn:li:share:7/'
       )
     })
 
@@ -921,48 +958,6 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       await assert.rejects(
         database.insert(schema.publicationsTable).values(row('published', null))
       )
-    })
-
-    it("only the publisher can delete it, and only as the member it went out as", async () => {
-      const l = await newUser('l', 'google')
-      const m = await newUser('m', 'google')
-      await connect(l, 'MEMBER_L')
-      await connect(m, 'MEMBER_M')
-      const published = await publishNow(l.userId, await newPost(l.accountId))
-
-      assert.strictEqual(
-        await codeOf(deletePublishedPost(deps(), m.userId, published.id)),
-        'not_found'
-      )
-      await connect(l, 'MEMBER_L_OTHER')
-      assert.strictEqual(
-        await codeOf(deletePublishedPost(deps(), l.userId, published.id)),
-        'missing_permission'
-      )
-      assert.strictEqual(linkedIn.deleteCalls().length, 0)
-    })
-
-    it('a LinkedIn error leaves it undeleted; a post LinkedIn no longer has counts as deleted', async () => {
-      const n = await newUser('n', 'google')
-      await connect(n, 'MEMBER_N')
-      const published = await publishNow(n.userId, await newPost(n.accountId))
-
-      linkedIn.answerNextDeletes(
-        () => new Response(null, { status: 500 }),
-        () => Response.json({ message: 'Not found' }, { status: 404 })
-      )
-      assert.strictEqual(
-        await codeOf(deletePublishedPost(deps(), n.userId, published.id)),
-        'platform_unavailable'
-      )
-      const [kept] = await database
-        .select()
-        .from(schema.publicationsTable)
-        .where(eq(schema.publicationsTable.id, published.id))
-      assert.strictEqual(kept!.deletedAt, null)
-
-      const deleted = await deletePublishedPost(deps(), n.userId, published.id)
-      assert.ok(deleted.deletedAt, 'a 404 counts as deleted')
     })
 
     it('deleting the post from the app keeps its publication as the record', async () => {
@@ -1163,8 +1158,8 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.strictEqual(published.status, 'published')
       assert.strictEqual(published.accountId, second.accountId)
       assert.strictEqual(
-        linkedIn.postCalls().at(-1)!.body.author,
-        'urn:li:person:MEMBER_Q_PERSONA'
+        buffer.creates().at(-1)!.variables.input.channelId,
+        'MEMBER_Q_PERSONA'
       )
 
       // Disconnecting one identity leaves the other's connection alone.
@@ -1183,23 +1178,23 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       await connect(c, 'MEMBER_C')
     })
 
-    it('C1. a LinkedIn carousel goes out as one PDF document, titled by its cover', async () => {
+    it('C1. a LinkedIn carousel goes out as several images in one post, in order', async () => {
       const draft = await newPost(c.accountId, { mediaFormat: 'carousel' })
       await addSlides(draft, 3)
       const result = await publishNow(c.userId, draft)
       assert.strictEqual(result.status, 'published', String(result.error))
 
-      const upload = linkedIn.calls.find(call => call.url === 'https://upload.example/doc')
-      assert.ok(upload, 'the document was uploaded')
-      assert.strictEqual(upload.method, 'PUT')
-      const pdf = upload.bytes!.toString('latin1')
-      assert.ok(pdf.startsWith('%PDF-'), 'a PDF')
-      assert.strictEqual(pdf.match(/\/Type\s*\/Page\b/g)?.length, 3, 'one page per slide')
-      // No single image goes with it.
-      assert.ok(!linkedIn.calls.some(call => call.url.includes('/rest/images')))
-      assert.deepStrictEqual(linkedIn.postCalls()[0]!.body.content, {
-        media: { id: 'urn:li:document:DOC1', title: 'Five checks before you sign' }
-      })
+      const input = buffer.creates()[0]!.variables.input
+      assert.strictEqual(input.assets.length, 3, 'one image per slide')
+      assert.deepStrictEqual(
+        input.assets.map((asset: any) => asset.image.metadata.altText),
+        ['Slide 1 described', 'Slide 2 described', 'Slide 3 described']
+      )
+      for (const asset of input.assets) {
+        assert.strictEqual(new URL(asset.image.url).origin, 'https://app.example.com')
+      }
+      // No PDF, and nothing sent to LinkedIn's own API.
+      assert.strictEqual(linkedIn.calls.length, 0)
     })
 
     it('C2. a carousel without slides, with one, or with a slide not drawn is refused before LinkedIn', async () => {
@@ -1214,7 +1209,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       await addSlides(undrawn, 3, 2)
       assert.strictEqual(await codeOf(publishNow(c.userId, undrawn)), 'needs_image')
 
-      assert.strictEqual(linkedIn.calls.length, 0)
+      assert.strictEqual(buffer.creates().length + linkedIn.calls.length, 0)
     })
 
     it('C3. a post set to text only goes out without the image it still has', async () => {
@@ -1236,28 +1231,22 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         })
       )
       assert.strictEqual(result.status, 'published', String(result.error))
-      assert.ok(!linkedIn.calls.some(call => call.url.includes('/rest/images')))
-      assert.strictEqual(linkedIn.postCalls()[0]!.body.content, undefined)
+      assert.deepStrictEqual(buffer.creates()[0]!.variables.input.assets, [])
     })
   })
 
   describe('X through Buffer', () => {
     let x: { userId: string; accountId: string }
     const apiKey = 'BUFFER-KEY-1234567890'
+    // X connected the older way, with its own Buffer API key.
     const connectX = (owner: Owner, channelId = 'CHANNEL_X', key = apiKey) =>
-      saveConnection(
+      insertLegacyConnection(
         database,
-        xConfig,
+        encryptionKey,
         owner,
-        {
-          accessToken: key,
-          accessTokenExpiresAt: null,
-          refreshToken: null,
-          refreshTokenExpiresAt: null,
-          scopes: ['account:read', 'posts:read', 'posts:write']
-        },
-        { memberId: channelId, name: '@qa', pictureUrl: null },
-        { platform: 'x' }
+        'x',
+        { memberId: channelId, name: '@qa' },
+        key
       )
     const xPost = (overrides: Partial<schema.NewPostDraft> = {}) =>
       newPost(x.accountId, {
@@ -1284,7 +1273,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       await connect(x, 'MEMBER_X')
       const draft = await xPost()
       assert.strictEqual(await codeOf(publishNow(x.userId, draft)), 'not_connected')
-      assert.strictEqual(buffer.calls.length + linkedIn.postCalls().length, 0)
+      assert.strictEqual(buffer.calls.length + buffer.creates().length, 0)
     })
 
     it('X2. connected beside LinkedIn, an X post goes to Buffer as plain text, now', async () => {
@@ -1471,19 +1460,13 @@ describe('LinkedIn publishing', { skip: !url }, () => {
   describe('Facebook and Instagram through Buffer', () => {
     let m: { userId: string; accountId: string }
     const connectVia = (platform: 'facebook' | 'instagram', channelId: string) =>
-      saveConnection(
+      insertLegacyConnection(
         database,
-        xConfig,
+        encryptionKey,
         m,
-        {
-          accessToken: 'BUFFER-KEY-META-1234567890',
-          accessTokenExpiresAt: null,
-          refreshToken: null,
-          refreshTokenExpiresAt: null,
-          scopes: ['account:read', 'posts:read', 'posts:write']
-        },
-        { memberId: channelId, name: `${platform} QA`, pictureUrl: null },
-        { platform }
+        platform,
+        { memberId: channelId, name: `${platform} QA` },
+        'BUFFER-KEY-META-1234567890'
       )
     const image: PostImage = {
       bytes: Buffer.from('png'),

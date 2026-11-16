@@ -40,6 +40,8 @@ type StateCheck =
       ok: true
       /** The identity it was started for; null for a state made without one. */
       accountId: string | null
+      /** When the flow started (ms): a duplicate callback finds its connection saved after it. */
+      issuedAt: number
     }
   | {
       ok: false
@@ -85,7 +87,7 @@ export function verifyOAuthState(
   if (!(Number(expires) > (input.now ?? Date.now()))) {
     return { ok: false, reason: 'expired' }
   }
-  return { ok: true, accountId }
+  return { ok: true, accountId, issuedAt: Number(expires) - STATE_TTL_MS }
 }
 
 /**

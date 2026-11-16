@@ -46,16 +46,15 @@ function inAnHour(): string {
 
 /**
  * Connect (or Reconnect) the account a post is published to, in place of
- * Publish now while it is not connected. A platform signed into on its own
- * consent screen goes straight there; an expired connection, or one made with
- * a key pasted in Settings, opens Settings → Integrations.
+ * Publish now while it is not connected: Settings → Integrations, where the
+ * Buffer card connects every network.
  */
 function ConnectButton({
   publishing
 }: {
   publishing: PlatformPublishingStatus
 }) {
-  const { platform, connectWith, status } = publishing
+  const { platform, status } = publishing
   const expired = status === 'expired'
   const className = `${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`
   const content = (
@@ -67,16 +66,7 @@ function ConnectButton({
   const title = expired
     ? `The ${platform.name} connection expired. Reconnect it to publish.`
     : `Connect the ${platform.name} account approved posts are published to.`
-  return !expired && connectWith === 'oauth' ? (
-    // A plain link: the route redirects to the platform's consent screen.
-    <a
-      href={`/api/integrations/${platform.id}/connect`}
-      title={title}
-      className={className}
-    >
-      {content}
-    </a>
-  ) : (
+  return (
     <Link href={INTEGRATIONS_SETTINGS_PATH} title={title} className={className}>
       {content}
     </Link>
@@ -553,7 +543,7 @@ function PublishControlsInner({
             <>
               This {FORMATS[formatId].structure === 'thread' ? 'thread' : 'post'}
               {media === 'carousel'
-                ? `, with its ${slideCount} slides${platform.id === 'linkedin' ? ' as a document' : ''}`
+                ? `, with its ${slideCount} slides`
                 : media === 'text'
                   ? ' (text only)'
                   : ', with its image'}
