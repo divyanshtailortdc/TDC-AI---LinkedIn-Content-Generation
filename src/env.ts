@@ -138,7 +138,7 @@ export const env = createEnv({
   },
 
   client: {
-    NEXT_PUBLIC_APP_URL: z.string().default("https://tdc-ai-linked-in-content-generation.vercel.app")
+    NEXT_PUBLIC_APP_URL: z.string().default('http://localhost:3000')
   },
 
   runtimeEnv: {
