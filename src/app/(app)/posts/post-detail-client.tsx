@@ -171,6 +171,10 @@ const DIAGRAM_TYPE_OPTIONS = [
   }))
 ]
 
+/** Shown on Approve, Reject and Publish while Regenerate or Restore runs. */
+const NEW_TEXT_ON_ITS_WAY =
+  'A new version of the text is on its way; read it once it is in'
+
 /**
  * One post on its own page (/posts/[id]): its preview, text editing, image,
  * and the review and publishing steps, in that order of reading. The list of
@@ -1284,8 +1288,22 @@ export function PostDetailClient({
     )
   }
 
+  // Regenerate or Restore is writing a new text. Server Actions run one at a
+  // time, so an Approve or Reject sent now would land after it, on text the
+  // reviewer has not seen. The buttons are disabled; this covers the A key.
+  const blockedByTextReplacing = (what: 'approving' | 'rejecting') => {
+    if (!textReplacing) return false
+    showToast({
+      type: 'error',
+      title: 'A new version is on its way',
+      message: `Read it once it is in before ${what} this post.`
+    })
+    return true
+  }
+
   const handleApprove = async () => {
     if (!activePost || activePost.status === 'approved') return
+    if (blockedByTextReplacing('approving')) return
     if (hasUnsavedEdits) {
       showToast({
         type: 'error',
@@ -1325,6 +1343,7 @@ export function PostDetailClient({
   const handleReject = async (reason?: string) => {
     if (!activePost || activePublished || activePost.status === 'rejected')
       return
+    if (blockedByTextReplacing('rejecting')) return
     if (!confirmDiscardEdits('Rejecting this post')) return
     const rejectedId = activePost.id
 
@@ -1464,6 +1483,7 @@ export function PostDetailClient({
       // store a second feedback row.
       if (activePost.status === 'rejected' || activePublished) return
       event.preventDefault()
+      if (blockedByTextReplacing('rejecting')) return
       setShowPostRejection(true)
     } else if (key === 'c') {
       event.preventDefault()
@@ -1770,7 +1790,8 @@ export function PostDetailClient({
       </button>
       <button
         type="submit"
-        disabled={isSaving}
+        disabled={isSaving || textReplacing}
+        title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
         className="h-8 cursor-pointer rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
       >
         {isSaving ? 'Rejecting…' : 'Reject post'}
@@ -1796,6 +1817,7 @@ export function PostDetailClient({
               media={activeMediaFormat}
               slideCount={slides?.length ?? activePost.slideCount ?? 0}
               unsavedEdits={hasUnsavedEdits}
+              textReplacing={textReplacing}
               onChange={publication => {
                 const id = activePost.id
                 // Deleted from its platform: deletePublishedPost cleared its
@@ -1838,7 +1860,9 @@ export function PostDetailClient({
             <button
               type="button"
               onClick={() => setShowPostRejection(true)}
-              className="text-muted h-8 cursor-pointer px-1 text-[12px] hover:text-rose-600 dark:hover:text-rose-400"
+              disabled={textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
+              className="text-muted h-8 cursor-pointer px-1 text-[12px] hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
             >
               Reject instead
             </button>
@@ -1850,7 +1874,8 @@ export function PostDetailClient({
             <button
               type="button"
               onClick={() => setShowPostRejection(true)}
-              disabled={isSaving}
+              disabled={isSaving || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
               className="border-border text-muted flex h-8 cursor-pointer items-center rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
             >
               Reject
@@ -1859,7 +1884,10 @@ export function PostDetailClient({
           <button
             type="button"
             onClick={handleApprove}
-            disabled={isSaving}
+            // Not while Regenerate or Restore writes a new text: the approval
+            // would land after it, on text nobody has read.
+            disabled={isSaving || textReplacing}
+            title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
             className="bg-accent text-background hover:bg-accent-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-colors disabled:opacity-60"
           >
             <CheckCircle2 className="h-3.5 w-3.5" />

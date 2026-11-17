@@ -86,6 +86,10 @@ const POLL_MS = 15_000
  */
 const CONNECTION_LOST = new Set(['reauth_required', 'not_connected'])
 
+/** On Publish now and Schedule while Regenerate or Restore runs. */
+const NEW_TEXT_ON_ITS_WAY =
+  'A new version of the text is on its way; read and approve it first'
+
 const SMALL_BUTTON =
   'flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50'
 
@@ -117,7 +121,8 @@ function PublishControlsInner({
   onChange,
   media = 'image',
   slideCount = 0,
-  unsavedEdits = false
+  unsavedEdits = false,
+  textReplacing = false
 }: {
   /**
    * Set while the page's editor holds edits not saved yet. Publish now and
@@ -125,6 +130,12 @@ function PublishControlsInner({
    * cancelled, as Approve does.
    */
   unsavedEdits?: boolean
+  /**
+   * Set while Regenerate or Restore writes a new text. Server Actions run one
+   * at a time, so a publish sent now would reach the server after it, for
+   * text nobody has read. Publish now and Schedule are off until it lands.
+   */
+  textReplacing?: boolean
   /** What goes out with the text: the confirmation names it. */
   media?: MediaFormat
   /** A carousel's slides. */
@@ -242,10 +253,19 @@ function PublishControlsInner({
     }
   }
 
-  // The text on screen is not the text that would go out: say so instead.
-  // Checked on each button and again when the publish or schedule is sent,
-  // since the schedule form stays open while the editor can still be typed in.
-  const blockedByUnsavedEdits = () => {
+  // The text on screen is not the text that would go out (edits not saved, or
+  // a new version on its way): say so instead. Checked on each button and
+  // again when the publish or schedule is sent, since the schedule form and
+  // the "it's not there" dialog stay open while the text can still change.
+  const blockedByTextOnScreen = () => {
+    if (textReplacing) {
+      showToast({
+        type: 'error',
+        title: 'A new version is on its way',
+        message: 'Read it once it is in, and approve it, before publishing.'
+      })
+      return true
+    }
     if (!unsavedEdits) return false
     showToast({
       type: 'error',
@@ -257,7 +277,7 @@ function PublishControlsInner({
   }
 
   const publishNow = (confirmedNotPublished = false) => {
-    if (blockedByUnsavedEdits()) {
+    if (blockedByTextOnScreen()) {
       setDialog(null)
       return
     }
@@ -287,7 +307,7 @@ function PublishControlsInner({
   }
 
   const schedule = (confirmedNotPublished = false) => {
-    if (blockedByUnsavedEdits()) {
+    if (blockedByTextOnScreen()) {
       setDialog(null)
       return
     }
@@ -515,7 +535,8 @@ function PublishControlsInner({
             />
             <button
               type="submit"
-              disabled={busy || !scheduleAt}
+              disabled={busy || !scheduleAt || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
               className={`${SMALL_BUTTON} border-border text-foreground hover:bg-surface-hover border`}
             >
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -533,9 +554,10 @@ function PublishControlsInner({
           <>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
               onClick={() => {
-                if (blockedByUnsavedEdits()) return
+                if (blockedByTextOnScreen()) return
                 setDialog(
                   lastFailed && publication.errorCode === 'unknown_outcome'
                     ? 'unknown-publish'
@@ -553,9 +575,10 @@ function PublishControlsInner({
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
               onClick={() => {
-                if (blockedByUnsavedEdits()) return
+                if (blockedByTextOnScreen()) return
                 setScheduleAt(inAnHour())
                 setScheduling(true)
               }}
