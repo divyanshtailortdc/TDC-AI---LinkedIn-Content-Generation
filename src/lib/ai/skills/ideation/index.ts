@@ -24,7 +24,12 @@ import {
 import { cleanFormats } from '@/lib/formats'
 
 export type { GroundingCorpus } from './guard'
-export { ideationChannels, ideationStyle, type IdeationChannels } from './prompt'
+export {
+  ideationChannels,
+  ideationStyle,
+  runPlatforms,
+  type IdeationChannels
+} from './prompt'
 export type { GeneratedIdeaItem } from './schema'
 
 /**

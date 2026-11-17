@@ -71,7 +71,8 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   extraction: { model: fastModel, effort: 'low' },
   // The research agent: several short steps choosing searches and pages.
   research: { model: defaultModel, effort: 'medium' },
-  // Judges each idea against its goal: reading and judgment, little reasoning.
+  // Judges each idea against its goal, and on originality, trends, brand fit
+  // and engagement: reading and judgment, little reasoning.
   goal_review: { model: defaultModel, effort: 'low' },
   // Reads an account's public posts (and a few thumbnails) for how it posts
   // on a platform: careful reading, once per profile link.

@@ -1,8 +1,10 @@
 import type { NewsletterStory } from '~/lib/intel/story-ranking'
 import { isRecent } from '~/lib/research/findings'
+import { ownHosts, rateSource } from '~/lib/research/source-credibility'
 import type { Finding } from '~/lib/research/web-search'
 import { isGenericPage, isReferencePage } from '~/lib/urls'
 import { goalText, type GenerationContext } from '../context-blocks'
+import { inferRegion } from '../region'
 import type { KnowledgePassage } from '../embeddings'
 import type { GroundingCorpus } from '../skills/ideation/guard'
 
@@ -101,9 +103,15 @@ export interface CorpusSources {
   knowledgePassages: number
   newsletterItems: number
   webFindings: number
+  /** News, trends and conversations from the trend scan. */
+  trendSignals: number
   documentSummaries: number
   knowledgeClaims: number
 }
+
+/** Findings the trend scan made, rather than research for a fact. */
+const isSignal = (f: Finding) =>
+  f.kind === 'news' || f.kind === 'trend' || f.kind === 'conversation'
 
 /**
  * Everything a run's ideas may cite, with each kind of source represented early.
@@ -132,6 +140,26 @@ export function buildGroundingCorpus(
   const fresh = (url: string | undefined, publishedAt: string | undefined) =>
     !(url && (isGenericPage(url) || isReferencePage(url))) &&
     isRecent(publishedAt, ctx.prefs.research.freshness_days, now)
+  // Every source is rated for how far it can be trusted: the account's own
+  // sites count as official, another market's pages count for less.
+  const accountHosts = ownHosts([
+    ctx.account.websiteUrl,
+    ...ctx.offerings.map(o => o.url)
+  ])
+  const regionCode = inferRegion(ctx)?.code
+  const rate = (
+    url: string | undefined,
+    origin: Claim['origin'],
+    finding?: Finding
+  ) =>
+    rateSource({
+      url,
+      origin,
+      ownHosts: accountHosts,
+      regionCode,
+      publisher: finding?.publisher,
+      fromNewsSearch: finding?.provider === 'serper_news'
+    })
   const docDate = (doc: (typeof docs)[number]) =>
     doc.publishedAt ? doc.publishedAt.toISOString().slice(0, 10) : undefined
 
@@ -146,7 +174,8 @@ export function buildGroundingCorpus(
         quote: proof.detail || proof.label,
         sourceUrl: proof.sourceUrl || offering.url || undefined,
         sourceTitle: `${offering.name} — verified proof point`,
-        origin: 'own'
+        origin: 'own',
+        credibility: rate(proof.sourceUrl || offering.url || undefined, 'own')
       })
     }
     if (offering.description) {
@@ -154,7 +183,8 @@ export function buildGroundingCorpus(
         claim: offering.description,
         sourceTitle: `${offering.name} overview`,
         sourceUrl: offering.url || undefined,
-        origin: 'own'
+        origin: 'own',
+        credibility: rate(offering.url || undefined, 'own')
       })
     }
   }
@@ -173,7 +203,8 @@ export function buildGroundingCorpus(
       sourceId: doc.id,
       publishedAt: docDate(doc),
       isFresh: fresh(doc.sourceUrl || undefined, docDate(doc)),
-      origin: 'knowledge'
+      origin: 'knowledge',
+      credibility: rate(doc.sourceUrl || undefined, 'knowledge')
     })
   }
 
@@ -185,7 +216,8 @@ export function buildGroundingCorpus(
     stories.map(story => {
       const source = {
         sourceUrl: story.url || undefined,
-        origin: 'newsletter' as const
+        origin: 'newsletter' as const,
+        credibility: rate(story.url || undefined, 'newsletter')
       }
       const told = day(story.receivedAt)
       const items: Claim[] = [
@@ -216,24 +248,39 @@ export function buildGroundingCorpus(
     })
   )
 
-  const web: Claim[] = []
-  for (const f of findings) {
-    if (!f.snippet && !f.title) continue
-    web.push({
-      claim: f.snippet || f.title,
-      quote: f.snippet || undefined,
-      sourceUrl: f.url,
-      sourceTitle: f.title,
-      publishedAt: f.publishedAt,
-      isFresh: fresh(f.url, f.publishedAt),
-      origin: 'web'
-    })
-  }
+  const asClaim = (f: Finding): Claim => ({
+    claim: f.snippet || f.title,
+    quote: f.snippet || undefined,
+    sourceUrl: f.url,
+    sourceTitle: f.title,
+    publishedAt: f.publishedAt,
+    isFresh: fresh(f.url, f.publishedAt),
+    origin: 'web',
+    credibility: rate(f.url, 'web', f),
+    ...(f.kind && f.kind !== 'background' ? { kind: f.kind } : {}),
+    ...(f.publisher ? { publisher: f.publisher } : {})
+  })
+  const usable = findings.filter(f => f.snippet || f.title)
+
+  const web: Claim[] = usable.filter(f => !isSignal(f)).map(asClaim)
   // Recent articles first and homepages last, so the slice the prompt shows
-  // leads with what is new. The sort is stable within each group.
+  // leads with what is new; within each, the most trustworthy first.
   const webRank = (c: Claim) =>
     c.isFresh ? 0 : c.sourceUrl && isGenericPage(c.sourceUrl) ? 2 : 1
-  web.sort((a, b) => webRank(a) - webRank(b))
+  web.sort(
+    (a, b) =>
+      webRank(a) - webRank(b) ||
+      (b.credibility?.score ?? 0) - (a.credibility?.score ?? 0)
+  )
+
+  // What is happening now: the news, trends and conversations, taken in
+  // turn so each kind is shown, this week's first within each.
+  const byKind = (kind: Claim['kind']) =>
+    usable
+      .filter(f => f.kind === kind)
+      .map(asClaim)
+      .sort((a, b) => Number(!!b.isFresh) - Number(!!a.isFresh))
+  const trends = interleave([byKind('news'), byKind('trend'), byKind('conversation')])
 
   // The summary grounds each document's overall thesis.
   const summaries: Claim[] = docs
@@ -245,7 +292,8 @@ export function buildGroundingCorpus(
       sourceId: doc.id,
       publishedAt: docDate(doc),
       isFresh: fresh(doc.sourceUrl || undefined, docDate(doc)),
-      origin: 'knowledge' as const
+      origin: 'knowledge' as const,
+      credibility: rate(doc.sourceUrl || undefined, 'knowledge')
     }))
 
   // Taken across documents in turn, so one long document cannot crowd out the rest.
@@ -261,7 +309,8 @@ export function buildGroundingCorpus(
           sourceId: doc.id,
           publishedAt: docDate(doc),
           isFresh: fresh(doc.sourceUrl || undefined, docDate(doc)),
-          origin: 'knowledge' as const
+          origin: 'knowledge' as const,
+          credibility: rate(doc.sourceUrl || undefined, 'knowledge')
         }))
     )
   )
@@ -270,6 +319,7 @@ export function buildGroundingCorpus(
     own,
     retrieved,
     newsletter,
+    trends,
     web,
     summaries,
     keyClaims
@@ -284,6 +334,7 @@ export function buildGroundingCorpus(
       knowledgePassages: retrieved.length,
       newsletterItems: newsletter.length,
       webFindings: web.length,
+      trendSignals: trends.length,
       documentSummaries: summaries.length,
       knowledgeClaims: keyClaims.length
     }

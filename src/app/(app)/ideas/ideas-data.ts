@@ -94,6 +94,7 @@ export async function loadIdeasPage(
             originalityScore: ideasTable.originalityScore,
             goalFitScore: ideasTable.goalFitScore,
             goalFitNote: ideasTable.goalFitNote,
+            scorecard: ideasTable.scorecard,
             unsupportedClaims: ideasTable.unsupportedClaims,
             sourceIds: ideasTable.sourceIds,
             risks: ideasTable.risks,

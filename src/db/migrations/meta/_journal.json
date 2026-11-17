@@ -365,6 +365,13 @@
       "when": 1794827723019,
       "tag": "0051_platform_insights",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794830924039,
+      "tag": "0052_idea_scorecard",
+      "breakpoints": true
     }
   ]
 }

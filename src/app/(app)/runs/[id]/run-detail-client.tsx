@@ -49,6 +49,12 @@ import {
 import { AiDraftingStatus, DraftingStatus } from '~/components/ai-drafting-status'
 import { useDraftingPoll } from '../../ideas/use-drafting-poll'
 import { isSelectableIdea, RunIdeaCard } from '~/components/run-idea-card'
+import {
+  KIND_LABELS,
+  kindOfProvider,
+  ownHosts,
+  rateSource
+} from '~/lib/research/source-credibility'
 
 interface RunDetailProps {
   initialRun: any
@@ -126,6 +132,36 @@ function sourceHost(url?: string | null): string | null {
 }
 
 /**
+ * How far a research source can be trusted, what it was found for (the news,
+ * a trend, what people say) and when it was published, under its link.
+ */
+function FindingSourceLine({
+  finding,
+  accountSite
+}: {
+  finding: { url: string; provider?: string | null; publishedAt?: string | null }
+  accountSite?: string | null
+}) {
+  const rating = rateSource({
+    url: finding.url,
+    origin: 'web',
+    ownHosts: ownHosts([accountSite]),
+    fromNewsSearch: finding.provider?.startsWith('serper_news')
+  })
+  const kind = kindOfProvider(finding.provider)
+  const parts = [
+    rating.label,
+    kind ? KIND_LABELS[kind] : null,
+    finding.publishedAt ? finding.publishedAt.slice(0, 10) : null
+  ].filter(Boolean)
+  return (
+    <p className="text-muted" title={rating.note}>
+      {parts.join(' · ')}
+    </p>
+  )
+}
+
+/**
  * A stage can hold several steps (drafting records one per post), so its
  * state is summarised over all of them rather than read from the latest.
  */
@@ -198,7 +234,10 @@ export function RunDetailClient({
   const [isDrafting, setIsDrafting] = useState(() => pollIds.length > 0)
   // Only a batch started on this page opens the posts when it finishes.
   const [openPostsWhenDone, setOpenPostsWhenDone] = useState(false)
-  const [isApprovingAll, setIsApprovingAll] = useState(false)
+  // The ideas an Approve all / Approve selected is approving: only their cards
+  // show it.
+  const [approvingIds, setApprovingIds] = useState<string[]>([])
+  const isApprovingAll = approvingIds.length > 0
   const [draftStatus, setDraftStatus] = useState<DraftingStatus>(() =>
     pollIds.length > 0 ? 'processing' : 'idle'
   )
@@ -373,7 +412,7 @@ export function RunDetailClient({
   const handleApproveAll = async () => {
     const proposedIds = ideas.filter((i) => i.status === 'proposed').map((i) => i.id)
     if (proposedIds.length === 0) return
-    setIsApprovingAll(true)
+    setApprovingIds(proposedIds)
     try {
       const res = await approveRunIdeas(run.id, proposedIds)
       if (!res.success) {
@@ -399,7 +438,7 @@ export function RunDetailClient({
         })
       }
     } finally {
-      setIsApprovingAll(false)
+      setApprovingIds([])
     }
   }
 
@@ -408,7 +447,7 @@ export function RunDetailClient({
       ideas.some((i) => i.id === id && i.status === 'proposed')
     )
     if (ids.length === 0) return
-    setIsApprovingAll(true)
+    setApprovingIds(ids)
     try {
       const res = await approveRunIdeas(run.id, ids)
       if (!res.success) {
@@ -418,18 +457,25 @@ export function RunDetailClient({
       const done = res.approvedIds ?? []
       setIdeas((prev) => prev.map((i) => (done.includes(i.id) ? { ...i, status: 'approved' } : i)))
     } finally {
-      setIsApprovingAll(false)
+      setApprovingIds([])
     }
   }
 
-  // Takes the run and its ideas from the server. After a failed attempt some
-  // ideas may already be drafted, so putting them all back to approved here
-  // would show the wrong thing.
-  const resyncFromServer = async () => {
+  // Takes the run, and the given ideas, from the server. After a failed
+  // attempt some ideas may already be drafted, so putting them all back to
+  // approved here would show the wrong thing. Only a batch's own ideas change
+  // while it drafts; the others can be approved or edited meanwhile, so they
+  // keep what the page shows rather than an answer read before that landed.
+  const resyncFromServer = async (ideaIds: string[]) => {
     const res = await fetchRunStatus(run.id)
     if (res.success && res.run) {
       setRun(res.run)
-      if (res.ideas) setIdeas(res.ideas)
+      if (res.ideas) {
+        const fresh = new Map<string, any>(res.ideas.map((i: any) => [i.id, i]))
+        setIdeas((prev) =>
+          prev.map((i) => (ideaIds.includes(i.id) && fresh.get(i.id)) || i)
+        )
+      }
     }
   }
 
@@ -453,7 +499,7 @@ export function RunDetailClient({
     )
 
     const fail = async (message: string) => {
-      await resyncFromServer().catch(() => {
+      await resyncFromServer(approvedIds).catch(() => {
         setIdeas((prev) =>
           prev.map((i) => (approvedIds.includes(i.id) ? { ...i, status: 'approved' } : i))
         )
@@ -478,7 +524,7 @@ export function RunDetailClient({
       setTicked((prev) => prev.filter((id) => !approvedIds.includes(id)))
       // Selected ideas that were not queued (drafted meanwhile, say) show as
       // they are; the note says why.
-      await resyncFromServer().catch(() => {})
+      await resyncFromServer(approvedIds).catch(() => {})
       if (res.note) {
         showToast({ title: 'Some ideas were skipped', message: res.note, type: 'info' })
       }
@@ -501,7 +547,7 @@ export function RunDetailClient({
       setPollIds([])
       setIsDrafting(false)
       // The run's status and stage list catch up with the finished batch.
-      void resyncFromServer().catch(() => {})
+      void resyncFromServer(rows.map((r) => r.id)).catch(() => {})
       const drafted = rows.filter((r) => r.status === 'drafted').length
       const notDrafted = rows.length - drafted
       if (drafted === 0) {
@@ -931,7 +977,10 @@ export function RunDetailClient({
                     onApprove={handleApproveIdea}
                     onReject={handleRejectIdea}
                     onEditSave={handleEditIdeaSave}
-                    isBusy={ideaActionBusyId === idea.id || isBusy}
+                    // Only the card's own action, or a bulk approve that
+                    // includes it. Drafting ideas show it in their status and
+                    // have no actions; the rest stay usable meanwhile.
+                    isBusy={ideaActionBusyId === idea.id || approvingIds.includes(idea.id)}
                     selected={selection.includes(idea.id)}
                     onSelectChange={canDecide ? setTick : undefined}
                   />
@@ -984,6 +1033,9 @@ export function RunDetailClient({
                       </a>
                     ) : (
                       <p className="text-muted pt-1">Knowledge base</p>
+                    )}
+                    {sourceHost(f.url) && (
+                      <FindingSourceLine finding={f} accountSite={account?.websiteUrl} />
                     )}
                   </div>
                 ))}

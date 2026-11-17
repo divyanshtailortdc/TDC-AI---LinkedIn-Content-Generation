@@ -337,6 +337,7 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
     originalityScore: 80,
     goalFitScore: null,
     goalFitNote: null,
+    scorecard: null,
     unsupportedClaims: [],
     sourceIds: [],
     risks: [],
@@ -591,6 +592,7 @@ describe('buildGroundingCorpus', () => {
       knowledgePassages: 1,
       newsletterItems: 0,
       webFindings: 1,
+      trendSignals: 0,
       documentSummaries: 2,
       knowledgeClaims: 60
     })

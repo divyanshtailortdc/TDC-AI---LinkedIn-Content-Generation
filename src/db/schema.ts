@@ -55,6 +55,8 @@ import {
   type InsightStatus,
   type ProfileInsights
 } from '../lib/profile-insights/types'
+import type { IdeaScorecard } from '../lib/idea-scorecard'
+import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -598,6 +600,11 @@ export const ideasTable = pgTable('ideas', {
         quote?: string
         publishedAt?: string
         confidence?: number
+        // How far its source can be trusted, what it was researched for,
+        // and the outlet a news search named. Absent on older ideas.
+        credibility?: SourceRating
+        kind?: SignalKind
+        publisher?: string
       }>
     >()
     .default([]),
@@ -619,6 +626,10 @@ export const ideasTable = pgTable('ideas', {
   // before it, or when the review could not run.
   goalFitScore: integer('goal_fit_score'),
   goalFitNote: text('goal_fit_note'),
+  // Every other score with its reason (src/lib/idea-scorecard): originality,
+  // trend relevance, brand fit and engagement potential from the idea review,
+  // and source quality over the facts it states. Null for older ideas.
+  scorecard: jsonb('scorecard').$type<IdeaScorecard>(),
   unsupportedClaims: jsonb('unsupported_claims').$type<string[]>().default([]),
   sourceIds: jsonb('source_ids').$type<string[]>().default([]),
   risks: jsonb('risks').$type<string[]>().default([]),

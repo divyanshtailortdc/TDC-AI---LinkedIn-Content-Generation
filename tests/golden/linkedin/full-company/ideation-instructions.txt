@@ -46,6 +46,17 @@ Every idea is reviewed against these three before anyone sees it, and one that m
     Objective: authority
     The one message to land: We grow our team
 
+WHAT MAKES AN IDEA WORTH POSTING
+Ideas compete with everything else in the feed. Aim for ones these readers would stop for, react to and pass on, and that only this account could post:
+- Start from something specific: a scene, an object, a line people say, a habit, a figure from the evidence, something that happened this week. Never from a category ("customer experience", "industry trends").
+- Give it a twist: an unexpected connection, a reversal, a tension, or a question the reader wants answered before they scroll on.
+- Make the reader feel something (recognition, surprise, delight, relief, conviction) or hand them something worth saving, or worth sending to one particular person.
+- Make it so much this account's own that a competitor could not post it unchanged.
+Before writing each idea, think of the obvious post on its subject, and do not write that one. Templates are out: "X tips for Y", "why X matters", "the importance of", "did you know", "here is what I learned", a list with no point of view, a greeting for a day or festival with nothing to say, a motivational quote. No two ideas in this run share a subject, a setting or a joke.
+
+REACH, WHATEVER THE GOAL
+Give every idea a reason to travel beyond the people who already follow: someone would send it to a friend or colleague, it invites a comment or a reply, its hook opens a question, it has emotional pull. Serve the goal through that, not instead of it. For an engagement or follower goal, the share and the comment are the point. For a promotion, make people curious about the offer: it can be the punchline, the proof or the twist, never a hard sell. For authority or leads, give an insight people pass on to a peer. Not every idea has to sell or mention the offer. Nothing guarantees reach; aim for the best odds.
+
 HOW THIS AUTHOR SOUNDS
 Tone: direct
 Perspective: write as "we"
@@ -70,3 +81,4 @@ RULES THAT OVERRIDE EVERYTHING ELSE
 6. Be specific to this account (its field, its readers' situation, its market) without promoting it. A subject any company in any industry could post about is too generic; an idea that ends in "choose our product" is an advert. A product may appear only as an example the evidence covers, never as the conclusion.
 7. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".
 8. Evidence labels (E1, E2...) belong only in evidenceRef, reader-group labels (A1, A2...) only in audienceRef, and goal labels (G1, G2...) only in goalRefs. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.
+9. Never build an idea on a tragedy, disaster, death, accident, crime, war, a political or religious dispute, or a real person's private life, health or scandal, however viral it is. A joke about a public moment is fine only when nobody is its butt.

@@ -13,10 +13,16 @@ import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import { addUsage } from '~/lib/ai/usage'
 import { retrieveNewsletterStories } from '~/lib/intel/retrieval'
 import {
+  dedupeFindings,
   isWebSearchConfigured,
+  providerTag,
+  runTrendScan,
   runWebSearch,
   type Finding
 } from '~/lib/research/web-search'
+import type { ResearchQuery } from '~/lib/research/findings'
+import { screenFindings } from '~/lib/research/source-credibility'
+import { withMeasuredNovelty } from '~/lib/idea-scorecard'
 import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
   audienceSegments,
@@ -53,7 +59,9 @@ import {
   generateIdeas,
   ideationChannels,
   ideationStyle,
-  type GeneratedIdeaItem
+  runPlatforms,
+  type GeneratedIdeaItem,
+  type GroundingCorpus
 } from '../skills/ideation'
 import { channelAudience } from '../channel-context'
 import {
@@ -194,6 +202,36 @@ async function researchTheWeb(
   return fallbackReason
     ? { ...fixed, usage: agentUsage, details: { fallbackReason } }
     : fixed
+}
+
+/** Most items screened out of research listed on the research step. */
+const SCREENED_OUT_SHOWN = 30
+
+/**
+ * This week's news, trends and conversations as the idea review reads them:
+ * one line each, with where and when.
+ */
+function currentItems(corpus: GroundingCorpus): string[] {
+  return corpus.verifiedClaims
+    .filter(c => c.kind)
+    .map(c => {
+      let site: string | undefined
+      try {
+        site = c.sourceUrl ? new URL(c.sourceUrl).hostname.replace(/^www\./, '') : undefined
+      } catch {
+        site = undefined
+      }
+      const where = [c.publisher ?? site, c.publishedAt].filter(Boolean).join(', ')
+      return `${c.sourceTitle ?? c.claim}${where ? ` (${where})` : ''} [${c.kind}]`
+    })
+}
+
+/** The mean of the scores given; null when none were. */
+function averageOf(scores: Array<number | null | undefined>): number | null {
+  const given = scores.filter((n): n is number => typeof n === 'number')
+  return given.length > 0
+    ? Math.round(given.reduce((sum, n) => sum + n, 0) / given.length)
+    : null
 }
 
 async function runFixedSearch(ctx: GenerationContext): Promise<WebResearch> {
@@ -364,19 +402,34 @@ async function researchAndIdeate(
       requestSummary: !ctx.prefs.research.use_web_search
         ? 'Reading the knowledge base and newsletters (web search disabled in preferences)'
         : env.RESEARCH_MODE === 'agent'
-          ? 'Research agent searching the web and reading pages, plus the knowledge base and newsletters'
-          : 'Searching the web and reading the knowledge base and newsletters'
+          ? "Research agent searching the web and reading pages, scanning this week's news and trends, plus the knowledge base and newsletters"
+          : "Searching the web, scanning this week's news and trends, and reading the knowledge base and newsletters"
     })
     .returning()
 
-  // The web, the knowledge base and the newsletters are read at once: none
-  // needs the others.
-  const [research, passages, stories] = await Promise.all([
-    researchTheWeb(ctx, ideationStyle(ctx, channels)),
+  // The web, the trend scan, the knowledge base and the newsletters are read
+  // at once: none needs the others.
+  const style = ideationStyle(ctx, channels)
+  const platformIds = runPlatforms(ctx, channels)
+  const trendQueries: ResearchQuery[] = []
+  const [research, trendFindings, passages, stories] = await Promise.all([
+    researchTheWeb(ctx, style),
+    runTrendScan(
+      ctx,
+      { platforms: platformIds.map(p => PLATFORMS[p].label), style },
+      q => trendQueries.push(q)
+    ),
     retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx)),
     retrieveNewsletterStories(ctx)
   ])
-  const findings = research.findings
+  // Pages written to rank, another market's stories and syndicated copies
+  // never reach the writer; the step lists them with why.
+  const region = inferRegion(ctx)
+  const screened = screenFindings(
+    dedupeFindings([...research.findings, ...trendFindings]),
+    { regionCode: region?.code, regionName: region?.name }
+  )
+  const findings = screened.kept
   if (researchStep) await recordStepUsage(runId, researchStep.id, research.usage)
 
   // Past the deadline the run is already failed, and a stopped one already
@@ -390,7 +443,7 @@ async function researchAndIdeate(
         title: f.title,
         snippet: f.snippet,
         publishedAt: f.publishedAt ?? null,
-        provider: f.provider
+        provider: providerTag(f)
       }))
     )
   }
@@ -410,7 +463,21 @@ async function researchAndIdeate(
         responseJson: {
           mode: research.mode,
           queries: research.queries,
+          trendQueries: trendQueries.map(q =>
+            q.endpoint === 'news' ? `news: ${q.query}` : q.query
+          ),
           webFindings: findings.length,
+          trendSignals: corpus.sources.trendSignals,
+          screenedOut: screened.dropped.slice(0, SCREENED_OUT_SHOWN),
+          screenedOutCount: screened.dropped.length,
+          // How far the kept web sources can be trusted, by kind of source.
+          sourceMix: corpus.verifiedClaims
+            .filter(c => c.origin === 'web' && c.credibility)
+            .reduce<Record<string, number>>((mix, c) => {
+              const label = c.credibility!.label
+              mix[label] = (mix[label] ?? 0) + 1
+              return mix
+            }, {}),
           recentEvidence: corpus.verifiedClaims.filter(c => c.isFresh).length,
           knowledgeClaims: corpus.sources.knowledgeClaims,
           knowledgePassages: passages.length,
@@ -448,8 +515,10 @@ async function researchAndIdeate(
     )
   }
 
-  // Over-generate so grounding and diversity filters have something to cut.
-  const candidateCount = Math.min(targetIdeas + 3, 15)
+  // Over-generate so grounding, the review and the diversity filters have
+  // something to choose from: the most original and engaging of a bigger
+  // batch beat the only ones written.
+  const candidateCount = Math.min(targetIdeas + 4, 16)
   // Each candidate is asked for one goal, the goals in turn, so every goal
   // picked for the run gets candidates of its own.
   const assignedGoals = spreadGoals(
@@ -482,6 +551,15 @@ async function researchAndIdeate(
   const goalMisses: Array<{ title: string; reason: string; goalId?: string }> =
     []
   let goalReviewed = 0
+  // What the review judges originality and trend relevance against.
+  const reviewContext = {
+    platforms: platformIds,
+    now: currentItems(corpus),
+    earlier: ctx.history.ideas
+      .filter(i => i.runId !== runId)
+      .map(i => i.title)
+      .filter(Boolean)
+  }
   const reviewAgainstGoals = async (ideas: GeneratedIdeaItem[]) => {
     const review = await reviewGoalFit(
       ctx,
@@ -490,7 +568,8 @@ async function researchAndIdeate(
       channels?.target && channels.target !== 'linkedin'
         ? PLATFORMS[channels.target].label
         : null,
-      ideationStyle(ctx, channels)
+      style,
+      reviewContext
     )
     ideationUsage = addUsage(ideationUsage, review.usage)
     goalReviewed += review.reviews.filter(Boolean).length
@@ -535,7 +614,10 @@ async function researchAndIdeate(
     priority: ideaQuality,
     abortSignal: signal
   })
-  validated = repeats.kept
+  // Close to an earlier idea, though not a repeat: its originality says so.
+  validated = repeats.kept.map((idea, i) =>
+    withMeasuredNovelty(idea, repeats.closest[i] ?? null)
+  )
   discarded.push(...repeats.dropped)
 
   // ------------------------------------------------------------ selection
@@ -591,7 +673,9 @@ async function researchAndIdeate(
         [...earlierIdeas, ...validated],
         { priority: ideaQuality, abortSignal: signal }
       )
-      const reviewed = retryRepeats.kept
+      const reviewed = retryRepeats.kept.map((idea, i) =>
+        withMeasuredNovelty(idea, retryRepeats.closest[i] ?? null)
+      )
       discarded.push(...retryRepeats.dropped)
       validated = [...validated, ...reviewed]
       if (selected.length === 0) {
@@ -636,20 +720,12 @@ async function researchAndIdeate(
     }
   })
 
-  // The mean of the scores given; null when none were.
-  const averageOf = (scores: Array<number | undefined>) => {
-    const given = scores.filter((n): n is number => typeof n === 'number')
-    return given.length > 0
-      ? Math.round(given.reduce((sum, n) => sum + n, 0) / given.length)
-      : null
-  }
-  const averageGrounding =
-    selected.length > 0
-      ? Math.round(
-          selected.reduce((sum, i) => sum + (i.groundingScore ?? 80), 0) /
-            selected.length
-        )
-      : 0
+  // Source quality only over the ideas that state facts; the rest need none.
+  const averageGrounding = averageOf(
+    selected.map(i =>
+      i.scorecard?.sources?.status === 'not_needed' ? null : i.groundingScore
+    )
+  )
 
   const ideationOutcome = {
     completedAt: new Date(),
@@ -676,6 +752,15 @@ async function researchAndIdeate(
         missedGoal: goalMisses.length,
         averageGoalFit: averageOf(selected.map(i => i.goalFitScore))
       },
+      averageScores: {
+        engagement: averageOf(selected.map(i => i.scorecard?.engagement?.score)),
+        originality: averageOf(selected.map(i => i.scorecard?.originality?.score)),
+        trendRelevance: averageOf(selected.map(i => i.scorecard?.trendRelevance?.score)),
+        brandFit: averageOf(selected.map(i => i.scorecard?.brandFit?.score))
+      },
+      noSourcesNeeded: selected.filter(
+        i => i.scorecard?.sources?.status === 'not_needed'
+      ).length,
       averageGroundingScore: averageGrounding,
       model: handle.modelId,
       usage: ideationUsage
@@ -745,6 +830,7 @@ async function researchAndIdeate(
         originalityScore: idea.originalityScore ?? 80,
         goalFitScore: idea.goalFitScore ?? null,
         goalFitNote: idea.goalFitNote ?? null,
+        scorecard: idea.scorecard ?? null,
         unsupportedClaims: idea.unsupportedClaims || [],
         sourceIds: idea.sourceIds || [],
         risks: idea.risks || [],

@@ -1,3 +1,10 @@
+import { scoreSources, type ScoredClaim } from '@/lib/idea-scorecard'
+import {
+  rateSource,
+  sourceName,
+  type SignalKind,
+  type SourceRating
+} from '@/lib/research/source-credibility'
 import { isGenericPage } from '@/lib/urls'
 import { countryName, countryOfUrl, type Region } from '../../region'
 import type {
@@ -34,6 +41,12 @@ export interface GroundingCorpus {
      * not "verified".
      */
     origin?: EvidenceOrigin
+    /** How far its source can be trusted (rateSource); rated from the URL when absent. */
+    credibility?: SourceRating
+    /** What it was researched for: the news, a trend, what people say. */
+    kind?: SignalKind
+    /** The outlet a news search named. */
+    publisher?: string
   }>
   knownNumbers?: string[]
   hasFreshEvidence?: boolean
@@ -276,6 +289,21 @@ const STORY_PATTERNS = [
 /** True when a claim tells a specific story rather than describing the brand. */
 export function describesSpecificStory(text: string): boolean {
   return STORY_PATTERNS.some(p => p.test(text)) || extractNumbers(text).length > 0
+}
+
+/**
+ * Whether `source` itself tells the story a claim tells: every figure and
+ * year in the claim is in it, and so is an event ("launched", "partnered
+ * with") when the claim names one. A brand's homepage that states its own
+ * offer ("free delivery within 7 km") is the source of that offer; one that
+ * never mentions a launch is not the source of the launch.
+ */
+export function storyBackedBy(claim: string, source: string): boolean {
+  if (!extractNumbers(claim).every(n => mentionsFigure(source, n))) return false
+  const years = claim.match(/\b(?:19|20)\d{2}\b/g) ?? []
+  if (!years.every(y => source.includes(y))) return false
+  const event = STORY_PATTERNS[0]!
+  return !event.test(claim) || event.test(source)
 }
 
 /** "S26", "Fold7", "QN90F", "Book5": letters and digits forming a model code. */
@@ -651,6 +679,8 @@ export function validateIdea(
   // word, or by substantial overlap); failing that, a source that states it
   // word for word replaces the citation; failing both, the claim is dropped.
   let citesRecentEvidence = false
+  let droppedEvidence = 0
+  const scoredClaims: ScoredClaim[] = []
   const keptEvidence: typeof idea.supportingEvidence = []
   for (const ev of idea.supportingEvidence) {
     const evNumbers = extractNumbers(ev.claim)
@@ -684,19 +714,40 @@ export function validateIdea(
           : `Dropped an unverifiable supporting claim: "${shortClaim}".`
       )
       unsupportedClaims.push(ev.claim)
+      droppedEvidence++
       continue
     }
-    if (match.sourceUrl && isGenericPage(match.sourceUrl) && describesSpecificStory(ev.claim)) {
+    // A homepage or index is not the source of a story it does not tell. One
+    // that states the claim itself (its own offer, figures and all) is.
+    if (
+      match.sourceUrl &&
+      isGenericPage(match.sourceUrl) &&
+      describesSpecificStory(ev.claim) &&
+      !(direct && storyBackedBy(ev.claim, `${match.claim} ${match.quote || ''}`))
+    ) {
       issues.push(
         `Dropped "${shortClaim}": ${match.sourceUrl} is a homepage or index, not the source of a specific story.`
       )
       unsupportedClaims.push(ev.claim)
+      droppedEvidence++
       continue
     }
 
     if (direct) directClaims.push(ev.claim)
     else inferredClaims.push(ev.claim)
     if (match.isFresh) citesRecentEvidence = true
+    const credibility =
+      match.credibility ??
+      rateSource({ url: match.sourceUrl, origin: match.origin })
+    scoredClaims.push({
+      direct,
+      credibility,
+      sourceName:
+        match.origin === 'own' || match.origin === 'knowledge'
+          ? match.sourceTitle
+          : (sourceName(match.sourceUrl, match.publisher) ?? match.sourceTitle),
+      publishedAt: match.publishedAt
+    })
     keptEvidence.push({
       ...ev,
       factType: direct ? factTypeFor(match.origin) : 'inferred',
@@ -707,7 +758,10 @@ export function validateIdea(
       quote: match.quote,
       sourceId: match.sourceId,
       publishedAt: match.publishedAt,
-      confidence: direct ? Math.max(ev.confidence, 0.9) : 0.72
+      confidence: direct ? Math.max(ev.confidence, 0.9) : 0.72,
+      credibility,
+      ...(match.kind ? { kind: match.kind } : {}),
+      ...(match.publisher ? { publisher: match.publisher } : {})
     })
     if (match.sourceId) sourceIds.push(match.sourceId)
   }
@@ -736,14 +790,16 @@ export function validateIdea(
   }
 
   // 7. Scores
-  const scored =
-    directClaims.length + inferredClaims.length + unsupportedClaims.length
-  const coverage =
-    scored === 0
-      ? 0
-      : (directClaims.length + inferredClaims.length * 0.55) / scored
-
-  let groundingScore = Math.round(coverage * 100)
+  //
+  // Source quality covers the facts the idea states, nothing else. It used to
+  // count the idea's own reasoning (thesis, argument, why now) as weakly
+  // supported "claims", so an idea that needed no facts scored 55 and was
+  // flagged "Weak sources" for being creative. Reasoning is not a claim; a
+  // figure or story with no source already disqualifies the idea above.
+  const sources = scoreSources(scoredClaims, droppedEvidence)
+  // Grounding is the share of what it states that holds up: all of it when
+  // it states nothing.
+  let groundingScore = sources.score ?? 100
   if (hasFabricatedAnecdote) groundingScore = Math.min(groundingScore, 45)
   if (hasUnsupportedNumbers) groundingScore = Math.min(groundingScore, 50)
   groundingScore = Math.max(0, Math.min(100, groundingScore))
@@ -763,6 +819,7 @@ export function validateIdea(
 
   idea.groundingScore = groundingScore
   idea.originalityScore = originalityScore
+  idea.scorecard = { ...idea.scorecard, sources }
   idea.unsupportedClaims = unsupportedClaims
   idea.sourceIds = Array.from(new Set(sourceIds))
   // Surface the problems on the card so the approval gate is informed.

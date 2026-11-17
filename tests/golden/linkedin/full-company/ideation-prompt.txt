@@ -14,6 +14,9 @@ EVIDENCE AVAILABLE THIS RUN
     Origin: a newsletter the account receives, or the article it links to: third-party text that has not been verified
 </evidence>
 
+WHAT IS HAPPENING NOW
+No trend research ran this time. Do not claim that anything is trending or viral.
+
 ALREADY COVERED FOR THIS ACCOUNT (drafted or awaiting review) — do not repeat these angles:
 - Your freight bill is wrong.
 - Duplicate invoices cost more than fuel.
@@ -51,12 +54,12 @@ For each idea provide:
 - readers: who exactly this idea is for, in a few plain words: the people its goal is meant to reach
 - audienceRef: the label of the reader group those readers belong to, e.g. "A2", or "none" when no group listed is them
 - format: the post format that fits best
-- whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"
+- whyNow: why this earns feed space today: the news, trend or conversation it rides (cite it), or structural reasoning when it rides none. Only evidence marked "(recent)" makes something current
 - hookConcept: the idea for the first 200 characters, before the fold. A concept, not final copy.
 - coreArgument: the "so what", in full
 - audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message and giving them a reason to take its desired action
 - supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
 - mediaBrief: one sentence of visual direction for the image
-- noveltyNote: why this is not the generic take on the subject
+- noveltyNote: the obvious take on this subject that you did not write, and what this idea does instead
 - risks: anything that could make this land badly
 - estimatedStrength: your honest 1-100 assessment

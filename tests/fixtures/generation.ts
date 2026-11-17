@@ -170,6 +170,7 @@ export function idea(overrides: Partial<Idea> = {}): Idea {
     originalityScore: 80,
     goalFitScore: null,
     goalFitNote: null,
+    scorecard: null,
     unsupportedClaims: [],
     sourceIds: [],
     risks: [],
