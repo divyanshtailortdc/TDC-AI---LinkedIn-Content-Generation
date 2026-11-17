@@ -116,8 +116,15 @@ function PublishControlsInner({
   publication,
   onChange,
   media = 'image',
-  slideCount = 0
+  slideCount = 0,
+  unsavedEdits = false
 }: {
+  /**
+   * Set while the page's editor holds edits not saved yet. Publish now and
+   * Schedule send the saved text, so they wait until the edits are saved or
+   * cancelled, as Approve does.
+   */
+  unsavedEdits?: boolean
   /** What goes out with the text: the confirmation names it. */
   media?: MediaFormat
   /** A carousel's slides. */
@@ -235,8 +242,26 @@ function PublishControlsInner({
     }
   }
 
-  const publishNow = (confirmedNotPublished = false) =>
-    run(
+  // The text on screen is not the text that would go out: say so instead.
+  // Checked on each button and again when the publish or schedule is sent,
+  // since the schedule form stays open while the editor can still be typed in.
+  const blockedByUnsavedEdits = () => {
+    if (!unsavedEdits) return false
+    showToast({
+      type: 'error',
+      title: 'Unsaved changes',
+      message:
+        'Save or cancel your edits before publishing this post. Use Edit Post Text to reopen them.'
+    })
+    return true
+  }
+
+  const publishNow = (confirmedNotPublished = false) => {
+    if (blockedByUnsavedEdits()) {
+      setDialog(null)
+      return
+    }
+    return run(
       () =>
         publishPostNow(postId, {
           confirmedNotPublished,
@@ -259,8 +284,13 @@ function PublishControlsInner({
               },
       'unknown-publish'
     )
+  }
 
   const schedule = (confirmedNotPublished = false) => {
+    if (blockedByUnsavedEdits()) {
+      setDialog(null)
+      return
+    }
     const at = new Date(scheduleAt)
     if (Number.isNaN(at.getTime())) return
     void run(
@@ -504,13 +534,14 @@ function PublishControlsInner({
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                if (blockedByUnsavedEdits()) return
                 setDialog(
                   lastFailed && publication.errorCode === 'unknown_outcome'
                     ? 'unknown-publish'
                     : 'publish'
                 )
-              }
+              }}
               className={`${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`}
             >
               {busy ? (
@@ -524,6 +555,7 @@ function PublishControlsInner({
               type="button"
               disabled={busy}
               onClick={() => {
+                if (blockedByUnsavedEdits()) return
                 setScheduleAt(inAnHour())
                 setScheduling(true)
               }}

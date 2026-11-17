@@ -1763,6 +1763,7 @@ export function PostDetailClient({
               publication={activePost.publication}
               media={activeMediaFormat}
               slideCount={slides?.length ?? activePost.slideCount ?? 0}
+              unsavedEdits={hasUnsavedEdits}
               onChange={publication => {
                 const id = activePost.id
                 // Deleted from its platform: deletePublishedPost cleared its
