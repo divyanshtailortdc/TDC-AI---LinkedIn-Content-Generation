@@ -17,10 +17,12 @@ import { hasGoalTitle } from '@/lib/goal-titles'
 import { IDENTITY_PATH } from '@/lib/identity'
 import { idSchema } from '@/lib/ids'
 import { requireUser } from '@/lib/session'
+import { setupAction } from '@/lib/setup-action'
 import {
   AccountIdSchema,
   GoalPayloadSchema,
-  parseSetupPayload
+  parseSetupPayload,
+  SetupInputError
 } from '@/lib/setup-payloads'
 import { and, eq, ne } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -58,10 +60,10 @@ function toGoalColumns(payload: GoalPayload) {
 
 function validate(payload: GoalPayload) {
   if (!payload.title.trim()) {
-    throw new Error('Goal title is required')
+    throw new SetupInputError('Goal title is required')
   }
   if (!payload.keyMessage.trim()) {
-    throw new Error(
+    throw new SetupInputError(
       'The key message to land is required. The agent must know what to prove.'
     )
   }
@@ -90,7 +92,7 @@ async function assertTitleIsNew(
       title
     )
   ) {
-    throw new Error(`A goal named "${title.trim()}" already exists.`)
+    throw new SetupInputError(`A goal named "${title.trim()}" already exists.`)
   }
 }
 
@@ -119,6 +121,17 @@ export async function createGoal(
   rawOptions?: { active?: boolean }
 ) {
   const user = await requireUser()
+  return setupAction(() =>
+    insertGoal(user, rawAccountId, rawPayload, rawOptions)
+  )
+}
+
+async function insertGoal(
+  user: { id: string },
+  rawAccountId: string,
+  rawPayload: GoalPayload,
+  rawOptions?: { active?: boolean }
+) {
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await requireOwnedAccount(user.id, accountId)
   const payload = parseSetupPayload(GoalPayloadSchema, rawPayload)
@@ -133,7 +146,7 @@ export async function createGoal(
   })
 
   revalidateGoals()
-  return { success: true }
+  return {}
 }
 
 export async function updateGoal(
@@ -142,6 +155,17 @@ export async function updateGoal(
   rawPayload: GoalPayload
 ) {
   const user = await requireUser()
+  return setupAction(() =>
+    changeGoal(user, rawGoalId, rawAccountId, rawPayload)
+  )
+}
+
+async function changeGoal(
+  user: { id: string },
+  rawGoalId: string,
+  rawAccountId: string,
+  rawPayload: GoalPayload
+) {
   const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   // The goal is then matched on both ids, so only this identity's goal changes.
@@ -156,7 +180,7 @@ export async function updateGoal(
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
 
   revalidateGoals()
-  return { success: true }
+  return {}
 }
 
 /** Read-only: nothing is saved until the user submits a suggestion as a goal. */
@@ -212,6 +236,14 @@ export async function suggestGoalsAction(
 
 export async function deleteGoal(rawGoalId: string, rawAccountId: string) {
   const user = await requireUser()
+  return setupAction(() => removeGoal(user, rawGoalId, rawAccountId))
+}
+
+async function removeGoal(
+  user: { id: string },
+  rawGoalId: string,
+  rawAccountId: string
+) {
   const goalId = parseSetupPayload(GoalIdSchema, rawGoalId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await requireOwnedAccount(user.id, accountId)
@@ -220,5 +252,5 @@ export async function deleteGoal(rawGoalId: string, rawAccountId: string) {
     .where(and(eq(goalsTable.id, goalId), eq(goalsTable.accountId, accountId)))
 
   revalidateGoals()
-  return { success: true }
+  return {}
 }

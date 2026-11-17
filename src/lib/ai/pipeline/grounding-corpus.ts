@@ -50,7 +50,7 @@ function accountTextOf(ctx: GenerationContext): string {
  * "Bespoke"): the product lines a model name invented for this brand would
  * start with.
  */
-function productLinesOf(ctx: GenerationContext): string[] {
+export function productLinesOf(ctx: GenerationContext): string[] {
   const text = [
     ctx.account.name,
     ctx.account.company,
@@ -114,6 +114,22 @@ const isSignal = (f: Finding) =>
   f.kind === 'news' || f.kind === 'trend' || f.kind === 'conversation'
 
 /**
+ * Whether a source can back news: dated within the account's freshness
+ * window, and not a homepage, news index or reference page.
+ */
+export function isFreshSource(
+  ctx: GenerationContext,
+  url: string | null | undefined,
+  publishedAt: string | null | undefined,
+  now = new Date()
+): boolean {
+  return (
+    !(url && (isGenericPage(url) || isReferencePage(url))) &&
+    isRecent(publishedAt, ctx.prefs.research.freshness_days, now)
+  )
+}
+
+/**
  * Everything a run's ideas may cite, with each kind of source represented early.
  *
  * Only a dated item from the last `freshness_days` is "fresh", and never a
@@ -138,8 +154,7 @@ export function buildGroundingCorpus(
     (a, b) => (closeness.get(b.id) ?? -1) - (closeness.get(a.id) ?? -1)
   )
   const fresh = (url: string | undefined, publishedAt: string | undefined) =>
-    !(url && (isGenericPage(url) || isReferencePage(url))) &&
-    isRecent(publishedAt, ctx.prefs.research.freshness_days, now)
+    isFreshSource(ctx, url, publishedAt, now)
   // Every source is rated for how far it can be trusted: the account's own
   // sites count as official, another market's pages count for less.
   const accountHosts = ownHosts([

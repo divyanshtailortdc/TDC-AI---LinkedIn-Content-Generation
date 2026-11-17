@@ -1,6 +1,7 @@
 import assert from 'node:assert'
 import { describe, it } from 'node:test'
 import {
+  carouselFactIssues,
   carouselIssues,
   toCarousel,
   toSlide
@@ -15,8 +16,10 @@ import { buildFormatPrompt } from '../src/lib/ai/skills/variant-drafting/prompt'
 import {
   captionOnSlides,
   cleanSlideText,
-  figureIsSourced
+  figureIsSourced,
+  quoteIsSourced
 } from '../src/lib/carousel/checks'
+import { slideFactIssuesOf, slideIssues, slideRowValues } from '../src/lib/carousel/rows'
 import {
   cleanDesign,
   MAX_DRAFT_PICTURES,
@@ -303,6 +306,60 @@ describe('the slide guard', () => {
     assert.strictEqual(invented.design.layout, 'statement')
     assert.ok(figureIsSourced('43%', options.figureSources))
     assert.ok(!figureIsSourced('', options.figureSources))
+  })
+
+  it('draws a quote only when a source says it word for word', () => {
+    const sources = `${options.figureSources} "Nobody reconciles on a Friday," the controller said.`
+    const quoted = toSlide(
+      raw({ layout: 'quote', headline: 'The controller', body: '“Nobody reconciles on a Friday.”' }),
+      'content',
+      { ...options, figureSources: sources }
+    )
+    assert.strictEqual(quoted.design.layout, 'quote')
+    const invented = toSlide(
+      raw({ layout: 'quote', headline: 'A CFO', body: '“We closed in two days.”' }),
+      'content',
+      { ...options, figureSources: sources }
+    )
+    assert.strictEqual(invented.design.layout, 'statement')
+    assert.ok(quoteIsSourced('Nobody reconciles … the controller said', sources))
+    assert.ok(!quoteIsSourced('Nobody reconciles on a Monday', sources))
+  })
+
+  it('reports figures in headlines and text that no source states', () => {
+    const slides = toCarousel(
+      [
+        raw({ headline: '43% of invoices' }),
+        raw({ headline: 'Seventy percent miss it', body: 'Most teams pay $2m too much.' }),
+        raw({ headline: 'Three steps to fix it' })
+      ],
+      options
+    )
+    const issues = carouselFactIssues(slides, options.figureSources)
+    assert.deepStrictEqual(issues[0], [])
+    assert.match(issues[1]![0]!, /"70%", "\$2m" are not in the post's evidence/)
+    assert.deepStrictEqual(issues[2], [])
+    // A reviewer's own quote is kept as a quote, and reported.
+    const edited = carouselFactIssues(
+      [{ ...slides[1]!, body: 'We closed in two days.', design: { ...slides[1]!.design, layout: 'quote' } }],
+      options.figureSources
+    )
+    assert.match(edited[0]!.at(-1)!, /The quote is not in the post's evidence/)
+  })
+
+  it("keeps a slide's fact issues apart from its picture's", () => {
+    const slide = toSlide(raw(), 'content', options)
+    const row = slideRowValues('D', 2, slide, {
+      imageUrl: 'x',
+      pictureUrl: null,
+      error: null,
+      issues: ['The picture shows text.'],
+      factIssues: ['"70%" is not in the evidence.']
+    })
+    assert.deepStrictEqual(slideIssues(row as any), ['The picture shows text.'])
+    assert.deepStrictEqual(slideFactIssuesOf(row as any), ['"70%" is not in the evidence.'])
+    const clean = slideRowValues('D', 2, slide, { imageUrl: 'x', pictureUrl: null, error: null, issues: [] })
+    assert.deepStrictEqual(slideFactIssuesOf(clean as any), [])
   })
 
   it('keeps a list only with two to four points', () => {

@@ -209,6 +209,21 @@ describe('X through Buffer', () => {
       ),
       ['rejected_by_platform', false]
     )
+    // A 2xx Buffer gave nothing readable for may have made the post.
+    assert.deepStrictEqual(await codeOf(() => new Response('not json')), ['unknown_outcome', false])
+    assert.deepStrictEqual(await codeOf(() => Response.json({})), ['unknown_outcome', false])
+    assert.deepStrictEqual(await codeOf(() => Response.json({ data: null })), ['unknown_outcome', false])
+    // A post made with errors beside it is kept, so it is followed, not made again.
+    const kept = await createPost(
+      ctx(() =>
+        Response.json({
+          data: { createPost: { __typename: 'PostActionSuccess', post: { id: 'P1', status: 'sending' } } },
+          errors: [{ message: 'field failed', extensions: { code: 'NOT_FOUND' } }]
+        })
+      ),
+      post
+    )
+    assert.deepStrictEqual([kept.id, kept.state], ['P1', 'pending'])
     // A refused connection never reached Buffer; a dropped one may have.
     const refused = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
     assert.deepStrictEqual(await codeOf(() => Promise.reject(refused)), ['platform_unavailable', true])

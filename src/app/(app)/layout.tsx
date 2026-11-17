@@ -17,6 +17,12 @@ import { cookies } from 'next/headers'
 import { Fragment } from 'react'
 
 export const dynamic = 'force-dynamic'
+/**
+ * Every page's server actions, and the runs and drafts they start with
+ * `after()`, get Vercel's most (FUNCTION_MAX_DURATION_S in
+ * src/lib/function-limit.ts); a literal, as segment config must be.
+ */
+export const maxDuration = 300
 
 export default async function AppLayout({
   children

@@ -353,9 +353,10 @@ export async function applyIdentitySetupAction(
                 message: `A goal named "${plan.duplicate}" already exists, so no new goal was created.`
               }
             } else {
-              await createGoal(accountId, built.payload, {
+              const created = await createGoal(accountId, built.payload, {
                 active: plan.activate
               })
+              if (!created.success) throw new Error(created.error)
               results.goals = {
                 status: 'applied',
                 message: plan.activeGoalTitle
@@ -396,7 +397,7 @@ export async function applyIdentitySetupAction(
           } else {
             // Ideas per run and the CTA setting keep what runs use today.
             const current = resolvePreferences(row)
-            await savePreferences(
+            const saved = await savePreferences(
               accountId,
               buildPreferencesPayload(
                 {
@@ -409,6 +410,7 @@ export async function applyIdentitySetupAction(
                 merged.values
               )
             )
+            if (!saved.success) throw new Error(saved.error)
             results.preferences = {
               status: 'applied',
               message: `${describeMerge('preferences', merged.filled, merged.kept)} Schedule settings were not changed.`,
@@ -477,13 +479,14 @@ export async function applyIdentitySetupAction(
             return
           }
           try {
-            await saveKnowledgeDocument({
+            const saved = await saveKnowledgeDocument({
               accountId,
               title: preview.title,
               sourceType: 'url',
               sourceUrl: url,
               content: preview.content
             })
+            if (!saved.success) throw new Error(saved.error)
             added.push(preview.title)
             savedUrls.push(requestedUrl)
           } catch (error: any) {

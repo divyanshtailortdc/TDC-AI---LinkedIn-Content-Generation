@@ -30,7 +30,9 @@ import {
 import { recheckPostText } from '~/lib/ai/pipeline/post-recheck'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { SkillError } from '~/lib/ai/run-skill'
+import { forFormat } from '~/lib/ai/channel-context'
 import { rewriteSlide, writeSlides } from '~/lib/ai/skills/carousel-slides'
+import { collectFigureSources } from '~/lib/ai/skills/post-drafting/guard'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
 import type { LintFinding } from '~/lib/lint/run-linter'
@@ -46,7 +48,7 @@ import {
   storeImage,
   viewableImageUrl
 } from '~/lib/media/image-store'
-import { clampWords, cleanSlideText } from './checks'
+import { clampWords, cleanSlideText, slideFactIssues } from './checks'
 import {
   drawCarousel,
   drawSlide,
@@ -57,6 +59,7 @@ import {
 import {
   loadSlideRows,
   slideContentOf,
+  slideFactIssuesOf,
   slideIssues,
   slideRowValues
 } from './rows'
@@ -151,6 +154,7 @@ export async function buildCarouselRows(input: {
             : null,
           error: d.error,
           issues: d.issues,
+          factIssues: written.factIssues[i] ?? [],
           picturePrompt: d.picturePrompt
         })
       )
@@ -311,7 +315,8 @@ async function toView(row: PostSlide): Promise<SlideView> {
     hasPicture: Boolean(row.pictureUrl),
     status: row.renderStatus === 'failed' ? 'failed' : 'ready',
     error: row.renderError,
-    issues: slideIssues(row)
+    // What its words state that no source does comes first.
+    issues: [...slideFactIssuesOf(row), ...slideIssues(row)]
   }
 }
 
@@ -497,14 +502,17 @@ interface Prepared {
   rows: PostSlide[]
   kit: SlideKit
   caption: string
+  /** What the slides may state (see slideFactIssues); null without an idea. */
+  figureSources: string | null
 }
 
 async function prepare(accountId: string, draftId: string): Promise<Prepared> {
   const draft = await ownedPost(accountId, draftId)
   await assertEditable(draft)
   const formatId = formatOf(draft.formatId)
-  const ctx = draft.ideaId
-    ? await loadIdeaContext(await ideaOf(draft), {
+  const idea = draft.ideaId ? await ideaOf(draft) : null
+  const ctx = idea
+    ? await loadIdeaContext(idea, {
         lintOnly: true,
         platform: draft.platform
       })
@@ -518,7 +526,9 @@ async function prepare(accountId: string, draftId: string): Promise<Prepared> {
     formatId,
     rows: await loadSlideRows(db, draftId),
     kit: await loadSlideKit(brand, ctx?.account.name ?? null),
-    caption: captionOf(formatId, draft)
+    caption: captionOf(formatId, draft),
+    figureSources:
+      ctx && idea ? collectFigureSources(forFormat(ctx, formatId), idea) : null
   }
 }
 
@@ -535,7 +545,8 @@ interface DrawnSlide {
 /**
  * Draws one slide again with `content`, `picture` (stored as `pictureUrl`;
  * undefined keeps the row's), its number and the total, and stores the
- * image. Nothing is saved: see saveDrawn.
+ * image. Nothing is saved: see saveDrawn. `factIssues` are for new words
+ * (slideFactIssues); undefined keeps the row's.
  */
 async function drawRow(
   kit: SlideKit,
@@ -547,7 +558,8 @@ async function drawRow(
     url: string | null
     issues?: string[]
     prompt?: string
-  }
+  },
+  factIssues?: string[]
 ): Promise<DrawnSlide> {
   const bytes = picture ? picture.bytes : await pictureOf(row)
   let imageUrl: string | null = null
@@ -574,6 +586,7 @@ async function drawRow(
     pictureUrl: picture ? picture.url : row.pictureUrl,
     error,
     issues: picture?.issues ?? (picture ? [] : slideIssues(row)),
+    factIssues: factIssues ?? slideFactIssuesOf(row),
     picturePrompt: picture?.prompt
   })
   const newPicture = Boolean(picture) && picture!.url !== row.pictureUrl
@@ -696,7 +709,15 @@ export async function updateSlide(
   next.altText = [next.headline, next.body.replace(/\n/g, '. ')]
     .filter(Boolean)
     .join('. ')
-  await redrawOne(prepared.kit, row, next, prepared.rows.length)
+  // The reviewer's words are theirs to keep; what no source states is shown.
+  await redrawOne(
+    prepared.kit,
+    row,
+    next,
+    prepared.rows.length,
+    undefined,
+    prepared.figureSources ? slideFactIssues(next, prepared.figureSources) : []
+  )
   return toView(await slideOf(draftId, slideId))
 }
 
@@ -741,7 +762,8 @@ export async function rewriteSlideForPost(
       row,
       rewritten.slide,
       prepared.rows.length,
-      keepsPicture ? undefined : { bytes: null, url: null }
+      keepsPicture ? undefined : { bytes: null, url: null },
+      rewritten.factIssues
     )
     return toView(await slideOf(draftId, slideId))
   } catch (err) {
