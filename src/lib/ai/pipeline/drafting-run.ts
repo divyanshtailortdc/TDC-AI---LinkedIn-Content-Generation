@@ -57,6 +57,7 @@ import {
 import { refreshRunTotals } from '../run-accounting'
 import { markIdeaDrafted, releaseDraftingClaim } from './drafting-claim'
 import { SkillError } from '../run-skill'
+import { collectLinkSources } from '../skills/post-drafting/guard'
 import {
   writeDraft,
   type DraftGenerationResult,
@@ -235,6 +236,15 @@ interface PreparedPost {
 
 const blockingCount = (findings: LintFinding[]) =>
   findings.filter(f => f.severity === 'error' && !f.passed).length
+
+/**
+ * The reviewer's own words for a post: what they asked a rewrite to change,
+ * and this idea's posts they approved. Links in them are theirs to use.
+ */
+const reviewerTexts = (options: PrepareOptions): string[] => [
+  options.regenerate?.instruction ?? '',
+  ...(options.approvedSiblings ?? []).map(s => s.text)
+]
 
 /** How a post is prepared: from scratch, or as a new version of one. */
 interface PrepareOptions {
@@ -423,8 +433,10 @@ async function prepareLinkedInPost(
   // Only at drafting time: when a post is edited later its own ask is already
   // in the history and would be flagged as a repeat of itself.
   const recentCtas = recentCtasOf(ctx)
+  const linkSources = collectLinkSources(ctx, idea, reviewerTexts(options))
   const lintOptions = (d: DraftGenerationResult): LintOptions => ({
     ...buildPostLintOptions(ctx, idea, d),
+    linkSources,
     recentCtas,
     mediaFormat
   })
@@ -736,8 +748,14 @@ async function prepareFormatPost(
   }
 
   const recentCtas = recentCtasOf(forFormat(ctx, formatId))
+  const linkSources = collectLinkSources(
+    forFormat(ctx, formatId),
+    idea,
+    reviewerTexts(options)
+  )
   const lintOptions = (d: VariantDraft): LintOptions => ({
     ...buildFormatLintOptions(ctx, formatId, idea, d),
+    linkSources,
     recentCtas,
     mediaFormat
   })

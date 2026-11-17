@@ -176,6 +176,7 @@ const LINT_RULE_LABELS: Record<string, string> = {
   grounded_citations: 'Citation grounding coverage',
   citations_coverage: 'Citation grounding coverage',
   unsupported_figures: 'Figures backed by evidence',
+  unknown_links: 'Links from known sources',
   generic_cta: 'Call to action fits the post',
   CHAR_LIMIT: 'Character limit',
   HOOK_FOLD: 'Hook & fold',

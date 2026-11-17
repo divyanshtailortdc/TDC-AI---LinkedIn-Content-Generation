@@ -30,6 +30,12 @@
     "passed": false
   },
   {
+    "rule": "unknown_links",
+    "severity": "info",
+    "message": "Every link is the goal's, the author's own or an evidence source's.",
+    "passed": true
+  },
+  {
     "rule": "banned_words",
     "severity": "warning",
     "message": "Contains banned or cliché wording: \"game changer\".",

@@ -1,5 +1,5 @@
 import type { StyleMix } from '@/lib/formats'
-import { frameEvidenceText } from '../ideation/prompt'
+import { frameEvidenceText } from '../shared/evidence'
 
 /**
  * The review's instructions for a run whose ideas are for one platform

@@ -8,9 +8,9 @@ import {
 } from '../src/lib/ai/skills/ideation/guard'
 import {
   buildInstructions,
-  frameEvidenceText,
   renderCorpusForPrompt
 } from '../src/lib/ai/skills/ideation/prompt'
+import { frameEvidenceText } from '../src/lib/ai/skills/shared/evidence'
 import type {
   GeneratedIdeaItem,
   IdeaGenerationItem

@@ -24,6 +24,12 @@
     "passed": true
   },
   {
+    "rule": "unknown_links",
+    "severity": "info",
+    "message": "Every link is the goal's, the author's own or an evidence source's.",
+    "passed": true
+  },
+  {
     "rule": "banned_words",
     "severity": "info",
     "message": "No banned wording detected.",

@@ -13,11 +13,13 @@ Core argument: Rate negotiation gets attention; duplicates get missed
 Reader takeaway: For Logistics managers: check duplicates before rates
 
 EVIDENCE YOU MAY USE (nothing outside this):
+<evidence>
 [1] Duplicate billing affects 1 in 20 invoices
     Quote: "roughly one in twenty invoices contained a duplicate charge"
     Source: Freight Billing Report 2026
     URL: https://research.example/report
 [2] Recovered 3.2% of spend for a retailer
+</evidence>
 
 Produce:
 1. hook — at most 200 characters, a complete thought that survives the fold

@@ -30,6 +30,12 @@
     "passed": true
   },
   {
+    "rule": "unknown_links",
+    "severity": "error",
+    "message": "\"https://northwind.example/audit\" is not from this post's evidence, its goal or the author's details, so it may be invented or planted in a source. Remove it, or check where it goes before publishing.",
+    "passed": false
+  },
+  {
     "rule": "banned_words",
     "severity": "info",
     "message": "No banned wording detected.",

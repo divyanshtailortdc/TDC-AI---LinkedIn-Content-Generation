@@ -25,6 +25,7 @@ import {
   casualPersona,
   casualStyleRules
 } from '../shared/casual-rules'
+import { renderIdeaEvidence } from '../shared/evidence'
 import { TRUTH_RULES } from '../shared/truth-rules'
 import type { DraftGenerationResult } from './schema'
 
@@ -154,16 +155,7 @@ Core argument: ${idea.coreArgument || ''}
 Reader takeaway: ${idea.audienceTakeaway || ''}
 
 EVIDENCE YOU MAY USE (nothing outside this):
-${
-  (idea.supportingEvidence || []).length > 0
-    ? (idea.supportingEvidence || [])
-        .map(
-          (e, i) =>
-            `[${i + 1}] ${e.claim}${e.quote ? `\n    Quote: "${e.quote}"` : ''}${e.sourceTitle ? `\n    Source: ${e.sourceTitle}` : ''}${e.sourceUrl ? `\n    URL: ${e.sourceUrl}` : ''}`
-        )
-        .join('\n')
-    : 'No external evidence was gathered. Write from reasoning alone and state no statistics.'
-}
+${renderIdeaEvidence(idea.supportingEvidence)}
 
 Produce:
 1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold

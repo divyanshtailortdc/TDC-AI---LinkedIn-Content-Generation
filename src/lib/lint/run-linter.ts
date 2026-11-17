@@ -16,6 +16,7 @@ import {
   findVagueAttributions,
   longestSharedRun
 } from './writing-checks'
+import { findLinks, unknownLinks } from './links'
 import {
   DEFAULT_WRITING_THRESHOLDS,
   type WritingCheck,
@@ -92,6 +93,11 @@ export interface LintOptions {
    * author's own details. Absent skips the check.
    */
   figureSources?: string | null
+  /**
+   * The links the post may contain: its goals', the author's own and its
+   * evidence's sources. Any other link is flagged. Absent skips the check.
+   */
+  linkSources?: string[] | null
   /**
    * The wording of the evidence the post draws on (claims and quotes). A run
    * of its words in the post, outside quotation marks, was lifted. Absent
@@ -425,6 +431,30 @@ export function runLinter(opts: LintOptions): LintFinding[] {
             passed: true
           }
   )
+
+  // 4b. Links nobody gave the writer: invented, or planted in a source it
+  // read. Only reported when the post has links.
+  if (opts.linkSources != null) {
+    const linked = [fullText, opts.firstComment || '', ...(opts.limitTexts || [])].join('\n')
+    const hasLinks = findLinks(linked).length > 0
+    const unknown = unknownLinks(linked, opts.linkSources)
+    if (unknown.length > 0) {
+      const one = unknown.length === 1
+      findings.push({
+        rule: 'unknown_links',
+        severity: 'error',
+        message: `${unknown.map(l => `"${l}"`).join(', ')} ${one ? 'is' : 'are'} not from this post's evidence, its goal or the author's details, so ${one ? 'it' : 'they'} may be invented or planted in a source. Remove ${one ? 'it' : 'them'}, or check where ${one ? 'it goes' : 'they go'} before publishing.`,
+        passed: false
+      })
+    } else if (hasLinks) {
+      findings.push({
+        rule: 'unknown_links',
+        severity: 'info',
+        message: "Every link is the goal's, the author's own or an evidence source's.",
+        passed: true
+      })
+    }
+  }
 
   // 5. Banned words
   const allBanned = Array.from(

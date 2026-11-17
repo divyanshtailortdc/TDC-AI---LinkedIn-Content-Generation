@@ -173,9 +173,10 @@ async function loadPlatformInsights(accountId: string): Promise<PlatformInsights
  * goals, newest first: what settings screens and goal suggestions read.
  *
  * `lintOnly` loads just what the quality checks read (buildPostLintOptions):
- * the voice, sample posts, preferences and goals. Offerings, audiences,
- * knowledge, review history and brand are left empty, so a context loaded
- * this way must not be used to write a prompt.
+ * the voice, sample posts, offerings (figures and links in the author's
+ * details), preferences and goals. Audiences, knowledge, review history and
+ * brand are left empty, so a context loaded this way must not be used to
+ * write a prompt.
  */
 export async function loadGenerationContext(
   accountId: string,
@@ -205,11 +206,9 @@ export async function loadGenerationContext(
     db.query.voiceConfigsTable.findFirst({
       where: eq(voiceConfigsTable.accountId, accountId)
     }),
-    full
-      ? db.query.offeringsTable.findMany({
-          where: eq(offeringsTable.accountId, accountId)
-        })
-      : [],
+    db.query.offeringsTable.findMany({
+      where: eq(offeringsTable.accountId, accountId)
+    }),
     full
       ? db.query.audiencesTable.findMany({
           where: eq(audiencesTable.accountId, accountId)

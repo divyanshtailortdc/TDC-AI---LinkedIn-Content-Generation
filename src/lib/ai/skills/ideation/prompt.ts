@@ -28,6 +28,7 @@ import {
 } from '../../context-blocks'
 import { inferRegion } from '../../region'
 import type { GroundingCorpus } from './guard'
+import { fenceEvidence, frameEvidenceText } from '../shared/evidence'
 import { CASUAL_ANGLE_GUIDE, PERSPECTIVE_ANGLE_GUIDE } from './schema'
 
 /**
@@ -35,23 +36,6 @@ import { CASUAL_ANGLE_GUIDE, PERSPECTIVE_ANGLE_GUIDE } from './schema'
  * against exactly this slice, so an out-of-range label gets no source.
  */
 export const PROMPT_EVIDENCE_LIMIT = 36
-
-/** Longest text from one evidence item shown to the model. */
-const EVIDENCE_TEXT_LIMIT = 700
-
-/**
- * One piece of third-party text, made safe to show as data: on one line, with
- * no angle brackets (so it cannot close the evidence block or open a tag of
- * its own) and cut to a sensible length.
- */
-export function frameEvidenceText(text: string, max = EVIDENCE_TEXT_LIMIT): string {
-  const flat = text
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/[<>]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat
-}
 
 /** What a trend-scan item is, for the writer. */ 
 const KIND_LINES: Partial<Record<string, string>> = {
@@ -105,7 +89,7 @@ export function renderCorpusForPrompt(
     })
     .join('\n')
   // Fenced and labelled as data: the pages this text came from are not trusted.
-  return `<evidence>\n${items}\n</evidence>`
+  return fenceEvidence(items)
 }
 
 /**

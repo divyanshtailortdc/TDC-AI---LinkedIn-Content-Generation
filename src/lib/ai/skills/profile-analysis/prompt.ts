@@ -1,5 +1,5 @@
 import { PLATFORMS } from '@/lib/formats'
-import { frameEvidenceText } from '../ideation/prompt'
+import { frameEvidenceText } from '../shared/evidence'
 import type { AnalyzeProfileInput } from './schema'
 
 /** Longest text shown from one post. */
