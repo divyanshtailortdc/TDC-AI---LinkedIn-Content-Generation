@@ -17,11 +17,17 @@ import type { PostDetail } from './posts-client'
 export function RegenerateControl({
   post,
   onDone,
-  disabled
+  disabled,
+  confirmStart,
+  onBusyChange
 }: {
   post: PostDetail
   onDone: (post: PostDetail) => void
   disabled?: boolean
+  /** Asked before writing; false leaves the post as it is. */
+  confirmStart?: () => boolean
+  /** Told when writing starts and when it ends, however it ends. */
+  onBusyChange?: (busy: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const [instruction, setInstruction] = useState('')
@@ -48,8 +54,11 @@ export function RegenerateControl({
   if (!post.ideaId) return null
 
   const run = async () => {
+    // Declined: the panel stays open with the instruction.
+    if (confirmStart && !confirmStart()) return
     setOpen(false)
     setRunning(true)
+    onBusyChange?.(true)
     try {
       const res = await regeneratePost(post.id, instruction)
       if (res.success && res.post) {
@@ -75,6 +84,7 @@ export function RegenerateControl({
       })
     } finally {
       setRunning(false)
+      onBusyChange?.(false)
     }
   }
 
@@ -170,11 +180,17 @@ function replacedLabel(version: Version): string {
 export function VersionHistory({
   post,
   onRestored,
-  disabled
+  disabled,
+  confirmRestore,
+  onBusyChange
 }: {
   post: PostDetail
   onRestored: (post: PostDetail) => void
   disabled?: boolean
+  /** Asked before restoring a version; false leaves the post as it is. */
+  confirmRestore?: (versionNumber: number) => boolean
+  /** Told when a restore starts and when it ends, however it ends. */
+  onBusyChange?: (busy: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const [versions, setVersions] = useState<Version[] | null>(null)
@@ -216,7 +232,9 @@ export function VersionHistory({
   )
 
   const restore = async (version: Version) => {
+    if (confirmRestore && !confirmRestore(version.number)) return
     setRestoring(version.id)
+    onBusyChange?.(true)
     try {
       const res = await restorePostVersion(post.id, version.id)
       if (res.success && res.post) {
@@ -235,6 +253,7 @@ export function VersionHistory({
       }
     } finally {
       setRestoring(null)
+      onBusyChange?.(false)
     }
   }
 

@@ -223,6 +223,13 @@ export function PostDetailClient({
   // reaches in through the ref for the hook swap and the copy notice.
   const editorRef = useRef<PostTextEditorHandle>(null)
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
+  // Part of the editor's key: Regenerate and Restore replace the whole text,
+  // so once they land the editor starts afresh from it. A save or hook swap
+  // keeps the buffer, and so whatever else in it is not saved yet.
+  const [editorResets, setEditorResets] = useState(0)
+  // Regenerate or Restore is writing a new text. The editor stays shut until
+  // it lands, since it then starts afresh: anything typed meanwhile would go.
+  const [textReplacing, setTextReplacing] = useState(false)
 
   // Copy feedback
   const [copiedPost, setCopiedPost] = useState(false)
@@ -939,12 +946,23 @@ export function PostDetailClient({
   }
 
   const handleSwapHook = async (newHook: string) => {
+    if (!activePost) return
     // The buffer takes the swap too, so it does not read as an unsaved edit.
     // This post's editor: if another post opens meanwhile, it has its own.
     const editor = editorRef.current
     const previousHook = editor?.draft.hook ?? ''
+    // Unsaved edits to the body and comment stay in the editor; only an
+    // unsaved edit to the hook itself is replaced, so that one is asked about.
+    if (
+      editor &&
+      previousHook !== (activePost.hook || '') &&
+      !window.confirm(
+        'You have an unsaved edit to the hook. Swapping in this one will discard it. Continue?'
+      )
+    ) {
+      return
+    }
     editor?.setHook(newHook)
-    if (!activePost) return
     setIsSaving(true)
     try {
       markDataChanged()
@@ -978,8 +996,9 @@ export function PostDetailClient({
   }
 
   // A new version of a post's text (regenerate, restore). Its image is
-  // unchanged, so the one already loaded is kept.
-  const replacePostText = (updated: PostDetail) =>
+  // unchanged, so the one already loaded is kept. The editor starts afresh
+  // from it: any unsaved edits were agreed to be discarded before it began.
+  const replacePostText = (updated: PostDetail) => {
     setPosts(prev =>
       prev.map(p =>
         p.id === updated.id
@@ -987,6 +1006,8 @@ export function PostDetailClient({
           : p
       )
     )
+    setEditorResets(n => n + 1)
+  }
 
   const handleSaveEdits = async (draft: PostDraft) => {
     if (!activePost) return
@@ -2050,7 +2071,12 @@ export function PostDetailClient({
                     <RegenerateControl
                       key={activePost.id}
                       post={activePost}
-                      disabled={isEditing || isSaving}
+                      // One new text at a time: Restore's too.
+                      disabled={isEditing || isSaving || textReplacing}
+                      confirmStart={() =>
+                        confirmDiscardEdits('Writing a new version')
+                      }
+                      onBusyChange={setTextReplacing}
                       onDone={replacePostText}
                     />
                   )}
@@ -2058,13 +2084,17 @@ export function PostDetailClient({
                     type="button"
                     onClick={() => setIsEditing(!isEditing)}
                     // Published or marked posted: its text stays as it went
-                    // out (updateDraft refuses it too). An open editor can
-                    // still be closed.
-                    disabled={mediaLocked && !isEditing}
+                    // out (updateDraft refuses it too). Shut too while a new
+                    // version is written. An open editor can still be closed.
+                    disabled={(mediaLocked || textReplacing) && !isEditing}
                     title={
-                      mediaLocked && !isEditing
-                        ? `${lockedReason}, so its text can no longer change`
-                        : undefined
+                      isEditing
+                        ? undefined
+                        : mediaLocked
+                          ? `${lockedReason}, so its text can no longer change`
+                          : textReplacing
+                            ? 'A new version of the text is on its way; edit it once it is in'
+                            : undefined
                     }
                     className="text-accent inline-flex cursor-pointer items-center gap-2 text-sm font-medium hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
                   >
@@ -2082,8 +2112,10 @@ export function PostDetailClient({
                 <div className="mx-auto w-full max-w-4xl space-y-3">
                   {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
                   <PostTextEditor
-                    // A new version (regenerate, restore) starts the editor afresh.
-                    key={`${activePost.id}-${activePost.versionCount ?? 0}`}
+                    // Regenerate and Restore start the editor afresh. Not
+                    // versionCount: a save or hook swap raises it too, and
+                    // remounting then threw away the other unsaved edits.
+                    key={`${activePost.id}-${editorResets}`}
                     ref={editorRef}
                     post={activePost}
                     open={isEditing}
@@ -2147,7 +2179,7 @@ export function PostDetailClient({
                               : []
                           }
                           onSelectHook={handleSwapHook}
-                          hookSwapDisabled={isSaving}
+                          hookSwapDisabled={isSaving || textReplacing}
                           firstComment={activePost.firstComment || ''}
                           onCopyFirstComment={handleCopyComment}
                           firstCommentCopied={copiedComment}
@@ -2166,7 +2198,12 @@ export function PostDetailClient({
                       key={activePost.id}
                       post={activePost}
                       // Earlier versions can be read, not restored, once it went out.
-                      disabled={isSaving || mediaLocked}
+                      // Nor while Regenerate writes one.
+                      disabled={isSaving || mediaLocked || textReplacing}
+                      confirmRestore={n =>
+                        confirmDiscardEdits(`Restoring version ${n}`)
+                      }
+                      onBusyChange={setTextReplacing}
                       onRestored={replacePostText}
                     />
                   )}
@@ -3248,9 +3285,10 @@ interface PostTextEditorHandle {
  * The hook, body and first comment textareas, with the edit buffer they type
  * into. The buffer is kept here so a keystroke re-renders this, not the page.
  *
- * Keyed by post, so opening another post starts a fresh buffer. It stays
- * mounted while closed: closing it to look at the preview keeps the edits,
- * and they still count as unsaved.
+ * Keyed by post and by Regenerate/Restore, so another post or a whole new
+ * text starts a fresh buffer; a save or hook swap keeps it. It stays mounted
+ * while closed: closing it to look at the preview keeps the edits, and they
+ * still count as unsaved.
  */
 function PostTextEditor({
   ref,
