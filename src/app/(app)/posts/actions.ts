@@ -632,6 +632,11 @@ export async function updatePostMediaAction(
   }
 }
 
+/**
+ * Deletes a post's image, every version, for good: the review screen's Remove,
+ * after it asks. Posting without the image but keeping it is
+ * setPostMediaFormat(draftId, 'text').
+ */
 export async function removePostMediaAction(draftId: string) {
   await requireUser()
   try {

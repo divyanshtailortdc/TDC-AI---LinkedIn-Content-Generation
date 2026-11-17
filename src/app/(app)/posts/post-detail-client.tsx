@@ -93,6 +93,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  Type,
   Workflow,
   X,
   ZoomIn
@@ -259,6 +260,8 @@ export function PostDetailClient({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [alsoDeleteFromPlatform, setAlsoDeleteFromPlatform] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  // Remove deletes the image and every earlier version of it, so it asks first.
+  const [showRemoveMediaDialog, setShowRemoveMediaDialog] = useState(false)
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isImageZoomOpen, setIsImageZoomOpen] = useState(false)
   // A post's image bytes are loaded on demand; see the loader below.
@@ -901,12 +904,17 @@ export function PostDetailClient({
     }
   }
 
+  /**
+   * Deletes the post's image, every version of it, for good. Only from the
+   * Remove dialog: "Text only" sets the image aside instead (see
+   * handleMediaFormatChange).
+   */
   const handleRemoveMedia = async () => {
     if (!activePost) return
     const postId = activePost.id
     setIsMediaLoading(true)
     setMediaPostId(postId)
-    setMediaLoadingText('Switching to text-only mode...')
+    setMediaLoadingText('Removing image...')
     setMediaError(null)
     setMediaMenuOpen(false)
 
@@ -926,6 +934,7 @@ export function PostDetailClient({
       setIsMediaLoading(false)
       setMediaPostId(null)
       setMediaLoadingText('')
+      setShowRemoveMediaDialog(false)
     }
   }
 
@@ -1537,6 +1546,8 @@ export function PostDetailClient({
   const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
   // Set aside by "Text only": the image is kept but does not go out.
   const imageSetAside = activePost.mediaFormat === 'text'
+  // Instagram takes no text-only post, so it is not offered there.
+  const canGoTextOnly = supportsMediaFormat(activeFormat, 'text')
   // Published (and still there) or marked posted: what went out stays as it
   // is. Deleted from its platform, it can change again.
   const mediaLocked =
@@ -1949,6 +1960,27 @@ export function PostDetailClient({
         />
       )}
 
+      {showRemoveMediaDialog && activePost.media && (
+        <ConfirmDialog
+          title="Remove this image?"
+          description={
+            <>
+              {(activePost.media.version ?? 1) > 1
+                ? 'The image and its earlier versions are deleted for good.'
+                : 'The image is deleted for good.'}{' '}
+              This cannot be undone.
+              {canGoTextOnly &&
+                ' To post without it but keep it, pick Text only instead.'}
+            </>
+          }
+          confirmLabel="Remove image"
+          pendingLabel="Removing…"
+          pending={mediaBusyHere}
+          onCancel={() => setShowRemoveMediaDialog(false)}
+          onConfirm={() => void handleRemoveMedia()}
+        />
+      )}
+
       {/* Full width, 16px in from each side (24px from sm), lined up with
           the top bar's title. Sized by its own width (the
           sidebar takes part of the screen), so the columns use @-variants.
@@ -2358,14 +2390,18 @@ export function PostDetailClient({
                           >
                             Change media
                           </button>
-                          <button
-                            type="button"
-                            disabled={isMediaLoading}
-                            onClick={handleRemoveMedia}
-                            className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
-                          >
-                            Use text only
-                          </button>
+                          {/* Sets the image aside, as the post type
+                              picker's Text only does: nothing is deleted. */}
+                          {canGoTextOnly && (
+                            <button
+                              type="button"
+                              disabled={isMediaLoading || pendingMediaFormat !== null}
+                              onClick={() => void handleMediaFormatChange('text')}
+                              className="text-muted hover:text-foreground hover:bg-surface-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Use text only
+                            </button>
+                          )}
                         </div>
                         )}
                       </div>
@@ -2434,7 +2470,7 @@ export function PostDetailClient({
                             <button
                               type="button"
                               disabled={isMediaLoading}
-                              onClick={handleRemoveMedia}
+                              onClick={() => setShowRemoveMediaDialog(true)}
                               className="text-muted inline-flex cursor-pointer items-center gap-1.5 font-medium hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -2457,13 +2493,28 @@ export function PostDetailClient({
                         Couldn&apos;t load this post&apos;s image:{' '}
                         {activeImageLoadError}
                       </span>
-                      <button
-                        type="button"
-                        onClick={retryImageLoad}
-                        className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
-                      >
-                        Retry
-                      </button>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={retryImageLoad}
+                          className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                        >
+                          Retry
+                        </button>
+                        {/* An image that will not load can still be deleted,
+                            after the same question as under a loaded one. */}
+                        {!mediaLocked && (
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={() => setShowRemoveMediaDialog(true)}
+                            className="text-muted inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Remove
+                          </button>
+                        )}
+                      </span>
                     </div>
                   ) : activePost.mediaFailure ? (
                     // Drafting tried to make an image for this post and could not.
@@ -2664,17 +2715,20 @@ export function PostDetailClient({
                             <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
                             <span>Use custom image URL</span>
                           </button>
-                          {activePost.media && (
+                          {/* Sets the image aside; deleting it is Remove,
+                              under the image, which asks first. */}
+                          {activePost.media && canGoTextOnly && (
                             <button
                               type="button"
+                              disabled={pendingMediaFormat !== null}
                               onClick={() => {
                                 setMediaMenuOpen(false)
-                                handleRemoveMedia()
+                                void handleMediaFormatChange('text')
                               }}
-                              className="border-border mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+                              className="border-border hover:bg-surface-hover text-foreground mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              <span>Text only (remove media)</span>
+                              <Type className="text-muted h-3.5 w-3.5" />
+                              <span>Text only (keep image)</span>
                             </button>
                           )}
                         </div>
