@@ -107,8 +107,9 @@ export default async function DashboardPage() {
 }
 
 /**
- * All-time usage adds up every run of the account, so it streams in on its
- * own rather than holding the rest of the dashboard until it is done.
+ * All-time usage adds up every AI call made for the identity (the usage
+ * ledger), so it streams in on its own rather than holding the rest of the
+ * dashboard until it is done.
  */
 async function AccountUsage({ accountId }: { accountId: string }) {
   return <UsageSummaryCards {...await getAccountUsageSummary(accountId)} />

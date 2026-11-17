@@ -53,6 +53,7 @@ import {
 import { validateImageUrl } from '~/lib/media/image-input'
 import { deleteDraftImages, deleteStoredImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
+import { withAiSpend } from '~/lib/ai/spend'
 import { assertPostChangeable } from '@/lib/publishing/post-lock'
 import { loadPostsPage } from './posts-data'
 
@@ -206,12 +207,17 @@ export async function addPostVersion(
       )
     }
 
-    const { draftId: newId } = await draftAdditionalFormat(
-      accountId,
-      source.ideaId,
-      formatId,
-      // From the browser: only a real boolean counts.
-      typeof withImage === 'boolean' ? withImage : undefined
+    const { ideaId } = source
+    const { draftId: newId } = await withAiSpend(
+      { source: 'posts', accountId },
+      () =>
+        draftAdditionalFormat(
+          accountId,
+          ideaId,
+          formatId,
+          // From the browser: only a real boolean counts.
+          typeof withImage === 'boolean' ? withImage : undefined
+        )
     )
     const { posts } = await loadPostsPage(accountId, { ids: [newId] })
     revalidatePath('/posts')
@@ -243,7 +249,9 @@ export async function regeneratePost(draftId: string, instruction?: string | nul
       )
     }
     const accountId = await requireIdentityId()
-    await regenerateDraft(accountId, draftId, wanted || null)
+    await withAiSpend({ source: 'posts', accountId }, () =>
+      regenerateDraft(accountId, draftId, wanted || null)
+    )
     const { posts } = await loadPostsPage(accountId, { ids: [draftId] })
     revalidatePath('/posts')
     return { success: true as const, post: posts[0] ?? null }
@@ -676,13 +684,16 @@ export async function regeneratePostMediaAction(
 ) {
   await requireUser()
   try {
-    const outcome = await createPostMedia({
-      draftId,
-      accountId: await requireIdentityId(),
-      mode: options?.mode,
-      customPrompt: options?.customPrompt,
-      rejectionReason: options?.rejectionReason
-    })
+    const accountId = await requireIdentityId()
+    const outcome = await withAiSpend({ source: 'posts', accountId }, () =>
+      createPostMedia({
+        draftId,
+        accountId,
+        mode: options?.mode,
+        customPrompt: options?.customPrompt,
+        rejectionReason: options?.rejectionReason
+      })
+    )
     if (outcome.status === 'created') {
       return { success: true as const, media: outcome.media }
     }

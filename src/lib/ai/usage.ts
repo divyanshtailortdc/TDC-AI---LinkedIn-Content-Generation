@@ -169,6 +169,34 @@ export function readCallUsage(
   }
 }
 
+/** Embedding list prices per million input tokens. */
+const EMBEDDING_RATES: Record<string, number> = {
+  'openai/text-embedding-3-small': 0.02
+}
+
+/**
+ * Tokens and cost of one `embedMany`. Always priced from the rate table: the
+ * SDK splits a long list into several requests and sums their tokens, but
+ * merges their metadata so the gateway's cost is that of the last one only.
+ * A model missing from the table is counted with no cost.
+ */
+export function readEmbeddingUsage(
+  result: { usage?: { tokens?: unknown } },
+  modelId: string
+): CallUsage {
+  const tokens = num(result.usage?.tokens)
+  const rate = EMBEDDING_RATES[modelId] ?? 0
+  return {
+    ...EMPTY_USAGE,
+    calls: 1,
+    inputTokens: tokens,
+    noCacheInputTokens: tokens,
+    totalTokens: tokens,
+    costUsd: (tokens / 1_000_000) * rate,
+    estimatedCalls: 1
+  }
+}
+
 /** Cost of one image generation, when the gateway reported it. */
 export function readImageCost(result: { providerMetadata?: unknown }): CallUsage {
   const billed = readGatewayCost(result.providerMetadata)

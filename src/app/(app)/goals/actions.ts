@@ -6,6 +6,7 @@ import { goalsTable } from '@/db/schema'
 import { NotFoundError, requireOwnedAccount } from '@/lib/account-guard'
 import { loadGenerationContext } from '@/lib/ai/context'
 import { SkillError } from '@/lib/ai/run-skill'
+import { withAiSpend } from '@/lib/ai/spend'
 import {
   GoalSuggestionError,
   suggestGoals,
@@ -168,8 +169,10 @@ export async function suggestGoalsAction(
   const user = await requireUser()
   try {
     await requireOwnedAccount(user.id, accountId)
-    const suggestions = await suggestGoals(
-      await loadGenerationContext(accountId)
+    const ctx = await loadGenerationContext(accountId)
+    const suggestions = await withAiSpend(
+      { source: 'identity', accountId, userId: user.id },
+      () => suggestGoals(ctx)
     )
     if (suggestions.length === 0) {
       return {
@@ -192,6 +195,9 @@ export async function suggestGoalsAction(
         error:
           'AI is not configured. Set ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to suggest goals.'
       }
+    }
+    if (error instanceof SkillError && error.reason === 'spend_limit') {
+      return { success: false, error: error.message }
     }
     console.error('Goal suggestions failed:', error)
     return {

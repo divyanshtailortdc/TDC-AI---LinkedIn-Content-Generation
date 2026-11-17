@@ -57,6 +57,7 @@ import {
 import { refreshRunTotals } from '../run-accounting'
 import { markIdeaDrafted, releaseDraftingClaim } from './drafting-claim'
 import { SkillError } from '../run-skill'
+import { withAiSpend } from '../spend'
 import { collectLinkSources } from '../skills/post-drafting/guard'
 import {
   writeDraft,
@@ -1009,7 +1010,15 @@ async function draftClaimedIdea(ideaId: string): Promise<DraftPostResult> {
     where: eq(ideasTable.id, ideaId)
   })
   if (!idea) throw new Error(`Idea ${ideaId} not found`)
+  // Drafting is the run's work, charged to its identity's owner.
+  return withAiSpend(
+    { source: 'runs', accountId: idea.accountId, runId: idea.runId },
+    () => draftLoadedIdea(idea)
+  )
+}
 
+async function draftLoadedIdea(idea: Idea): Promise<DraftPostResult> {
+  const ideaId = idea.id
   const runId = idea.runId
   // The idea's own goal and no other, so the post lands the message the idea
   // was made for.

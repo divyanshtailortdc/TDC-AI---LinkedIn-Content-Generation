@@ -4,6 +4,7 @@ import {
   IdentitySetupError
 } from '@/lib/ai/pipeline/profile-setup-run'
 import { AnalyzeIdentityInputSchema } from '@/lib/ai/skills/profile-setup/schema'
+import { withAiSpend } from '@/lib/ai/spend'
 import { findOwnedAccount } from '@/lib/ownership'
 import { getSessionUser } from '@/lib/session'
 
@@ -56,7 +57,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const data = await analyzeIdentitySetup(parsed.data, request.signal)
+    // Charged to the user: a new identity has no row yet to charge.
+    const data = await withAiSpend(
+      {
+        source: 'identity',
+        userId: user.id,
+        accountId: parsed.data.accountId ?? null
+      },
+      () => analyzeIdentitySetup(parsed.data, request.signal)
+    )
     return Response.json({ success: true, data })
   } catch (error) {
     // 499: client closed the request. Nobody reads this.

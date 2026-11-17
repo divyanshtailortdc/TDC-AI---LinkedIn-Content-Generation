@@ -1,4 +1,4 @@
-import { cosineSimilarity, embedMany } from 'ai'
+import { cosineSimilarity } from 'ai'
 
 /**
  * Ideas that repeat an earlier one in other words. A model asked for fresh
@@ -110,16 +110,19 @@ export async function dropSemanticRepeats<
     .sort((a, b) => priority(ideas[b]!) - priority(ideas[a]!))
   try {
     const timeout = AbortSignal.timeout(EMBED_TIMEOUT_MS)
-    const { embeddings } = await embedMany({
-      model: handle.model,
-      values: [
+    const { embedValues } = await import('./embed')
+    const embeddings = await embedValues(
+      handle,
+      [
         ...order.map(i => ideaMeaningText(ideas[i]!)),
         ...earlier.map(ideaMeaningText)
       ],
-      abortSignal: options.abortSignal
-        ? AbortSignal.any([timeout, options.abortSignal])
-        : timeout
-    })
+      {
+        abortSignal: options.abortSignal
+          ? AbortSignal.any([timeout, options.abortSignal])
+          : timeout
+      }
+    )
     const repeats = findRepeats(
       embeddings.slice(0, order.length),
       embeddings.slice(order.length)

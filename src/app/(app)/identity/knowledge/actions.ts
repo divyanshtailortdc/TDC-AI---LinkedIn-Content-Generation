@@ -5,6 +5,7 @@ import { knowledgeDocumentsTable } from '@/db/schema'
 import { requireOwnedAccount } from '@/lib/account-guard'
 import { indexKnowledgeDocument } from '@/lib/ai/embeddings'
 import { extractKnowledgeClaims } from '@/lib/ai/skills/knowledge-extraction'
+import { withAiSpend } from '@/lib/ai/spend'
 import { IDENTITY_PATH } from '@/lib/identity'
 import { idSchema } from '@/lib/ids'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
@@ -59,10 +60,15 @@ export async function saveKnowledgeDocument(rawPayload: {
     throw new Error('Title and content are required')
   }
 
+  const spend = {
+    source: 'identity',
+    accountId: payload.accountId,
+    userId: user.id
+  } as const
+
   // Extract summary and verified claims
-  const extraction = await extractKnowledgeClaims(
-    payload.title,
-    payload.content
+  const extraction = await withAiSpend(spend, () =>
+    extractKnowledgeClaims(payload.title, payload.content)
   )
   const content = payload.content.trim()
 
@@ -83,7 +89,7 @@ export async function saveKnowledgeDocument(rawPayload: {
 
   if (inserted) {
     try {
-      await indexKnowledgeDocument(inserted)
+      await withAiSpend(spend, () => indexKnowledgeDocument(inserted))
     } catch (err) {
       console.warn(`Could not embed knowledge document ${inserted.id}:`, err)
     }

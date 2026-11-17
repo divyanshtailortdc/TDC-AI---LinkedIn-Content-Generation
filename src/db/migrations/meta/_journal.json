@@ -372,6 +372,13 @@
       "when": 1794830924039,
       "tag": "0052_idea_scorecard",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794916199008,
+      "tag": "0053_ai_usage",
+      "breakpoints": true
     }
   ]
 }

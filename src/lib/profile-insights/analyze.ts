@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { accountsTable, platformInsightsTable } from '@/db/schema'
 import { SkillError } from '@/lib/ai/run-skill'
 import { analyzeProfilePosts } from '@/lib/ai/skills/profile-analysis'
+import { withAiSpend } from '@/lib/ai/spend'
 import { PLATFORMS, type PlatformId } from '@/lib/formats'
 import { profileLinksOf, type ProfileLinks } from '@/lib/profile-links'
 import { isBufferPlatform } from '@/lib/publishing/platform'
@@ -98,6 +99,7 @@ function failureMessage(err: unknown): string {
       return 'AI is not set up on this server, so posts cannot be analyzed.'
     if (err.reason === 'quota_exceeded')
       return 'The AI budget is used up for now. Try again later.'
+    if (err.reason === 'spend_limit') return err.message
     if (err.reason === 'timeout')
       return 'The analysis took too long. Try again.'
     if (err.transient)
@@ -138,30 +140,35 @@ export async function runProfileAnalysis(claim: AnalysisClaim): Promise<void> {
       })
       return
     }
-    const { insights } = await analyzeProfilePosts({
-      platform,
-      account: {
-        name: account.name,
-        accountType: account.accountType,
-        industry: account.industry,
-        bio: account.bio
-      },
-      profile: {
-        url: ref.url,
-        handle: ref.handle,
-        ...(collected.displayName
-          ? { displayName: collected.displayName }
-          : {}),
-        ...(collected.bio ? { bio: collected.bio } : {})
-      },
-      posts: collected.posts,
-      images: collected.images.map(({ data, mediaType }) => ({
-        data,
-        mediaType
-      })),
-      imagePosts: collected.images.map(i => i.postUrl),
-      abortSignal: signal
-    })
+    // Charged to the identity's owner, after the response that started it.
+    const { insights } = await withAiSpend(
+      { source: 'identity', accountId },
+      () =>
+        analyzeProfilePosts({
+          platform,
+          account: {
+            name: account.name,
+            accountType: account.accountType,
+            industry: account.industry,
+            bio: account.bio
+          },
+          profile: {
+            url: ref.url,
+            handle: ref.handle,
+            ...(collected.displayName
+              ? { displayName: collected.displayName }
+              : {}),
+            ...(collected.bio ? { bio: collected.bio } : {})
+          },
+          posts: collected.posts,
+          images: collected.images.map(({ data, mediaType }) => ({
+            data,
+            mediaType
+          })),
+          imagePosts: collected.images.map(i => i.postUrl),
+          abortSignal: signal
+        })
+    )
     await finish({
       status: 'ready',
       error: null,

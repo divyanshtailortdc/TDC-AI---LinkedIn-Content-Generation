@@ -18,6 +18,8 @@ const DIGEST_TIMEOUT_MS = 90_000
  * become the stories. A model that is busy (timed out, out of budget,
  * rate-limited, down) is tried again later instead (RetryLaterError), since
  * its digest is much better than the fallback, except on the `lastChance`.
+ * A user past their spending limit gets the fallback at once: that limit
+ * frees up over days, not minutes.
  */
 export async function digestEmail(
   email: {
@@ -48,7 +50,11 @@ export async function digestEmail(
     if (isBusyError(err) && !options.lastChance) {
       throw new RetryLaterError(`The digest model call failed: ${err.message}`)
     }
-    if (!(err instanceof SkillError && err.reason === 'not_configured')) {
+    // No model, or its user past their spending limit: expected, not news.
+    if (!(
+      err instanceof SkillError &&
+      (err.reason === 'not_configured' || err.reason === 'spend_limit')
+    )) {
       console.warn('Newsletter digest failed, using the links instead:', err)
     }
     return digestHeuristically(email.content)

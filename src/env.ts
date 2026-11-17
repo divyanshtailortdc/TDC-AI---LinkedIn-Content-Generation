@@ -22,6 +22,11 @@ export const env = createEnv({
     // 'agent' lets the research agent choose searches and read pages.
     RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
+    // What one user may spend on AI over any 30 days, in US dollars, across
+    // every identity they own and everything that calls a model (runs,
+    // newsletters, setup, post editing). Past it, new model calls are
+    // refused until older spend leaves the window (src/lib/ai/spend.ts).
+    AI_SPEND_LIMIT_USD: z.coerce.number().positive().default(100),
     CRON_SECRET: z.string().optional(),
 
     // Authentication (see docs/AUTHENTICATION.md). Better Auth refuses to
@@ -149,6 +154,7 @@ export const env = createEnv({
     SERPER_API_KEY: process.env.SERPER_API_KEY,
     RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+    AI_SPEND_LIMIT_USD: process.env.AI_SPEND_LIMIT_USD,
     CRON_SECRET: process.env.CRON_SECRET,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,

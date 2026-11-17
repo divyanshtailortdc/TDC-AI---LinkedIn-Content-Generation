@@ -51,6 +51,12 @@ variable "research_mode" {
   default     = "fixed"
 }
 
+variable "ai_spend_limit_usd" {
+  description = "What one user may spend on AI over any 30 days, in US dollars, across all their identities."
+  type        = number
+  default     = 100
+}
+
 # Secrets. Each one that is set is stored in Secret Manager and passed to the
 # app; leave the ones you don't use empty.
 

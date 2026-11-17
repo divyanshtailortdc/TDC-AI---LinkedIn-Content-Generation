@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withAiSpend } from '~/lib/ai/spend'
 import {
   errorResponse,
   fail,
@@ -70,20 +71,24 @@ export async function POST(request: Request, { params }: Params) {
   if (!parsed.success)
     return fail(400, parsed.error.issues[0]?.message || 'Invalid request.')
   const body = parsed.data
+  const { accountId } = who
   try {
-    if (body.action === 'generate') {
-      const result = await createCarouselForPost(who.accountId, id, {
-        instruction: body.instruction?.trim() || null,
-        abortSignal: request.signal,
-        replace: body.replace === true
-      })
-      return Response.json({ success: true, ...result })
-    }
-    const slides =
-      body.action === 'add'
-        ? await addSlide(who.accountId, id, body.after)
-        : await redrawCarousel(who.accountId, id)
-    return Response.json({ success: true, slides })
+    // Writing and drawing slides calls the model and the image renderer.
+    return await withAiSpend({ source: 'posts', accountId }, async () => {
+      if (body.action === 'generate') {
+        const result = await createCarouselForPost(accountId, id, {
+          instruction: body.instruction?.trim() || null,
+          abortSignal: request.signal,
+          replace: body.replace === true
+        })
+        return Response.json({ success: true, ...result })
+      }
+      const slides =
+        body.action === 'add'
+          ? await addSlide(accountId, id, body.after)
+          : await redrawCarousel(accountId, id)
+      return Response.json({ success: true, slides })
+    })
   } catch (err) {
     return errorResponse(err, request, 'Could not update the carousel')
   }

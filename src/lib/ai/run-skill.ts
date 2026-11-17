@@ -4,6 +4,11 @@ import { EPHEMERAL_CACHE, getLanguageModel, type AIStage } from '@/lib/ai'
 import { generateText, NoObjectGeneratedError, Output, RetryError } from 'ai'
 import type { z } from 'zod'
 import { parseJsonLoosely } from './parse-json'
+import {
+  AiSpendLimitError,
+  assertWithinAiSpendLimit,
+  recordAiSpend
+} from './spend'
 import { EMPTY_USAGE, readCallUsage, type CallUsage } from './usage'
 
 /**
@@ -11,8 +16,9 @@ import { EMPTY_USAGE, readCallUsage, type CallUsage } from './usage'
  *
  * A skill (see ./skills) owns its instructions, prompt, output schema and
  * guard; this owns the plumbing they all shared: picking the stage's model,
- * prompt caching, timeouts, salvaging an answer that missed the schema, and
- * reading token usage. No tools and no loop; that is what ./agents is for.
+ * prompt caching, timeouts, salvaging an answer that missed the schema,
+ * reading token usage, and the spending limit and usage ledger (./spend).
+ * No tools and no loop; that is what ./agents is for.
  */
 
 export type SkillResult<T> = {
@@ -23,8 +29,14 @@ export type SkillResult<T> = {
   providerName: string
 }
 
+/**
+ * quota_exceeded: the provider's own budget (the gateway key's limit) is used
+ * up, for every user. spend_limit: this user reached the app's limit
+ * (AI_SPEND_LIMIT_USD); the message says so, and can be shown as it is.
+ * Neither is retried soon: see isBusyError.
+ */
 export type SkillFailure =
-  'not_configured' | 'timeout' | 'quota_exceeded' | 'failed'
+  'not_configured' | 'timeout' | 'quota_exceeded' | 'spend_limit' | 'failed'
 
 export class SkillError extends Error {
   /** Tokens billed before the failure, so run totals stay true. */
@@ -81,7 +93,9 @@ export function isTransientError(error: unknown): boolean {
 
 /**
  * A model call that may succeed if made again later: it timed out, the
- * budget ran out, or the provider was busy or out of reach.
+ * budget ran out, or the provider was busy or out of reach. A user's own
+ * spending limit is not: it frees up over days, so work that can do without
+ * the model (a newsletter's links as its stories) should do so now.
  */
 export function isBusyError(error: unknown): error is SkillError {
   return (
@@ -142,6 +156,17 @@ export async function runSkill<S extends z.ZodType>(opts: {
   ).slice(0, 3)
 
   try {
+    await assertWithinAiSpendLimit()
+  } catch (error) {
+    if (error instanceof AiSpendLimitError) {
+      throw new SkillError(error.message, 'spend_limit')
+    }
+    throw error
+  }
+  const record = (usage: CallUsage) =>
+    recordAiSpend({ stage: opts.stage, modelId: handle.modelId, usage })
+
+  try {
     const result = await generateText({
       model: handle.model,
       providerOptions: handle.providerOptions,
@@ -182,9 +207,11 @@ export async function runSkill<S extends z.ZodType>(opts: {
         : {}),
       ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {})
     })
+    const usage = readCallUsage(result, handle.modelId)
+    await record(usage)
     return {
       output: result.output as z.infer<S>,
-      usage: readCallUsage(result, handle.modelId),
+      usage,
       modelId: handle.modelId,
       providerName: handle.providerName
     }
@@ -193,6 +220,7 @@ export async function runSkill<S extends z.ZodType>(opts: {
     // Those tokens were billed either way.
     if (NoObjectGeneratedError.isInstance(error)) {
       const usage = readCallUsage({ usage: error.usage }, handle.modelId)
+      await record(usage)
       const salvaged = opts.schema.safeParse(parseJsonLoosely(error.text))
       if (salvaged.success) {
         return {

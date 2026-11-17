@@ -1,8 +1,15 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { ideasTable, postDraftsTable, runStepsTable, runsTable } from '@/db/schema'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { ideasTable, postDraftsTable, runsTable } from '@/db/schema'
+import { eq, sql } from 'drizzle-orm'
+import { env } from '~/env'
+import {
+  accountOwnerIn,
+  accountUsageIn,
+  spentInWindowIn
+} from '@/lib/ai/spend-ledger'
+import { SPEND_LIMIT_WINDOW_DAYS, type AiSpendSource } from '@/lib/ai/spend-sources'
 
 export interface SpendWindow {
   runs: number
@@ -61,6 +68,8 @@ export async function getRunSpendSummary(
 }
 
 export interface AccountUsageTotals {
+  /** Billed model calls, embedding requests and images. */
+  calls: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
@@ -70,66 +79,30 @@ export interface AccountUsageTotals {
 
 export interface AccountUsageSummary {
   totals: AccountUsageTotals
-  /** Stages that actually recorded token usage, by stage name. */
-  byStage: Array<{ stage: string; totalTokens: number; costUsd: number }>
+  /** What the spend was for, sources with no calls left out. */
+  bySource: Array<{ source: AiSpendSource; totalTokens: number; costUsd: number }>
   runs: number
   ideas: number
   posts: number
+  /**
+   * The spending limit of the identity's owner: what they spent over the
+   * window on every identity they own, against AI_SPEND_LIMIT_USD.
+   */
+  limit: { spentUsd: number; limitUsd: number; windowDays: number }
 }
 
-/** Stage keys that consume tokens, in pipeline order. */
-const BILLED_STAGES = ['generating_ideas', 'drafting']
-
 /**
- * All-time token and cost totals for one account.
- *
- * `runs.tokenCounts` is the authoritative record: it carries the full
- * input/output/cache breakdown accumulated across every model call in the
- * run, including calls whose per-step row recorded no tokens of its own
- * (the linting revision pass writes its usage to the run, not the step).
- * The per-stage figures come from `run_steps` purely to show where the
- * spend went; they are not used for the totals.
+ * All-time token and cost totals for one identity, from the usage ledger
+ * (ai_usage): every paid call made for it, in runs or not (newsletters,
+ * setup, post editing). Spend from before the ledger was copied in from the
+ * runs' steps (migration 0053).
  */
 export async function getAccountUsageSummary(
   accountId: string
 ): Promise<AccountUsageSummary> {
-  const tokenCount = (field: string) =>
-    sql`coalesce((${runsTable.tokenCounts}->>${field})::numeric, 0)`
-
-  const [[totals], stageRows, [ideaRow], [postRow]] = await Promise.all([
-    db
-      .select({
-        runs: sql<number>`count(*)`.mapWith(Number),
-        inputTokens: sql<number>`coalesce(sum(${tokenCount('inputTokens')}), 0)`.mapWith(Number),
-        outputTokens: sql<number>`coalesce(sum(${tokenCount('outputTokens')}), 0)`.mapWith(Number),
-        cacheReadTokens: sql<number>`coalesce(sum(${tokenCount('cacheReadTokens')}), 0)`.mapWith(
-          Number
-        ),
-        totalTokens: sql<number>`coalesce(sum(${tokenCount('totalTokens')}), 0)`.mapWith(Number),
-        costUsd: sql<number>`coalesce(sum(coalesce(${runsTable.costUsd}, 0)), 0)`.mapWith(Number)
-      })
-      .from(runsTable)
-      .where(eq(runsTable.accountId, accountId)),
-    db
-      .select({
-        stage: runStepsTable.stage,
-        totalTokens: sql<number>`coalesce(sum(coalesce(${runStepsTable.tokens}, 0)), 0)`.mapWith(
-          Number
-        ),
-        costUsd: sql<number>`coalesce(sum(coalesce(${runStepsTable.costUsd}, 0)), 0)`.mapWith(
-          Number
-        )
-      })
-      .from(runStepsTable)
-      .innerJoin(runsTable, eq(runStepsTable.runId, runsTable.id))
-      // Only the stages shown; the rest would be summed and dropped.
-      .where(
-        and(
-          eq(runsTable.accountId, accountId),
-          inArray(runStepsTable.stage, BILLED_STAGES)
-        )
-      )
-      .groupBy(runStepsTable.stage),
+  const [usage, owner, [ideaRow], [postRow], [runRow]] = await Promise.all([
+    accountUsageIn(db, accountId),
+    accountOwnerIn(db, accountId),
     db
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(ideasTable)
@@ -137,29 +110,24 @@ export async function getAccountUsageSummary(
     db
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(postDraftsTable)
-      .where(eq(postDraftsTable.accountId, accountId))
+      .where(eq(postDraftsTable.accountId, accountId)),
+    db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(runsTable)
+      .where(eq(runsTable.accountId, accountId))
   ])
-
-  const byStage = BILLED_STAGES.map((stage) => {
-    const row = stageRows.find((r) => r.stage === stage)
-    return {
-      stage,
-      totalTokens: row?.totalTokens ?? 0,
-      costUsd: row?.costUsd ?? 0
-    }
-  }).filter((s) => s.totalTokens > 0 || s.costUsd > 0)
+  const spentUsd = (await spentInWindowIn(db, { userId: owner, accountId })) ?? 0
 
   return {
-    totals: {
-      inputTokens: totals?.inputTokens ?? 0,
-      outputTokens: totals?.outputTokens ?? 0,
-      cacheReadTokens: totals?.cacheReadTokens ?? 0,
-      totalTokens: totals?.totalTokens ?? 0,
-      costUsd: totals?.costUsd ?? 0
-    },
-    byStage,
-    runs: totals?.runs ?? 0,
+    totals: usage.totals,
+    bySource: usage.bySource,
+    runs: runRow?.n ?? 0,
     ideas: ideaRow?.n ?? 0,
-    posts: postRow?.n ?? 0
+    posts: postRow?.n ?? 0,
+    limit: {
+      spentUsd,
+      limitUsd: env.AI_SPEND_LIMIT_USD,
+      windowDays: SPEND_LIMIT_WINDOW_DAYS
+    }
   }
 }

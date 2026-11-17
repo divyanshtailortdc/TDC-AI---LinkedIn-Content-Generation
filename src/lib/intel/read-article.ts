@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm'
 import { createHash } from 'node:crypto'
 import { extractKnowledgeClaims } from '../ai/skills/knowledge-extraction'
+import { withAiSpend } from '../ai/spend'
 import {
   ArticleFetchError,
   looksLikePlaceholderPage,
@@ -164,6 +165,17 @@ async function storeDuplicate(
   }
 }
 
+/** The identity whose email first linked to the article; null once none does. */
+async function firstLinkedBy(articleId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ accountId: mentions.accountId })
+    .from(mentions)
+    .where(eq(mentions.articleId, articleId))
+    .orderBy(asc(mentions.createdAt))
+    .limit(1)
+  return row?.accountId ?? null
+}
+
 async function read(article: ClaimedArticle) {
   let page: ScrapedArticle
   try {
@@ -203,13 +215,22 @@ async function read(article: ClaimedArticle) {
     return
   }
 
+  // An article is read once for every workspace whose email links to it; the
+  // one that linked it first pays. Past its owner's spending limit the
+  // summary is the heuristic one.
+  const payer = await firstLinkedBy(article.id)
   let knowledge
   try {
-    knowledge = await extractKnowledgeClaims(page.title, content, {
-      timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
-      // After about a week of a busy model, the heuristic summary.
-      throwWhenBusy: article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
-    })
+    knowledge = await withAiSpend(
+      { source: 'newsletters', accountId: payer },
+      () =>
+        extractKnowledgeClaims(page.title, content, {
+          timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
+          // After about a week of a busy model, the heuristic summary.
+          throwWhenBusy:
+            article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
+        })
+    )
   } catch (err) {
     // A busy model: the page is read again on the next attempt.
     throw new RetryLaterError(

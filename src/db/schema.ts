@@ -56,6 +56,7 @@ import {
   type ProfileInsights
 } from '../lib/profile-insights/types'
 import type { IdeaScorecard } from '../lib/idea-scorecard'
+import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
 import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
 import { authUsersTable } from './auth-schema'
 
@@ -1741,6 +1742,67 @@ export const platformInsightsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 27. AI Usage — every paid model call, in one ledger (src/lib/ai/spend.ts)
+// ---------------------------------------------------------------------------
+
+// One row per billed call: a model answer, a research-agent step, an
+// embedding request, an image. Written by the few functions every paid call
+// goes through, so spend outside runs (newsletters, setup, post editing) is
+// recorded too, and the spending limit reads it. Run totals (runs.cost_usd)
+// are still summed from run_steps; this is the account-wide record.
+export const aiUsageTable = pgTable(
+  'ai_usage',
+  {
+    id: commonFieldDefs.id(),
+    // Who the call is charged to: the user who owns the work and the identity
+    // it was for. The spending limit is per user, so it covers every identity
+    // they own and the setup done before an identity exists. Both stay when
+    // the identity is deleted, so deleting one does not hand its spend back.
+    // Null for shared work no one account caused (embedding the newsletter
+    // stories of every workspace at once).
+    userId: uuid('user_id').references(() => authUsersTable.id, {
+      onDelete: 'set null'
+    }),
+    accountId: uuid('account_id').references(() => accountsTable.id, {
+      onDelete: 'set null'
+    }),
+    runId: uuid('run_id').references(() => runsTable.id, {
+      onDelete: 'set null'
+    }),
+    source: varchar('source', { length: 20 }).$type<AiSpendSource>().notNull(),
+    // A text call's stage (AIStage in src/lib/ai.ts), else 'embedding' or
+    // 'image'. Rows copied from run_steps keep the step's stage.
+    stage: varchar('stage', { length: 30 }).notNull(),
+    model: varchar('model', { length: 100 }).notNull(),
+    calls: integer('calls').default(1).notNull(),
+    inputTokens: integer('input_tokens').default(0).notNull(),
+    outputTokens: integer('output_tokens').default(0).notNull(),
+    cacheReadTokens: integer('cache_read_tokens').default(0).notNull(),
+    cacheWriteTokens: integer('cache_write_tokens').default(0).notNull(),
+    reasoningTokens: integer('reasoning_tokens').default(0).notNull(),
+    totalTokens: integer('total_tokens').default(0).notNull(),
+    // Unrounded: an embedding request costs millionths of a dollar.
+    costUsd: numeric('cost_usd', { precision: 14, scale: 8 })
+      .default('0')
+      .notNull(),
+    // The cost is the rate-table estimate (src/lib/ai/usage.ts), or unknown
+    // for an image the gateway did not price, rather than the gateway's bill.
+    costEstimated: boolean('cost_estimated').default(false).notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    // The spending limit: one user's last 30 days.
+    index('ai_usage_user_created_idx').on(table.userId, table.createdAt),
+    // The usage cards, and the limit of an identity no user owns.
+    index('ai_usage_account_created_idx').on(table.accountId, table.createdAt),
+    check(
+      'ai_usage_source_check',
+      sql`${table.source} in (${sqlList(AI_SPEND_SOURCES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -1856,3 +1918,4 @@ export type BufferConnection = typeof bufferConnectionsTable.$inferSelect
 export type BufferChannelRow = typeof bufferChannelsTable.$inferSelect
 export type Publication = typeof publicationsTable.$inferSelect
 export type PlatformInsightRow = typeof platformInsightsTable.$inferSelect
+export type AiUsageRow = typeof aiUsageTable.$inferSelect

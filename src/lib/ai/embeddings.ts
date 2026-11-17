@@ -5,11 +5,11 @@ import {
   knowledgeDocumentsTable,
   type KnowledgeDocument
 } from '@/db/schema'
-import { embedMany } from 'ai'
 import { and, asc, cosineDistance, eq, inArray, sql } from 'drizzle-orm'
 import { getEmbeddingModel } from '~/lib/ai'
 import { chunkText } from './chunking'
 import type { GenerationContext } from './context'
+import { embedValues } from './embed'
 import { buildRetrievalQueries, interleave } from './pipeline/grounding-corpus'
 
 const EMBED_TIMEOUT_MS = 60_000
@@ -37,12 +37,11 @@ export async function indexKnowledgeDocument(
   const chunks = chunkText(doc.content)
   if (chunks.length === 0) return 0
 
-  const { embeddings } = await embedMany({
-    model: handle.model,
-    values: chunks.map(chunk => `${doc.title}\n\n${chunk}`),
-    maxParallelCalls: 2,
-    abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
-  })
+  const embeddings = await embedValues(
+    handle,
+    chunks.map(chunk => `${doc.title}\n\n${chunk}`),
+    { maxParallelCalls: 2, abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS) }
+  )
 
   if (
     embeddings.length !== chunks.length ||
@@ -131,9 +130,7 @@ export async function retrieveKnowledgePassages(
   try {
     await backfillMissingChunks(docs, handle.modelId)
 
-    const { embeddings } = await embedMany({
-      model: handle.model,
-      values: queries,
+    const embeddings = await embedValues(handle, queries, {
       abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
     })
 

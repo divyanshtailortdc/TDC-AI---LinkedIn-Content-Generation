@@ -1,7 +1,7 @@
 'use server'
 
 import { requireOwnedAccount } from '@/lib/account-guard'
-import { IDENTITY_PATH } from '@/lib/identity'
+import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
 import { requireUser } from '@/lib/session'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -10,6 +10,7 @@ import { db } from '~/db'
 import { samplePostsTable, voiceConfigsTable } from '~/db/schema'
 import { samplePlatform } from '@/lib/formats'
 import { analyzeVoiceSamples } from '~/lib/ai/skills/voice-analysis'
+import { withAiSpend } from '~/lib/ai/spend'
 import { AccountIdSchema } from '~/lib/setup-payloads'
 import { hasVoiceChoice, NO_VOICE_CHOICE_MESSAGE } from '~/lib/voice-choice'
 
@@ -103,9 +104,14 @@ function revalidateVoicePaths(accountId: string) {
 
 export async function analyzeVoiceAction(samplesText: string) {
   // Signed-in only: every analysis is a paid model call.
-  await requireUser()
+  const user = await requireUser()
   try {
-    const analysis = await analyzeVoiceSamples(samplesText)
+    // Charged to the user, and to the active identity when they have one.
+    const identity = await getIdentity()
+    const analysis = await withAiSpend(
+      { source: 'identity', userId: user.id, accountId: identity?.id ?? null },
+      () => analyzeVoiceSamples(samplesText)
+    )
     return {
       success: true,
       data: analysis.result,

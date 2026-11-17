@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { withAiSpend } from '../ai/spend'
 import { extractNextEmail } from './extract-email'
 import { indexDueStories } from './index-stories'
 import { readDueArticles } from './read-article'
@@ -40,7 +41,11 @@ export async function runExtractionPass() {
 
   let stories = 0
   for (let batch = 0; batch < 4 && Date.now() < deadline; batch++) {
-    const indexed = await indexDueStories()
+    // A batch mixes every workspace's stories, so no one is charged and no
+    // limit applies; it costs a fraction of a cent.
+    const indexed = await withAiSpend({ source: 'newsletters' }, () =>
+      indexDueStories()
+    )
     if (indexed === 0) break
     stories += indexed
   }

@@ -11,6 +11,7 @@ import { isStepCount, Output, tool, ToolLoopAgent } from 'ai'
 import { z } from 'zod'
 import type { GenerationContext } from '../../context'
 import { inferRegion } from '../../region'
+import { assertWithinAiSpendLimit, recordAiSpend } from '../../spend'
 import {
   addUsage,
   EMPTY_USAGE,
@@ -72,8 +73,10 @@ export type ResearchAgentResult = {
  * limits, and returns verbatim quotes. Replaces only the fixed web search; the
  * findings feed the ideation skill exactly as fixed search results do.
  *
- * Throws when it cannot run, or a `ResearchAgentError` with the spend so far
- * when it fails mid-loop; the caller falls back to fixed search.
+ * Throws when it cannot run (AiSpendLimitError past the spending limit), or a
+ * `ResearchAgentError` with the spend so far when it fails mid-loop; the
+ * caller falls back to fixed search. Each step is recorded in the usage
+ * ledger as it ends.
  */
 export async function runResearchAgent(
   ctx: GenerationContext
@@ -83,6 +86,7 @@ export async function runResearchAgent(
   // Without search the agent can only burn steps on empty results.
   if (!isWebSearchConfigured)
     throw new Error('Web search is not configured (SERPER_API_KEY).')
+  await assertWithinAiSpendLimit()
 
   const freshnessDays = ctx.prefs.research.freshness_days
   const country = inferRegion(ctx)?.code
@@ -153,21 +157,29 @@ export async function runResearchAgent(
   // Kept as steps finish, because a timeout or error throws away `result`
   // and with it the steps that were already billed.
   let billedSoFar: CallUsage = EMPTY_USAGE
+  // The ledger rows being written, one per step; never rejected.
+  const recorded: Array<Promise<void>> = []
   let result
   try {
     result = await agent.generate({
       prompt: buildPrompt(ctx, freshnessDays),
       timeout: AGENT_TIMEOUT_MS,
       onStepEnd: step => {
-        billedSoFar = addUsage(billedSoFar, readCallUsage(step, handle.modelId))
+        const usage = readCallUsage(step, handle.modelId)
+        billedSoFar = addUsage(billedSoFar, usage)
+        recorded.push(
+          recordAiSpend({ stage: 'research', modelId: handle.modelId, usage })
+        )
       }
     })
   } catch (err) {
+    await Promise.all(recorded)
     throw new ResearchAgentError(
       err instanceof Error ? err.message : 'Research agent failed',
       billedSoFar
     )
   }
+  await Promise.all(recorded)
 
   // Per step, so a gateway-billed cost is read from each call.
   const usage = result.steps.reduce(

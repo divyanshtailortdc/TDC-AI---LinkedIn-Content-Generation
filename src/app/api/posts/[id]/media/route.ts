@@ -10,6 +10,7 @@ import {
 } from '~/lib/media/image-input'
 import { createPostMedia } from '~/lib/media/post-media'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
+import { withAiSpend } from '~/lib/ai/spend'
 import { requireIdentityId } from '@/lib/identity'
 import { PostLockedError } from '@/lib/publishing/post-lock'
 import { getSessionUser } from '@/lib/session'
@@ -170,15 +171,17 @@ export async function POST(
   // cannot be stopped.
   if (fromPost) {
     try {
-      const outcome = await createPostMedia({
-        draftId: id,
-        accountId,
-        mode: 'ai_generated',
-        customPrompt: prompt || undefined,
-        style,
-        diagramType,
-        abortSignal: request.signal
-      })
+      const outcome = await withAiSpend({ source: 'posts', accountId }, () =>
+        createPostMedia({
+          draftId: id,
+          accountId,
+          mode: 'ai_generated',
+          customPrompt: prompt || undefined,
+          style,
+          diagramType,
+          abortSignal: request.signal
+        })
+      )
       if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
       if (outcome.status === 'aborted') return fail(499, 'Image generation was stopped.')
       if (outcome.status === 'failed') return fail(502, outcome.error)
@@ -200,15 +203,17 @@ export async function POST(
   }
 
   try {
-    const outcome = await createPromptMediaForDraft({
-      draftId: id,
-      accountId,
-      prompt,
-      referenceMediaId,
-      referenceImage: upload,
-      style,
-      abortSignal: request.signal
-    })
+    const outcome = await withAiSpend({ source: 'posts', accountId }, () =>
+      createPromptMediaForDraft({
+        draftId: id,
+        accountId,
+        prompt,
+        referenceMediaId,
+        referenceImage: upload,
+        style,
+        abortSignal: request.signal
+      })
+    )
 
     if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
     if (outcome.status === 'reference_not_found') {

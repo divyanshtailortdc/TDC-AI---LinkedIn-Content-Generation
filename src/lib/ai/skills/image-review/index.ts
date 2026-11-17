@@ -54,7 +54,10 @@ export async function reviewImage(
     const usage = err instanceof SkillError ? err.usage : EMPTY_USAGE
     if (
       !input.abortSignal?.aborted &&
-      !(err instanceof SkillError && err.reason === 'not_configured')
+      !(
+        err instanceof SkillError &&
+        (err.reason === 'not_configured' || err.reason === 'spend_limit')
+      )
     ) {
       console.warn('Image review failed; keeping the image unchecked:', err)
     }

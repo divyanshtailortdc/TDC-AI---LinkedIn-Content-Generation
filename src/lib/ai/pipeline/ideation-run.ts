@@ -54,6 +54,7 @@ import {
   watchForStop
 } from '../run-lifecycle'
 import { SkillError } from '../run-skill'
+import { assertWithinAiSpendLimit, withAiSpend } from '../spend'
 import { applyGoalReviews, reviewGoalFit } from '../skills/goal-review'
 import {
   generateIdeas,
@@ -258,7 +259,16 @@ export async function executeResearchAndIdeate(
   const signal = AbortSignal.any([deadline, stop.signal])
   const stopHeartbeat = keepRunAlive(runId)
   try {
-    return await untilAborted(researchAndIdeate(run, signal), signal)
+    // Every model call of the run is charged to its identity's owner. A run
+    // started past the spending limit fails at once, saying why, rather
+    // than after its web research.
+    return await withAiSpend(
+      { source: 'runs', accountId: run.accountId, runId },
+      async () => {
+        await assertWithinAiSpendLimit()
+        return untilAborted(researchAndIdeate(run, signal), signal)
+      }
+    )
   } catch (err) {
     if (err instanceof RunStoppedError) {
       await closeStoppedRunSteps(runId).catch(cleanupErr =>

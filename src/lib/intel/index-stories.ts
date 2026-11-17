@@ -7,10 +7,10 @@ import {
   intelMentionsTable,
   mailMessagesTable
 } from '@/db/schema'
-import { embedMany } from 'ai'
 import { and, desc, eq, gte, isNull, lt, ne, notInArray, or } from 'drizzle-orm'
 import { getEmbeddingModel } from '../ai'
 import { RESEARCH_SETTINGS } from '../ai/context-blocks'
+import { embedValues } from '../ai/embed'
 import { mapConcurrently } from '../research/web-search'
 import { storyText } from './story-ranking'
 
@@ -53,9 +53,7 @@ type EmbeddingHandle = NonNullable<ReturnType<typeof getEmbeddingModel>>
 const refusedBy = (modelId: string) => `refused:${modelId}`.slice(0, 100)
 
 async function embed(handle: EmbeddingHandle, values: string[]) {
-  const { embeddings } = await embedMany({
-    model: handle.model,
-    values,
+  const embeddings = await embedValues(handle, values, {
     maxParallelCalls: 2,
     abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
   })

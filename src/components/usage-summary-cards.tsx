@@ -1,11 +1,7 @@
+import { AI_SPEND_SOURCE_LABELS } from '@/lib/ai/spend-sources'
 import type { AccountUsageSummary } from '@/lib/run-spend'
 import { Coins, Database, Gauge, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-
-const STAGE_LABELS: Record<string, string> = {
-  generating_ideas: 'Ideation',
-  drafting: 'Drafting'
-}
 
 function formatUsd(value: number): string {
   if (value === 0) return '$0.00'
@@ -26,10 +22,11 @@ function formatPercent(value: number): string {
 
 export function UsageSummaryCards({
   totals,
-  byStage,
+  bySource,
   runs,
   ideas,
-  posts
+  posts,
+  limit
 }: AccountUsageSummary) {
   const costPerPost = posts > 0 && totals.costUsd > 0 ? totals.costUsd / posts : null
   const cacheRate =
@@ -63,7 +60,7 @@ export function UsageSummaryCards({
           icon={Sparkles}
           label="Total tokens"
           value={formatTokens(totals.totalTokens)}
-          hint={`${totals.totalTokens.toLocaleString()} across ${runs} run${runs === 1 ? '' : 's'}`}
+          hint={`${totals.totalTokens.toLocaleString()} across ${totals.calls.toLocaleString()} AI call${totals.calls === 1 ? '' : 's'}`}
         />
         <UsageCard
           icon={Gauge}
@@ -83,22 +80,75 @@ export function UsageSummaryCards({
         />
       </div>
 
-      {byStage.length > 0 && (
+      {bySource.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-border bg-surface px-4 py-3">
           <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">
-            By stage
+            By feature
           </span>
-          {byStage.map(({ stage, totalTokens, costUsd }) => (
-            <span key={stage} className="text-xs text-muted tabular-nums">
+          {bySource.map(({ source, totalTokens, costUsd }) => (
+            <span key={source} className="text-xs text-muted tabular-nums">
               <span className="font-medium text-foreground">
-                {STAGE_LABELS[stage] ?? stage}
+                {AI_SPEND_SOURCE_LABELS[source]}
               </span>{' '}
               {formatTokens(totalTokens)} · {formatUsd(costUsd)}
             </span>
           ))}
         </div>
       )}
+
+      <SpendLimit {...limit} />
     </section>
+  )
+}
+
+/**
+ * The owner's spending limit: what they spent over the window on every
+ * identity they own. Past it, new model calls are refused.
+ */
+function SpendLimit({
+  spentUsd,
+  limitUsd,
+  windowDays
+}: AccountUsageSummary['limit']) {
+  const share = limitUsd > 0 ? Math.min(1, spentUsd / limitUsd) : 1
+  const reached = spentUsd >= limitUsd
+  const near = !reached && share >= 0.8
+  const bar = reached ? 'bg-red-500' : near ? 'bg-amber-500' : 'bg-accent'
+
+  return (
+    <div className="mt-3 rounded-xl border border-border bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">
+          Spending limit
+        </span>
+        <span className="text-xs text-muted tabular-nums">
+          <span className="font-medium text-foreground">{formatUsd(spentUsd)}</span> of{' '}
+          {formatUsd(limitUsd)} over the last {windowDays} days, across all your identities
+        </span>
+      </div>
+      <div
+        role="meter"
+        aria-label="AI spending over the limit's window"
+        aria-valuemin={0}
+        aria-valuemax={limitUsd}
+        aria-valuenow={Math.min(spentUsd, limitUsd)}
+        aria-valuetext={`${formatUsd(spentUsd)} of ${formatUsd(limitUsd)}`}
+        className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-hover"
+      >
+        <div className={`h-full rounded-full ${bar}`} style={{ width: `${share * 100}%` }} />
+      </div>
+      {(reached || near) && (
+        <p
+          className={`mt-2 text-[11px] leading-snug ${
+            reached ? 'text-red-600 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'
+          }`}
+        >
+          {reached
+            ? 'Limit reached: new AI work is refused until older spending leaves the window. Newsletters are still read, without AI summaries.'
+            : 'Close to the limit: past it, new AI work is refused until older spending leaves the window.'}
+        </p>
+      )}
+    </div>
   )
 }
 

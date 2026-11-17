@@ -22,6 +22,7 @@ import {
 } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '../ai/context-blocks'
 import { digestEmail } from '../ai/skills/newsletter-digest'
+import { withAiSpend } from '../ai/spend'
 import { mapConcurrently } from '../research/web-search'
 import { readEmailContent } from './email-content'
 import { canonicalArticleUrl, isArticleUrl } from './links'
@@ -353,19 +354,25 @@ async function extract(email: ClaimedEmail) {
     html: email.htmlBody,
     text: email.textBody
   })
-  const digest = await digestEmail(
-    {
-      from:
-        [email.fromName, email.fromAddress && `<${email.fromAddress}>`]
-          .filter(Boolean)
-          .join(' ') || 'unknown sender',
-      subject: email.subject ?? '(no subject)',
-      content
-    },
-    // After about a week of a busy model, the heuristic digest, not nothing.
-    {
-      lastChance: email.attempts >= EXTRACTION_SETTINGS.maxTransientAttempts
-    }
+  // Charged to the identity the email was sent to. Past its owner's spending
+  // limit the digest falls back to the email's links, at once.
+  const digest = await withAiSpend(
+    { source: 'newsletters', accountId: email.accountId },
+    () =>
+      digestEmail(
+        {
+          from:
+            [email.fromName, email.fromAddress && `<${email.fromAddress}>`]
+              .filter(Boolean)
+              .join(' ') || 'unknown sender',
+          subject: email.subject ?? '(no subject)',
+          content
+        },
+        // After about a week of a busy model, the heuristic digest, not nothing.
+        {
+          lastChance: email.attempts >= EXTRACTION_SETTINGS.maxTransientAttempts
+        }
+      )
   )
 
   const linkUrls = new Map(content.links.map(link => [link.n, link.url]))
