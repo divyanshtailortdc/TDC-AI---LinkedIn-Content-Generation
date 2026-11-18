@@ -14,6 +14,9 @@ describe('safeRedirectPath', () => {
     assert.strictEqual(safeRedirectPath('/ideas'), '/ideas')
     assert.strictEqual(safeRedirectPath('/runs?page=2#top'), '/runs?page=2#top')
     assert.strictEqual(safeRedirectPath('/identity/voice'), '/identity/voice')
+    // Normalised, and still inside the app.
+    assert.strictEqual(safeRedirectPath('/ideas/./x/../y'), '/ideas/y')
+    assert.strictEqual(safeRedirectPath('/./%2F/evil.com'), '/%2F/evil.com')
   })
 
   it('rejects anything that could leave the app', () => {
@@ -27,6 +30,14 @@ describe('safeRedirectPath', () => {
       '/\\/evil.com',
       '/\t/evil.com',
       '/\n/evil.com',
+      // Dot segments that normalise to `//evil.com`.
+      '/.//evil.com',
+      '/././/evil.com/ideas',
+      '/x/..//evil.com',
+      '/a/.././/evil.com?x=1#y',
+      '/%2e//evil.com',
+      '/%2E%2E//evil.com',
+      '/.//',
       'javascript:alert(1)',
       'ideas',
       '',
@@ -51,6 +62,7 @@ describe('safeRedirectPath', () => {
       '/login?next=%2Fruns%3Fpage%3D2'
     )
     assert.strictEqual(loginPathFor('//evil.com'), '/login')
+    assert.strictEqual(loginPathFor('/.//evil.com'), '/login')
   })
 })
 
