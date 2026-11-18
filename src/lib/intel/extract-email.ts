@@ -37,7 +37,8 @@ import { EXTRACTION_SETTINGS, retryAt, RetryLaterError } from './settings'
  * The email row is the queue item. A pass claims it with a conditional
  * update (`extraction_locked_at` is the claim's token), so two processes
  * never extract the same email; a claim older than claimTtlMs belongs to a
- * process that died and is taken over. Everything is stored in one
+ * process that died and is taken over, or, when that was the email's last
+ * attempt, the email is failed (claimNextEmail). Everything is stored in one
  * transaction that still holds the claim, replacing what an earlier attempt
  * stored, so a retry never duplicates stories.
  *
@@ -64,10 +65,34 @@ type ClaimedEmail = {
   claimedAt: Date
 }
 
+/** Why an email failed when its last attempt never finished. */
+const INTERRUPTED_EMAIL =
+  'Reading this email was interrupted, and its attempts ran out.'
+
 /** The newest due email, claimed for this pass, or null when none is due. */
 async function claimNextEmail(): Promise<ClaimedEmail | null> {
   const now = new Date()
   const stale = new Date(now.getTime() - EXTRACTION_SETTINGS.claimTtlMs)
+  const abandoned = and(
+    eq(messages.extractionStatus, 'processing'),
+    lt(messages.extractionLockedAt, stale)
+  )
+  // An attempt that never finished counts like one that failed: the email
+  // may be what brought the process down, so past maxAttempts it is failed,
+  // not taken over every claimTtlMs forever.
+  await db
+    .update(messages)
+    .set({
+      extractionStatus: 'failed',
+      extractionLockedAt: null,
+      extractionError: INTERRUPTED_EMAIL
+    })
+    .where(
+      and(
+        abandoned,
+        gte(messages.extractionAttempts, EXTRACTION_SETTINGS.maxAttempts)
+      )
+    )
   const due = db
     .select({ id: messages.id })
     .from(messages)
@@ -78,8 +103,8 @@ async function claimNextEmail(): Promise<ClaimedEmail | null> {
           lte(messages.extractionNextAt, now)
         ),
         and(
-          eq(messages.extractionStatus, 'processing'),
-          lt(messages.extractionLockedAt, stale)
+          abandoned,
+          lt(messages.extractionAttempts, EXTRACTION_SETTINGS.maxAttempts)
         )
       )
     )

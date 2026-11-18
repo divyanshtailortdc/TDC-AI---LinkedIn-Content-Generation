@@ -6,6 +6,7 @@ import {
   and,
   asc,
   eq,
+  gte,
   inArray,
   isNotNull,
   lt,
@@ -55,13 +56,31 @@ type ClaimedArticle = {
 async function claimArticles(limit: number): Promise<ClaimedArticle[]> {
   const now = new Date()
   const stale = new Date(now.getTime() - EXTRACTION_SETTINGS.claimTtlMs)
+  const abandoned = and(
+    eq(articles.status, 'processing'),
+    lt(articles.lockedAt, stale)
+  )
+  // As for an email (claimNextEmail): a page that keeps bringing the process
+  // down is failed after maxAttempts, not taken over forever.
+  await db
+    .update(articles)
+    .set({
+      status: 'failed',
+      lockedAt: null,
+      lastError:
+        'Reading this article was interrupted, and its attempts ran out.',
+      updatedAt: now
+    })
+    .where(
+      and(abandoned, gte(articles.attempts, EXTRACTION_SETTINGS.maxAttempts))
+    )
   const due = db
     .select({ id: articles.id })
     .from(articles)
     .where(
       or(
         and(eq(articles.status, 'pending'), lte(articles.nextAttemptAt, now)),
-        and(eq(articles.status, 'processing'), lt(articles.lockedAt, stale))
+        and(abandoned, lt(articles.attempts, EXTRACTION_SETTINGS.maxAttempts))
       )
     )
     .orderBy(asc(articles.nextAttemptAt))

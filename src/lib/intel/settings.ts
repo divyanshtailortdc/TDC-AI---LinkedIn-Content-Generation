@@ -26,7 +26,10 @@ export const EXTRACTION_SETTINGS = {
    * serverless function's time limit (Vercel). The rest waits for the next.
    */
   passDeadlineMs: 4 * 60_000,
-  /** A claim older than this belongs to a process that died; it is taken over. */
+  /**
+   * A claim older than this belongs to a process that died; it is taken
+   * over, or the item is failed when that was its last attempt (maxAttempts).
+   */
   claimTtlMs: 10 * 60_000,
   /**
    * A newsletter's email within this time of another of its emails, with at
@@ -36,7 +39,10 @@ export const EXTRACTION_SETTINGS = {
    */
   versionWindowMs: 3 * 24 * 60 * 60_000,
   versionMinOverlap: 0.6,
-  /** Attempts before an email or article is marked failed. */
+  /**
+   * Attempts before an email or article is marked failed, counting the ones
+   * that never finished (the process died or hung on it).
+   */
   maxAttempts: 5,
   /**
    * Attempts for a failure that may pass (the AI model busy, out of budget
