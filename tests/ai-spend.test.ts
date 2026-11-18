@@ -9,15 +9,79 @@ import * as schema from '../src/db/schema'
 import {
   accountOwnerIn,
   accountUsageIn,
+  reachedSpendLimit,
   recordUsageIn,
-  spentInWindowIn,
-  type SpendCharge
+  spendCountersIn,
+  type SpendCharge,
+  type SpendCounters,
+  type SpendLimits
 } from '../src/lib/ai/spend-ledger'
 import {
   EMPTY_USAGE,
   readEmbeddingUsage,
   type CallUsage
 } from '../src/lib/ai/usage'
+
+describe('the spending limits', () => {
+  const limits: SpendLimits = { windowUsd: 100, dayUsd: 20, inboxDayUsd: 2 }
+  const spent = (c: Partial<SpendCounters> = {}): SpendCounters => ({
+    windowUsd: 0,
+    dayUsd: 0,
+    inboxDayUsd: 0,
+    ...c
+  })
+  const kind = (...args: Parameters<typeof reachedSpendLimit>) =>
+    reachedSpendLimit(...args)?.kind ?? null
+
+  it('refuses work a user starts at their 30-day limit, then at their daily one', () => {
+    assert.strictEqual(
+      kind('runs', spent({ windowUsd: 99.99, dayUsd: 19.99 }), limits),
+      null
+    )
+    assert.strictEqual(
+      kind('runs', spent({ windowUsd: 100, dayUsd: 20 }), limits),
+      'window'
+    )
+    assert.strictEqual(
+      kind('posts', spent({ windowUsd: 40, dayUsd: 20 }), limits),
+      'day'
+    )
+    // An inbox that spent its own limit does not hold back the user's work.
+    assert.strictEqual(kind('runs', spent({ inboxDayUsd: 50 }), limits), null)
+  })
+
+  it('stops inbox work at its identity limit and at a share of its owner limits', () => {
+    assert.strictEqual(
+      kind('inbox', spent({ inboxDayUsd: 1.99 }), limits),
+      null
+    )
+    assert.strictEqual(
+      kind('inbox', spent({ inboxDayUsd: 2 }), limits),
+      'inbox_day'
+    )
+    // At 80% of the owner's limits, so a flood of email leaves them the rest.
+    assert.strictEqual(kind('inbox', spent({ windowUsd: 79.99 }), limits), null)
+    assert.strictEqual(
+      kind('inbox', spent({ windowUsd: 80 }), limits),
+      'window'
+    )
+    assert.strictEqual(kind('inbox', spent({ dayUsd: 16 }), limits), 'day')
+    const reached = reachedSpendLimit('inbox', spent({ dayUsd: 16 }), limits)
+    assert.deepStrictEqual(reached, {
+      kind: 'day',
+      spentUsd: 16,
+      limitUsd: 20,
+      capUsd: 16
+    })
+  })
+
+  it('has no inbox limit for inbox work with no identity, such as shared embeddings', () => {
+    assert.strictEqual(
+      kind('inbox', spent({ inboxDayUsd: null }), limits),
+      null
+    )
+  })
+})
 
 describe('embedding spend', () => {
   it('is priced from the tokens of every request, not the gateway figure', () => {
@@ -47,19 +111,24 @@ describe('embedding spend', () => {
 })
 
 // Runs against the local development database, inside transactions that are
-// always rolled back: nothing a test writes stays. Each applies migration
-// 0053 first, so it works whether or not that database has it yet.
+// always rolled back: nothing a test writes stays. Each applies migrations
+// 0053 and 0054 first, so it works whether or not that database has them yet.
 const url =
   process.env.DATABASE_URL ??
   fs.readFileSync('.env', 'utf8').match(/^DATABASE_URL=["']?([^"'\n]+)/m)?.[1]
 
-const migration = fs
-  .readFileSync('src/db/migrations/0053_ai_usage.sql', 'utf8')
-  .split('--> statement-breakpoint')
-  .map(statement => statement.trim())
-  .filter(Boolean)
+const statementsOf = (file: string) =>
+  fs
+    .readFileSync(`src/db/migrations/${file}`, 'utf8')
+    .split('--> statement-breakpoint')
+    .map(statement => statement.trim())
+    .filter(Boolean)
+const migration = statementsOf('0053_ai_usage.sql')
 const backfill = migration.at(-1)!
-const ddl = migration.slice(0, -1)
+const ddl = [
+  ...migration.slice(0, -1),
+  ...statementsOf('0054_ai_usage_inbox.sql')
+]
 
 const usage = (costUsd: number, more: Partial<CallUsage> = {}): CallUsage => ({
   ...EMPTY_USAGE,
@@ -119,6 +188,11 @@ describe('the usage ledger', { skip: !url }, () => {
     runId: null,
     ...c
   })
+  /** What the 30-day limit has counted. */
+  const spentInWindow = async (
+    tx: Tx,
+    c: Pick<SpendCharge, 'userId' | 'accountId'>
+  ) => (await spendCountersIn(tx, c))?.windowUsd ?? null
   const call = (u: CallUsage, stage = 'drafting') => ({
     stage,
     modelId: 'anthropic/claude-sonnet-5-5',
@@ -263,17 +337,110 @@ describe('the usage ledger', { skip: !url }, () => {
 
       assert.strictEqual(await accountOwnerIn(tx, second), owner)
       assert.strictEqual(
-        await spentInWindowIn(tx, { userId: owner, accountId: second }),
+        await spentInWindow(tx, { userId: owner, accountId: second }),
         4
       )
       assert.strictEqual(
-        await spentInWindowIn(tx, { userId: someoneElse, accountId: theirs }),
+        await spentInWindow(tx, { userId: someoneElse, accountId: theirs }),
         9
       )
       // Shared work, charged to no one, is limited for no one.
       assert.strictEqual(
-        await spentInWindowIn(tx, { userId: null, accountId: null }),
+        await spentInWindow(tx, { userId: null, accountId: null }),
         null
+      )
+    }))
+
+  it('counts the last 24 hours, and the inbox of each identity on its own', () =>
+    inRolledBack(async tx => {
+      const owner = await user(tx)
+      const first = await identity(tx, owner)
+      const second = await identity(tx, owner)
+      const someoneElse = await user(tx)
+      const theirs = await identity(tx, someoneElse)
+      const mine = charge({ userId: owner, accountId: first })
+
+      await recordUsageIn(tx, mine, call(usage(1.5)))
+      await recordUsageIn(
+        tx,
+        { ...mine, source: 'inbox' },
+        call(usage(0.75), 'extraction')
+      )
+      await recordUsageIn(
+        tx,
+        { ...mine, source: 'inbox', accountId: second },
+        call(usage(0.5), 'extraction')
+      )
+      // Discovery is not the inbox.
+      await recordUsageIn(
+        tx,
+        { ...mine, source: 'newsletters' },
+        call(usage(0.25), 'identity_setup')
+      )
+      await recordUsageIn(
+        tx,
+        charge({ source: 'inbox', userId: someoneElse, accountId: theirs }),
+        call(usage(4), 'extraction')
+      )
+      // Within the 30 days, before the 24 hours.
+      const older = {
+        userId: owner,
+        accountId: first,
+        stage: 'extraction',
+        model: 'anthropic/claude-haiku-4-5',
+        createdAt: sql`now() - interval '25 hours'`
+      }
+      await tx.insert(schema.aiUsageTable).values([
+        { ...older, source: 'runs', costUsd: '10' },
+        { ...older, source: 'inbox', costUsd: '3' }
+      ])
+
+      assert.deepStrictEqual(
+        await spendCountersIn(tx, { userId: owner, accountId: first }),
+        { windowUsd: 16, dayUsd: 3, inboxDayUsd: 0.75 }
+      )
+      assert.deepStrictEqual(
+        await spendCountersIn(tx, { userId: owner, accountId: second }),
+        { windowUsd: 16, dayUsd: 3, inboxDayUsd: 0.5 }
+      )
+      // Work before an identity exists has no inbox.
+      assert.deepStrictEqual(
+        await spendCountersIn(tx, { userId: owner, accountId: null }),
+        { windowUsd: 16, dayUsd: 3, inboxDayUsd: null }
+      )
+      assert.deepStrictEqual(
+        await spendCountersIn(tx, { userId: someoneElse, accountId: theirs }),
+        { windowUsd: 4, dayUsd: 4, inboxDayUsd: 4 }
+      )
+    }))
+
+  it('moves the email and article spend recorded before the inbox source to it', () =>
+    inRolledBack(async tx => {
+      const owner = await user(tx)
+      const accountId = await identity(tx, owner)
+      const mine = charge({ source: 'newsletters', userId: owner, accountId })
+      await recordUsageIn(tx, mine, call(usage(0.5), 'extraction'))
+      await recordUsageIn(tx, mine, call(usage(0.25), 'embedding'))
+      await recordUsageIn(tx, mine, call(usage(1), 'identity_setup'))
+
+      for (const statement of statementsOf('0054_ai_usage_inbox.sql')) {
+        await tx.execute(sql.raw(statement))
+      }
+      const rows = await tx
+        .select({
+          stage: schema.aiUsageTable.stage,
+          source: schema.aiUsageTable.source
+        })
+        .from(schema.aiUsageTable)
+        .where(eq(schema.aiUsageTable.accountId, accountId))
+        .orderBy(asc(schema.aiUsageTable.stage))
+      assert.deepStrictEqual(
+        rows.map(r => [r.stage, r.source]),
+        [
+          ['embedding', 'inbox'],
+          ['extraction', 'inbox'],
+          ['identity_setup', 'newsletters']
+        ]
       )
     }))
 
@@ -295,7 +462,7 @@ describe('the usage ledger', { skip: !url }, () => {
 
       assert.strictEqual(await accountOwnerIn(tx, legacy), null)
       assert.strictEqual(
-        await spentInWindowIn(tx, { userId: null, accountId: legacy }),
+        await spentInWindow(tx, { userId: null, accountId: legacy }),
         2
       )
     }))
@@ -321,7 +488,7 @@ describe('the usage ledger', { skip: !url }, () => {
         [[null, null, 0.5]]
       )
       assert.strictEqual(
-        await spentInWindowIn(tx, { userId: owner, accountId: null }),
+        await spentInWindow(tx, { userId: owner, accountId: null }),
         0.5
       )
     }))
@@ -334,7 +501,7 @@ describe('the usage ledger', { skip: !url }, () => {
         false
       )
       assert.strictEqual(
-        await spentInWindowIn(tx, { userId: owner, accountId: null }),
+        await spentInWindow(tx, { userId: owner, accountId: null }),
         0
       )
     }))

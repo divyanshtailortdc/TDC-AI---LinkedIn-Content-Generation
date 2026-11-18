@@ -5,18 +5,34 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { env } from '~/env'
 import {
   accountOwnerIn,
+  reachedSpendLimit,
   recordUsageIn,
-  spentInWindowIn,
-  type SpendCharge
+  spendCountersIn,
+  type ReachedSpendLimit,
+  type SpendCharge,
+  type SpendLimits
 } from './spend-ledger'
-import { SPEND_LIMIT_WINDOW_DAYS, type AiSpendSource } from './spend-sources'
+import {
+  DAILY_LIMIT_WINDOW_HOURS,
+  INBOX_SHARE_OF_USER_LIMITS,
+  SPEND_LIMIT_WINDOW_DAYS,
+  type AiSpendSource
+} from './spend-sources'
 import type { CallUsage } from './usage'
 
 /**
  * Every paid model call is recorded in the usage ledger (ai_usage) and
- * checked first against its user's spending limit (AI_SPEND_LIMIT_USD over
- * any 30 days), by the few functions every call goes through: runSkill, the
- * research agent, embedValues and the image renderer.
+ * checked first against its spending limits, by the few functions every
+ * call goes through: runSkill, the research agent, embedValues and the
+ * image renderer. The limits (spendLimits below):
+ *
+ * - per user, across every identity they own: AI_SPEND_LIMIT_USD over any
+ *   30 days, and AI_DAILY_SPEND_LIMIT_USD over any 24 hours, so a burst
+ *   cannot use up the month in a day;
+ * - per identity, for work started by received email (source 'inbox'),
+ *   which anyone who knows the address can send: AI_INBOX_DAILY_LIMIT_USD
+ *   over any 24 hours. Inbox work also stops at INBOX_SHARE_OF_USER_LIMITS
+ *   of the user's limits, so a flood of email never locks its owner out.
  *
  * They do not know who the work is for. The code that starts the work does,
  * and says so once with withAiSpend: the run worker, the drafting queue, the
@@ -74,38 +90,69 @@ export async function withAiSpend<T>(
 
 const usd = (value: number) => `$${value.toFixed(2)}`
 
-/** A model call refused because its user has spent their limit. */
+/** The limits as configured. */
+export function spendLimits(): SpendLimits {
+  return {
+    windowUsd: env.AI_SPEND_LIMIT_USD,
+    dayUsd: env.AI_DAILY_SPEND_LIMIT_USD,
+    inboxDayUsd: env.AI_INBOX_DAILY_LIMIT_USD
+  }
+}
+
+/** What the user is told when a limit refuses a call. */
+function limitMessage(source: AiSpendSource, reached: ReachedSpendLimit) {
+  const spent = `${usd(reached.spentUsd)} of ${usd(reached.limitUsd)}`
+  const day = `the last ${DAILY_LIMIT_WINDOW_HOURS} hours`
+  if (reached.kind === 'inbox_day') {
+    return `This identity's inbox has used ${spent} of AI over ${day}, its daily limit. Received newsletters are still read, without AI summaries, until that spending leaves the ${DAILY_LIMIT_WINDOW_HOURS} hours; an admin can raise AI_INBOX_DAILY_LIMIT_USD.`
+  }
+  const period =
+    reached.kind === 'window' ? `the last ${SPEND_LIMIT_WINDOW_DAYS} days` : day
+  if (source === 'inbox') {
+    const share = Math.round(INBOX_SHARE_OF_USER_LIMITS * 100)
+    return `Received newsletters are read without AI summaries once ${share}% of a spending limit is used, so the rest is kept for work you start: ${spent} used over ${period}.`
+  }
+  const [name, variable] =
+    reached.kind === 'window'
+      ? ['AI spending limit', 'AI_SPEND_LIMIT_USD']
+      : ['Daily AI spending limit', 'AI_DAILY_SPEND_LIMIT_USD']
+  return `${name} reached: ${spent} used over ${period}, across all your identities. New AI work can start again as older spending leaves that window, or an admin can raise ${variable}.`
+}
+
+/** A model call refused because one of its spending limits is reached. */
 export class AiSpendLimitError extends Error {
-  constructor(
-    readonly spentUsd: number,
-    readonly limitUsd: number
-  ) {
-    super(
-      `AI spending limit reached: ${usd(spentUsd)} of ${usd(limitUsd)} used over the last ${SPEND_LIMIT_WINDOW_DAYS} days, across all your identities. New AI work can start again as older spending leaves that window, or an admin can raise AI_SPEND_LIMIT_USD.`
-    )
+  readonly kind: ReachedSpendLimit['kind']
+  readonly spentUsd: number
+  readonly limitUsd: number
+
+  constructor(source: AiSpendSource, reached: ReachedSpendLimit) {
+    super(limitMessage(source, reached))
     this.name = 'AiSpendLimitError'
+    this.kind = reached.kind
+    this.spentUsd = reached.spentUsd
+    this.limitUsd = reached.limitUsd
   }
 }
 
 /**
- * Throws AiSpendLimitError when the current scope's user has spent their
- * limit. Outside a scope, or for shared work, there is no one to limit. A
- * check the database cannot answer lets the call through: the limit guards
- * cost, and failing every AI feature on it would be worse.
+ * Throws AiSpendLimitError when one of the current scope's limits is
+ * reached. Outside a scope, or for shared work, there is no one to limit. A
+ * check the database cannot answer lets the call through: the limits guard
+ * cost, and failing every AI feature on them would be worse.
  */
 export async function assertWithinAiSpendLimit(): Promise<void> {
   const charge = charges.getStore()
   if (!charge) return
-  let spent: number | null
+  let counters
   try {
-    spent = await spentInWindowIn(db, charge)
+    counters = await spendCountersIn(db, charge)
   } catch (err) {
-    console.error('Could not check the AI spending limit:', err)
+    console.error('Could not check the AI spending limits:', err)
     return
   }
-  if (spent !== null && spent >= env.AI_SPEND_LIMIT_USD) {
-    throw new AiSpendLimitError(spent, env.AI_SPEND_LIMIT_USD)
-  }
+  if (!counters) return
+  const reached = reachedSpendLimit(charge.source, counters, spendLimits())
+  if (reached) throw new AiSpendLimitError(charge.source, reached)
 }
 
 const warnedUnscoped = new Set<string>()

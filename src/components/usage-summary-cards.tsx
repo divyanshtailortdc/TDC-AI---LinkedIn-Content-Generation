@@ -1,5 +1,10 @@
-import { AI_SPEND_SOURCE_LABELS } from '@/lib/ai/spend-sources'
-import type { AccountUsageSummary } from '@/lib/run-spend'
+import {
+  AI_SPEND_SOURCE_LABELS,
+  DAILY_LIMIT_WINDOW_HOURS,
+  INBOX_SHARE_OF_USER_LIMITS,
+  SPEND_LIMIT_WINDOW_DAYS
+} from '@/lib/ai/spend-sources'
+import type { AccountUsageSummary, SpendAgainstLimit } from '@/lib/run-spend'
 import { Coins, Database, Gauge, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -26,7 +31,7 @@ export function UsageSummaryCards({
   runs,
   ideas,
   posts,
-  limit
+  limits
 }: AccountUsageSummary) {
   const costPerPost = posts > 0 && totals.costUsd > 0 ? totals.costUsd / posts : null
   const cacheRate =
@@ -96,58 +101,125 @@ export function UsageSummaryCards({
         </div>
       )}
 
-      <SpendLimit {...limit} />
+      <SpendLimits {...limits} />
     </section>
   )
 }
 
+type LimitState = 'ok' | 'near' | 'reached'
+
+function limitState({ spentUsd, limitUsd }: SpendAgainstLimit, nearAt = 0.8): LimitState {
+  if (spentUsd >= limitUsd) return 'reached'
+  return limitUsd > 0 && spentUsd / limitUsd >= nearAt ? 'near' : 'ok'
+}
+
+const INBOX_SHARE = formatPercent(INBOX_SHARE_OF_USER_LIMITS)
+
 /**
- * The owner's spending limit: what they spent over the window on every
- * identity they own. Past it, new model calls are refused.
+ * The spending limits (src/lib/ai/spend.ts): the owner's over 30 days and
+ * 24 hours on every identity they own, and this identity's inbox's over 24
+ * hours. Past the owner's, new model calls are refused; received email is
+ * read without AI summaries past its inbox's limit or a share of the owner's.
  */
-function SpendLimit({
-  spentUsd,
-  limitUsd,
-  windowDays
-}: AccountUsageSummary['limit']) {
-  const share = limitUsd > 0 ? Math.min(1, spentUsd / limitUsd) : 1
-  const reached = spentUsd >= limitUsd
-  const near = !reached && share >= 0.8
-  const bar = reached ? 'bg-red-500' : near ? 'bg-amber-500' : 'bg-accent'
+function SpendLimits({ window: month, day, inboxDay }: AccountUsageSummary['limits']) {
+  const windowState = limitState(month)
+  const dayState = limitState(day)
+  // Received email stops using AI at a share of the owner's limits.
+  const inboxHeldBack =
+    limitState(month, INBOX_SHARE_OF_USER_LIMITS) !== 'ok' ||
+    limitState(day, INBOX_SHARE_OF_USER_LIMITS) !== 'ok'
+  const inboxState = limitState(inboxDay)
+
+  const notes: Array<{ tone: 'red' | 'amber'; text: string }> = []
+  if (windowState === 'reached' || dayState === 'reached') {
+    notes.push({
+      tone: 'red',
+      text: `Limit reached: new AI work is refused until older spending leaves the ${
+        windowState === 'reached' ? `${SPEND_LIMIT_WINDOW_DAYS} days` : `${DAILY_LIMIT_WINDOW_HOURS} hours`
+      }.`
+    })
+  } else if (windowState === 'near' || dayState === 'near') {
+    notes.push({
+      tone: 'amber',
+      text: 'Close to a limit: past it, new AI work is refused until older spending leaves its window.'
+    })
+  }
+  if (inboxState === 'reached' || inboxHeldBack) {
+    notes.push({
+      tone: 'amber',
+      text:
+        inboxState === 'reached'
+          ? "This inbox's daily AI limit is reached: received newsletters are still read, without AI summaries, until older spending leaves the 24 hours."
+          : `Received newsletters are read without AI summaries once ${INBOX_SHARE} of a limit is used, so the rest is kept for work you start.`
+    })
+  }
 
   return (
     <div className="mt-3 rounded-xl border border-border bg-surface px-4 py-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">
-          Spending limit
-        </span>
+      <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">
+        Spending limits
+      </span>
+      <div className="mt-2 space-y-2.5">
+        <LimitMeter
+          label={`Last ${SPEND_LIMIT_WINDOW_DAYS} days, all your identities`}
+          state={windowState}
+          {...month}
+        />
+        <LimitMeter
+          label={`Last ${DAILY_LIMIT_WINDOW_HOURS} hours, all your identities`}
+          state={dayState}
+          {...day}
+        />
+        <LimitMeter
+          label={`This identity's inbox, last ${DAILY_LIMIT_WINDOW_HOURS} hours`}
+          state={inboxState}
+          {...inboxDay}
+        />
+      </div>
+      {notes.map(note => (
+        <p
+          key={note.text}
+          className={`mt-2 text-[11px] leading-snug ${
+            note.tone === 'red'
+              ? 'text-red-600 dark:text-red-400'
+              : 'text-amber-700 dark:text-amber-400'
+          }`}
+        >
+          {note.text}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function LimitMeter({
+  label,
+  spentUsd,
+  limitUsd,
+  state
+}: SpendAgainstLimit & { label: string; state: LimitState }) {
+  const share = limitUsd > 0 ? Math.min(1, spentUsd / limitUsd) : 1
+  const bar = state === 'reached' ? 'bg-red-500' : state === 'near' ? 'bg-amber-500' : 'bg-accent'
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+        <span className="text-xs text-muted">{label}</span>
         <span className="text-xs text-muted tabular-nums">
           <span className="font-medium text-foreground">{formatUsd(spentUsd)}</span> of{' '}
-          {formatUsd(limitUsd)} over the last {windowDays} days, across all your identities
+          {formatUsd(limitUsd)}
         </span>
       </div>
       <div
         role="meter"
-        aria-label="AI spending over the limit's window"
+        aria-label={`AI spending: ${label}`}
         aria-valuemin={0}
         aria-valuemax={limitUsd}
         aria-valuenow={Math.min(spentUsd, limitUsd)}
         aria-valuetext={`${formatUsd(spentUsd)} of ${formatUsd(limitUsd)}`}
-        className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-hover"
+        className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-hover"
       >
         <div className={`h-full rounded-full ${bar}`} style={{ width: `${share * 100}%` }} />
       </div>
-      {(reached || near) && (
-        <p
-          className={`mt-2 text-[11px] leading-snug ${
-            reached ? 'text-red-600 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'
-          }`}
-        >
-          {reached
-            ? 'Limit reached: new AI work is refused until older spending leaves the window. Newsletters are still read, without AI summaries.'
-            : 'Close to the limit: past it, new AI work is refused until older spending leaves the window.'}
-        </p>
-      )}
     </div>
   )
 }

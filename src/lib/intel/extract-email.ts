@@ -354,10 +354,12 @@ async function extract(email: ClaimedEmail) {
     html: email.htmlBody,
     text: email.textBody
   })
-  // Charged to the identity the email was sent to. Past its owner's spending
-  // limit the digest falls back to the email's links, at once.
+  // Charged to the inbox of the identity the email was sent to. Past one of
+  // its limits (the inbox's own, or its share of its owner's; see
+  // INBOX_SHARE_OF_USER_LIMITS) the digest falls back to the email's links,
+  // at once: anyone can send mail, so its AI spend stays bounded.
   const digest = await withAiSpend(
-    { source: 'newsletters', accountId: email.accountId },
+    { source: 'inbox', accountId: email.accountId },
     () =>
       digestEmail(
         {

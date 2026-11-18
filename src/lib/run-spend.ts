@@ -3,13 +3,13 @@ import 'server-only'
 import { db } from '@/db'
 import { ideasTable, postDraftsTable, runsTable } from '@/db/schema'
 import { eq, sql } from 'drizzle-orm'
-import { env } from '~/env'
+import { spendLimits } from '@/lib/ai/spend'
 import {
   accountOwnerIn,
   accountUsageIn,
-  spentInWindowIn
+  spendCountersIn
 } from '@/lib/ai/spend-ledger'
-import { SPEND_LIMIT_WINDOW_DAYS, type AiSpendSource } from '@/lib/ai/spend-sources'
+import type { AiSpendSource } from '@/lib/ai/spend-sources'
 
 export interface SpendWindow {
   runs: number
@@ -85,10 +85,20 @@ export interface AccountUsageSummary {
   ideas: number
   posts: number
   /**
-   * The spending limit of the identity's owner: what they spent over the
-   * window on every identity they own, against AI_SPEND_LIMIT_USD.
+   * The spending limits (src/lib/ai/spend.ts): the owner's over 30 days and
+   * 24 hours, on every identity they own, and this identity's inbox's over
+   * 24 hours.
    */
-  limit: { spentUsd: number; limitUsd: number; windowDays: number }
+  limits: {
+    window: SpendAgainstLimit
+    day: SpendAgainstLimit
+    inboxDay: SpendAgainstLimit
+  }
+}
+
+export interface SpendAgainstLimit {
+  spentUsd: number
+  limitUsd: number
 }
 
 /**
@@ -116,7 +126,8 @@ export async function getAccountUsageSummary(
       .from(runsTable)
       .where(eq(runsTable.accountId, accountId))
   ])
-  const spentUsd = (await spentInWindowIn(db, { userId: owner, accountId })) ?? 0
+  const counters = await spendCountersIn(db, { userId: owner, accountId })
+  const limits = spendLimits()
 
   return {
     totals: usage.totals,
@@ -124,10 +135,13 @@ export async function getAccountUsageSummary(
     runs: runRow?.n ?? 0,
     ideas: ideaRow?.n ?? 0,
     posts: postRow?.n ?? 0,
-    limit: {
-      spentUsd,
-      limitUsd: env.AI_SPEND_LIMIT_USD,
-      windowDays: SPEND_LIMIT_WINDOW_DAYS
+    limits: {
+      window: { spentUsd: counters?.windowUsd ?? 0, limitUsd: limits.windowUsd },
+      day: { spentUsd: counters?.dayUsd ?? 0, limitUsd: limits.dayUsd },
+      inboxDay: {
+        spentUsd: counters?.inboxDayUsd ?? 0,
+        limitUsd: limits.inboxDayUsd
+      }
     }
   }
 }

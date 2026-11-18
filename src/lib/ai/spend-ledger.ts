@@ -4,11 +4,13 @@ import {
   authUsersTable,
   runsTable
 } from '@/db/schema'
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
 import type { AnyPgColumn, PgDatabase } from 'drizzle-orm/pg-core'
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
 import {
   AI_SPEND_SOURCES,
+  DAILY_LIMIT_WINDOW_HOURS,
+  INBOX_SHARE_OF_USER_LIMITS,
   SPEND_LIMIT_WINDOW_DAYS,
   type AiSpendSource
 } from './spend-sources'
@@ -97,8 +99,9 @@ export async function recordUsageIn(
 }
 
 const inWindow = sql`${aiUsageTable.createdAt} >= now() - make_interval(days => ${SPEND_LIMIT_WINDOW_DAYS})`
+const inDay = sql`${aiUsageTable.createdAt} >= now() - make_interval(hours => ${DAILY_LIMIT_WINDOW_HOURS})`
 
-/** The rows a charge's limit counts: the user's, or an unowned identity's. */
+/** The rows a charge's user limits count: the user's, or an unowned identity's. */
 function limitedBy(
   charge: Pick<SpendCharge, 'userId' | 'accountId'>
 ): SQL | null {
@@ -112,27 +115,118 @@ function limitedBy(
   return null
 }
 
+/** What the spending limits have counted so far, in US dollars. */
+export interface SpendCounters {
+  /**
+   * The user's spend over the last 30 days, on every identity they own; for
+   * an identity no user owns, its own.
+   */
+  windowUsd: number
+  /** The same over the last 24 hours. */
+  dayUsd: number
+  /**
+   * What the identity's inbox (source 'inbox') spent over the last 24 hours;
+   * null for work with no identity.
+   */
+  inboxDayUsd: number | null
+}
+
 /**
- * What the limit has counted so far: the user's spend over the window, on
- * every identity they own; for an identity no user owns, its own. Null for a
- * charge with neither, which no limit covers. Measured on the database clock,
- * like the spend windows on the runs page.
+ * The counters a charge's limits read, in one query. Null for a charge with
+ * neither a user nor an identity, which no limit covers. Measured on the
+ * database clock, like the spend windows on the runs page.
  */
-export async function spentInWindowIn(
+export async function spendCountersIn(
   database: LedgerDb,
   charge: Pick<SpendCharge, 'userId' | 'accountId'>
-): Promise<number | null> {
+): Promise<SpendCounters | null> {
   const whose = limitedBy(charge)
   if (!whose) return null
+  const inbox = charge.accountId
+    ? and(
+        eq(aiUsageTable.accountId, charge.accountId),
+        eq(aiUsageTable.source, 'inbox')
+      )!
+    : null
+  const sumWhere = (filter: SQL) =>
+    sql<number>`coalesce(sum(${aiUsageTable.costUsd}) filter (where ${filter}), 0)`.mapWith(
+      Number
+    )
   const [row] = await database
     .select({
-      spent: sql<number>`coalesce(sum(${aiUsageTable.costUsd}), 0)`.mapWith(
-        Number
-      )
+      windowUsd: sumWhere(whose),
+      dayUsd: sumWhere(and(whose, inDay)!),
+      inboxDayUsd: sumWhere(inbox ? and(inbox, inDay)! : sql`false`)
     })
     .from(aiUsageTable)
-    .where(and(whose, inWindow))
-  return row?.spent ?? 0
+    .where(and(inbox ? or(whose, inbox) : whose, inWindow))
+  return {
+    windowUsd: row?.windowUsd ?? 0,
+    dayUsd: row?.dayUsd ?? 0,
+    inboxDayUsd: inbox ? (row?.inboxDayUsd ?? 0) : null
+  }
+}
+
+/** The spending limits, in US dollars (AI_*_USD in src/env.ts). */
+export interface SpendLimits {
+  /** Per user, over any 30 days. */
+  windowUsd: number
+  /** Per user, over any 24 hours. */
+  dayUsd: number
+  /** Per identity, for its inbox only, over any 24 hours. */
+  inboxDayUsd: number
+}
+
+export type SpendLimitKind = 'window' | 'day' | 'inbox_day'
+
+/** A limit that refuses the next call. */
+export interface ReachedSpendLimit {
+  kind: SpendLimitKind
+  spentUsd: number
+  /** The limit as configured. */
+  limitUsd: number
+  /**
+   * What this work may spend up to: the limit, or for inbox work the share
+   * of the user's limits it may use (INBOX_SHARE_OF_USER_LIMITS).
+   */
+  capUsd: number
+}
+
+/**
+ * The first limit that refuses a call of this source, longest-lasting first,
+ * or null when none does. Inbox work stops at a share of the user's limits
+ * and also at its identity's own daily limit; everything else at the full
+ * user limits.
+ */
+export function reachedSpendLimit(
+  source: AiSpendSource,
+  counters: SpendCounters,
+  limits: SpendLimits
+): ReachedSpendLimit | null {
+  const share = source === 'inbox' ? INBOX_SHARE_OF_USER_LIMITS : 1
+  const checks: ReachedSpendLimit[] = [
+    {
+      kind: 'window',
+      spentUsd: counters.windowUsd,
+      limitUsd: limits.windowUsd,
+      capUsd: limits.windowUsd * share
+    },
+    {
+      kind: 'day',
+      spentUsd: counters.dayUsd,
+      limitUsd: limits.dayUsd,
+      capUsd: limits.dayUsd * share
+    }
+  ]
+  if (source === 'inbox' && counters.inboxDayUsd !== null) {
+    checks.push({
+      kind: 'inbox_day',
+      spentUsd: counters.inboxDayUsd,
+      limitUsd: limits.inboxDayUsd,
+      capUsd: limits.inboxDayUsd
+    })
+  }
+  return checks.find(check => check.spentUsd >= check.capUsd) ?? null
 }
 
 export interface LedgerTotals {

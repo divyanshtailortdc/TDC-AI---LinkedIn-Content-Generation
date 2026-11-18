@@ -216,20 +216,18 @@ async function read(article: ClaimedArticle) {
   }
 
   // An article is read once for every workspace whose email links to it; the
-  // one that linked it first pays. Past its owner's spending limit the
+  // inbox that linked it first pays. Past one of that inbox's limits the
   // summary is the heuristic one.
   const payer = await firstLinkedBy(article.id)
   let knowledge
   try {
-    knowledge = await withAiSpend(
-      { source: 'newsletters', accountId: payer },
-      () =>
-        extractKnowledgeClaims(page.title, content, {
-          timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
-          // After about a week of a busy model, the heuristic summary.
-          throwWhenBusy:
-            article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
-        })
+    knowledge = await withAiSpend({ source: 'inbox', accountId: payer }, () =>
+      extractKnowledgeClaims(page.title, content, {
+        timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
+        // After about a week of a busy model, the heuristic summary.
+        throwWhenBusy:
+          article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
+      })
     )
   } catch (err) {
     // A busy model: the page is read again on the next attempt.

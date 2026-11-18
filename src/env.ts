@@ -27,6 +27,12 @@ export const env = createEnv({
     // newsletters, setup, post editing). Past it, new model calls are
     // refused until older spend leaves the window (src/lib/ai/spend.ts).
     AI_SPEND_LIMIT_USD: z.coerce.number().positive().default(100),
+    // The same over any 24 hours, so a burst cannot use up the 30 days.
+    AI_DAILY_SPEND_LIMIT_USD: z.coerce.number().positive().default(20),
+    // What one identity's inbox may spend on AI over any 24 hours: reading
+    // received email and the articles it links to, which anyone who knows
+    // the address can start. Past it, email is read without AI summaries.
+    AI_INBOX_DAILY_LIMIT_USD: z.coerce.number().positive().default(2),
     CRON_SECRET: z.string().optional(),
 
     // Authentication (see docs/AUTHENTICATION.md). Better Auth refuses to
@@ -155,6 +161,8 @@ export const env = createEnv({
     RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
     AI_SPEND_LIMIT_USD: process.env.AI_SPEND_LIMIT_USD,
+    AI_DAILY_SPEND_LIMIT_USD: process.env.AI_DAILY_SPEND_LIMIT_USD,
+    AI_INBOX_DAILY_LIMIT_USD: process.env.AI_INBOX_DAILY_LIMIT_USD,
     CRON_SECRET: process.env.CRON_SECRET,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,

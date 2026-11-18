@@ -43,7 +43,7 @@ export async function runExtractionPass() {
   for (let batch = 0; batch < 4 && Date.now() < deadline; batch++) {
     // A batch mixes every workspace's stories, so no one is charged and no
     // limit applies; it costs a fraction of a cent.
-    const indexed = await withAiSpend({ source: 'newsletters' }, () =>
+    const indexed = await withAiSpend({ source: 'inbox' }, () =>
       indexDueStories()
     )
     if (indexed === 0) break
