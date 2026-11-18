@@ -480,7 +480,10 @@ describe('reading the Buffer account and its channels', () => {
     )
     assert.strictEqual(err.code, 'rate_limited')
     assert.strictEqual(err.retryable, true)
+    assert.strictEqual(err.retryAfterMs, 753_000)
     assert.match(err.message, /about 13 min/)
+    // Whether it is tried again is the caller's to say, not Buffer's.
+    assert.doesNotMatch(err.message, /tried again/)
 
     const revoked = (async () =>
       Response.json({

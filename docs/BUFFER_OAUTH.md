@@ -124,7 +124,7 @@ The publishing engine, the post workspace, scheduling and auto-publishing were n
 | Several users connect the same Buffer account | Allowed: separate grants, separate rows. They share that Buffer account's rate limits. |
 | Channel locked (over the plan's limit) or disconnected in Buffer | Listed with the reason, and cannot be picked. A network already on it shows a warning; publishing fails with Buffer's error. |
 | Channel removed in Buffer | **Sync now** marks it `removed_at` and the network's card says it is gone. Syncing never disconnects a network on its own (that would cancel scheduled posts). |
-| Rate limit (HTTP 429, `RATE_LIMIT_EXCEEDED`) | Retryable. The message gives Buffer's `Retry-After` in minutes. Sync now is throttled to once per 30 s per user. |
+| Rate limit (HTTP 429, `RATE_LIMIT_EXCEEDED`) | Retryable. The message gives Buffer's `Retry-After` (seconds or an HTTP date) in minutes, hours or days, and the error carries it as `retryAfterMs`; publishing waits that long before the next attempt (see PUBLISHING.md). Sync now is throttled to once per 30 s per user. |
 | Buffer down (5xx, network) | Reads and refreshes are retried and nothing is marked expired. A post create that may have gone through is `unknown_outcome` and never retried automatically (unchanged). |
 | Access revoked in Buffer | The next request gets a 401, and the connection and its networks are marked expired: "Reconnect Buffer". |
 | Disconnect Buffer | Tokens and channels are deleted. Every Buffer network of every identity of the user is disconnected, with scheduled posts cancelled and auto-publishing off. The row stays, as `disconnected`. |

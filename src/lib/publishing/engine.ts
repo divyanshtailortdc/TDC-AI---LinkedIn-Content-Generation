@@ -121,6 +121,19 @@ type PublicationMetadata = Publication['metadata'] & {
 /** Before the second and the third attempt (maxAttempts is 3). */
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000]
 
+/**
+ * The same after a rate limit that gave no Retry-After. Buffer's shortest
+ * window is 15 minutes, so trying sooner would only be refused again.
+ */
+const RATE_LIMIT_DELAYS_MS = [15 * 60_000, 60 * 60_000]
+
+/**
+ * A platform that asks for a longer wait (Buffer's daily or 30-day limit) is
+ * not waited for: the post would go out a day or more after it was meant to,
+ * so it fails and the user decides.
+ */
+export const MAX_RETRY_WAIT_MS = 24 * 60 * 60_000
+
 /** A publishing row locked longer than this belongs to a process that died. */
 export const STALE_LOCK_MS = 10 * 60_000
 
@@ -829,9 +842,12 @@ export async function loadPostImage(
 
 type Failure = {
   code: PublicationErrorCode
+  /** What happened; recordFailure adds whether it will be tried again. */
   message: string
   retryable: boolean
   httpStatus?: number
+  /** How long the platform asked to be left alone. */
+  retryAfterMs?: number
 }
 
 /**
@@ -842,7 +858,6 @@ type Failure = {
 function describeFailure(
   err: unknown,
   postRequested: boolean,
-  attemptsLeft: boolean,
   platformName: string
 ): Failure {
   if (err instanceof PlatformApiError) {
@@ -850,7 +865,8 @@ function describeFailure(
       code: err.code,
       message: err.message,
       retryable: err.retryable,
-      httpStatus: err.status
+      httpStatus: err.status,
+      retryAfterMs: err.retryAfterMs
     }
   }
   if (err instanceof ConnectionError || err instanceof PublishRequestError) {
@@ -875,14 +891,28 @@ function describeFailure(
       retryable: false
     }
   }
-  const NOTHING_SENT = `Publishing failed before anything was sent to ${platformName}.`
   return {
     code: 'internal',
-    message: attemptsLeft
-      ? `${NOTHING_SENT} It will be tried again.`
-      : NOTHING_SENT,
+    message: `Publishing failed before anything was sent to ${platformName}.`,
     retryable: true
   }
+}
+
+/**
+ * How long to wait before trying a retryable failure again: the usual
+ * backoff, longer for a rate limit, and never sooner than the platform asked.
+ */
+function retryDelayMs(failure: Failure, attempts: number): number {
+  const delays =
+    failure.code === 'rate_limited' && failure.retryAfterMs === undefined
+      ? RATE_LIMIT_DELAYS_MS
+      : RETRY_DELAYS_MS
+  // A larger maxAttempts than 3 keeps the last delay.
+  const backoff = delays[attempts - 1] ?? delays.at(-1)!
+  // A second over, so the platform's window has surely reset.
+  const asked =
+    failure.retryAfterMs === undefined ? 0 : failure.retryAfterMs + 1000
+  return Math.max(backoff, asked)
 }
 
 const mergeMetadata = (patch: Record<string, unknown>) =>
@@ -1112,15 +1142,22 @@ async function recordFailure(
 ): Promise<Publication> {
   const attemptsLeft = publication.attempts < publication.maxAttempts
   const name = nameOf(publication.platform)
-  const failure = describeFailure(err, postRequested, attemptsLeft, name)
+  const failure = describeFailure(err, postRequested, name)
   if (failure.code === 'internal' || failure.code === 'unknown_outcome') {
     console.error(`${name} publication ${publication.id} failed:`, err)
   }
-  const retry = failure.retryable && attemptsLeft
+  const delay = retryDelayMs(failure, publication.attempts)
+  const tooLong = delay > MAX_RETRY_WAIT_MS
+  const retry = failure.retryable && attemptsLeft && !tooLong
+  // The failure says what happened; only here is it known what comes next.
+  const message = !failure.retryable
+    ? failure.message
+    : retry
+      ? `${failure.message} It will be tried again.`
+      : tooLong
+        ? `${failure.message} That is too long to hold the post for, so it will not be tried again by itself: use Try again once it has passed.`
+        : `${failure.message} It was tried ${publication.attempts} times and will not be tried again by itself: use Try again later.`
   const now = nowOf(deps)
-  // A larger maxAttempts than 3 keeps the last delay.
-  const delay =
-    RETRY_DELAYS_MS[publication.attempts - 1] ?? RETRY_DELAYS_MS.at(-1)!
   const patch = failure.httpStatus ? { httpStatus: failure.httpStatus } : {}
   const [row] = await deps.database
     .update(publicationsTable)
@@ -1130,7 +1167,7 @@ async function recordFailure(
         ? new Date(now.getTime() + delay)
         : publication.nextAttemptAt,
       lockedAt: null,
-      error: failure.message,
+      error: message,
       errorCode: failure.code,
       // A retry starts over: its attempt has sent nothing yet.
       metadata: retry

@@ -295,7 +295,8 @@ function PublishControlsInner({
             }
           : p.status === 'scheduled'
             ? {
-                title: 'Will retry shortly',
+                // A rate limit can put it hours off.
+                title: `Retrying ${formatDateTime(p.nextAttemptAt)}`,
                 message: p.error ?? `${name} was busy; it will be tried again.`
               }
             : {

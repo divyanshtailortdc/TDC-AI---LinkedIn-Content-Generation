@@ -330,7 +330,7 @@ export async function usableAccessToken(
     }
     // An outage (network, the platform's 5xx, our database): nothing was sent.
     throw new PlatformApiError(
-      `The ${say.name} connection could not be renewed just now. It will be tried again.`,
+      `The ${say.name} connection could not be renewed just now.`,
       'platform_unavailable'
     )
   }

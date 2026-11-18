@@ -182,6 +182,39 @@ describe('X through Buffer', () => {
     assert.strictEqual(verifyMediaToken(key, 'garbage', 1000), null)
   })
 
+  it("reads Buffer's Retry-After as seconds or a date, and says the wait in words", async () => {
+    const { createPost, parseRetryAfter } = await import('../src/lib/publishing/buffer/api')
+    const now = Date.parse('2026-11-18T10:00:00Z')
+    assert.strictEqual(parseRetryAfter('753', now), 753_000)
+    assert.strictEqual(parseRetryAfter(' 0 ', now), 0)
+    assert.strictEqual(parseRetryAfter('Wed, 18 Nov 2026 12:00:00 GMT', now), 7_200_000)
+    // A date already past: no wait left.
+    assert.strictEqual(parseRetryAfter('Wed, 18 Nov 2026 09:00:00 GMT', now), 0)
+    for (const unreadable of [null, undefined, '', 'soon', '-5', '1.5']) {
+      assert.strictEqual(parseRetryAfter(unreadable, now), undefined, String(unreadable))
+    }
+
+    const limitedFor = async (retryAfter: string | null) => {
+      const headers: Record<string, string> = retryAfter ? { 'Retry-After': retryAfter } : {}
+      return createPost(
+        {
+          apiKey: 'KEY',
+          apiUrl: 'https://buffer.example/graphql',
+          fetchFn: (async () => new Response('', { status: 429, headers })) as typeof fetch
+        },
+        { channelId: 'C', text: 'Hi' }
+      ).catch(e => e)
+    }
+    const hours = await limitedFor('10800')
+    assert.strictEqual(hours.message, 'Buffer is limiting requests for about 3 hours.')
+    assert.strictEqual(hours.retryAfterMs, 10_800_000)
+    const days = await limitedFor(String(30 * 24 * 3600))
+    assert.strictEqual(days.message, 'Buffer is limiting requests for about 30 days.')
+    const none = await limitedFor(null)
+    assert.strictEqual(none.message, 'Buffer is limiting requests right now.')
+    assert.strictEqual(none.retryAfterMs, undefined)
+  })
+
   it("classifies Buffer's answers: what may be retried, and what may have posted", async () => {
     const { createPost } = await import('../src/lib/publishing/buffer/api')
     const ctx = (answer: () => Response | Promise<Response>) => ({

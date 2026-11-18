@@ -110,7 +110,7 @@ Creating a LinkedIn post is not idempotent, and a member token cannot read posts
 
 1. **One live publication per post.** A partial unique index on `linkedin_publications(draft_id) WHERE status IN ('scheduled','publishing','published')` refuses a second one, from a double click, two tabs or a second worker. A published post can never be queued again, and Schedule will not undo its "posted".
 2. **One worker per row.** Claiming is a conditional `UPDATE … WHERE status = 'scheduled'`; only one claimer gets the row back.
-3. **Only certain failures are retried.** Up to 3 attempts, 1 then 5 minutes apart:
+3. **Only certain failures are retried.** Up to 3 attempts, 1 then 5 minutes apart. A rate limit waits as long as Buffer's `Retry-After` asks (plus a second), or 15 minutes then an hour when it gives none. If Buffer asks for more than 24 hours (its daily or 30-day limit), the publication fails at once rather than going out days late. The stored error ends with "It will be tried again." only when a retry is actually queued; once retries run out it says so and points to Try again.
 
    | Failure | Retried? | Why |
    | --- | --- | --- |

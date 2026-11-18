@@ -43,8 +43,35 @@ const NOT_SENT_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'])
 const error = (
   message: string,
   code: PublicationErrorCode,
-  status?: number
-) => new PlatformApiError(message, code, status)
+  status?: number,
+  retryAfterMs?: number
+) => new PlatformApiError(message, code, status, retryAfterMs)
+
+/**
+ * A Retry-After header in ms: delay-seconds or an HTTP date (RFC 9110).
+ * Undefined when there is none or it cannot be read.
+ */
+export function parseRetryAfter(
+  value: string | null | undefined,
+  now = Date.now()
+): number | undefined {
+  const text = value?.trim()
+  if (!text) return undefined
+  if (/^\d+$/.test(text)) return Number(text) * 1000
+  // Only a date in HTTP's form ("Wed, 18 Nov 2026 12:00:00 GMT"): Date.parse
+  // alone takes "-5" or "1.5" for dates.
+  if (!/^[A-Za-z]{3,9}, .+ GMT$/.test(text)) return undefined
+  const at = Date.parse(text)
+  return Number.isFinite(at) ? Math.max(0, at - now) : undefined
+}
+
+/** A wait, roughly, for messages: "about 13 min", "about 5 hours", "about 3 days". */
+function aboutHowLong(ms: number): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 120) return `about ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `about ${hours} hours` : `about ${Math.round(hours / 24)} days`
+}
 
 const nameOf = (ctx: Pick<BufferContext, 'platformName'>) =>
   ctx.platformName ?? 'X'
@@ -59,10 +86,7 @@ function networkError(
 ): PlatformApiError {
   const code = (err as { cause?: { code?: string } })?.cause?.code
   if (what === 'read' || (code !== undefined && NOT_SENT_CODES.has(code))) {
-    return error(
-      'Buffer could not be reached. It will be tried again.',
-      'platform_unavailable'
-    )
+    return error('Buffer could not be reached.', 'platform_unavailable')
   }
   return error(
     `The connection to Buffer was lost ${mayHavePosted(name)}`,
@@ -78,9 +102,10 @@ function requestError(
   errors: GraphQLError[],
   what: Sending,
   name: string,
-  /** Buffer's Retry-After on a 429: seconds until the window resets. */
+  /** Buffer's Retry-After header (on a 429: until the window resets). */
   retryAfter?: string | null
 ): PlatformApiError {
+  const retryAfterMs = parseRetryAfter(retryAfter)
   const codes = new Set(errors.map(e => e.extensions?.code).filter(Boolean))
   const detail = errors
     .map(e => e.message)
@@ -103,33 +128,27 @@ function requestError(
   }
   // Buffer documents that a 429 consumes nothing.
   if (status === 429 || codes.has('RATE_LIMIT_EXCEEDED')) {
-    const seconds = Number(retryAfter)
-    const wait =
-      Number.isFinite(seconds) && seconds > 0
-        ? ` for about ${Math.ceil(seconds / 60)} min`
-        : ' right now'
+    const wait = retryAfterMs ? ` for ${aboutHowLong(retryAfterMs)}` : ' right now'
     return error(
-      `Buffer is limiting requests${wait}. It will be tried again.`,
+      `Buffer is limiting requests${wait}.`,
       'rate_limited',
-      status
+      status,
+      retryAfterMs
     )
   }
   if (status === 503) {
     return error(
-      'Buffer is unavailable right now. It will be tried again.',
+      'Buffer is unavailable right now.',
       'platform_unavailable',
-      status
+      status,
+      retryAfterMs
     )
   }
   const serverSide =
     status >= 500 || codes.has('UNEXPECTED') || codes.has('INTERNAL_SERVER_ERROR')
   if (serverSide) {
     return what === 'read'
-      ? error(
-          'Buffer is unavailable right now. It will be tried again.',
-          'platform_unavailable',
-          status
-        )
+      ? error('Buffer is unavailable right now.', 'platform_unavailable', status)
       : error(
           `Buffer answered with an error ${mayHavePosted(name)}`,
           'unknown_outcome',
