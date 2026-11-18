@@ -148,7 +148,9 @@ async function graphql<T>(
   ctx: BufferContext,
   query: string,
   variables: Record<string, unknown>,
-  what: Sending
+  what: Sending,
+  /** For a post: whether the answer holds the post Buffer made. */
+  made?: (data: T) => boolean
 ): Promise<T> {
   let res: Response
   try {
@@ -169,16 +171,29 @@ async function graphql<T>(
     errors?: GraphQLError[]
   } | null
   const errors = Array.isArray(body?.errors) ? body.errors : []
-  if (!res.ok || errors.length > 0 || !body?.data) {
-    throw requestError(
-      res.status,
-      errors,
-      what,
-      nameOf(ctx),
-      res.headers.get('retry-after')
-    )
+  const data = body?.data ?? null
+  if (res.ok && errors.length === 0 && data) return data
+  if (what === 'post' && res.ok) {
+    // The post was made even with errors beside it: keep it, so it is
+    // followed rather than made again.
+    if (data && made?.(data)) return data
+    // A 2xx with nothing readable: Buffer took the request and may have
+    // made the post.
+    if (errors.length === 0) {
+      throw error(
+        `Buffer's answer could not be read ${mayHavePosted(nameOf(ctx))}`,
+        'unknown_outcome',
+        res.status
+      )
+    }
   }
-  return body.data
+  throw requestError(
+    res.status,
+    errors,
+    what,
+    nameOf(ctx),
+    res.headers.get('retry-after')
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +424,8 @@ export async function createPost(
         ...(Object.keys(metadata).length > 0 && { metadata })
       }
     },
-    'post'
+    'post',
+    made => Boolean(made?.createPost?.post?.id)
   )
   const result = data.createPost
   if (result?.post?.id) return toState(result.post, nameOf(ctx))

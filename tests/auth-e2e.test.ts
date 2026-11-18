@@ -576,6 +576,23 @@ describe(
           // Another user's goal cannot steer the caller's run.
           triggerNewRun: await callActionAsAlice('triggerNewRun', [
             [ids.goalB]
+          ]),
+          createGoal: await callActionAsAlice('createGoal', [ids.accountB, goal]),
+          deleteGoal: await callActionAsAlice('deleteGoal', [
+            ids.goalB,
+            ids.accountB
+          ]),
+          deleteKnowledgeDocument: await callActionAsAlice(
+            'deleteKnowledgeDocument',
+            [ids.docB, ids.accountB]
+          ),
+          savePreferences: await callActionAsAlice('savePreferences', [
+            ids.accountB,
+            {
+              ideasPerRun: 5,
+              post_constraints: { cta_required: false },
+              guardrails: { banned_topics: [], compliance_notes: '' }
+            }
           ])
         }
         for (const [name, res] of Object.entries(results)) {
@@ -587,23 +604,8 @@ describe(
           )
         }
 
-        // These throw instead of returning an error; either way nothing changes.
-        await callActionAsAlice('createGoal', [ids.accountB, goal])
-        await callActionAsAlice('deleteGoal', [ids.goalB, ids.accountB])
         // Pairing the foreign goal with the user's own identity does not help.
         await callActionAsAlice('deleteGoal', [ids.goalB, ids.accountA])
-        await callActionAsAlice('deleteKnowledgeDocument', [
-          ids.docB,
-          ids.accountB
-        ])
-        await callActionAsAlice('savePreferences', [
-          ids.accountB,
-          {
-            ideasPerRun: 5,
-            post_constraints: { cta_required: false },
-            guardrails: { banned_topics: [], compliance_notes: '' }
-          }
-        ])
 
         const [account] = await db
           .select()
@@ -797,7 +799,6 @@ describe(
         assert.ok(line, `no return value: ${res.text.slice(0, 300)}`)
         return JSON.parse(line[1]!)
       }
-      const threw = (res: { text: string }) => /^1:E\{/m.test(res.text)
       const profile = {
         name,
         description: 'We help finance teams close the books faster.',
@@ -940,8 +941,13 @@ describe(
           value(await act('createGoal', [accountId, goal])),
           { success: true }
         )
-        assert.ok(
-          threw(await act('createGoal', [accountId, goal])),
+        // Refused with its reason as a value: production React hides a thrown one.
+        assert.deepStrictEqual(
+          value(await act('createGoal', [accountId, goal])),
+          {
+            success: false,
+            error: `A goal named "${goal.title}" already exists.`
+          },
           'a second goal with the same title is refused'
         )
         const [saved] = await db

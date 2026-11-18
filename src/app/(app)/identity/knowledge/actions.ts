@@ -10,10 +10,12 @@ import { IDENTITY_PATH } from '@/lib/identity'
 import { idSchema } from '@/lib/ids'
 import { looksLikePlaceholderPage, scrapeUrl } from '@/lib/scraper'
 import { requireUser } from '@/lib/session'
+import { setupAction } from '@/lib/setup-action'
 import {
   AccountIdSchema,
   KnowledgeDocumentSchema,
-  parseSetupPayload
+  parseSetupPayload,
+  SetupInputError
 } from '@/lib/setup-payloads'
 import { and, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -34,6 +36,11 @@ export async function fetchUrlPreview(url: string) {
 
     return {
       success: true,
+      // What was fetched: a URL typed without http(s):// gets https://, as
+      // the scraper used it, so it can be saved as the document's source.
+      url: /^[a-z][a-z0-9+.-]*:/i.test(url.trim())
+        ? url.trim()
+        : `https://${url.trim()}`,
       title: scraped.title,
       content: scraped.content,
       wordCount: scraped.wordCount
@@ -46,18 +53,27 @@ export async function fetchUrlPreview(url: string) {
   }
 }
 
-export async function saveKnowledgeDocument(rawPayload: {
+type KnowledgeDocumentInput = {
   accountId: string
   title: string
   sourceType: 'url' | 'artifact'
   sourceUrl?: string
   content: string
-}) {
+}
+
+export async function saveKnowledgeDocument(rawPayload: KnowledgeDocumentInput) {
   const user = await requireUser()
+  return setupAction(() => saveDocument(user, rawPayload))
+}
+
+async function saveDocument(
+  user: { id: string },
+  rawPayload: KnowledgeDocumentInput
+) {
   const payload = parseSetupPayload(KnowledgeDocumentSchema, rawPayload)
   await requireOwnedAccount(user.id, payload.accountId)
   if (!payload.title.trim() || !payload.content.trim()) {
-    throw new Error('Title and content are required')
+    throw new SetupInputError('Title and content are required')
   }
 
   const spend = {
@@ -98,7 +114,7 @@ export async function saveKnowledgeDocument(rawPayload: {
   revalidatePath(`${IDENTITY_PATH}/knowledge`)
   revalidatePath(IDENTITY_PATH)
   revalidatePath('/')
-  return { success: true, docId: inserted?.id }
+  return { docId: inserted?.id }
 }
 
 const DocumentIdSchema = idSchema('Invalid document identifier')
@@ -108,6 +124,14 @@ export async function deleteKnowledgeDocument(
   rawAccountId: string
 ) {
   const user = await requireUser()
+  return setupAction(() => deleteDocument(user, rawDocId, rawAccountId))
+}
+
+async function deleteDocument(
+  user: { id: string },
+  rawDocId: string,
+  rawAccountId: string
+) {
   const docId = parseSetupPayload(DocumentIdSchema, rawDocId)
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   // The document is then matched on both ids, so only this identity's is deleted.
@@ -124,5 +148,5 @@ export async function deleteKnowledgeDocument(
   revalidatePath(`${IDENTITY_PATH}/knowledge`)
   revalidatePath(IDENTITY_PATH)
   revalidatePath('/')
-  return { success: true }
+  return {}
 }

@@ -1,3 +1,4 @@
+import { extractNumbers, mentionsFigure } from '~/lib/ai/skills/ideation/guard'
 import { SLIDE_TEXT, slideText, type SlideContent } from './types'
 
 /**
@@ -107,6 +108,53 @@ export function figureIsSourced(stat: string, sources: string): boolean {
   if (own.length === 0) return false
   const known = new Set(figuresIn(sources))
   return own.every(f => known.has(f))
+}
+
+/**
+ * Whether a pull quote is in `sources` word for word, ignoring case,
+ * punctuation and quotation marks. An ellipsis may join parts of it; each
+ * part must be there.
+ */
+export function quoteIsSourced(quote: string, sources: string): boolean {
+  const said = ` ${words(sources).join(' ')} `
+  const parts = quote
+    .split(/…|\.{3}/)
+    .map(part => words(part).join(' '))
+    .filter(Boolean)
+  return parts.length > 0 && parts.every(part => said.includes(` ${part} `))
+}
+
+/**
+ * What a slide states that `sources` (the idea's evidence and the author's
+ * details) does not: figures in its headline and text, read as the post's
+ * own checks read them ("40%", "forty percent", "$2m"), and a pull quote no
+ * source says. The stat is checked where it is drawn (figureIsSourced).
+ */
+export function slideFactIssues(
+  slide: Pick<SlideContent, 'headline' | 'body' | 'design'>,
+  sources: string
+): string[] {
+  const issues: string[] = []
+  const known = new Set(extractNumbers(sources))
+  const said = sources.toLowerCase()
+  const invented = extractNumbers(`${slide.headline}\n${slide.body}`).filter(
+    n => !known.has(n) && !mentionsFigure(said, n)
+  )
+  if (invented.length > 0) {
+    issues.push(
+      `${invented.map(n => `"${n}"`).join(', ')} ${invented.length === 1 ? 'is' : 'are'} not in the post's evidence or the author's details. Use a figure from the evidence, or remove it.`
+    )
+  }
+  if (
+    slide.design.layout === 'quote' &&
+    slide.body.trim() &&
+    !quoteIsSourced(slide.body, sources)
+  ) {
+    issues.push(
+      "The quote is not in the post's evidence. Quote a source word for word, or use another layout."
+    )
+  }
+  return issues
 }
 
 export interface SlideTextIssue {

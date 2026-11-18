@@ -84,6 +84,24 @@
     "passed": false
   },
   {
+    "rule": "invented_story",
+    "severity": "info",
+    "message": "No first-hand story beyond the sources.",
+    "passed": true
+  },
+  {
+    "rule": "invented_product",
+    "severity": "info",
+    "message": "Every product named is in the evidence or the author's details.",
+    "passed": true
+  },
+  {
+    "rule": "unsourced_news",
+    "severity": "info",
+    "message": "Nothing is presented as news.",
+    "passed": true
+  },
+  {
     "rule": "excessive_caps",
     "severity": "warning",
     "message": "All-caps words detected (NEED, KNOW, THIS, NOW). Reads as shouting.",

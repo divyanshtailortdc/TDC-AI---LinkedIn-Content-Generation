@@ -5,7 +5,8 @@ import {
   GoalPayloadSchema,
   KnowledgeDocumentSchema,
   parseSetupPayload,
-  PreferencesPayloadSchema
+  PreferencesPayloadSchema,
+  SetupInputError
 } from '../src/lib/setup-payloads'
 
 const id = '8f14e45f-ceea-4e7a-9a3b-0c9a5b6d7e8f'
@@ -45,6 +46,11 @@ describe('setup payloads', () => {
           guardrails: { banned_topics: ['x'.repeat(301)], compliance_notes: '' }
         }),
       /Banned topic must be 300 characters or fewer/
+    )
+    // Typed, so setup actions return it as { success: false, error }.
+    assert.throws(
+      () => parseSetupPayload(KnowledgeDocumentSchema, { ...doc, sourceUrl: 'example.com' }),
+      SetupInputError
     )
   })
 

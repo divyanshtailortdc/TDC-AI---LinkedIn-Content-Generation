@@ -192,7 +192,7 @@ export function KnowledgeClient({
     setError(null)
     setIsSaving(true)
     try {
-      await saveKnowledgeDocument({
+      const saved = await saveKnowledgeDocument({
         accountId,
         title: 'Facts from your AI setup',
         sourceType: 'artifact',
@@ -200,6 +200,7 @@ export function KnowledgeClient({
           .map(f => `${f.statement}\n"${f.quote}" (${f.source})`)
           .join('\n\n')
       })
+      if (!saved.success) throw new Error(saved.error)
       updateDraftSuggestions(accountId, s => ({
         ...s,
         knowledge: { ...s.knowledge, facts: [] }
@@ -239,7 +240,7 @@ export function KnowledgeClient({
       const res = await fetchUrlPreview(url)
       if (res.success && res.title && res.content) {
         setUrlPreview({
-          url,
+          url: res.url ?? url,
           title: res.title,
           content: res.content,
           wordCount: res.wordCount || res.content.split(/\s+/).length
@@ -276,13 +277,14 @@ export function KnowledgeClient({
     setError(null)
     setIsSaving(true)
     try {
-      await saveKnowledgeDocument({
+      const saved = await saveKnowledgeDocument({
         accountId,
         title: urlPreview.title,
         sourceType: 'url',
         sourceUrl: urlPreview.url,
         content: urlPreview.content
       })
+      if (!saved.success) throw new Error(saved.error)
       showToast({
         type: 'success',
         title: 'Document Saved',
@@ -316,12 +318,13 @@ export function KnowledgeClient({
     setError(null)
     setIsSaving(true)
     try {
-      await saveKnowledgeDocument({
+      const saved = await saveKnowledgeDocument({
         accountId,
         title: artifactTitle,
         sourceType: 'artifact',
         content: artifactContent
       })
+      if (!saved.success) throw new Error(saved.error)
       showToast({
         type: 'success',
         title: 'Artifact Saved',
@@ -346,7 +349,8 @@ export function KnowledgeClient({
   const handleDelete = async (docId: string) => {
     setDeletingId(docId)
     try {
-      await deleteKnowledgeDocument(docId, accountId)
+      const deleted = await deleteKnowledgeDocument(docId, accountId)
+      if (!deleted.success) throw new Error(deleted.error)
       showToast({
         type: 'info',
         title: 'Document Removed',

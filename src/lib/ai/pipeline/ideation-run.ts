@@ -9,6 +9,7 @@ import {
 import { and, eq, inArray } from 'drizzle-orm'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
 import { env } from '~/env'
+import { FUNCTION_MAX_DURATION_S, onVercel } from '~/lib/function-limit'
 import { EMPTY_USAGE, getLanguageModel, type CallUsage } from '~/lib/ai'
 import { addUsage } from '~/lib/ai/usage'
 import { retrieveNewsletterStories } from '~/lib/intel/retrieval'
@@ -96,11 +97,17 @@ import { buildGroundingCorpus } from './grounding-corpus'
  * stuck run looking alive, so the stale-run sweep would never catch it. The
  * slowest legitimate run is about 12 minutes: the research agent (3 min) and
  * its fixed-search fallback, retrieval, and two ideation calls (3 min each).
+ *
+ * On Vercel the run is work held open by `after()`, which ends with the
+ * function at its time limit and runs no cleanup: the run stayed "in
+ * progress". There the deadline comes first, leaving time to fail the run and
+ * close its steps.
  */
-const RUN_DEADLINE_MS = 15 * 60_000
+const RUN_DEADLINE_MS = onVercel()
+  ? (FUNCTION_MAX_DURATION_S - 45) * 1000
+  : 15 * 60_000
 
-const DEADLINE_MESSAGE =
-  'The run took longer than 15 minutes and was stopped. Start a new run.'
+const DEADLINE_MESSAGE = `The run took longer than ${Math.floor(RUN_DEADLINE_MS / 60_000)} minutes and was stopped. Start a new run.`
 
 /**
  * Rejects once `signal` aborts, whether or not `work` has finished: with

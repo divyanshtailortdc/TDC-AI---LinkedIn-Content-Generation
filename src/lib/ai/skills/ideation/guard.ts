@@ -99,16 +99,60 @@ const FIGURE_START = String.raw`(?<![\w.]|\d,)`
 /** Digits with any decimal point or thousands separators: 2.5, 1,200, 1,200.50. */
 const FIGURE_NUMBER = String.raw`\d+(?:[.,]\d+)*`
 
+const UNIT_WORDS = [
+  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+  'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen',
+  'sixteen', 'seventeen', 'eighteen', 'nineteen'
+]
+const TENS_WORDS = [
+  '', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty',
+  'ninety'
+]
+/** Longest first, so "seventeen" is not read as "seven". */
+const alternatives = (words: string[]) =>
+  words
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .join('|')
+const BELOW_HUNDRED = `(?:(?:${alternatives(TENS_WORDS)})(?:[-\\s]+(?:${alternatives(UNIT_WORDS.slice(1, 10))}))?|${alternatives(UNIT_WORDS)})`
+/**
+ * A number written in words ("forty", "twenty-five", "two hundred and
+ * fifty") where it states a figure: before a percent sign, "percent" or a
+ * magnitude ("two million"). Elsewhere a number in words is ordinary prose
+ * ("one thing", "three teams").
+ */
+const SPELLED_FIGURE = new RegExp(
+  `\\b${BELOW_HUNDRED}(?:\\s+hundred(?:\\s+(?:and\\s+)?${BELOW_HUNDRED})?)?(?=\\s*(?:%|per\\s?cent\\b|(?:thousand|million|billion|trillion|lakh|crore)s?\\b))`,
+  'gi'
+)
+
+function spelledValue(phrase: string): number {
+  let value = 0
+  for (const w of phrase.toLowerCase().split(/[-\s]+/)) {
+    if (w === 'hundred') value = (value || 1) * 100
+    else if (UNIT_WORDS.includes(w)) value += UNIT_WORDS.indexOf(w)
+    else if (TENS_WORDS.includes(w)) value += TENS_WORDS.indexOf(w) * 10
+  }
+  return value
+}
+
+/** `text` with figures written in words as digits: "forty percent" is "40 percent". */
+export function withSpelledFigures(text: string): string {
+  return text.replace(SPELLED_FIGURE, phrase => String(spelledValue(phrase)))
+}
+
 /**
  * Extracts figures a reader would treat as a factual claim: percentages,
  * currency, product specifications ("200MP", "5,000mAh"), and qualified
- * thresholds ("around 50 customers").
+ * thresholds ("around 50 customers"). A percentage or magnitude written in
+ * words ("forty percent", "two million") is the same figure in digits.
  *
  * Bare integers are intentionally NOT collected. Treating every number over 10
  * as a claim flagged ordinary prose like "10 minutes" or "3 of 5 teams".
  */
-export function extractNumbers(text: string): string[] {
-  if (!text) return []
+export function extractNumbers(raw: string): string[] {
+  if (!raw) return []
+  const text = withSpelledFigures(raw)
   const matches: string[] = []
 
   // "40 percent" and "40 per cent" are the same figure as "40%".

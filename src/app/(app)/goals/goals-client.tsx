@@ -279,14 +279,16 @@ export function GoalsClient({
 
     try {
       if (editingGoalId) {
-        await updateGoal(editingGoalId, accountId, payload)
+        const updated = await updateGoal(editingGoalId, accountId, payload)
+        if (!updated.success) throw new Error(updated.error)
         showToast({
           type: 'success',
           title: 'Goal Updated',
           message: `Goal "${title.trim()}" updated successfully.`
         })
       } else {
-        await createGoal(accountId, payload)
+        const created = await createGoal(accountId, payload)
+        if (!created.success) throw new Error(created.error)
         showToast({
           type: 'success',
           title: 'Goal Saved',
@@ -325,7 +327,8 @@ export function GoalsClient({
   const handleDelete = async (goalId: string) => {
     setActionId(goalId)
     try {
-      await deleteGoal(goalId, accountId)
+      const deleted = await deleteGoal(goalId, accountId)
+      if (!deleted.success) throw new Error(deleted.error)
       showToast({
         type: 'info',
         title: 'Goal Deleted',

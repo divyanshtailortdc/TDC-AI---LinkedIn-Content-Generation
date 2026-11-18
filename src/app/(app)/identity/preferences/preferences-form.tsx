@@ -172,7 +172,7 @@ export function PreferencesForm({
   const save = async (): Promise<boolean> => {
     setError(null)
     try {
-      await savePreferences(accountId, {
+      const saved = await savePreferences(accountId, {
         ideasPerRun,
         post_constraints: constraints,
         guardrails: {
@@ -181,6 +181,7 @@ export function PreferencesForm({
         },
         channels: { enabledFormats, settings: channelSettings }
       })
+      if (!saved.success) throw new Error(saved.error)
       showToast({
         type: 'success',
         title: 'Preferences Saved',

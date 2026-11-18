@@ -10,6 +10,9 @@ import { runDueSchedules } from '~/jobs/scheduler'
 import { processQueuedRuns } from '~/jobs/worker'     
 import { recoverInterruptedRuns } from '~/lib/ai/run-lifecycle'
 
+/** The runs and drafts it starts with `after()` get Vercel's most; see src/lib/function-limit.ts. */
+export const maxDuration = 300
+
 /**
  * One pass of the job timers, for hosts where they do not run (Vercel; see
  * runsJobTimers): fails runs whose process died, starts the runs of due
