@@ -18,7 +18,7 @@ import {
   searchWeb,
   type Finding
 } from '@/lib/research/web-search'
-import { safeFetch } from '@/lib/safe-url'
+import { readTextCapped, safeFetch } from '@/lib/safe-url'
 import { BROWSER_HEADERS } from '@/lib/scraper'
 import { eq, sql } from 'drizzle-orm'
 import {
@@ -65,7 +65,10 @@ const SEARCH_CONCURRENCY = 4
 const FETCH_CONCURRENCY = 6
 const PAGE_TIMEOUT_MS = 8_000
 const FEED_TIMEOUT_MS = 5_000
-const MAX_HTML_CHARS = 1_500_000
+/** Pages are downloaded no further. */
+const MAX_HTML_BYTES = 1_500_000
+/** Enough to find a feed's root element after its XML declaration. */
+const FEED_HEAD_BYTES = 2_000
 
 /** Search results worth fetching: one per page, a couple per site, each query in turn. */
 function pickCandidates(perQuery: Finding[][]): string[] {
@@ -112,7 +115,7 @@ async function fetchHtml(
       await response.body?.cancel()
       return null
     }
-    const html = (await response.text()).slice(0, MAX_HTML_CHARS)
+    const { text: html } = await readTextCapped(response, MAX_HTML_BYTES)
     return { html, url: response.url || url }
   } catch {
     return null
@@ -183,7 +186,7 @@ async function verifyFeed(feed: FeedLink | null): Promise<FeedLink | null> {
       await response.body?.cancel()
       return null
     }
-    const head = (await response.text()).slice(0, 2000)
+    const { text: head } = await readTextCapped(response, FEED_HEAD_BYTES)
     if (/<feed[\s>]/i.test(head)) return { url: feed.url, type: 'atom' }
     if (/<rss[\s>]|<rdf:RDF/i.test(head)) return { url: feed.url, type: 'rss' }
     return null

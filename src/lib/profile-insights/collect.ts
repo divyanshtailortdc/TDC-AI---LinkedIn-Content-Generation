@@ -13,7 +13,7 @@ import {
   searchImages,
   searchWeb
 } from '@/lib/research/web-search'
-import { safeFetch } from '@/lib/safe-url'
+import { readBodyCapped, safeFetch } from '@/lib/safe-url'
 import { and, eq, inArray } from 'drizzle-orm'
 import {
   imageQuery,
@@ -176,8 +176,8 @@ async function downloadImage(
       return null
     const declared = Number(res.headers.get('content-length') ?? 0)
     if (declared > MAX_IMAGE_BYTES) return null
-    const data = new Uint8Array(await res.arrayBuffer())
-    if (data.byteLength > MAX_IMAGE_BYTES || data.byteLength < 500) return null
+    const { bytes: data, truncated } = await readBodyCapped(res, MAX_IMAGE_BYTES)
+    if (truncated || data.byteLength < 500) return null
     return { data, mediaType }
   } catch {
     return null
