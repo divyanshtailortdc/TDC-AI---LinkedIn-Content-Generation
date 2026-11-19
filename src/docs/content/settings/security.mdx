@@ -1,0 +1,109 @@
+# Security
+
+The Security page is where you manage how you sign in to the Content Engine, including your passkey.
+
+## How signing in works
+
+The Content Engine has no passwords, no sign-up form and no sign-in emails. The sign-in page offers up to three ways in:
+
+- **Continue with LinkedIn**
+- **Continue with Google**
+- **Sign in with a passkey**
+
+The LinkedIn and Google buttons only appear when your administrator has set them up, so you may see just one of them.
+
+Your first sign-in with LinkedIn or Google creates your account. After that, either one takes you to the same account, as long as both use the same email address and the provider has verified that address. Google always shows its account picker, so you can choose which Google account to use.
+
+A passkey cannot create an account. You add one after you have signed in with LinkedIn or Google, and from then on you can use it instead of them.
+
+If you open a page in the app while you are signed out, you are taken to the sign-in page first, and on to the page you asked for once you are in.
+
+<Tags type="note" label="Signing in is not publishing">
+
+Signing in with LinkedIn only tells the app who you are. It does not let the app post to LinkedIn. Publishing is set up separately, through your Buffer account, on [Integrations](/docs/settings/integrations).
+
+</Tags>
+
+## Passkeys
+
+A passkey lets you sign in with your fingerprint, face or screen lock instead of a social account. The **Passkeys** section of the Security page lists your passkey and lets you add, rename or delete it.
+
+You can have **one passkey** per account. Once you have one, both add buttons are turned off and the page says "You can have one passkey; delete it to add a different one."
+
+### Add a passkey
+
+You can add a passkey from either place:
+
+- **Add passkey** in the **Passkeys** section of the Security page.
+- **Add a passkey** in the account menu at the bottom of the sidebar. Once you have one, this item shows **Already added**.
+
+Your browser or password manager then asks you to create the passkey, usually with your fingerprint, face or screen lock. When it is done you see **Passkey added**: "You can now sign in with it."
+
+The new passkey is named after your browser and system, for example "Chrome on Windows", so you can tell where it came from. You can rename it at any time.
+
+<Tags type="tip" label="Signed in a while ago?">
+
+Adding a passkey needs a recent sign-in. If you see "For your security, sign out and sign in again before adding a passkey.", sign out, sign back in with LinkedIn or Google, and try again.
+
+</Tags>
+
+### What the passkey list shows
+
+Each passkey shows its name, the date it was added, and one of:
+
+- **Synced across devices**: it is kept by a password manager that syncs, so it can also be used on your other devices.
+- **One device only**: it lives on the device where you made it.
+
+If you have none yet, the section says **No passkeys yet**.
+
+### Rename a passkey
+
+1. Click the pencil button (**Rename**) on the passkey.
+2. Type a new name of up to 50 characters, such as "Work laptop".
+3. Click **Save**, or **Cancel** (or press <Kbd>Esc</Kbd>) to keep the old name.
+
+### Delete a passkey
+
+1. Click the bin button (**Delete**) on the passkey.
+2. Confirm with **Yes, delete** in the **Delete this passkey?** dialog.
+
+You can no longer sign in with it, but your other sign-in options still work. In some browsers the app also asks your password manager to forget the deleted passkey. If it is still listed there, remove it from your password manager yourself, or your browser will keep offering it when you sign in.
+
+### Sign in with your passkey
+
+On the sign-in page, click **Sign in with a passkey** and confirm with your fingerprint, face or screen lock. A passkey belongs to the web address you added it on, so use the same address to sign in.
+
+If you see "That passkey is not registered here. Sign in another way, then add it again.", the passkey your device offered was deleted from your account. Sign in with LinkedIn or Google and add a new one.
+
+## Signing out
+
+1. Open the account menu at the bottom of the sidebar.
+2. Click **Sign out**.
+3. Confirm with **Yes, sign out**.
+
+Your work stays saved. Signing out ends your session in the browser you are using and takes you back to the sign-in page. The app does not list your other sessions, so sign out separately on any other device or browser you have used, especially a shared one.
+
+## Messages you may see when signing in
+
+| Message                                                                                                           | What to do                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| "Sign-in was cancelled."                                                                                          | You closed or declined the provider's screen. Try again.                                                |
+| "An account with this email already exists, but this provider has not verified the address. Sign in another way." | Use the provider you first signed in with, or a passkey.                                                |
+| "The provider did not share an email address for this account."                                                   | The app needs your email to know who you are. Allow it on the provider's screen, or use another option. |
+| "Too many attempts. Please wait a minute and try again."                                                          | Wait a minute before trying again.                                                                      |
+| "Passkey sign-in was cancelled."                                                                                  | You closed the passkey prompt. Try again.                                                               |
+| "The passkey request expired. Please try again."                                                                  | The prompt was open too long. Start again.                                                              |
+| "This account has been suspended. Contact your administrator."                                                    | Only your administrator can restore access.                                                             |
+
+More sign-in problems and fixes are on [Troubleshooting](/docs/help/troubleshooting).
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Integrations', href: '/docs/settings/integrations' },
+    { title: 'Theme', href: '/docs/settings/theme' },
+    { title: 'Troubleshooting', href: '/docs/help/troubleshooting' },
+    { title: 'FAQ', href: '/docs/help/faq' }
+  ]}
+/>

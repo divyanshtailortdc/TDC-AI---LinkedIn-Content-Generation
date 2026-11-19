@@ -1,0 +1,98 @@
+# Dashboard
+
+The Dashboard is the home page of the Content Engine. It shows how much AI work has been done for the identity you are working on, how far that identity's setup has got, and which services the app can use.
+
+Everything here is about the active identity, the one picked in the identity switcher at the top of the sidebar. Switch identity and the numbers change with it.
+
+## Before you have an identity
+
+If you have not set up an identity yet, the Dashboard shows a **Set up your content identity** card instead of your numbers. Click **Set up your identity** to create one. The **Capabilities** panel is still shown above it.
+
+## Token usage
+
+The first section, **Token usage**, adds up every AI call ever made for this identity: runs, and also work outside runs such as newsletters, identity setup and post editing. Next to the heading you see how many runs, ideas and posts the identity has, for example "3 runs · 15 ideas · 6 posts".
+
+Tokens are the small chunks of text that AI services count and charge by. The four cards show:
+
+| Card               | What it tells you                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| **Total cost**     | What all AI work for this identity has cost so far. Underneath is the cost per post, or "No posts drafted yet". |
+| **Total tokens**   | How much text the AI read and wrote in total, and across how many AI calls.                                     |
+| **Input / Output** | Tokens sent to the AI, and tokens it wrote back.                                                                |
+| **Cached input**   | Input the AI could reuse from earlier calls, which costs less, and what share of all input that was.            |
+
+The numbers load a moment after the rest of the page, so you may see grey placeholders briefly.
+
+### By feature
+
+Below the cards, **By feature** splits the tokens and cost by what they were spent on. Only features that have been used appear.
+
+| Label                    | What it covers                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| **Runs**                 | A run's research and ideas, and writing posts from approved ideas.                                                       |
+| **Post editing**         | Work on a post after its run, such as another version, a rewrite, an image or a carousel.                                |
+| **Newsletter discovery** | Finding newsletters to subscribe to.                                                                                     |
+| **Inbox**                | Reading newsletters your inbox receives and the articles they link to.                                                   |
+| **Identity & goals**     | Setting up the identity: AI setup, voice and style analysis, profile insights, knowledge documents and goal suggestions. |
+| **Docs search**          | Questions typed into the help pages' search, matched by meaning.                                                         |
+| **Other**                | Anything not covered above.                                                                                              |
+
+### Spending limits
+
+**Spending limits** shows three bars, each with what has been spent against its limit:
+
+- **Last 30 days, all your identities**
+- **Last 24 hours, all your identities**
+- **This identity's inbox, last 24 hours**
+
+The windows are rolling: "last 24 hours" means any 24 hours up to now, not a calendar day. A bar turns amber when you are close to a limit and red when it is reached. Once one of the first two limits is reached, new AI work (including new runs) is refused until older spending drops out of the window. Received newsletters are read without AI summaries once 80% of a limit is used, so the rest is kept for work you start yourself.
+
+<Tags type="info">
+
+The first two limits count spending across every identity you own, so a busy identity can use up the allowance for the others. See [AI usage](/docs/help/ai-usage) for more.
+
+</Tags>
+
+## Your identity
+
+The **Your identity** card shows the identity's initials, name, type and headline. Click the name or **Edit** to open its Profile.
+
+Under it, the **Setup checklist** shows how many of four setup steps have something saved, for example "2 of 4". Each item is a link:
+
+| Item            | Opens                            | Ticked when                             |
+| --------------- | -------------------------------- | --------------------------------------- |
+| **Voice**       | Identity Setup, Voice step       | A voice has been saved.                 |
+| **Knowledge**   | Identity Setup, Knowledge step   | At least one knowledge document exists. |
+| **Goals**       | The Goals page                   | At least one goal exists.               |
+| **Preferences** | Identity Setup, Preferences step | Preferences have been saved.            |
+
+An item without a tick has a dashed outline. The checklist only checks that something is saved; it does not judge how complete it is.
+
+<Tags type="tip">
+
+Goals are the one item a run cannot do without: every run writes toward goals you pick. If **Goals** is not ticked, start there.
+
+</Tags>
+
+## Capabilities
+
+The **Capabilities** panel lists the outside services this installation of the app is set up to use:
+
+| Service                | What it is for                            |
+| ---------------------- | ----------------------------------------- |
+| **Anthropic (Claude)** | AI research, ideation, and post drafting. |
+| **Serper**             | Web search and stock image sourcing.      |
+| **Image Generation**   | AI-generated post images.                 |
+
+Each shows **Active** when it is ready, or a note that its key is not set. These keys are set by whoever runs the app, not from any page in it. Without an active AI service, runs cannot generate ideas; without Serper, runs find nothing on the web and rely on your knowledge base and newsletters.
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Identities', href: '/docs/getting-started/identities' },
+    { title: 'Goals', href: '/docs/account-setup/goals' },
+    { title: 'Starting a Run', href: '/docs/account-setup/runs' },
+    { title: 'AI usage', href: '/docs/help/ai-usage' }
+  ]}
+/>

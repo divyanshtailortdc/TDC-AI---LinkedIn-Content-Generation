@@ -189,3 +189,18 @@ select,
     transform: translateY(0) scale(1);
   }
 }
+
+/* Docs search: the passage a result opened is tinted, then fades back. */
+@keyframes docs-search-hit {
+  from {
+    background-color: rgb(250 204 21 / 0.35);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.docs-search-hit {
+  border-radius: 0.375rem;
+  animation: docs-search-hit 2.4s ease-out;
+}

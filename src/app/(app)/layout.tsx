@@ -1,10 +1,11 @@
-import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { MobileNavProvider } from '@/components/mobile-nav'
+import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { RefreshOnBack } from '@/components/refresh-on-back'
 import { Sidebar } from '@/components/sidebar'
 import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
 import { ideasTable } from '@/db/schema'
+import { HelpButton } from '@/docs/components/help-button'
 import { getIdentity, listIdentities } from '@/lib/identity'
 import { publishConfigs } from '@/lib/publishing/config'
 import { getCurrentConnections } from '@/lib/publishing/current-connection'
@@ -109,6 +110,7 @@ export default async function AppLayout({
             </RefreshOnBack>
           </main>
           <ToastContainer />
+          <HelpButton />
         </div>
       </PublishingStatusProvider>
     </MobileNavProvider>

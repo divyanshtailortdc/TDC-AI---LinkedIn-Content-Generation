@@ -1,0 +1,98 @@
+# Schedule
+
+Schedule is your posting calendar: plan the day each post goes out, see the month at a glance, and mark posts you published yourself. Further down, you can have the engine write new ideas on set days.
+
+## Ways to get a post out
+
+A post must be approved before it can go out. Then:
+
+| Option           | Where                                  | What happens                                                                      |
+| ---------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| **Publish now**  | The post's page                        | It goes out straight away.                                                        |
+| **Schedule**     | The post's page                        | It goes out at the date and time you pick.                                        |
+| Auto-publishing  | [Integrations](/settings/integrations) | Approved posts planned on the calendar go out on their day, at a time you choose. |
+| Post it yourself | **Copy text** on the post's page       | You paste it on the platform, then **Mark as posted** here.                       |
+
+The first three need the platform's account connected under [Integrations](/settings/integrations).
+
+## Plan posts on the calendar
+
+The calendar shows one month; use the arrows to move and **Today** to come back. Each post shows its platform's icon and opening line, coloured **To review**, **Approved** or **Posted**.
+
+To plan a post, drag it from **Not planned yet** onto a day (or from one day to another), or pick a date in **Plan for**. **Not planned yet** lists posts in review or approved that have no day yet. Rejected posts never appear here.
+
+Click a post on the calendar to change **Planned for**, **Unschedule** it, or **Open Posts**. On a phone, the calendar becomes a list of the days that have posts.
+
+<Tags type="important">
+
+Planning a day doesn't publish anything by itself. A planned post only goes out on its day if auto-publishing is on for its platform.
+
+</Tags>
+
+### Mark a post as posted
+
+Posted an approved post yourself? Open it on the calendar and click **Mark as posted**. If it had no day, it goes on today. Any publishing queued for it is cancelled, and its text and image lock. **Not posted yet** undoes it, except for posts published from the app, which stay posted.
+
+## Publish now or at a set time
+
+On an approved post's page:
+
+- **Publish now** asks you to confirm, naming what goes out (with its image, its slides, or text only) and the account it is published as. Once it is out, the top bar shows when, with a **View post** link.
+- **Schedule** opens a date and time field, set an hour ahead. Click **Schedule** to confirm. The time must be at least a minute away and within a year. The post then shows **Publishes** with the date, and **Cancel**.
+
+If the account isn't connected you see **Connect LinkedIn** (or the post's platform), and if the connection expired, **Reconnect LinkedIn**.
+
+Good to know:
+
+- You can still edit a scheduled post. What is saved when its time comes is what goes out.
+- Rejecting or deleting a scheduled post cancels it. Hiding it from the Posts list doesn't.
+- Scheduling a time doesn't put the post on the calendar. Once published, it shows as **Posted** on its planned day, or the day it went out.
+- On X and Threads the post's reply is published with it, and on Facebook its first comment. A LinkedIn first comment isn't: use **Copy comment** in the preview and add it yourself. Instagram's **Link-in-bio note** is never posted.
+
+## Auto-publishing
+
+In [Integrations](/settings/integrations), tick **Publish automatically** for a platform, pick a time and click **Save**, then confirm. Approved posts planned on Schedule go out on their day at that time, shown with **(auto)** while they wait.
+
+- Only approved posts are published.
+- If you approve, plan or edit a post on its day after that time, it isn't published automatically. Publish it yourself.
+- A post that already had a publishing attempt (failed, cancelled or published) is left alone.
+- Instagram posts without an image are skipped.
+
+## What happens at publish time
+
+Every rule is checked again: the post must still be approved, not marked as posted and within the platform's length limit, an Instagram post needs its image, and the account must be connected. The post shows **Publishing** while it is sent. Once it is out it shows **Published**, its text and image lock, and Schedule shows it as **Posted**.
+
+## Failures and retries
+
+| What you see                                          | What it means                                                                                                                | What to do                                                                                                    |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Retrying** with a time, and **last attempt failed** | The platform was busy or asked to wait. Nothing was posted, so it is tried again automatically, up to three attempts in all. | Wait, or **Cancel**.                                                                                          |
+| **Publish failed** with a reason, and **Try again**   | It won't be retried by itself: the platform refused it, it was too long, the account needs reconnecting, or retries ran out. | Fix what the reason says, then **Try again**. In the Posts list this is **Retry publish**.                    |
+| **Is it already on LinkedIn?**                        | The last attempt may have reached the platform.                                                                              | Check your profile. Only if the post isn't there, click **It's not there, publish**, or it will appear twice. |
+| **Reconnect LinkedIn** on a scheduled post            | The connection expired.                                                                                                      | Reconnect before the post's time, or it fails.                                                                |
+| A note that the first comment could not be added      | The post is out, but not its comment.                                                                                        | Add the comment yourself.                                                                                     |
+
+If the platform asks to wait more than a day (a daily limit, for example), the post fails rather than going out late. Use **Try again** once the wait has passed.
+
+## Automatic idea generation
+
+Below the calendar, **Automatic idea generation** starts a run on the days you choose. It only writes ideas, which wait on Ideas for your review; nothing is published. Switch it **On**, pick the **Days**, tick the goals for each day (each day needs at least one), set the **Start time** under **Time & time zone**, and click **Save schedule**. The form then shows the **Next run**. See [Starting a Run](/docs/account-setup/runs).
+
+## Related
+
+<NextSteps
+  links={[
+    {
+      title: 'Editing a Post',
+      href: '/docs/publishing/posts/editing',
+      description: 'Approve a post before it goes out.'
+    },
+    {
+      title: 'Integrations',
+      href: '/docs/settings/integrations',
+      description: 'Connect accounts and turn on auto-publishing.'
+    },
+    { title: 'Overview', href: '/docs/publishing/posts/overview' },
+    { title: 'Troubleshooting', href: '/docs/help/troubleshooting' }
+  ]}
+/>

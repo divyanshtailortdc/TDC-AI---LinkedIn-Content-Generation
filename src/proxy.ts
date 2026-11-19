@@ -2,8 +2,11 @@ import { getSessionCookie } from 'better-auth/cookies'
 import { NextResponse, type NextRequest } from 'next/server'
 import { loginPathFor } from './lib/safe-redirect'
 
-/** Pages anyone can open: signing in. */
-const PUBLIC_PATHS = ['/login']
+/**
+ * Pages anyone can open: signing in, and the help pages (the sign-in page
+ * links to them; they hold no account data).
+ */
+const PUBLIC_PATHS = ['/login', '/docs']
 
 /**
  * An early, cheap redirect for visitors with no session cookie, so they land

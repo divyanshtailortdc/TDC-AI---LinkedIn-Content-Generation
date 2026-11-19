@@ -1,0 +1,118 @@
+# Post Types & Images
+
+Every post has two choices behind it: the type of post for its platform (a LinkedIn post, an X thread…) and what goes out with the text (nothing, one image, or a carousel of slides). This page covers both, and how the engine designs images in your brand.
+
+## Types of post per platform
+
+You pick the type of post under **2. Type of post** when you create posts from ideas (see [Overview](/docs/publishing/posts/overview)).
+
+| Platform  | Type of post       | Text                                    | Can go out as                                                    |
+| --------- | ------------------ | --------------------------------------- | ---------------------------------------------------------------- |
+| LinkedIn  | **LinkedIn post**  | Up to 3,000 characters                  | **Text only**, **Single image** or **Carousel** (2 to 20 slides) |
+| X         | **X post**         | Up to 280 characters                    | **Text only** or **Single image**                                |
+| X         | **X thread**       | 3 to 7 posts, each up to 280 characters | **Text only** or **Single image**                                |
+| Threads   | **Threads post**   | Up to 500 characters                    | **Text only** or **Single image**                                |
+| Facebook  | **Facebook post**  | Up to 2,000 characters                  | **Text only**, **Single image** or **Carousel** (2 to 10 slides) |
+| Instagram | **Instagram post** | A caption of up to 2,200 characters     | **Single image** or **Carousel** (2 to 10 slides)                |
+
+On X, every link counts as 23 characters and every emoji as 2.
+
+<Tags type="note">
+
+The engine writes text, image and carousel posts. It doesn't make videos, and there is no Reel or video post type.
+
+</Tags>
+
+## Choose what goes out with the text
+
+On a post's page, the post type picker above the image panel offers the choices its platform takes:
+
+- **Text only**: the caption goes out on its own.
+- **Single image**: the caption with one image.
+- **Carousel**: the caption with slides to swipe through.
+
+Instagram posts always need an image, so they have no **Text only**. Until you pick, a post goes out with its image if it has one, and as text only if it doesn't. Switching to **Text only** keeps the image aside: pick **Single image** to use it again. Once a post is published, its type is locked.
+
+If the idea was planned as a carousel, or the caption tells readers to swipe, the panel says **The AI planned this post as a carousel**. Click **Make it a carousel**, then **Make slides**.
+
+## Image sizes per platform
+
+Every image the engine designs is made in the shape its platform shows best:
+
+| Platform              | Shape             | Size in pixels |
+| --------------------- | ----------------- | -------------- |
+| LinkedIn              | Landscape, 1.91:1 | 2048 × 1072    |
+| X                     | Landscape, 16:9   | 2048 × 1152    |
+| Facebook              | Landscape, 1.91:1 | 2048 × 1072    |
+| Instagram and Threads | Portrait, 4:5     | 1536 × 1920    |
+
+Carousel slides are portrait, 1080 × 1350, on every platform. An image made from a reference you attached takes the feed shape closest to that reference instead.
+
+If a post's image is another shape (made for another platform, a stock photo, or an image from a link), a notice says it may be cropped. Click **Regenerate image** to get one sized for the platform.
+
+## Image styles
+
+| Style                      | What you get                                                                              |
+| -------------------------- | ----------------------------------------------------------------------------------------- |
+| **Photorealistic**         | A real-looking photograph of the post's world, lit and framed like editorial photography. |
+| **Illustration**           | A clean drawn illustration in your brand colours, with labelled badges.                   |
+| **3D Render**              | A polished 3D scene with realistic materials and studio lighting.                         |
+| **Minimal Graphic Design** | A clean diagram (steps, layers, key points or a comparison) with exact labels.            |
+
+Your [Brand Theme](/brand) sets the default, which is **Photorealistic** unless you change it. To use another style for one image, pick it under **Style** in the image panel before you generate. The link beside it, for example **Back to the Brand Theme's Photorealistic**, returns to the default.
+
+With **Minimal Graphic Design**, open **Image options** to choose a **Diagram type**: **Auto** (the engine picks), **Hub & spoke**, **Steps**, **Layers**, **Key points** or **Comparison**. An image made from a reference, or an edit of the current one, keeps that image's own look.
+
+## How images are made
+
+If **Add an image** was ticked when the post was created, the engine designs its image while drafting. If that fails, the image panel says why, and you can generate one yourself (see [Editing a Post](/docs/publishing/posts/editing)).
+
+Each designed image combines a picture in the chosen style (or a diagram) with short text in your brand's typefaces and colours. In the picture styles, the picture is checked for stray lettering and other flaws, and anything found is listed under **Check this image before posting**.
+
+## Your logo, colours and website
+
+Every image the engine designs uses your [Brand Theme](/brand)'s logo and colours; the image panel says which it has. Under **Image options** you can also set the **Background** (**Auto**, **Dots**, **Grid** or **Plain**) and the **Website** shown on images (up to 60 characters). Both are saved for the identity and used for the next images.
+
+## Carousels
+
+### Make the slides
+
+Pick **Carousel**, then click **Make slides**. The AI writes a cover, slides with one point each and a closing call to action, beside your caption rather than repeating it, and draws them in your brand. A new carousel has 6 to 9 slides on LinkedIn, 4 to 6 on Facebook and 5 to 8 on Instagram. If your Brand Theme uses a picture style, the cover gets a picture.
+
+### Edit slides
+
+Each slide is labelled **Cover**, **Call to action**, or by its layout, and has these buttons:
+
+- **Edit this slide**: its **Headline**, its text, its **Layout** (**Statement**, **Icon**, **Big number**, **List**, **Quote** or **Photo**) and its picture prompt. Saving redraws it.
+- **Write this slide again with AI**, with an optional note such as "shorter".
+- **Add a picture** (or **New picture**) and **Remove the picture**.
+- **Move up**, **Move down** and **Delete this slide**. The cover and the last slide stay where they are.
+
+**Add a slide after slide N** adds one, up to the platform's maximum.
+
+### Work on the whole carousel
+
+- **Write again**, then **Write slides**: replaces every slide and your edits to them. The caption stays.
+- **Redraw**: draws every slide again with your current Brand Theme, without AI. Use it after changing your logo or colours.
+- **Images** and **PDF**: download the slides.
+
+A published carousel goes out as one post with all its slides as images.
+
+## Related
+
+<NextSteps
+  links={[
+    {
+      title: 'Editing a Post',
+      href: '/docs/publishing/posts/editing',
+      description: 'Generate, edit or replace a post’s image.'
+    },
+    {
+      title: 'Brand Theme',
+      href: '/docs/account-setup/brand-theme',
+      description: 'Logo, colours and the default image style.'
+    },
+    { title: 'Schedule', href: '/docs/publishing/schedule' },
+    { title: 'Overview', href: '/docs/publishing/posts/overview' }
+  ]}
+/>

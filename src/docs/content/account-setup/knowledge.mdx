@@ -1,0 +1,109 @@
+# Knowledge
+
+Knowledge is the material your posts stand on: documents you add yourself, and the stories your newsletters bring in. Ideas cite facts from it, so posts are grounded in things you can stand behind.
+
+The page has two views, each with a count: **Your documents** and **From newsletters**.
+
+## How knowledge is used
+
+- **Your documents** are read by every run. For each goal the run serves, the run looks for the passages in your documents closest to that goal, and those documents' summaries and claims come first among the evidence its ideas can cite.
+- **Stories from newsletters** are used while they are recent and relevant to one of the run's goals. A story about something else is not used, whatever its status says.
+- An approved idea keeps its evidence, and its posts are drafted from it.
+
+Knowledge belongs to the active identity. Each identity has its own documents and its own newsletter stories.
+
+## Your documents
+
+Once you have documents, the page opens read-only. Click **Edit** in the header to add or delete documents. Each document is saved the moment you save it, so there is no Save button for the step: click **Done** when you have finished.
+
+### Add a web page
+
+1. Choose **Add Web URL**.
+2. Paste the address of an article, case study or other page, and click **Fetch & Extract**.
+3. Check the preview. You can change the **Document Title** and edit the **Extracted Text Content**, for example to remove menus or text that is not part of the article.
+4. Click **Save to Knowledge Base →**.
+
+If the page cannot be read, you see "That URL returned an error or placeholder page rather than an article." Paste the text in as an artifact instead.
+
+### Add text as an artifact
+
+Use this for anything that is not a public web page: a case study, a transcript, a release note, an interview or a talk.
+
+1. Choose **Add Custom Artifact**.
+2. Give it an **Artifact Title**, for example "Q3 Customer Case Study: Fintech Cost Optimization".
+3. Paste the text under **Content**.
+4. Click **Save Artifact →**.
+
+Both the title and the content are required. A title can be up to 300 characters and the content up to 200,000.
+
+### What happens when you save
+
+The AI reads the document, writes a short summary, picks out its key claims with the quote that supports each one, and indexes it so runs can find the passages relevant to a goal. This takes a moment, and it uses AI, which counts toward your [AI usage](/docs/help/ai-usage).
+
+### Review your documents
+
+Under **Ingested Documents**, newest first, each document shows whether it came from a URL or an artifact, its summary and, for a web page, a link to the source. Click the claims count (for example **8 Claims**) to read the **Extracted Key Claims & Quotes**.
+
+Some documents saved from newsletters before show **Over 6 months old · not used for ideas**. They stay in the list, but runs no longer read them, so old figures do not pass for current ones. Documents you add yourself never age.
+
+### Delete a document
+
+In edit mode, click the bin icon on a document, then **Delete**. The document is removed along with its extracted claims.
+
+### Suggestions from the AI setup
+
+If you used the AI setup, a box titled **Suggested from your AI setup** may appear at the top. Nothing in it is added until you save it.
+
+- **Use this URL** puts a suggested page in the URL field. You still click **Fetch & Extract** and save it. Pages you already have show **Already added**.
+- **Save facts to knowledge base** saves the facts it found, each checked against its source, as one document called "Facts from your AI setup".
+- Under **Worth adding (no source yet)**, **Add as artifact** starts an artifact with that title for you to fill in.
+- **Dismiss** clears the box.
+
+## From newsletters
+
+This view lists every story from the newsletters you receive in your [Inbox](/docs/publishing/newsletters/inbox), newest first. Stories are added automatically and nothing needs saving.
+
+Each story shows the newsletter, the date, the headline (linked to the article), whether ideas use it, and what was read of the article: a summary, a few of its claims, its topics and its reading time. While the article is being read you see "Reading the article…"; if it could not be read, the reason is shown.
+
+### Story statuses
+
+| Status                                     | What it means                                                |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| Used for ideas when relevant, until a date | Used automatically for 30 days after the newsletter arrived. |
+| Kept: used for ideas when relevant         | You clicked **Keep**: used after it stops being recent too.  |
+| Not used for ideas                         | You clicked **Don't use**.                                   |
+| Sponsored: not used for ideas              | Sponsored stories are left out.                              |
+| Unsubscribed: not used for ideas           | It came from a newsletter you unsubscribed from.             |
+| No longer recent: not used for ideas       | Its 30 days are over.                                        |
+
+### Keep or exclude a story
+
+- **Keep** a story that stays useful, such as an evergreen report. A kept story counts whatever its age, and even if it is sponsored or from a newsletter you left. Click **Kept** to go back to automatic.
+- **Don't use** a story that is wrong, off-brand or unwanted. Click **Use again** to undo.
+
+Either change is saved straight away.
+
+### Search stories
+
+Type in **Search stories and articles** and press <Kbd>Enter</Kbd>. The search covers the stories and the articles they link to. Click **Clear** to see everything again.
+
+<Tags type="tip">
+
+No stories yet? They appear as newsletters arrive in your Inbox. Use [Discover](/docs/publishing/newsletters/discover) to find newsletters on your topics and subscribe.
+
+</Tags>
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Inbox', href: '/docs/publishing/newsletters/inbox' },
+    {
+      title: 'Goals',
+      href: '/docs/account-setup/goals',
+      description: 'Runs look for the knowledge closest to each goal.'
+    },
+    { title: 'Ideas', href: '/docs/account-setup/ideas' },
+    { title: 'Preferences', href: '/docs/account-setup/preferences' }
+  ]}
+/>

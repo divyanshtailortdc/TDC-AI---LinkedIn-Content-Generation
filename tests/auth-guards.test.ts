@@ -117,6 +117,12 @@ describe('every API route checks the session first', () => {
     .filter(file => !file.includes(`${path.sep}mail${path.sep}inbound${path.sep}`))
     // Fetched by Buffer with a signed link; checked below instead.
     .filter(file => !file.includes(`${path.sep}publishing-media${path.sep}`))
+    // The help pages' text, for docs search: as public as /docs itself, and
+    // reads no account data. (Search by meaning, /api/docs/search, is checked.)
+    .filter(
+      file =>
+        !file.includes(`${path.sep}docs${path.sep}search-index${path.sep}`)
+    )
     .map(parse)
 
   for (const source of routes) {

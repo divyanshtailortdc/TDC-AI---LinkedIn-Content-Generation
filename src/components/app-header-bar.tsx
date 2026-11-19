@@ -1,5 +1,6 @@
 import { MobileNavButton } from '@/components/mobile-nav'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { HeaderHelpLink } from '@/docs/components/help-button'
 import type { ReactNode } from 'react'
 
 /**
@@ -21,10 +22,11 @@ export function AppHeaderBar({
 }: {
   children: ReactNode
   /**
-   * The page's own buttons. They sit to the left of the theme button, which
-   * the bar always draws itself as the last item at the right end, so it is
-   * in the same place on every route. Publishing connections are managed in
-   * Settings → Integrations, and a post's Publish controls offer to connect.
+   * The page's own buttons. They sit to the left of Help and the theme
+   * button, which the bar always draws itself as the last items at the right
+   * end, so they are in the same place on every route. Publishing
+   * connections are managed in Settings → Integrations, and a post's
+   * Publish controls offer to connect.
    */
   actions?: ReactNode
   /**
@@ -55,6 +57,7 @@ export function AppHeaderBar({
         {/* Never wider than the bar: on a narrow one, the buttons wrap. */}
         <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
           {actions}
+          <HeaderHelpLink />
           <ThemeToggle />
         </div>
       </div>

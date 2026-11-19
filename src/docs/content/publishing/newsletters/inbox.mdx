@@ -1,0 +1,93 @@
+# Inbox
+
+Every identity has its own email address. The newsletters you subscribe to with it arrive in the Inbox, and the engine reads each one for its stories, which then ground your ideas in current news.
+
+## Your inbox address
+
+The address appears under the page title, next to **Your address**. Click the copy button to copy it, then use it to sign up for newsletters (see [Discover](/docs/publishing/newsletters/discover)).
+
+The address is made from your name, or the email you sign in with: your first name if it's free, otherwise a longer form such as first.last. It is named after you, the person who owns the identity, not after the identity, so renaming the identity leaves the address alone. Each of your identities gets its own address.
+
+### Change the address
+
+1. Click the pencil button next to the address.
+2. Under **Choose your new address**, type the part before the @.
+3. Click **Save**.
+
+Use 2 to 40 characters: letters and numbers, with single dots, hyphens or underscores between them. Some names are reserved, and you can't take someone else's address.
+
+Your old address keeps delivering here, so newsletters you subscribed with it still arrive; the form lists them under **Earlier addresses that still deliver here**. An identity can have at most 5 addresses, counting earlier ones. Type an earlier one to make it current again. An address is never given to anyone else, even after you change it.
+
+## What arrives
+
+Everything sent to the address shows up here: newsletters, confirmation emails, promotions. The list is newest first, with the sender, subject, a snippet and when it arrived. A paperclip means the email has attachments.
+
+New mail is checked in the background, and the page updates by itself. Click **Refresh** to check now; the header shows **Syncing…**, then when it last synced.
+
+Click an email to read it. Remote images are hidden, so the sender can't see that you opened it; click **Show images** to load them. Attachments are listed, but their files are not stored. After 30 days an email's original layout is dropped and it is shown as text, while its stories stay in your Knowledge base.
+
+## How emails become stories
+
+Above each email, the panel **Found in this email** shows what the engine read from it:
+
+1. **What kind of email it is.** Only newsletters are read for stories. A promotion or a confirmation email says, for example, "This looks like a promotional email, so no stories were taken from it."
+2. **A short summary and topics.**
+3. **The stories**, up to 25 per email: each with its headline, a short description and its link. Paid placements are tagged **Sponsored**.
+4. **The articles.** The engine follows each story's link and reads the article, adding the site, date, a summary and key claims. If it can't (a paywall, a sign-in page, a broken link), it says **Could not read the article** and the story keeps the newsletter's own words.
+
+If a publisher resends or corrects an issue, the older email says **A newer version of this issue arrived** and its repeated stories are listed with the newer one.
+
+### Statuses and failures
+
+| What you see                                                 | What it means                                                                                  |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| **Reading this email for its stories and links…**            | The email is being read. The panel updates by itself.                                          |
+| A reason, then **Trying again automatically.**               | A temporary problem, such as the AI being busy. It is retried later, waiting longer each time. |
+| **Could not read this email.** with **Try again**            | It gave up. Click **Try again** to start over.                                                 |
+| **Reading the article on…**                                  | The story's article is being read.                                                             |
+| **Could not read the article on…**                           | The article was skipped. The story is still kept.                                              |
+| **No stories with links were found in this email.**          | Nothing to take from it.                                                                       |
+| **Not read for stories: you unsubscribed from this sender.** | See below.                                                                                     |
+
+Reading emails uses AI, so it counts towards your [AI usage](/docs/help/ai-usage). If a limit is reached, emails are still read, but more simply: each link becomes a story, without the AI's summary.
+
+## Search your emails
+
+Type in **Search sender, subject or text** and press <Kbd>Enter</Kbd>. Words match from their start, and every word must match: "news acme" finds "Newsletter from acme.com". Click **Clear** to see everything again.
+
+## How stories reach your ideas
+
+Every story is added to your Knowledge base, under **From newsletters** in [Knowledge](/identity/knowledge). When a run gathers evidence for ideas, it picks the stories closest to the run's goals. Unrelated stories are not used.
+
+By default a story counts only while it is recent (received in the last 30 days), not sponsored, and from a sender you are still subscribed to. In the Knowledge base you can **Keep** a story so it counts after that too, or choose **Don't use** to leave it out for good.
+
+## When you unsubscribe from a newsletter
+
+First unsubscribe on the publisher's side, usually with the link at the bottom of their email. Then open one of their emails here and click **I unsubscribed** at the bottom of **Found in this email**.
+
+From then on, that sender's stories stay in your Knowledge base but are not used for ideas, and new emails from it are listed without being read. Changed your mind? Click **Undo**: the stories count again, and recent emails that were skipped are read.
+
+<Details summary="The page says The inbox is not set up yet">
+
+The server has no mail domain set up yet. Ask your administrator to set up the inbox.
+
+</Details>
+
+## Related
+
+<NextSteps
+  links={[
+    {
+      title: 'Discover',
+      href: '/docs/publishing/newsletters/discover',
+      description: 'Find newsletters to subscribe to.'
+    },
+    {
+      title: 'Knowledge',
+      href: '/docs/account-setup/knowledge',
+      description: 'Keep or exclude newsletter stories.'
+    },
+    { title: 'Ideas', href: '/docs/account-setup/ideas' },
+    { title: 'AI Usage & Limits', href: '/docs/help/ai-usage' }
+  ]}
+/>

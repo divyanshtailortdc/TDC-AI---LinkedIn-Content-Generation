@@ -1,0 +1,105 @@
+# AI Usage & Limits
+
+Much of what the Content Engine does is written or read by AI models, and every AI call has a cost. This page explains which features use AI, where you can see what they cost, and the spending limits that keep costs in check.
+
+## What uses AI
+
+The app groups AI work by feature. These are the names you see under **By feature** on the dashboard:
+
+| Feature                  | What it covers                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Runs**                 | A run's research, idea generation and drafting of the posts you approve.                                                             |
+| **Post editing**         | Work on a post after its run: a new version, a rewrite, an image or a carousel.                                                      |
+| **Newsletter discovery** | Finding newsletters for your identity with **Discover Newsletters**.                                                                 |
+| **Inbox**                | Reading the emails your identity's inbox receives, and the articles they link to.                                                    |
+| **Identity & goals**     | Setting up an identity with AI, analysing your voice and style, profile insights, reading knowledge documents, and goal suggestions. |
+| **Docs search**          | Questions typed into the search of these help pages, which are matched by meaning when you are signed in.                            |
+
+You may also see **Other** for the odd call that does not belong to any of these.
+
+Everything else, such as editing text yourself, approving, scheduling and publishing, uses no AI and is never limited.
+
+## Where to see usage and cost
+
+### On the dashboard
+
+The **Token usage** section at the top of the [Dashboard](/) adds up every AI call ever made for the identity you are working on:
+
+- **Total cost**, with the cost per post drafted.
+- **Total tokens**, and how many AI calls they came from.
+- **Input / Output**: tokens sent to the models and tokens they wrote.
+- **Cached input**: input the models read from a cache of earlier calls instead of processing it again.
+- **By feature**: tokens and cost for each feature in the table above.
+- **Spending limits**: how much of each limit is used (see below).
+
+### On Run Details
+
+The [Run Details](/runs) page shows what your runs have cost: **Last 7 days**, **Last 30 days**, **Average per run**, and **Projected monthly**, which estimates a month at the last 7 days' pace. These figures cover runs only, not the other features.
+
+### On a run's page
+
+Open a run to see its **Tokens & cost** panel:
+
+- **Total cost**, **Cost per post** (the run's ideas are shared across its posts), **Output tokens** and **Cache hit rate**.
+- A table by stage: **Ideation**, **Drafting**, **Revision pass** and **Media (brief + image)**, with each stage's calls, tokens, cost and share of the total.
+
+If some calls came back without a price, a note says so and that "the total may be slightly low". Runs from before costs were tracked by stage show an approximate total instead.
+
+## Spending limits
+
+Your administrator sets three spending limits. The **Spending limits** box on the dashboard shows each one as a bar, with what has been spent against it:
+
+| Bar                                      | What it limits                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------- |
+| **Last 30 days, all your identities**    | Your total AI spending over any 30 days.                                         |
+| **Last 24 hours, all your identities**   | Your total AI spending over any 24 hours, so a busy day cannot use up the month. |
+| **This identity's inbox, last 24 hours** | AI spending on reading the email this identity receives.                         |
+
+The windows are rolling, not calendar periods: "last 24 hours" means the 24 hours up to now. As older spending drops out of the window, room frees up again by itself.
+
+The first two limits count every identity you own together, so heavy use on one identity leaves less for the others. A bar turns amber when you are close to a limit and red when it is reached.
+
+### The inbox's own limits
+
+Anyone who knows an inbox address can send email to it, and reading email uses AI. To keep that in check, inbox work has two extra rules:
+
+- Each identity's inbox has its **own daily limit**, the third bar.
+- Inbox work also stops once **80%** of either of your own limits is used. The last 20% is kept for work you start yourself.
+
+## When a limit is reached
+
+**Your 30-day or daily limit.** New AI work is refused until older spending leaves the window. Runs, post editing, newsletter discovery and identity setup show a message such as:
+
+- "AI spending limit reached: … used over the last 30 days, across all your identities. New AI work can start again as older spending leaves that window…"
+- "Daily AI spending limit reached: … used over the last 24 hours, across all your identities…"
+
+A run started after the limit is reached fails straight away with this message, under **This run failed**, rather than after doing its research.
+
+**The inbox's limit, or its share of yours.** Email keeps arriving and is still read, but without AI summaries: stories are taken from the email's links instead. The dashboard explains it, for example "Received newsletters are read without AI summaries once 80% of a limit is used, so the rest is kept for work you start."
+
+### What still finishes
+
+Each AI step checks the limits just before it starts. A step that is already running when a limit is reached still finishes, so spending can end up slightly over a limit. The next AI step after that is refused.
+
+Work that needs no AI carries on as usual: you can still edit, approve, schedule and publish posts, and scheduled posts still go out.
+
+<Tags type="tip" label="Need more room?">
+
+Wait for older spending to leave the window, or ask your administrator, who sets the limits, to raise them.
+
+</Tags>
+
+## The AI provider's own budget
+
+Separately from your limits, the AI service the app uses has an overall budget for everyone. If it runs out, you see messages such as "The AI budget has been reached. Please try again later." This is not your spending: try again later, or let your administrator know.
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Dashboard', href: '/docs/getting-started/dashboard' },
+    { title: 'Run Details', href: '/docs/publishing/run-details' },
+    { title: 'Inbox', href: '/docs/publishing/newsletters/inbox' },
+    { title: 'Troubleshooting', href: '/docs/help/troubleshooting' }
+  ]}
+/>

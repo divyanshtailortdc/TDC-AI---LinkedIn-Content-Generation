@@ -12,6 +12,8 @@
  *   (see INBOX_SHARE_OF_USER_LIMITS);
  * - identity: setting up an identity and its goals: AI setup, voice and style
  *   analysis, profile insights, knowledge documents, goal suggestions;
+ * - help: searching the help pages by meaning (a question asked in the docs
+ *   search, see src/docs/semantic-search.ts);
  * - unscoped: a call made outside any of those. Something to fix: every
  *   caller should say what it spends for (see withAiSpend).
  */
@@ -21,6 +23,7 @@ export const AI_SPEND_SOURCES = [
   'newsletters',
   'inbox',
   'identity',
+  'help',
   'unscoped'
 ] as const
 
@@ -32,6 +35,7 @@ export const AI_SPEND_SOURCE_LABELS: Record<AiSpendSource, string> = {
   newsletters: 'Newsletter discovery',
   inbox: 'Inbox',
   identity: 'Identity & goals',
+  help: 'Docs search',
   unscoped: 'Other'
 }
 
