@@ -110,12 +110,11 @@ fails, the logs are in Cloud Console → Cloud Run → Jobs →
 tdc-linkedin-migrate. Until it has run, the app's worker logs
 `relation "runs" does not exist`.
 
-**6. Allow the OAuth redirects.** In the Google Cloud console (OAuth client)
-and the LinkedIn developer portal, add:
+**6. Allow the OAuth redirect.** In the Google Cloud console (OAuth client),
+add:
 
 ```
 <app_url>/api/auth/callback/google
-<app_url>/api/auth/callback/linkedin
 ```
 
 `terraform output app_url` prints the base URL. Then open it and sign in.
@@ -226,7 +225,7 @@ To remove everything, set `deletion_protection = false` on
 | `Error 403: ... API has not been used` on the first apply | The API was just enabled; run `terraform apply` again after a minute. |
 | `allUsers` IAM error (`FAILED_PRECONDITION` / domain restricted sharing) | Your organisation blocks public services. Ask an org admin to allow it for this project. |
 | App shows Google's "It's running!" page | `image_tag` isn't set yet (step 4). |
-| Only the passkey button on the login page | `google_*` / `linkedin_*` values are empty in `terraform.tfvars`. |
+| Only the passkey button on the login page | `google_*` values are empty in `terraform.tfvars`. |
 | `redirect_uri_mismatch` on sign-in | Step 6: add the callback URL in the provider console. |
 | Container fails to start | Cloud Console → Cloud Run → tdc-linkedin (or tdc-linkedin-worker) → Logs. |
 | Runs stay "queued" | The worker isn't running: check the logs of tdc-linkedin, or of tdc-linkedin-worker with `separate_worker` set. |

@@ -9,7 +9,7 @@ One dedicated mailbox receives newsletters. The app reads it on a schedule, extr
 
 ## 1. What's in the codebase today
 
-**Stack:** Next.js 16.3 (App Router, Server Actions), React 19 and TypeScript. Data is in Drizzle and Postgres 16 with pgvector; sign-in is Better Auth (Google, LinkedIn, passkeys, admin plugin). AI calls go through AI SDK v7: Sonnet 5.5 for ideation and drafting, Haiku 4.5 for extraction (`src/lib/models.ts`). Embeddings go through the AI Gateway (`openai/text-embedding-3-small`, 1536 dimensions). Serper handles search; Jina Reader plus cheerio handle scraping. Scheduled work uses node-cron. Deployment is Cloud Run through Terraform (`terraform/`): one always-on instance, with an optional `separate_worker` service (`APP_ROLE=worker`).
+**Stack:** Next.js 16.3 (App Router, Server Actions), React 19 and TypeScript. Data is in Drizzle and Postgres 16 with pgvector; sign-in is Better Auth (Google, passkeys, admin plugin). AI calls go through AI SDK v7: Sonnet 5.5 for ideation and drafting, Haiku 4.5 for extraction (`src/lib/models.ts`). Embeddings go through the AI Gateway (`openai/text-embedding-3-small`, 1536 dimensions). Serper handles search; Jina Reader plus cheerio handle scraping. Scheduled work uses node-cron. Deployment is Cloud Run through Terraform (`terraform/`): one always-on instance, with an optional `separate_worker` service (`APP_ROLE=worker`).
 
 Most of what this feature needs already exists, so the plan extends those parts rather than adding infrastructure:
 
@@ -34,7 +34,7 @@ Most of what this feature needs already exists, so the plan extends those parts 
 - Posts are LinkedIn-only: the drafting prompt, the 3,000-character limit, the preview and the first-comment link strategy all assume LinkedIn.
 - `CRON_SECRET` is defined in `src/env.ts` but nothing reads it, and there is no `src/app/api/cron/` route yet.
 - `requireAdmin()` exists in `src/lib/session.ts` but no page uses it yet.
-- Sign-up is open to any Google or LinkedIn account. This matters for who can read a shared corpus (§15).
+- Sign-up is open to any Google account. This matters for who can read a shared corpus (§15).
 
 ---
 
@@ -557,7 +557,7 @@ The first three block Phase 1. Each has a default that will be used if there is 
 7. **Freshness window** for newsletter evidence. Default: 14 days.
 8. **Which runs use it:** every run, or only runs started from articles? Default: every run, plus seeded runs.
 9. **Worker split:** turn on `separate_worker` in production when ingestion goes live? Default: yes, once the event-loop delay log shows contention.
-10. **Who can read the feed:** any signed-in user, or admins only? Sign-up is currently open to any Google or LinkedIn account. Default: any signed-in user, after restricting sign-up to your domain.
+10. **Who can read the feed:** any signed-in user, or admins only? Sign-up is currently open to any Google account. Default: any signed-in user, after restricting sign-up to your domain.
 11. **Languages:** English only? The writing checks are English-only.
 12. **Regenerate behaviour:** keep revision history, and reset approval? Default: yes to both.
 13. **Failure alerts:** in-app banner only, or email or Slack too? Default: banner only for the MVP.

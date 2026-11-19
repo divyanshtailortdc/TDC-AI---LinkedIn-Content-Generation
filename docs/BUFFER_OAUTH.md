@@ -6,7 +6,7 @@ Source of truth for every endpoint, parameter and field below: [developers.buffe
 
 ## LinkedIn through Buffer (2026-11-16)
 
-LinkedIn publishing moved from LinkedIn's own API to Buffer, so all five networks connect the same way: one Buffer connection, one channel picked per network. The LinkedIn developer app (`LINKEDIN_CLIENT_ID`) is used **only for signing in**. The direct LinkedIn publishing code (`src/lib/publishing/linkedin/`, `LINKEDIN_PUBLISH_*`, `LINKEDIN_API_VERSION`) and the per-platform `/api/integrations/[platform]` routes were removed.
+LinkedIn publishing moved from LinkedIn's own API to Buffer, so all five networks connect the same way: one Buffer connection, one channel picked per network. The direct LinkedIn publishing code (`src/lib/publishing/linkedin/`, `LINKEDIN_PUBLISH_*`, `LINKEDIN_API_VERSION`) and the per-platform `/api/integrations/[platform]` routes were removed.
 
 - **Text:** plain, as written. No LinkedIn "little text" escaping.
 - **First comment:** not sent. Buffer refuses `metadata.linkedin.firstComment` without a paid Buffer plan ("LinkedIn first comment requires a paid plan"), so LinkedIn posts go out without one; the post's first comment stays in the app to add by hand.

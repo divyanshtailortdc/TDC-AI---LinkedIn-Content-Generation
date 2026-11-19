@@ -24,10 +24,6 @@ const SOCIAL_CREDENTIALS: Record<
   SocialProvider,
   { clientId?: string; clientSecret?: string }
 > = {
-  linkedin: {
-    clientId: env.LINKEDIN_CLIENT_ID,
-    clientSecret: env.LINKEDIN_CLIENT_SECRET
-  },
   google: {
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET
@@ -49,7 +45,6 @@ const credentialsOf = (id: SocialProvider) =>
       }
     : null
 const googleCredentials = credentialsOf('google')
-const linkedinCredentials = credentialsOf('linkedin')
 
 export const adminUserIds = parseAdminUserIds(env.ADMIN_USER_IDS)
 
@@ -97,9 +92,7 @@ export const auth = betterAuth({
   socialProviders: {
     ...(googleCredentials && {
       google: { ...googleCredentials, prompt: 'select_account' as const }
-    }),
-    // "Sign In with LinkedIn using OpenID Connect" (profile, email, openid).
-    ...(linkedinCredentials && { linkedin: linkedinCredentials })
+    })
   },
 
   account: {

@@ -30,15 +30,15 @@ Two layers keep the app independent of any one platform:
 
 ## Sign-in and publishing are separate
 
-Signing in (Google, LinkedIn or a passkey, see [AUTHENTICATION.md](AUTHENTICATION.md)) only gives a person access to their TDC AI account. It never lets TDC AI post anywhere, **including LinkedIn sign-in**: that flow asks only for `openid profile email`, and its tokens in `auth_accounts` are never read by publishing.
+Signing in (Google or a passkey, see [AUTHENTICATION.md](AUTHENTICATION.md)) only gives a person access to their TDC AI account. It never lets TDC AI post anywhere: sign-in tokens in `auth_accounts` are never read by publishing.
 
 To publish, the signed-in user connects their **Buffer** account in **Settings → Integrations**, a second OAuth flow with its own app, routes, tables and tokens:
 
 | | Sign-in | Publishing |
 | --- | --- | --- |
 | Started from | `/login` | Settings → Integrations → Connect Buffer |
-| Handled by | Better Auth, `/api/auth/callback/{google,linkedin}` | `/api/integrations/buffer/connect` → `/api/integrations/buffer/callback` |
-| App | `GOOGLE_CLIENT_ID`, `LINKEDIN_CLIENT_ID` | the Buffer app client, `BUFFER_CLIENT_ID` |
+| Handled by | Better Auth, `/api/auth/callback/google` | `/api/integrations/buffer/connect` → `/api/integrations/buffer/callback` |
+| App | `GOOGLE_CLIENT_ID` | the Buffer app client, `BUFFER_CLIENT_ID` |
 | Scopes | `openid profile email` | `account:read posts:read posts:write offline_access` |
 | Stored in | `auth_accounts` | `buffer_connections` (encrypted), `buffer_channels`, `linkedin_connections` |
 | Affects the session | Yes | No |
@@ -156,7 +156,7 @@ npm run db:migrate
 
 ## Local development
 
-Buffer requires an HTTPS redirect URI, even on localhost: run `npm run dev:https`, set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to `https://localhost:3000`, open the app there (the session and state cookies belong to that origin), and register `https://localhost:3000/api/integrations/buffer/callback` on the Buffer app client. Google and LinkedIn sign-in redirect to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/{google,linkedin}` to those apps, or sign in with a passkey. Buffer downloads post images from `PUBLISHING_MEDIA_URL`: point it at a tunnel (`cloudflared tunnel --url http://localhost:3000`). Restart `next dev` after changing `.env`. Once Buffer is connected, plain `npm run dev` over http publishes too (sign in again there); only connecting needs https.
+Buffer requires an HTTPS redirect URI, even on localhost: run `npm run dev:https`, set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to `https://localhost:3000`, open the app there (the session and state cookies belong to that origin), and register `https://localhost:3000/api/integrations/buffer/callback` on the Buffer app client. Google sign-in redirects to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/google` to the Google app, or sign in with a passkey. Buffer downloads post images from `PUBLISHING_MEDIA_URL`: point it at a tunnel (`cloudflared tunnel --url http://localhost:3000`). Restart `next dev` after changing `.env`. Once Buffer is connected, plain `npm run dev` over http publishes too (sign in again there); only connecting needs https.
 
 ### Trying it end to end
 

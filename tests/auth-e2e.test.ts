@@ -295,27 +295,13 @@ describe(
         )
       })
 
-      it(
-        'starts LinkedIn sign-in with OpenID scopes and the right callback',
-        { skip: !process.env.LINKEDIN_CLIENT_ID },
-        async () => {
-          const res = await new Client().json('/api/auth/sign-in/social', {
-            provider: 'linkedin',
-            callbackURL: '/'
-          })
-          const { url } = (await res.json()) as { url: string }
-          const linkedin = new URL(url)
-          assert.strictEqual(linkedin.hostname, 'www.linkedin.com')
-          assert.deepStrictEqual(
-            linkedin.searchParams.get('scope')?.split(' ').sort(),
-            ['email', 'openid', 'profile']
-          )
-          assert.strictEqual(
-            linkedin.searchParams.get('redirect_uri'),
-            `${BASE}/api/auth/callback/linkedin`
-          )
-        }
-      )
+      it('refuses LinkedIn sign-in: it is not offered', async () => {
+        const res = await new Client().json('/api/auth/sign-in/social', {
+          provider: 'linkedin',
+          callbackURL: '/'
+        })
+        assert.strictEqual(res.ok, false)
+      })
 
       it('refuses a Google callback URL outside the app', async () => {
         const res = await new Client().json('/api/auth/sign-in/social', {

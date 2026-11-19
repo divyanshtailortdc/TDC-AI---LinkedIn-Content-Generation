@@ -1,6 +1,5 @@
 'use client'
 
-import { LinkedInMark } from '@/components/platform-mark'
 import { Button, type ButtonProps } from '@/components/button'
 import { authClient } from '@/lib/auth-client'
 import { authErrorMessage } from '@/lib/auth-errors'
@@ -39,12 +38,7 @@ function GoogleMark() {
 
 /** How each provider's button looks: its mark, and its own colours where its guidelines ask. */
 const PROVIDERS = {
-  google: { variant: 'secondary', Mark: GoogleMark },
-  // White on the brand blue, as LinkedIn's own sign-in button.
-  linkedin: {
-    variant: 'platform',
-    Mark: () => <LinkedInMark className="h-5 w-5" />
-  }
+  google: { variant: 'secondary', Mark: GoogleMark }
 } satisfies Record<
   SocialProvider,
   {

@@ -47,8 +47,6 @@ export const env = createEnv({
     // both its id and secret are set.
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    LINKEDIN_CLIENT_ID: z.string().optional(),
-    LINKEDIN_CLIENT_SECRET: z.string().optional(),
     /** 32 bytes, base64: encrypts publishing tokens at rest. openssl rand -base64 32 */
     TOKEN_ENCRYPTION_KEY: z
       .string()
@@ -62,7 +60,7 @@ export const env = createEnv({
     // app. On whenever TOKEN_ENCRYPTION_KEY is set; "off" hides it.
     X_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     // LinkedIn publishes through Buffer too (docs/BUFFER_OAUTH.md); "off"
-    // hides it. The LinkedIn developer apps are for signing in only.
+    // hides it.
     LINKEDIN_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     // Threads, Facebook Pages and Instagram (professional accounts) through
     // Buffer too (docs/PUBLISHING_FACEBOOK_INSTAGRAM.md), with the same Buffer
@@ -168,8 +166,6 @@ export const env = createEnv({
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-    LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
-    LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
     X_PUBLISHING: process.env.X_PUBLISHING,
     LINKEDIN_PUBLISHING: process.env.LINKEDIN_PUBLISHING,
     THREADS_PUBLISHING: process.env.THREADS_PUBLISHING,

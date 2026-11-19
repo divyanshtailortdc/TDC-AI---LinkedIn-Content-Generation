@@ -102,14 +102,3 @@ variable "google_client_secret" {
   sensitive = true
 }
 
-variable "linkedin_client_id" {
-  type      = string
-  default   = ""
-  sensitive = true
-}
-
-variable "linkedin_client_secret" {
-  type      = string
-  default   = ""
-  sensitive = true
-}

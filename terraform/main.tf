@@ -50,8 +50,6 @@ locals {
     SERPER_API_KEY         = var.serper_api_key
     GOOGLE_CLIENT_ID       = var.google_client_id
     GOOGLE_CLIENT_SECRET   = var.google_client_secret
-    LINKEDIN_CLIENT_ID     = var.linkedin_client_id
-    LINKEDIN_CLIENT_SECRET = var.linkedin_client_secret
   }
   secret_values = merge(local.optional_secrets, {
     PGPASSWORD                = random_password.db.result

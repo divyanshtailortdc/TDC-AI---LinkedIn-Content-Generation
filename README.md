@@ -78,7 +78,7 @@ cp .env.example .env
 
 Use `.env`, not `.env.local`: the dashboard points to `.env`, and Next.js lets a key in `.env.local` (even an empty one) override the same key in `.env`.
 
-Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; the social sign-in providers (Google, LinkedIn; the only ways to create an account) are configured there too; passkeys need no setup. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup, the rules every new Server Action follows, and how to assign existing identities to their owners.
+Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; Google sign-in (the only way to create an account) are configured there too; passkeys need no setup. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup, the rules every new Server Action follows, and how to assign existing identities to their owners.
 
 Publishing approved posts through a platform's API (Publish now, Schedule, auto-publishing) is a separate, optional connection under Settings → Integrations, with its own app per platform. See [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
