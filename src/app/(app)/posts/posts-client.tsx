@@ -20,6 +20,8 @@ import type { IdentitySummary } from '@/lib/identity'
 import { PAGE_SIZE, pageNumbers, paginate, parsePage } from '@/lib/pagination'
 import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import { platformPostText } from '@/lib/post-text'
+import type { PostUsage } from '@/lib/post-usage'
+import { PostCostChip } from '@/components/post-cost'
 import { canPublishFormat } from '@/lib/publishing/platform'
 import { isOnPlatform } from '@/lib/publishing/status'
 import type { BackgroundPattern, ImageStyle } from '@/lib/brand/theme'
@@ -145,6 +147,8 @@ export interface PostDetail {
   hiddenAt?: string | null
   /** The latest attempt to publish it to its platform, if any. */
   publication?: PublicationSummary | null
+  /** What the post cost in AI so far (src/lib/post-usage.ts); null when none was recorded. */
+  usage?: PostUsage | null
   /**
    * When it was last deleted from its platform through the app (ISO), for its
    * "Deleted from X" tag; null when never.
@@ -1654,6 +1658,7 @@ function PostCard(props: PostItemProps) {
             ? `~${videoScriptOf(post).seconds}s script`
             : `${post.charCount.toLocaleString('en-US')} chars`}
         </span>
+        <PostCostChip usage={post.usage} className="pointer-events-auto" />
         {post.hiddenAt && (
           <span className="text-muted flex items-center gap-1 text-xs">
             <EyeOff className="h-3 w-3" />
@@ -1698,6 +1703,10 @@ function PostRow(props: PostItemProps) {
         </div>
         <p className="text-muted mt-0.5 truncate text-xs">{post.body}</p>
       </div>
+      <PostCostChip
+        usage={post.usage}
+        className="pointer-events-auto relative hidden shrink-0 @3xl:inline-flex"
+      />
       <span className="pointer-events-none relative hidden shrink-0 @2xl:flex">
         <PostStatusPill post={post} />
       </span>

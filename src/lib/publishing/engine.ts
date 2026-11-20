@@ -6,7 +6,8 @@ import {
   publicationsTable,
   postDraftsTable,
   postMediaTable,
-  postSlidesTable
+  postSlidesTable,
+  postVideosTable
 } from '@/db/schema'
 import { loadSlideRows } from '@/lib/carousel/rows'
 import { isUniqueViolation } from '@/lib/db-errors'
@@ -18,8 +19,11 @@ import {
   postTexts,
   resolveMediaFormat,
   toPlainText,
+  videoCaptionText,
+  videoScriptOf,
   type MediaFormat
 } from '@/lib/formats'
+import { VIDEO_FORMATS } from '@/lib/video/formats'
 import {
   instantOf,
   localDayKey,
@@ -40,6 +44,7 @@ import {
   lt,
   lte,
   notExists,
+  notInArray,
   or,
   sql
 } from 'drizzle-orm'
@@ -59,6 +64,7 @@ import {
   type PostImage,
   PostImageError,
   type PostSlideImage,
+  type PostVideo,
   type ProviderContext,
   providerFor,
   type PublishConfigs
@@ -107,6 +113,8 @@ export type PublishDeps = {
   loadImage?: (draftId: string) => Promise<PostImage | null>
   /** A carousel post's drawn slides, in order. */
   loadSlides?: (draftId: string) => Promise<PostSlideImage[]>
+  /** A Reel's or Short's ready video, as a link to fetch it from; null for none. */
+  loadVideo?: (draftId: string) => Promise<Omit<PostVideo, 'title'> | null>
   now?: () => Date
 }
 
@@ -234,7 +242,8 @@ async function findOwnedDraft(
       status: postDraftsTable.status,
       postedAt: postDraftsTable.postedAt,
       formatId: postDraftsTable.formatId,
-      mediaFormat: postDraftsTable.mediaFormat
+      mediaFormat: postDraftsTable.mediaFormat,
+      payload: postDraftsTable.payload
     })
     .from(postDraftsTable)
     .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
@@ -283,7 +292,12 @@ function assertPublishable(
       'already_posted'
     )
   }
-  const posts = postTexts(format, draft)
+  // A Reel or a Short goes out as its caption and hashtags; the script is
+  // what the video says.
+  const posts =
+    FORMATS[format].structure === 'script'
+      ? [videoCaptionText(format, draft)]
+      : postTexts(format, draft)
   const reply = provider.threads ? toPlainText(draft.firstComment).trim() : ''
   const texts = reply ? [...posts, reply] : posts
   const tooLong = texts.findIndex(
@@ -326,6 +340,25 @@ const activeImageOf = (
 
 const needsImageMessage = (name: string) =>
   `${name} posts need an image. Add one to this post, then publish it.`
+
+/** The post's ready AI video, if it has one (a Reel, a Short). */
+const readyVideoOf = (
+  database: PublishingDb,
+  draftId: string | typeof postDraftsTable.id
+) =>
+  database
+    .select({ one: sql`1` })
+    .from(postVideosTable)
+    .where(
+      and(
+        eq(postVideosTable.draftId, draftId),
+        eq(postVideosTable.status, 'ready'),
+        isNotNull(postVideosTable.videoUrl)
+      )
+    )
+
+const needsVideoMessage = (label: string) =>
+  `This ${label} has no video yet. Generate its video on the post, then publish it.`
 
 type OwnedDraft = NonNullable<Awaited<ReturnType<typeof findOwnedDraft>>>
 
@@ -463,7 +496,14 @@ export async function requestPublication(
   assertPublishable(draft)
   const name = nameOf(draft.platform)
   const media = await mediaFormatOf(database, draft)
-  if (media === 'carousel') {
+  if (media === 'video') {
+    if ((await readyVideoOf(database, draft.id).limit(1)).length === 0) {
+      throw new PublishRequestError(
+        needsVideoMessage(FORMATS[formatOf(draft.formatId)].label),
+        'needs_image'
+      )
+    }
+  } else if (media === 'carousel') {
     await assertCarouselPublishable(database, draft)
   } else if (
     providerFor(draft.platform).requiresImage &&
@@ -967,9 +1007,20 @@ async function prepare(deps: PublishDeps, publication: Publication) {
   return {
     draftId: draft.id,
     media,
-    // The image goes out unless the post is a carousel or was set to text
-    // only; a post without one loads none.
-    sendsImage: media !== 'carousel' && draft.mediaFormat !== 'text',
+    // The image goes out unless the post is a carousel or a video, or was
+    // set to text only; a post without one loads none.
+    sendsImage:
+      media !== 'carousel' && media !== 'video' && draft.mediaFormat !== 'text',
+    // A video's title, where the platform shows one: a YouTube Short's
+    // title, or its opening line when it has none.
+    videoTitle:
+      media === 'video'
+        ? videoScriptOf(draft).title.trim() ||
+          (draft.platform === 'youtube'
+            ? toPlainText(draft.hook).trim().slice(0, 100)
+            : null)
+        : null,
+    formatLabel: FORMATS[formatOf(draft.formatId)].label,
     carouselTitle,
     text,
     // A thread's other posts and the reply, for a provider with `threads`.
@@ -1002,6 +1053,8 @@ export async function executePublication(
       draftId,
       media,
       sendsImage,
+      videoTitle,
+      formatLabel,
       carouselTitle,
       text,
       replies,
@@ -1022,8 +1075,25 @@ export async function executePublication(
       const image = sendsImage
         ? await (deps.loadImage ?? (id => loadPostImage(database, id)))(draftId)
         : null
+      // A Reel or a Short: its ready video, as a link the provider fetches.
+      const video =
+        media === 'video'
+          ? await (
+              deps.loadVideo ??
+              (async id =>
+                (await import('~/lib/video/post-video')).publishableVideoOf(id))
+            )(draftId)
+          : null
+      if (media === 'video' && !video) {
+        throw new PostImageError(needsVideoMessage(formatLabel))
+      }
+      if (video && !provider.video) {
+        throw new PostImageError(
+          `${provider.platform.name} videos cannot be published from here.`
+        )
+      }
       // Removed since it was queued: nothing is sent.
-      if (!slides && !image && provider.requiresImage) {
+      if (!slides && !image && !video && provider.requiresImage) {
         throw new PostImageError(needsImageMessage(provider.platform.name))
       }
       // The carousel's document URN (LinkedIn) or slide links (Buffer).
@@ -1058,6 +1128,7 @@ export async function executePublication(
           metadata: mergeMetadata({
             postRequestedAt: nowOf(deps).toISOString(),
             ...(imageUrn && { imageUrn }),
+            ...(video && { videoId: video.id }),
             ...(carouselRefs && { carouselSlides: carouselRefs.length })
           })
         })
@@ -1088,7 +1159,15 @@ export async function executePublication(
                 title: carouselTitle,
                 altTexts: slides.map(s => s.altText)
               }
-            : undefined
+            : undefined,
+        video: video
+          ? {
+              id: video.id,
+              mediaType: video.mediaType,
+              byteSize: video.byteSize,
+              title: videoTitle
+            }
+          : undefined
       })
 
       // Handed on, not out yet (Buffer): the row waits, with the post's id,
@@ -1622,10 +1701,16 @@ export async function queueAutoPublications(
             postDraftsTable.formatId,
             providerFor(connection.platform).formats
           ),
-          // Instagram: a post without an image (or a carousel's slides)
-          // would only fail.
+          // A Reel or a Short goes out only once its video is made.
+          or(
+            notInArray(postDraftsTable.formatId, [...VIDEO_FORMATS]),
+            exists(readyVideoOf(database, postDraftsTable.id))
+          ),
+          // Instagram: a post without an image (or a carousel's slides, or
+          // a Reel's video) would only fail.
           providerFor(connection.platform).requiresImage
             ? or(
+                exists(readyVideoOf(database, postDraftsTable.id)),
                 exists(activeImageOf(database, postDraftsTable.id)),
                 and(
                   eq(postDraftsTable.mediaFormat, 'carousel'),

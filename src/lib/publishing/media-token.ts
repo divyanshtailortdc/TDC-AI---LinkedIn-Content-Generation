@@ -34,6 +34,18 @@ export function createMediaToken(
  */
 export const slideSubject = (draftId: string, slideId: string) => `${draftId}~${slideId}`
 
+/**
+ * What a token opens for a Reel's or Short's video: that one post_videos row.
+ * Its own prefix, so an image link's token never opens a video, nor the
+ * reverse (parseMediaSubject reads it as no post).
+ */
+export const videoSubject = (videoId: string) => `video_${videoId}`
+
+/** The video a token's subject names, or null for an image's subject. */
+export function parseVideoSubject(subject: string): string | null {
+  return subject.startsWith('video_') ? subject.slice('video_'.length) : null
+}
+
 /** The post and, for a carousel slide, the slide a token's subject names. */
 export function parseMediaSubject(subject: string): { draftId: string; slideId: string | null } {
   const [draftId = '', slideId] = subject.split('~')
@@ -106,4 +118,13 @@ export function mediaUrl(
   const url = new URL(`${MEDIA_PATH}/${encodeURIComponent(token)}`, appUrl)
   if (variant) url.searchParams.set(MEDIA_VARIANT_PARAM, variant)
   return url.toString()
+}
+
+/**
+ * A video's public link on `appUrl`. It ends in ".mp4", as video fetchers
+ * expect, and the app answers HEAD for it, which a bucket's signed link (signed
+ * for GET alone) refuses: Buffer then says the video "could not be read".
+ */
+export function videoMediaUrl(appUrl: string, token: string): string {
+  return new URL(`${MEDIA_PATH}/video/${encodeURIComponent(token)}.mp4`, appUrl).toString()
 }

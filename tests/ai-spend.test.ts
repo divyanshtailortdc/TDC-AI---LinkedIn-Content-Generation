@@ -127,7 +127,9 @@ const migration = statementsOf('0053_ai_usage.sql')
 const backfill = migration.at(-1)!
 const ddl = [
   ...migration.slice(0, -1),
-  ...statementsOf('0054_ai_usage_inbox.sql')
+  ...statementsOf('0054_ai_usage_inbox.sql'),
+  // Each post's cost (idempotent).
+  ...statementsOf('0057_ai_usage_draft.sql')
 ]
 
 const usage = (costUsd: number, more: Partial<CallUsage> = {}): CallUsage => ({
@@ -491,6 +493,24 @@ describe('the usage ledger', { skip: !url }, () => {
         await spentInWindow(tx, { userId: owner, accountId: null }),
         0.5
       )
+    }))
+
+  it('tags a call with the post it was for, so each post can show its cost', () =>
+    inRolledBack(async tx => {
+      const owner = await user(tx)
+      const post = crypto.randomUUID()
+      await recordUsageIn(tx, charge({ userId: owner, draftId: post }), call(usage(0.02)))
+      await recordUsageIn(tx, charge({ userId: owner }), call(usage(0.5), 'research'))
+      const rows = await tx
+        .select({ draftId: schema.aiUsageTable.draftId, stage: schema.aiUsageTable.stage })
+        .from(schema.aiUsageTable)
+        .where(eq(schema.aiUsageTable.userId, owner))
+        .orderBy(schema.aiUsageTable.stage)
+      // Research serves the run, not one post: untagged.
+      assert.deepStrictEqual(rows, [
+        { draftId: post, stage: 'drafting' },
+        { draftId: null, stage: 'research' }
+      ])
     }))
 
   it('records nothing for a call that billed nothing', () =>

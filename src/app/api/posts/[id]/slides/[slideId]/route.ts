@@ -110,7 +110,7 @@ export async function POST(request: Request, { params }: Params) {
         return Response.json({
           success: true,
           slide: await withAiSpend(
-            { source: 'posts', accountId: who.accountId },
+            { source: 'posts', accountId: who.accountId, draftId: id },
             () =>
               rewriteSlideForPost(who.accountId, id, slideId, {
                 instruction: body.instruction?.trim() || null,
@@ -122,7 +122,7 @@ export async function POST(request: Request, { params }: Params) {
         return Response.json({
           success: true,
           slide: await withAiSpend(
-            { source: 'posts', accountId: who.accountId },
+            { source: 'posts', accountId: who.accountId, draftId: id },
             () =>
               setSlidePicture(who.accountId, id, slideId, {
                 prompt: body.prompt,

@@ -171,7 +171,7 @@ export async function POST(
   // cannot be stopped.
   if (fromPost) {
     try {
-      const outcome = await withAiSpend({ source: 'posts', accountId }, () =>
+      const outcome = await withAiSpend({ source: 'posts', accountId, draftId: id }, () =>
         createPostMedia({
           draftId: id,
           accountId,
@@ -203,7 +203,7 @@ export async function POST(
   }
 
   try {
-    const outcome = await withAiSpend({ source: 'posts', accountId }, () =>
+    const outcome = await withAiSpend({ source: 'posts', accountId, draftId: id }, () =>
       createPromptMediaForDraft({
         draftId: id,
         accountId,

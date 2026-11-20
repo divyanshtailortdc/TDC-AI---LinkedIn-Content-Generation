@@ -19,9 +19,12 @@ export const FORMAT_IDS = [
   'threads.post',
   'facebook.post',
   'instagram.caption',
-  // Created no more (see CREATABLE_FORMATS); kept so Reels already written open.
+  // Short vertical videos: a script, and an AI video made from it on the
+  // post page (src/lib/video). Created only as a video in "Create posts",
+  // never through CREATABLE_FORMATS.
   'instagram.reel',
-  'youtube.short'
+  'youtube.short',
+  'facebook.reel'
 ] as const
 export type FormatId = (typeof FORMAT_IDS)[number]
 
@@ -105,6 +108,8 @@ export interface FormatSpec {
     parts?: { min: number; max: number }
     /** A video's spoken length, in seconds; `maxChars` is then the caption's. */
     seconds?: { target: number; max: number }
+    /** How many shots a video script has; 4 to 8 when unset. */
+    shots?: { min: number; max: number }
   }
   /** A fixed range, or 'voice' to follow the identity's hashtag policy. */
   hashtags: { min: number; max: number } | 'voice'

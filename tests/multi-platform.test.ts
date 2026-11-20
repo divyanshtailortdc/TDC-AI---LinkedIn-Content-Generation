@@ -566,15 +566,23 @@ describe('short videos', () => {
 
   it('checks spoken length, caption and title', () => {
     const rule = (list: ReturnType<typeof runLinter>, name: string) => list.find(f => f.rule === name)
+    // Spoken in under 8 seconds: a Short is one 8-second AI clip.
+    const brief = {
+      ...answer,
+      shots: [
+        { say: 'Your month is not closed.', show: 'Author to camera' },
+        { say: 'Write five yes or no checks.', show: 'The checklist' }
+      ]
+    }
     const good = runLinter(
-      buildFormatLintOptions(ctx, 'youtube.short', goldenIdea, toVariantDraft('youtube.short', answer))
+      buildFormatLintOptions(ctx, 'youtube.short', goldenIdea, toVariantDraft('youtube.short', brief))
     )
     assert.strictEqual(rule(good, 'script_length')?.passed, true)
     assert.strictEqual(rule(good, 'caption_missing'), undefined)
     assert.strictEqual(rule(good, 'video_title'), undefined)
     assert.strictEqual(rule(good, 'cta_required'), undefined)
 
-    // 500 words is over 3 minutes spoken, past a Short's limit.
+    // 500 words is over 3 minutes spoken, far past a Short's 8-second clip.
     const long = toVariantDraft('youtube.short', {
       ...answer,
       caption: '',
@@ -599,7 +607,7 @@ describe('short videos', () => {
     const yt = variantPrompt.buildFormatPrompt(ctx, 'youtube.short')
     assert.match(yt, /PLATFORM: YouTube/)
     assert.match(yt, /1\. shots — /)
-    assert.match(yt, /about 45 seconds/)
+    assert.match(yt, /about 6 seconds/)
     assert.match(yt, /3\. title — at most 100 characters/)
   })
 
@@ -659,11 +667,11 @@ describe('image shape per post type', () => {
 })
 
 describe('formats posts can be created in', () => {
-  it('offers no Reel, video or script: every format but Instagram Reels and YouTube Shorts', async () => {
+  it('offers no Reel, video or script: every format but the short videos, made only through Short video', async () => {
     const { CREATABLE_FORMATS, FORMAT_IDS, FORMATS, isCreatableFormat } = await import('../src/lib/formats')
     assert.deepStrictEqual(
       FORMAT_IDS.filter(id => !isCreatableFormat(id)),
-      ['instagram.reel', 'youtube.short']
+      ['instagram.reel', 'youtube.short', 'facebook.reel']
     )
     assert.ok(CREATABLE_FORMATS.every(id => FORMATS[id].structure !== 'script'))
   })

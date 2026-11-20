@@ -25,7 +25,8 @@ const bufferSwitch = (platform: BufferPlatformId) =>
     x: env.X_PUBLISHING,
     threads: env.THREADS_PUBLISHING,
     facebook: env.FACEBOOK_PUBLISHING,
-    instagram: env.INSTAGRAM_PUBLISHING
+    instagram: env.INSTAGRAM_PUBLISHING,
+    youtube: env.YOUTUBE_PUBLISHING
   })[platform]
 
 /**

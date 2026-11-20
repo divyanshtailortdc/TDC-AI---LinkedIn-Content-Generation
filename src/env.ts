@@ -22,6 +22,9 @@ export const env = createEnv({
     // 'agent' lets the research agent choose searches and read pages.
     RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
+    // The AI Gateway video model short videos are made with
+    // (src/lib/video/models.ts); unset is Veo 3.1 Lite.
+    VIDEO_MODEL: z.string().optional(),
     // What one user may spend on AI over any 30 days, in US dollars, across
     // every identity they own and everything that calls a model (runs,
     // newsletters, setup, post editing). Past it, new model calls are
@@ -68,6 +71,7 @@ export const env = createEnv({
     THREADS_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     FACEBOOK_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     INSTAGRAM_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
+    YOUTUBE_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     /** Buffer's GraphQL endpoint; only a test stub needs another. */
     BUFFER_API_URL: z.url().default('https://api.buffer.com'),
     /**
@@ -158,6 +162,7 @@ export const env = createEnv({
     SERPER_API_KEY: process.env.SERPER_API_KEY,
     RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+    VIDEO_MODEL: process.env.VIDEO_MODEL,
     AI_SPEND_LIMIT_USD: process.env.AI_SPEND_LIMIT_USD,
     AI_DAILY_SPEND_LIMIT_USD: process.env.AI_DAILY_SPEND_LIMIT_USD,
     AI_INBOX_DAILY_LIMIT_USD: process.env.AI_INBOX_DAILY_LIMIT_USD,
@@ -171,6 +176,7 @@ export const env = createEnv({
     THREADS_PUBLISHING: process.env.THREADS_PUBLISHING,
     FACEBOOK_PUBLISHING: process.env.FACEBOOK_PUBLISHING,
     INSTAGRAM_PUBLISHING: process.env.INSTAGRAM_PUBLISHING,
+    YOUTUBE_PUBLISHING: process.env.YOUTUBE_PUBLISHING,
     BUFFER_API_URL: process.env.BUFFER_API_URL,
     PUBLISHING_MEDIA_URL: process.env.PUBLISHING_MEDIA_URL,
     BUFFER_CLIENT_ID: process.env.BUFFER_CLIENT_ID,

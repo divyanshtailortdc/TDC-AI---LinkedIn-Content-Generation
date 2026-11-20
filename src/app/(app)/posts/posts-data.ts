@@ -10,7 +10,8 @@ import {
   postRevisionsTable,
   postSlidesTable,
   publicationsTable,
-  ideasTable
+  ideasTable,
+  aiUsageTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
 import { inKnownFormat } from '@/lib/known-formats'
@@ -22,7 +23,8 @@ import {
 import { isImageStyle } from '@/lib/brand/theme'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
-import { and, count, desc, eq, inArray, isNotNull, max, type SQL } from 'drizzle-orm'
+import { summarizePostUsage } from '@/lib/post-usage'
+import { and, count, desc, eq, inArray, isNotNull, max, sql, sum, type SQL } from 'drizzle-orm'
 import type { PostDetail } from './posts-client'
 
 /** A run makes a handful of posts; this only bounds a pathological one. */
@@ -120,7 +122,8 @@ export async function loadPostsPage(
     ideaFormatRows,
     revisionCounts,
     slideCounts,
-    deletions
+    deletions,
+    usageRows
   ] = await Promise.all([
     draftIds.length > 0
       ? db
@@ -225,8 +228,34 @@ export async function loadPostsPage(
             )
           )
           .groupBy(publicationsTable.draftId)
+      : Promise.resolve([]),
+    // What each post cost in AI, by kind of work (src/lib/post-usage.ts).
+    // Only this identity's calls: a post's id says nothing about its owner.
+    draftIds.length > 0
+      ? db
+          .select({
+            draftId: aiUsageTable.draftId,
+            stage: aiUsageTable.stage,
+            calls: sum(aiUsageTable.calls).mapWith(Number),
+            inputTokens: sum(aiUsageTable.inputTokens).mapWith(Number),
+            outputTokens: sum(aiUsageTable.outputTokens).mapWith(Number),
+            totalTokens: sum(aiUsageTable.totalTokens).mapWith(Number),
+            costUsd: sum(aiUsageTable.costUsd).mapWith(Number),
+            estimated: sql<boolean>`bool_or(${aiUsageTable.costEstimated})`
+          })
+          .from(aiUsageTable)
+          .where(
+            and(
+              inArray(aiUsageTable.draftId, draftIds),
+              eq(aiUsageTable.accountId, accountId)
+            )
+          )
+          .groupBy(aiUsageTable.draftId, aiUsageTable.stage)
       : Promise.resolve([])
   ])
+  const usageByDraft = summarizePostUsage(
+    usageRows.flatMap(row => (row.draftId ? [{ ...row, draftId: row.draftId }] : []))
+  )
   const deletedByDraft = new Map(
     deletions.flatMap(r =>
       r.draftId && r.deletedAt ? [[r.draftId, new Date(r.deletedAt).toISOString()] as const] : []
@@ -327,7 +356,8 @@ export async function loadPostsPage(
       postedAt: draft.postedAt?.toISOString() ?? null,
       hiddenAt: draft.hiddenAt?.toISOString() ?? null,
       publication: publications.get(draft.id) ?? null,
-      deletedFromPlatformAt: deletedByDraft.get(draft.id) ?? null
+      deletedFromPlatformAt: deletedByDraft.get(draft.id) ?? null,
+      usage: usageByDraft.get(draft.id) ?? null
     }
   })
 

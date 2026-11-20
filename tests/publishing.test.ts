@@ -25,6 +25,7 @@ import {
   deletePublishedPost,
   executePublication,
   type PostImage,
+  type PublishDeps,
   PublishRequestError,
   queueAutoPublications,
   recoverStalePublications,
@@ -237,6 +238,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     extra: {
       now?: () => Date
       loadImage?: () => Promise<PostImage | null>
+      loadVideo?: PublishDeps['loadVideo']
     } = {}
   ) => ({
     database,
@@ -249,6 +251,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         ? buffer.fetchFn(input, init)
         : linkedIn.fetchFn(input, init)) as typeof fetch,
     loadImage: extra.loadImage ?? (async () => null),
+    loadVideo: extra.loadVideo ?? (async () => null),
     now: extra.now
   })
 
@@ -1615,7 +1618,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.ok(!JSON.stringify(input).includes('Link in bio note'))
     })
 
-    it('M3. an image removed after queueing fails before Buffer; a Reel cannot be published', async () => {
+    it('M3. an image removed after queueing fails before Buffer; a Reel without its video is refused', async () => {
       const draft = await caption()
       await addImage(draft)
       const result = await publishNow(m.userId, draft, deps({ loadImage: async () => null }))
@@ -1623,9 +1626,67 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.match(String(result.error), /Instagram posts need an image/)
       assert.strictEqual(buffer.creates().length, 0)
 
+      // An image is no stand-in for a Reel's video.
       const reel = await caption({ formatId: 'instagram.reel' })
       await addImage(reel)
-      assert.strictEqual(await codeOf(publishNow(m.userId, reel)), 'wrong_platform')
+      const refused = await publishNow(m.userId, reel).catch(e => e)
+      assert.strictEqual(refused.code, 'needs_image')
+      assert.match(refused.message, /has no video yet/)
+      assert.strictEqual(buffer.creates().length, 0)
+    })
+
+    it('M3b. a Reel with its video goes out as a Reel: the caption, and the video from its link', async () => {
+      const reel = await caption({
+        formatId: 'instagram.reel',
+        hook: 'Your month is not closed.',
+        body: 'Write five checks.',
+        hashtags: ['finance'],
+        payload: { caption: 'What closed should mean.', shots: [] }
+      })
+      await database.insert(schema.postVideosTable).values({
+        draftId: reel,
+        version: 1,
+        status: 'ready',
+        provider: 'gateway',
+        modelId: 'google/veo-3.1-lite-generate-001',
+        prompt: 'p',
+        aspectRatio: '9:16',
+        width: 1080,
+        height: 1920,
+        durationSeconds: 8,
+        videoUrl: 'storage://drafts/x/v.mp4',
+        mediaType: 'video/mp4',
+        byteSize: 7_000_000,
+        estimatedCostUsd: '0.6400'
+      })
+      const result = await publishNow(
+        m.userId,
+        reel,
+        deps({
+          loadVideo: async () => ({
+            id: '0b9d7c1e-2f4a-4c6b-9e1d-3a5f7b9c1d2e',
+            mediaType: 'video/mp4',
+            byteSize: 7_000_000
+          })
+        })
+      )
+      assert.strictEqual(result.status, 'published', String(result.error))
+      const input = buffer.creates().at(-1)!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_IG')
+      // The caption and hashtags; the script is what the video says.
+      assert.strictEqual(input.text, 'What closed should mean.\n\n#finance')
+      // A signed link to the app's video route (which answers HEAD), not the bucket.
+      const link = new URL(input.assets[0].video.url)
+      assert.match(link.pathname, /^\/api\/publishing-media\/video\/.+\.mp4$/)
+      const token = decodeURIComponent(link.pathname.split('/').pop()!).replace(/\.mp4$/, '')
+      assert.strictEqual(
+        verifyMediaToken(xConfig.encryptionKey, token),
+        'video_0b9d7c1e-2f4a-4c6b-9e1d-3a5f7b9c1d2e'
+      )
+      assert.deepStrictEqual(Object.keys(input.assets[0].video), ['url'])
+      assert.deepStrictEqual(input.metadata, {
+        instagram: { type: 'reel', shouldShareToFeed: true, isAiGenerated: true }
+      })
     })
 
     it('M4. auto-publishing to Instagram skips posts without an image', async () => {

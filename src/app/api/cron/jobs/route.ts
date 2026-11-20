@@ -3,6 +3,7 @@ import { after } from 'next/server'
 import { env } from '~/env'
 import { recoverAbandonedDrafting } from '~/jobs/drafting-queue'
 import { runPublishing } from '~/jobs/publishing'
+import { runVideoFinishing } from '~/jobs/videos'
 import { runMailExtraction } from '~/jobs/mail-extraction'
 import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
@@ -49,7 +50,10 @@ export async function GET(request: Request) {
         console.error('Drafting recovery error:', err)
       ),
       runInboxSync().then(runMailExtraction),
-      runPublishing()
+      // Side by side, so a slow or stuck video never holds up publishing; a
+      // Reel stored now is auto-published on the next pass.
+      runPublishing(),
+      runVideoFinishing()
     ])
   )
 

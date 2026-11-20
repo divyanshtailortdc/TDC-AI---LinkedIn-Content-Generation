@@ -74,7 +74,7 @@ export async function POST(request: Request, { params }: Params) {
   const { accountId } = who
   try {
     // Writing and drawing slides calls the model and the image renderer.
-    return await withAiSpend({ source: 'posts', accountId }, async () => {
+    return await withAiSpend({ source: 'posts', accountId, draftId: id }, async () => {
       if (body.action === 'generate') {
         const result = await createCarouselForPost(accountId, id, {
           instruction: body.instruction?.trim() || null,

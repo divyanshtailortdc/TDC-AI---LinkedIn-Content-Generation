@@ -82,6 +82,8 @@ Sign-in needs `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; Google sign-in (the on
 
 Publishing approved posts through a platform's API (Publish now, Schedule, auto-publishing) is a separate, optional connection under Settings → Integrations, with its own app per platform. See [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
+Reels and Shorts get an 8-second AI video, made through the AI Gateway (`AI_GATEWAY_API_KEY`) and kept in object storage (`STORAGE_BUCKET`); see [docs/SHORT_VIDEOS.md](docs/SHORT_VIDEOS.md). Each post shows what it cost in AI; see [docs/POST_COST.md](docs/POST_COST.md).
+
 ### 2. Run the Development Server
 
 ```bash

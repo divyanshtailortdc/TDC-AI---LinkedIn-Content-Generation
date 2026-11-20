@@ -135,6 +135,92 @@ export async function storeMediaImages(
   return { imageUrl, baseImageUrl }
 }
 
+/**
+ * Uploads a draft's file that is not an image (a Reel's video) under the
+ * draft's prefix, so deleting the draft's images deletes it too. Unlike an
+ * image it is never kept inline: it throws when there is no bucket or the
+ * upload fails.
+ */
+export async function storeDraftFile(
+  draftId: string,
+  file: { buffer: Buffer; mediaType: string; extension: string }
+): Promise<string> {
+  const bucket = requireBucket()
+  const key = `${draftPrefix(draftId)}${randomUUID()}.${file.extension}`
+  await client().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mediaType,
+      CacheControl: 'private, max-age=31536000, immutable'
+    })
+  )
+  return `${PREFIX}${key}`
+}
+
+/**
+ * A signed link to a stored file, good for `expiresInSeconds` (at most 7
+ * days, as S3 signs): for a service that fetches it later, such as Buffer
+ * downloading a Reel's video.
+ */
+export async function signedStoredUrl(
+  value: string,
+  expiresInSeconds: number
+): Promise<string> {
+  if (!isStoredImage(value)) return value
+  return getSignedUrl(
+    client(),
+    new GetObjectCommand({ Bucket: requireBucket(), Key: storedImageKey(value) }),
+    { expiresIn: Math.min(expiresInSeconds, 7 * 24 * 60 * 60) }
+  )
+}
+
+/**
+ * A stored file as a stream, whole or the byte range asked for ("bytes=0-1023"),
+ * for a route that serves it on (a Reel's video to Buffer). Throws when the
+ * bucket has no such file.
+ */
+export async function openStoredFile(
+  value: string,
+  range?: string | null
+): Promise<{
+  body: ReadableStream
+  contentType: string | null
+  contentLength: number | null
+  /** Set for a range: "bytes 0-1023/9590574". */
+  contentRange: string | null
+}> {
+  const object = await client().send(
+    new GetObjectCommand({
+      Bucket: requireBucket(),
+      Key: storedImageKey(value),
+      ...(range && { Range: range })
+    })
+  )
+  if (!object.Body) throw new Error(`Stored file ${value} is empty`)
+  return {
+    body: object.Body.transformToWebStream(),
+    contentType: object.ContentType ?? null,
+    contentLength: object.ContentLength ?? null,
+    contentRange: object.ContentRange ?? null
+  }
+}
+
+/** A signed link that saves the stored file as `fileName` instead of opening it. */
+export async function downloadableStoredUrl(value: string, fileName: string): Promise<string> {
+  if (!isStoredImage(value)) return value
+  return getSignedUrl(
+    client(),
+    new GetObjectCommand({
+      Bucket: requireBucket(),
+      Key: storedImageKey(value),
+      ResponseContentDisposition: `attachment; filename="${fileName.replace(/[^\w.-]/g, '-')}"`
+    }),
+    { expiresIn: LINK_LIFETIME_SECONDS }
+  )
+}
+
 // Links are signed for a fixed window rather than from the moment they are
 // asked for, so every request in the same half hour gets the same link and the
 // browser serves a reopened post from its cache. A link is good for at least

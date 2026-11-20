@@ -8,6 +8,7 @@ import {
   PLATFORMS,
   platformsOf
 } from './registry'
+import { videoFormatsChosen } from '@/lib/video/formats'
 import {
   DEFAULT_STYLES,
   isCasualStyle,
@@ -174,10 +175,15 @@ export function resolveChannels(
 export function formatsToDraft(idea: {
   targetFormats?: unknown
   formatFit?: unknown
+  suggestedMedia?: unknown
 }): FormatId[] {
-  // Only formats that can still be created: an older idea aimed at a Reel or
-  // a Short drafts its other formats, or LinkedIn.
-  const chosen = cleanFormats(idea.targetFormats).filter(isCreatableFormat)
+  // Only formats that can still be created, and the videos asked for in
+  // "Create posts" → Short video: an older idea aimed at a Reel or a Short
+  // drafts its other formats, or LinkedIn.
+  const videos: readonly FormatId[] = videoFormatsChosen(idea)
+  const chosen = cleanFormats(idea.targetFormats).filter(
+    f => isCreatableFormat(f) || videos.includes(f)
+  )
   if (chosen.length > 0) return chosen
   const fit = cleanFormats(idea.formatFit).filter(isCreatableFormat)
   return fit.length > 0 ? fit : [DEFAULT_FORMAT]

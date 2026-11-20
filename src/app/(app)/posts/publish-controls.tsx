@@ -602,7 +602,9 @@ function PublishControlsInner({
                 ? `, with its ${slideCount} slides`
                 : media === 'text'
                   ? ' (text only)'
-                  : ', with its image'}
+                  : media === 'video'
+                    ? ', with its video'
+                    : ', with its image'}
               {SENDS_FIRST_COMMENT.has(platform.id)
                 ? ` and ${FORMATS[formatId].commentLabel.toLowerCase()}`
                 : ''}, is published

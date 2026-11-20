@@ -13,7 +13,9 @@ export const PUBLISHING_PLATFORM_IDS = [
   'x',
   'threads',
   'facebook',
-  'instagram'
+  'instagram',
+  // Shorts only: the app's YouTube posts are its AI videos.
+  'youtube'
 ] as const satisfies readonly PlatformId[]
 export type PublishingPlatformId = (typeof PUBLISHING_PLATFORM_IDS)[number]
 
@@ -27,7 +29,8 @@ export const BUFFER_PLATFORM_IDS = [
   'x',
   'threads',
   'facebook',
-  'instagram'
+  'instagram',
+  'youtube'
 ] as const satisfies readonly PublishingPlatformId[]
 export type BufferPlatformId = (typeof BUFFER_PLATFORM_IDS)[number]
 
@@ -41,7 +44,8 @@ export const BUFFER_SERVICES: Record<BufferPlatformId, readonly string[]> = {
   x: ['twitter', 'x'],
   threads: ['threads'],
   facebook: ['facebook'],
-  instagram: ['instagram']
+  instagram: ['instagram'],
+  youtube: ['youtube']
 }
 
 /** The network a Buffer channel publishes to here; null for one not published through Buffer. */
@@ -57,16 +61,18 @@ export const PUBLISHING_PLATFORMS: readonly PlatformSpec[] =
 
 /**
  * The formats (src/lib/formats) each platform's provider publishes; a post in
- * any other (an Instagram post, a video script) is copied and posted by hand.
+ * any other is copied and posted by hand. A Reel or a Short goes out with its
+ * AI video (src/lib/video), once that is made.
  */
 export const PUBLISHABLE_FORMATS: Record<PublishingPlatformId, FormatId[]> = {
   linkedin: ['linkedin.post'],
   // A thread goes out as one: each post a reply to the one before.
   x: ['x.post', 'x.thread'],
   threads: ['threads.post'],
-  facebook: ['facebook.post'],
-  // A caption with its image; a Reel needs a video, which posts do not have.
-  instagram: ['instagram.caption']
+  facebook: ['facebook.post', 'facebook.reel'],
+  // A caption with its image or slides, or a Reel with its video.
+  instagram: ['instagram.caption', 'instagram.reel'],
+  youtube: ['youtube.short']
 }
 
 /**
