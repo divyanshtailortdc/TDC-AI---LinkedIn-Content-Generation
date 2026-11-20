@@ -238,7 +238,9 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     version: 2,
     structure: 'single',
     limits: { count: 'utf16', maxChars: 2200, targetChars: 800, foldChars: 125 },
-    hashtags: { min: 1, max: 5 },
+    // Optional: many brands post without any (Zomato's feed has none), and
+    // the prompt shows how the account uses them when its posts were read.
+    hashtags: { min: 0, max: 5 },
     links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
     rules: [
       'The first 125 characters show before "more": the hook must be a complete thought within them.',

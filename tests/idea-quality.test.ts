@@ -1,6 +1,6 @@
 import assert from 'node:assert'
 import { describe, it } from 'node:test'
-import { ideaQuality } from '../src/lib/ai/idea-diversity'
+import { ideaQuality, shownScore } from '../src/lib/ai/idea-diversity'
 import { buildGroundingCorpus } from '../src/lib/ai/pipeline/grounding-corpus'
 import { inferRegion, servedRegionInBio } from '../src/lib/ai/region'
 import {
@@ -480,6 +480,26 @@ describe('every idea is scored, each score with its reason', () => {
       }
     })
     assert.ok(ideaQuality(judgedWell) > ideaQuality(unjudged), `${ideaQuality(judgedWell)} vs ${ideaQuality(unjudged)}`)
+  })
+
+  it('shows the review\'s overall score, not the writer\'s own estimate', () => {
+    // Zomato, 2026-11-20: the writer left estimatedStrength out, so every
+    // idea showed "Strength score 85/100" whatever the review said.
+    const reviewed = (engagement: number) =>
+      idea({
+        estimatedStrength: 85,
+        goalFitScore: 80,
+        scorecard: {
+          engagement: judged(engagement),
+          originality: judged(70),
+          trendRelevance: judged(40),
+          brandFit: judged(85)
+        }
+      })
+    assert.strictEqual(shownScore(reviewed(90)), Math.round(ideaQuality(reviewed(90))))
+    assert.notStrictEqual(shownScore(reviewed(90)), shownScore(reviewed(50)))
+    // Not reviewed: the writer's estimate is all there is.
+    assert.strictEqual(shownScore(idea({ estimatedStrength: 72 })), 72)
   })
 
   it('briefs the reviewer on the brand, what is current and what came before', () => {

@@ -1,9 +1,14 @@
 import 'server-only'
 
-import { isWebSearchConfigured, searchImages, searchWeb } from '@/lib/research/web-search'
+import {
+  dedupeFindings,
+  isWebSearchConfigured,
+  searchImages,
+  searchWeb
+} from '@/lib/research/web-search'
 import { ArticleFetchError, scrapeArticle } from '@/lib/scraper'
 import { readBodyCapped, safeFetch } from '@/lib/safe-url'
-import type { ReferenceLink } from './link'
+import { searchSpellings, type ReferenceLink } from './link'
 import { isFetchableThumbnail, oembedEndpoint, postFromXOembed, videoFromOembed } from './oembed'
 import { readPostFromSearch } from './search-read'
 import {
@@ -62,11 +67,17 @@ async function fetchOembed(endpoint: string): Promise<unknown | null> {
 
 /** The search results for the post's own address, and its images when it is a visual platform's. */
 async function searchFor(link: ReferenceLink, withImages: boolean) {
-  const [results, images] = await Promise.all([
-    searchWeb(link.url, { freshnessDays: 0, resultCount: 10 }),
+  const [found, images] = await Promise.all([
+    // Each spelling of its address (see searchSpellings); the readers keep
+    // only results that are this post.
+    Promise.all(
+      searchSpellings(link.url).map(q =>
+        searchWeb(q, { freshnessDays: 0, resultCount: 10 })
+      )
+    ),
     withImages ? searchImages(link.url, { resultCount: 10 }) : Promise.resolve([])
   ])
-  return { results, images }
+  return { results: dedupeFindings(found.flat()), images }
 }
 
 const notReadable = (link: ReferenceLink) =>

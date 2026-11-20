@@ -8,7 +8,7 @@ import {
   EmptyReferenceIdeaError
 } from '../src/lib/ai/skills/reference-ideation/guard'
 import { ReferenceIdeaSchema } from '../src/lib/ai/skills/reference-ideation/schema'
-import { parseReferenceLink, ReferenceLinkError } from '../src/lib/reference-post/link'
+import { parseReferenceLink, ReferenceLinkError, searchSpellings } from '../src/lib/reference-post/link'
 import {
   isFetchableThumbnail,
   postFromXOembed,
@@ -348,5 +348,21 @@ describe('the shared post in prompts', () => {
     assert.ok(prompt.includes('[G1] Grow the newsletter'))
     assert.ok(prompt.includes('<shared_post>'))
     assert.ok(prompt.includes('postType is single'))
+  })
+})
+
+describe('searching for a shared post', () => {
+  it('searches its address with and without the scheme and www', () => {
+    // Zomato, 2026-11-20: Google answered "https://www.instagram.com/p/CZqo1UXphm1/"
+    // with unrelated Reels, and "instagram.com/p/CZqo1UXphm1" with the post itself.
+    assert.deepStrictEqual(searchSpellings('https://www.instagram.com/p/CZqo1UXphm1/'), [
+      'https://www.instagram.com/p/CZqo1UXphm1/',
+      'instagram.com/p/CZqo1UXphm1'
+    ])
+    assert.deepStrictEqual(searchSpellings('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), [
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      'youtube.com/watch?v=dQw4w9WgXcQ'
+    ])
+    assert.deepStrictEqual(searchSpellings('not a url'), ['not a url'])
   })
 })

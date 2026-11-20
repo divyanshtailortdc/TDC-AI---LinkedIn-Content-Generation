@@ -8,6 +8,7 @@ import {
   encodeVector,
   sectionEmbeddingHash,
   sectionEmbeddingInput,
+  storedEmbeddingsOf,
   type StoredDocEmbeddings
 } from '../src/docs/embedding-input'
 import {
@@ -443,5 +444,22 @@ describe('docs search embeddings', () => {
       [],
       'sections changed since pnpm docs:index'
     )
+  })
+})
+
+describe('the stored embeddings, as the bundler hands them over', () => {
+  // 2026-11-20: Turbopack compiled import.meta.glob(..., { import: 'default' })
+  // as require(json)["default"], which a JSON module does not have, so the
+  // server saw no vectors and every search by meaning found nothing.
+  const stored: StoredDocEmbeddings = {
+    model: 'openai/text-embedding-3-small',
+    sections: [{ key: 'a#b', hash: 'h', vector: 'AAAA' }]
+  }
+  it('reads the file as a module, as its default export, or not at all', () => {
+    assert.strictEqual(storedEmbeddingsOf(stored), stored)
+    assert.strictEqual(storedEmbeddingsOf({ default: stored }), stored)
+    for (const nothing of [undefined, null, {}, { default: undefined }, { model: 'x' }]) {
+      assert.strictEqual(storedEmbeddingsOf(nothing), null)
+    }
   })
 })

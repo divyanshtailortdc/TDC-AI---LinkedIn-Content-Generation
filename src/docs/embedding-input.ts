@@ -38,6 +38,23 @@ export type StoredDocEmbeddings = {
   }>
 }
 
+/**
+ * The stored file as a bundler's import.meta.glob hands it over: the JSON
+ * itself, or a module whose default export it is. Turbopack gives
+ * `{ import: 'default' }` as require(json)["default"], which is undefined for a
+ * JSON module, so the glob reads the whole module and this unwraps it.
+ */
+export function storedEmbeddingsOf(mod: unknown): StoredDocEmbeddings | null {
+  const isStored = (value: unknown): value is StoredDocEmbeddings =>
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as StoredDocEmbeddings).model === 'string' &&
+    Array.isArray((value as StoredDocEmbeddings).sections)
+  if (isStored(mod)) return mod
+  const inner = (mod as { default?: unknown } | null | undefined)?.default
+  return isStored(inner) ? inner : null
+}
+
 export function encodeVector(vector: number[]): string {
   return Buffer.from(new Float32Array(vector).buffer).toString('base64')
 }

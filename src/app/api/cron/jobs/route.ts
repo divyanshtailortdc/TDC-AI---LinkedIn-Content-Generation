@@ -38,8 +38,13 @@ export async function GET(request: Request) {
   // A separate worker service (APP_ROLE=web here) does all of this itself.
   if (!runsJobsHere()) return Response.json({ success: true, skipped: true })
 
-  const recovered = await recoverInterruptedRuns()
-  await runDueSchedules()
+  // Each step on its own: a failing schedules query must not stop the
+  // publishing below, which on Vercel nothing else drives.
+  const recovered = await recoverInterruptedRuns().catch(err => {
+    console.error('Cron run recovery error:', err)
+    return []
+  })
+  await runDueSchedules().catch(err => console.error('Cron schedules error:', err))
 
   // The runs and drafts take minutes: they continue after the response, and
   // `after` keeps the function alive until they finish.
@@ -49,11 +54,13 @@ export async function GET(request: Request) {
       recoverAbandonedDrafting().catch(err =>
         console.error('Drafting recovery error:', err)
       ),
-      runInboxSync().then(runMailExtraction),
+      runInboxSync()
+        .then(runMailExtraction)
+        .catch(err => console.error('Cron inbox error:', err)),
       // Side by side, so a slow or stuck video never holds up publishing; a
       // Reel stored now is auto-published on the next pass.
-      runPublishing(),
-      runVideoFinishing()
+      runPublishing().catch(err => console.error('Cron publishing error:', err)),
+      runVideoFinishing().catch(err => console.error('Cron video error:', err))
     ])
   )
 

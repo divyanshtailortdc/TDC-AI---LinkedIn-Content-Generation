@@ -1,5 +1,6 @@
 import type { PlatformId } from '@/lib/formats'
 import { canonicalProfileLink, platformOfLink } from '@/lib/profile-links'
+import { isSearchRedirect } from '@/lib/research/search-redirect'
 import type { InsightPost } from './types'
 
 /**
@@ -239,8 +240,12 @@ function instagramCaption(title: string, handleText: string): string {
 /** "… - Zomato (@zomato)", "Photo by Zomato (@zomato) · March 8, 2021": the account's own post page. */
 const readInstagram: Reader = (result, ref, displayName) => {
   const parts = pathOf(result.url)
-  const match =
-    parts && /^\/(?:([\w.]+)\/)?(p|reels?|tv)\/[\w-]+/i.exec(parts.path)
+  // A result Google wrapped in a redirect link (see search-redirect.ts) has
+  // no address to read: only its title and snippet say whose post it is.
+  const wrapped = isSearchRedirect(result.url)
+  const match = wrapped
+    ? ([result.url, undefined, 'p'] as const)
+    : parts && /^\/(?:([\w.]+)\/)?(p|reels?|tv)\/[\w-]+/i.exec(parts.path)
   if (!match) return null
   if (match[1] && match[1].toLowerCase() !== ref.handle) return null
   const handle = escapeRe(ref.handle)
@@ -410,7 +415,8 @@ export function postsFromResults(
   const posts: InsightPost[] = []
   const keys = new Set<string>()
   for (const result of results) {
-    if (platformOfLink(result.url) !== ref.platform) continue
+    const wrapped = ref.platform === 'instagram' && isSearchRedirect(result.url)
+    if (!wrapped && platformOfLink(result.url) !== ref.platform) continue
     const post = read(result, ref, displayName)
     if (!post) continue
     const key = postKey(ref.platform, result.url) ?? result.url

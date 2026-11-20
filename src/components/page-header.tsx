@@ -33,9 +33,12 @@ export function PageHeader({
   return (
     <div className="z-10 w-full flex-none">
       <AppHeaderBar actions={actions} wrap={wrapActions}>
+        {/* A basis, not flex-1's zero: on a narrow bar the actions wrap to
+            their own row before the title is squeezed (the Ideas title
+            showed as "I." on a phone). */}
         <div
           className={
-            wrapActions ? 'min-w-0 flex-[1_1_14rem]' : 'min-w-0 flex-1'
+            wrapActions ? 'min-w-0 flex-[1_1_14rem]' : 'min-w-0 flex-[1_1_10rem]'
           }
         >
           <div className="flex min-w-0 items-center gap-3">

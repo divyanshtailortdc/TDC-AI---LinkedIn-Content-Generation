@@ -186,6 +186,26 @@ export function ideaQuality(idea: GeneratedIdeaItem): number {
   return unjudged ? rank * UNJUDGED_DISCOUNT : rank
 }
 
+/**
+ * The score an idea card shows: the review's overall score (its rank, from
+ * goal fit, engagement, originality, brand fit and trend), or the writer's
+ * own estimate when the review did not score it. The writer often leaves its
+ * estimate out, which then reads 85 on every idea.
+ */
+export function shownScore(idea: GeneratedIdeaItem): number {
+  const reviewed =
+    typeof idea.goalFitScore === 'number' &&
+    !!(
+      idea.scorecard?.engagement ||
+      idea.scorecard?.originality ||
+      idea.scorecard?.brandFit ||
+      idea.scorecard?.trendRelevance
+    )
+  return reviewed
+    ? Math.max(0, Math.min(100, Math.round(ideaQuality(idea))))
+    : idea.estimatedStrength
+}
+
 /** What an idea the review never scored keeps of its rank. */
 const UNJUDGED_DISCOUNT = 0.8
 

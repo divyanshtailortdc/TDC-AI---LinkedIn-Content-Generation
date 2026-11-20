@@ -256,16 +256,18 @@ export function RunIdeaCard({
   }
 
   return (
-    // A collapsed card has one fixed size (room for a two-line title and a
-    // three-line summary) so every tab lines up; opening Details or the editor
-    // lets just that card grow.
+    // A collapsed card is at least as tall as a two-line title and a
+    // three-line summary need (both are clamped), so every tab lines up;
+    // opening Details or the editor lets just that card grow. A fixed h-64
+    // was 16px short: a wrapped title lost its descenders and the summary its
+    // last line.
     <article
       className={cn(
         'bg-surface flex min-w-0 flex-col rounded-2xl border p-5 shadow-xs transition-colors',
         selected && showCheckbox
           ? 'border-brand/60 ring-brand/20 ring-2'
           : 'border-border hover:border-foreground/15',
-        collapsed ? 'h-64' : 'min-h-64'
+        collapsed ? 'min-h-[17rem]' : 'min-h-64'
       )}
     >
       {(showCheckbox ||

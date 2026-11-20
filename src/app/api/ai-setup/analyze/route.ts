@@ -1,12 +1,16 @@
 import { db } from '@/db'
+import { preferencesTable } from '@/db/schema'
 import {
   analyzeIdentitySetup,
   IdentitySetupError
 } from '@/lib/ai/pipeline/profile-setup-run'
 import { AnalyzeIdentityInputSchema } from '@/lib/ai/skills/profile-setup/schema'
 import { withAiSpend } from '@/lib/ai/spend'
+import { FORMAT_IDS, platformsOf, type FormatId } from '@/lib/formats'
 import { findOwnedAccount } from '@/lib/ownership'
+import { readTextCapped } from '@/lib/safe-url'
 import { getSessionUser } from '@/lib/session'
+import { eq } from 'drizzle-orm'
 
 /**
  * Analyze with AI: read-only, nothing is written to the database.
@@ -29,14 +33,14 @@ export async function POST(request: Request) {
   const user = await getSessionUser()
   if (!user) return fail(401, 'Please sign in again.', false)
 
+  // Read no further than the limit: a huge or endless body never fills memory.
   let raw: string
   try {
-    raw = await request.text()
+    const read = await readTextCapped(request, MAX_BODY_BYTES)
+    if (read.truncated) return fail(413, 'Request is too large.', false)
+    raw = read.text
   } catch {
     return fail(400, 'Could not read the request.', false)
-  }
-  if (raw.length > MAX_BODY_BYTES) {
-    return fail(413, 'Request is too large.', false)
   }
 
   let json: unknown
@@ -50,10 +54,24 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return fail(400, parsed.error.issues.map(i => i.message).join(' '), false)
   }
+  // Re-analyzing an identity: the platforms it posts on, so no suggestion
+  // replaces its links with one on a platform it does not use.
+  let platforms: ReturnType<typeof platformsOf> | undefined
   if (parsed.data.accountId) {
     // Someone else's identity is a 404, like one that does not exist.
     const account = await findOwnedAccount(db, user.id, parsed.data.accountId)
     if (!account) return fail(404, 'Identity not found', false)
+    const [prefs] = await db
+      .select({ enabledFormats: preferencesTable.enabledFormats })
+      .from(preferencesTable)
+      .where(eq(preferencesTable.accountId, account.id))
+      .limit(1)
+    const enabled = Array.isArray(prefs?.enabledFormats)
+      ? (prefs.enabledFormats as unknown[])
+      : []
+    platforms = platformsOf(
+      FORMAT_IDS.filter(f => enabled.includes(f)) as FormatId[]
+    )
   }
 
   try {
@@ -64,7 +82,7 @@ export async function POST(request: Request) {
         userId: user.id,
         accountId: parsed.data.accountId ?? null
       },
-      () => analyzeIdentitySetup(parsed.data, request.signal)
+      () => analyzeIdentitySetup(parsed.data, request.signal, { platforms })
     )
     return Response.json({ success: true, data })
   } catch (error) {

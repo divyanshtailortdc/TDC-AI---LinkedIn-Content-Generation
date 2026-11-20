@@ -1664,7 +1664,13 @@ const queuedSlots = new Map<string, string>()
  */
 export async function queueAutoPublications(
   database: PublishingDb,
-  now = new Date()
+  now = new Date(),
+  /**
+   * The platforms set up on this server. A connection on another one queues
+   * nothing: its posts would fail as not_configured, and a post with a
+   * failed publication is never auto-published again.
+   */
+  configuredPlatforms?: readonly string[]
 ): Promise<number> {
   const connections = await database
     .select()
@@ -1680,6 +1686,12 @@ export async function queueAutoPublications(
     // One made before its owner had an identity publishes nothing yet.
     const accountId = connection.accountId
     if (!accountId) continue
+    if (
+      configuredPlatforms &&
+      !configuredPlatforms.includes(connection.platform)
+    ) {
+      continue
+    }
     const due = dueAutoSlot(connection, now)
     if (!due) continue
     const slotKey = `${connection.autoPublishEnabledAt!.getTime()}:${due.day}`
@@ -1787,7 +1799,11 @@ export async function runDuePublications(
   const { database } = deps
   const recovered = await recoverStalePublications(database, nowOf(deps))
   const confirmation = await confirmPendingPublications(deps)
-  const queued = await queueAutoPublications(database, nowOf(deps))
+  const queued = await queueAutoPublications(
+    database,
+    nowOf(deps),
+    PUBLISHING_PLATFORM_IDS.filter(p => Boolean(deps.configs[p]))
+  )
   const due = await database
     .select({ id: publicationsTable.id })
     .from(publicationsTable)

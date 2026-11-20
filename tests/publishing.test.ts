@@ -1053,6 +1053,24 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.strictEqual(rows[0]!.trigger, 'auto')
     })
 
+    it('leaves posts alone while their platform is not set up on this server', async () => {
+      // Queued anyway, they failed as not_configured and were never
+      // auto-published again once publishing was switched back on.
+      const u = await setUp('auto-off', new Date(slot.getTime() - 24 * 3600_000))
+      const draft = await newPost(u.accountId, { plannedFor: day, updatedAt: before })
+      const mine = () =>
+        database
+          .select()
+          .from(schema.publicationsTable)
+          .where(eq(schema.publicationsTable.userId, u.userId))
+      await queueAutoPublications(database, today, ['x'])
+      assert.strictEqual((await mine()).length, 0)
+      await queueAutoPublications(database, today, ['linkedin', 'x'])
+      const rows = await mine()
+      assert.strictEqual(rows.length, 1)
+      assert.strictEqual(rows[0]!.draftId, draft)
+    })
+
     it('does not sweep up a slot that passed before it was turned on', async () => {
       const u = await setUp('i', new Date(slot.getTime() + 60_000))
       await newPost(u.accountId, { plannedFor: day, updatedAt: before })

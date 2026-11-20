@@ -7,6 +7,11 @@ import {
   type VerifiedCandidate
 } from '../src/lib/ai/skills/newsletter-discovery/guard'
 import {
+  CLASSIFY_INSTRUCTIONS,
+  postingStyleLine,
+  QUERY_INSTRUCTIONS
+} from '../src/lib/ai/skills/newsletter-discovery/prompt'
+import {
   ClassificationModelSchema,
   MAX_QUERIES,
   MIN_RELEVANCE
@@ -284,5 +289,21 @@ describe('newsletter AI output guard', () => {
     assert.equal(queries[0], 'retail technology newsletter')
     assert.equal(queries[1], 'grocery industry newsletter')
     assert.equal(queries.length, MAX_QUERIES)
+  })
+})
+
+describe('newsletters for how the account posts', () => {
+  // Zomato, 2026-11-20: a meme-driven Instagram brand was offered restaurant
+  // trade associations and startup-funding newsletters only.
+  it('says how an account that posts for fun posts, and nothing for a professional one', () => {
+    assert.strictEqual(postingStyleLine({ casual: ['Instagram'], professional: [] }), 'How it posts: casual or fun content for its followers on Instagram, not business commentary.')
+    assert.strictEqual(postingStyleLine({ casual: ['Instagram'], professional: ['LinkedIn'] }), 'How it posts: professional on LinkedIn; casual or fun content for its followers on Instagram.')
+    assert.strictEqual(postingStyleLine({ casual: [], professional: ['LinkedIn'] }), '')
+  })
+
+  it('plans and scores culture newsletters for followers when it posts for fun', () => {
+    assert.match(QUERY_INSTRUCTIONS, /casual or fun content/)
+    assert.match(QUERY_INSTRUCTIONS, /culture, trends, humour and everyday life/)
+    assert.match(CLASSIFY_INSTRUCTIONS, /casual or fun content[\s\S]*scores as high as one on its sector/)
   })
 })

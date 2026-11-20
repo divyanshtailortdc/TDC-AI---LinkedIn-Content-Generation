@@ -2601,6 +2601,8 @@ export function PostDetailClient({
                           height={activePost.media.height || 1072}
                           className="h-auto max-h-72 w-full object-contain"
                           unoptimized
+                          // Above the fold, and often the page's largest paint.
+                          loading="eager"
                         />
                         <span
                           aria-hidden

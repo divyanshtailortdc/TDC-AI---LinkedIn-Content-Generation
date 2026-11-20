@@ -198,7 +198,14 @@ export async function collectProfilePosts(options: {
   const searching = (async () => {
     if (!isWebSearchConfigured) return null
     const search = (q: string, page = 1) =>
-      searchWeb(q, { freshnessDays: 0, resultCount: RESULTS_PER_PAGE, page })
+      searchWeb(q, {
+        freshnessDays: 0,
+        resultCount: RESULTS_PER_PAGE,
+        page,
+        // Instagram posts often come back as Google redirect links; the
+        // readers work from their titles and snippets.
+        keepRedirects: true
+      })
     // Instagram's posts are found by the name its profile shows.
     const first = profileQuery(ref)
     const profileResults: SearchResult[] = first ? await search(first) : []

@@ -262,7 +262,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                       )}
                       {typeof idea.score === 'number' && (
                         <div>
-                          <div className="text-muted">Strength score</div>
+                          <div className="text-muted">Overall score</div>
                           <div className="mt-0.5 text-sm font-semibold text-foreground">
                             {idea.score}/100
                           </div>

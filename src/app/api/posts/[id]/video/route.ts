@@ -7,6 +7,7 @@ import { isUuid } from '~/lib/ids'
 import { getPostVideoState, startPostVideo } from '~/lib/video/post-video'
 import { VIDEO_GENERATION_ENABLED } from '~/lib/video/formats'
 import { MAX_VIDEO_DIRECTION_CHARS } from '~/lib/video/prompt'
+import { publicErrorMessage } from '@/lib/public-error'
 
 /**
  * A Reel's or Short's AI video (src/lib/video/post-video.ts).
@@ -75,7 +76,7 @@ export async function GET(
     return Response.json({ success: true, state }, { headers: noStore })
   } catch (err: any) {
     console.error('Error loading a post video:', err)
-    return fail(500, err?.message || 'Failed to load the video.')
+    return fail(500, publicErrorMessage(err, 'Failed to load the video.'))
   }
 }
 
@@ -135,6 +136,6 @@ export async function POST(
     if (err instanceof PostLockedError) return fail(409, err.message)
     if (err instanceof AiSpendLimitError) return fail(429, err.message)
     console.error('Error starting a post video:', err)
-    return fail(502, err?.message || 'Failed to start the video.')
+    return fail(502, publicErrorMessage(err, 'Failed to start the video.'))
   }
 }

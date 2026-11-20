@@ -171,12 +171,12 @@ export async function safeFetch(
 }
 
 /**
- * Up to `maxBytes` of a response's body. Reading stops there and the rest is
- * never downloaded, so a page that is huge, or never ends, cannot fill the
- * server's memory. `truncated` when the body ran longer.
+ * Up to `maxBytes` of a response's (or a request's) body. Reading stops there
+ * and the rest is never downloaded, so a body that is huge, or never ends,
+ * cannot fill the server's memory. `truncated` when the body ran longer.
  */
 export async function readBodyCapped(
-  response: Response,
+  response: { body: ReadableStream<Uint8Array> | null },
   maxBytes: number
 ): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   if (!response.body) return { bytes: new Uint8Array(), truncated: false }
@@ -198,11 +198,12 @@ export async function readBodyCapped(
 }
 
 /**
- * Up to `maxBytes` of a response's body as UTF-8 text, as response.text()
- * reads it. A body cut mid-character drops the partial character.
+ * Up to `maxBytes` of a response's (or a request's) body as UTF-8 text, as
+ * response.text() reads it. A body cut mid-character drops the partial
+ * character.
  */
 export async function readTextCapped(
-  response: Response,
+  response: { body: ReadableStream<Uint8Array> | null },
   maxBytes: number
 ): Promise<{ text: string; truncated: boolean }> {
   const { bytes, truncated } = await readBodyCapped(response, maxBytes)

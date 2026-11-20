@@ -215,7 +215,9 @@ function renderExemplars(ctx: GenerationContext, spec: FormatSpec): string {
 function renderProduceList(
   ctx: GenerationContext,
   spec: FormatSpec,
-  media?: MediaPlan
+  media?: MediaPlan,
+  /** Their posts on this platform were analyzed (WHAT THEIR … ALREADY LOOKS LIKE). */
+  analyzed = false
 ): string {
   const hashtags =
     spec.hashtags === 'voice'
@@ -257,7 +259,7 @@ ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly wh
   const fold = spec.limits.foldChars
   return `Produce:
 1. hook — the opening line${fold ? `, a complete thought within ${fold} characters` : ''}
-2. body — the rest of the post; do not repeat the hook. Hook, body, call to action and hashtags together about ${spec.limits.targetChars} characters, never over ${spec.limits.maxChars}
+2. body — the rest of the post; do not repeat the hook. Hook, body, call to action and hashtags together about ${spec.limits.targetChars} characters${analyzed ? `, and no longer than their own ${PLATFORMS[spec.platform].label} captions run (see what their ${PLATFORMS[spec.platform].label} already looks like): an account that posts one-liners gets a short caption` : ''}, never over ${spec.limits.maxChars}
 3. cta — ${cta}
 4. linkComment — as the link rule above says
 5. hashtags — ${hashtags}, without the # symbol
@@ -331,7 +333,9 @@ export function buildFormatPrompt(
       ? [`Who follows this author on ${platform.label}: ${note.audience}. Write for them.`]
       : []),
     ...(note?.tone
-      ? [`How this author sounds on ${platform.label}, beyond the core voice: ${note.tone}`]
+      ? [
+          `How this author sounds on ${platform.label}, beyond the core voice: ${note.tone}. These are traits of the feed as a whole: a recurring bit, shout-out or sign-off belongs in the posts it fits, not in every one.`
+        ]
       : []),
     ...(note?.rubric
       ? [
@@ -368,7 +372,7 @@ export function buildFormatPrompt(
       : []),
     ...(exemplars ? ['', exemplars] : []),
     '',
-    renderProduceList(ctx, spec, media)
+    renderProduceList(ctx, spec, media, Boolean(profile))
   ]
   return lines.join('\n')
 }

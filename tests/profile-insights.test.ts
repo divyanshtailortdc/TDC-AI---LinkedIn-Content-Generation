@@ -215,6 +215,57 @@ describe("an account's own public posts among search results", () => {
     assert.ok(posts.every(p => p.source === 'search' && p.partial))
   })
 
+  it('Instagram: reads results Google wrapped in a redirect link by their markings alone', () => {
+    // Seen 2026-11-20: 7 of 10 results came back as google.com/goto links.
+    const goto = (token: string) =>
+      `https://www.google.com/goto?url=CAESZQ${token}&gsessionid=j7HsZmChNy3`
+    const results: SearchResult[] = [
+      {
+        url: goto('a'),
+        title: "Who cares about 90% when you're 100/100 📚",
+        snippet:
+          'Join Zomato on Instagram. Sign up for Instagram · Sign up • Instagram · Meta · About · Blog'
+      },
+      {
+        url: goto('b'),
+        title: 'zomato - Take notes.',
+        snippet: '#viral #follow · November 4. Join Zomato on Instagram. Sign up for Instagram'
+      },
+      // The same post again, under another token.
+      {
+        url: goto('c'),
+        title: "Who cares about 90% when you're 100/100 📚",
+        snippet: 'Join Zomato on Instagram.'
+      },
+      // Someone else's posts about Zomato.
+      {
+        url: goto('d'),
+        title: 'Messages you are allowed to leave on seen.',
+        snippet:
+          "Zomato ruined my son's dinner tonight not once, but twice. Ordered at 8:43 PM (30-min delivery promised)."
+      },
+      {
+        url: goto('e'),
+        title: 'Happy 16th @zomato 🎂',
+        snippet: 'Happy 16th @zomato - my account manager since 10days.'
+      },
+      // A wrapped link that is not a redirect.
+      {
+        url: 'https://www.google.com/search?q=zomato',
+        title: 'zomato - Take notes.',
+        snippet: 'Join Zomato on Instagram.'
+      }
+    ]
+    const posts = postsFromResults(zomatoIg, results, 'Zomato')
+    assert.deepStrictEqual(
+      posts.map(p => [p.kind, p.text, p.url]),
+      [
+        ['post', "Who cares about 90% when you're 100/100 📚", goto('a')],
+        ['post', 'Take notes.', goto('b')]
+      ]
+    )
+  })
+
   it('Instagram: reads the name and bio the profile shows', () => {
     const profile = profileFromResults(zomatoIg, [
       {
@@ -622,6 +673,15 @@ describe('what prompts are told', () => {
       draftingPrompt.buildInstructions(ctx),
       draftingPrompt.buildInstructions(base)
     )
+    // Zomato, 2026-11-20: one-liner captions on Instagram, 600-800 character
+    // drafts. With an analysis, length follows their own captions.
+    assert.match(ig, /no longer than their own Instagram captions run/)
+    assert.doesNotMatch(
+      variantPrompt.buildFormatPrompt(base, 'instagram.caption'),
+      /no longer than their own/
+    )
+    // Hashtags are optional on Instagram, so an account that uses none gets none.
+    assert.match(ig, /hashtags — between 0 and 5, at the end/)
     const li = draftingPrompt.buildInstructions({
       ...base,
       platformInsights: { linkedin: insights }

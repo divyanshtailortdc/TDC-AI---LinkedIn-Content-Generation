@@ -128,9 +128,15 @@ const backfill = migration.at(-1)!
 const ddl = [
   ...migration.slice(0, -1),
   ...statementsOf('0054_ai_usage_inbox.sql'),
+  // The 'help' source, which 0054's constraint leaves out (idempotent).
+  ...statementsOf('0055_ai_usage_help.sql'),
   // Each post's cost (idempotent).
   ...statementsOf('0057_ai_usage_draft.sql')
 ]
+// 0054 re-adds its source constraint, which rows of a source added later
+// ('help', from 0055) would break: they are set aside first, inside the
+// transaction that is rolled back.
+const LATER_SOURCES = sql`delete from ai_usage where source = 'help'`
 
 const usage = (costUsd: number, more: Partial<CallUsage> = {}): CallUsage => ({
   ...EMPTY_USAGE,
@@ -150,9 +156,13 @@ describe('the usage ledger', { skip: !url }, () => {
   type Tx = Parameters<Parameters<typeof database.transaction>[0]>[0]
   const ROLLBACK = new Error('rolled back on purpose')
 
+  const usageTableExists = async (tx: Tx) =>
+    (await tx.execute(sql`select to_regclass('public.ai_usage') is not null as present`))[0]?.present === true
+
   async function inRolledBack(check: (tx: Tx) => Promise<void>) {
     await database
       .transaction(async tx => {
+        if (await usageTableExists(tx)) await tx.execute(LATER_SOURCES)
         for (const statement of ddl) await tx.execute(sql.raw(statement))
         await check(tx)
         throw ROLLBACK

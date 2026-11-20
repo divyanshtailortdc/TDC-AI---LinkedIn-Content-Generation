@@ -8,7 +8,7 @@ import {
   decodeVector,
   sectionEmbeddingHash,
   sectionEmbeddingInput,
-  type StoredDocEmbeddings
+  storedEmbeddingsOf
 } from './embedding-input'
 import {
   bestSnippet,
@@ -31,10 +31,11 @@ const MIN_SIMILARITY = 0.3
 const EMBED_TIMEOUT_MS = 15_000
 
 // Bundled with the server, like the pages; {} until the index is first built.
+// The whole module, unwrapped by storedEmbeddingsOf: with `import: 'default'`
+// Turbopack handed over undefined, and search by meaning found nothing.
 const files = import.meta.glob('./search-embeddings.json', {
-  eager: true,
-  import: 'default'
-}) as Record<string, StoredDocEmbeddings>
+  eager: true
+}) as Record<string, unknown>
 
 type IndexedSection = {
   slug: string
@@ -55,7 +56,7 @@ let indexed: { modelId: string; sections: IndexedSection[] } | null = null
  */
 function indexedSections(modelId: string): IndexedSection[] {
   if (indexed?.modelId === modelId) return indexed.sections
-  const stored = files['./search-embeddings.json']
+  const stored = storedEmbeddingsOf(files['./search-embeddings.json'])
   const byHash = new Map(
     stored && stored.model === modelId
       ? stored.sections.map(section => [section.hash, section.vector])

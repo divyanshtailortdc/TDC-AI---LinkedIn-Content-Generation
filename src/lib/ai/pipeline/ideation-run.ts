@@ -41,7 +41,7 @@ import {
   selectIdeas,
   spreadGoals
 } from '../idea-selection'
-import { ideaQuality } from '../idea-diversity'
+import { ideaQuality, shownScore } from '../idea-diversity'
 import { dropSemanticRepeats } from '../semantic-repeats'
 import { checkNovelty } from '../../novelty'
 import { inferRegion } from '../region'
@@ -842,7 +842,7 @@ async function researchAndIdeate(
           brief: idea.suggestedMedia?.brief
         },
         noveltyNote: idea.noveltyNote,
-        score: idea.estimatedStrength,
+        score: shownScore(idea),
         groundingScore: idea.groundingScore ?? 80,
         originalityScore: idea.originalityScore ?? 80,
         goalFitScore: idea.goalFitScore ?? null,

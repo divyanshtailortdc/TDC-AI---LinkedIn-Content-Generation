@@ -12,6 +12,7 @@ import {
   searchCountFor,
   type ResearchQuery
 } from './findings'
+import { isSearchRedirect } from './search-redirect'
 import type { SignalKind } from './source-credibility'
 import type { StyleMix } from '~/lib/formats/styles'
 
@@ -66,6 +67,11 @@ export async function searchWeb(
     country?: string
     /** Which page of results, from 1. Serper's free plan allows at most 10 a page. */
     page?: number
+    /**
+     * Keep results Google returned as a redirect link (see search-redirect.ts):
+     * only for readers that use a result's title and snippet, not its address.
+     */
+    keepRedirects?: boolean
   }
 ): Promise<Finding[]> {
   if (!env.SERPER_API_KEY) return []
@@ -99,6 +105,7 @@ export async function searchWeb(
     const findings: Finding[] = []
     for (const item of data.organic || []) {
       if (!item.link || !item.title) continue
+      if (!options.keepRedirects && isSearchRedirect(item.link)) continue
       findings.push({
         url: stripTrackingParams(item.link),
         title: item.title,
@@ -149,7 +156,7 @@ export async function searchNews(
     const fetchedAt = new Date()
     const findings: Finding[] = []
     for (const item of data.news || []) {
-      if (!item.link || !item.title) continue
+      if (!item.link || !item.title || isSearchRedirect(item.link)) continue
       findings.push({
         url: stripTrackingParams(item.link),
         title: item.title,
@@ -205,7 +212,8 @@ export async function searchImages(
     const data = await res.json()
     const images: ImageFinding[] = []
     for (const item of data.images || []) {
-      if (!item.link || !item.thumbnailUrl) continue
+      if (!item.link || !item.thumbnailUrl || isSearchRedirect(item.link))
+        continue
       images.push({
         pageUrl: stripTrackingParams(item.link),
         title: item.title || '',

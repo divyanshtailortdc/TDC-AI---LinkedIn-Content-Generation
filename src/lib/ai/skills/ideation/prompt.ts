@@ -211,6 +211,30 @@ A post or video their followers would stop for: a skit, a POV, a tutorial, a tre
 `
 
 /**
+ * Whether every format the run plans for goes out as a picture or a carousel,
+ * with no video: Instagram posts, since Reels are not made.
+ */
+export function plansStillPosts(channels: IdeationChannels | null): boolean {
+  return (
+    !!channels &&
+    channels.formats.length > 0 &&
+    channels.formats.every(f => !FORMATS[f].media.formats.includes('video'))
+  )
+}
+
+/**
+ * Shown with CASUAL_IDEAS_BLOCK when every format is a still post: without
+ * it, ideas for Instagram pictures came back as skits to film (Zomato,
+ * 2026-11-20).
+ */
+function renderStillPostsBlock(brand: boolean): string {
+  return `
+THESE ARE STILL POSTS
+Every format in this run goes out as one image or a carousel with a caption: no video, no sound, nobody acting out a scene. Plan each idea as something that works as a still: a meme or text card, a chat, search or notification screenshot, an illustrated scene, a photo with a line on it, or a carousel whose slides unfold a joke, a story or a list. A skit or a POV becomes a single frame or a carousel of panels, not a scene someone has to perform.${brand ? ' This is a brand: its designers make the visual, so no idea needs a person on camera.' : ''}
+`
+}
+
+/**
  * A run across professional and casual platforms: which is which, and what an
  * idea is on each.
  */
@@ -239,6 +263,8 @@ export function buildInstructions(
   const region = inferRegion(ctx)
   const style = ideationStyle(ctx, channels)
   const casual = style === 'casual'
+  const still = casual && plansStillPosts(channels)
+  const brand = ctx.account.accountType === 'company'
   // What the account already posts on the run's platforms, when its profiles
   // were analyzed; nothing otherwise.
   const existing = renderInsightsForIdeation(
@@ -262,7 +288,7 @@ ${
     ? `${region.name}. Every idea must hold in this market: never present another market's launches, prices, availability, rules or figures as if they applied here, and say which market a piece of evidence describes when it is not this one.`
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
-${renderChannelsBlock(channels)}${existing}${casual ? CASUAL_IDEAS_BLOCK : style === 'mixed' ? renderMixedStylesBlock(ctx, channels) : ''}
+${renderChannelsBlock(channels)}${existing}${casual ? CASUAL_IDEAS_BLOCK : style === 'mixed' ? renderMixedStylesBlock(ctx, channels) : ''}${still ? renderStillPostsBlock(brand) : ''}
 THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject. An idea achieves its goal only when all three hold:
 1. Reader: it is written for the people the goal is meant to reach.
 2. Message: its argument lands the goal's message, so a reader who agrees with it has come round to that message, not just to its topic.
@@ -287,7 +313,7 @@ ${
 5. Cite an evidence item only for what that item itself says. A homepage or index supports general facts about the brand, never a specific story, launch, date or figure.
 ${
   casual
-    ? `6. Be specific to this author: what they post about, their personality, their followers. An idea anyone posting about anything could use is too generic. Every idea must be something they can film or photograph themselves. Promote what they offer only when a goal asks for it, and never as a hard sell.`
+    ? `6. Be specific to this author: what they post about, their personality, their followers. An idea anyone posting about anything could use is too generic. Every idea must be something ${still ? (brand ? "the brand's own team can design or photograph" : 'they can photograph or design themselves') : 'they can film or photograph themselves'}. Promote what they offer only when a goal asks for it, and never as a hard sell.`
     : `6. Be specific to this account (its field, its readers' situation, its market) without promoting it. A subject any company in any industry could post about is too generic; an idea that ends in "choose our product" is an advert. A product may appear only as an example the evidence covers, never as the conclusion.`
 }
 7. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".
@@ -403,7 +429,7 @@ ${hookLine}
 ${casual ? '- coreArgument: what happens or what it shows, beat by beat' : '- coreArgument: the "so what", in full'}
 - audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message and giving them a reason to take its desired action
 - supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
-${casual ? '- mediaBrief: what the author should photograph or film, in one sentence' : style === 'mixed' ? '- mediaBrief: one sentence of visual direction for the image; for an idea meant for a casual or fun platform, what the author should photograph or film' : '- mediaBrief: one sentence of visual direction for the image'}
+${casual ? (plansStillPosts(channels) ? '- mediaBrief: what the image shows, or for a carousel what its slides show, in one sentence' : '- mediaBrief: what the author should photograph or film, in one sentence') : style === 'mixed' ? '- mediaBrief: one sentence of visual direction for the image; for an idea meant for a casual or fun platform, what the author should photograph or film' : '- mediaBrief: one sentence of visual direction for the image'}
 - noveltyNote: the obvious take on this subject that you did not write, and what this idea does instead
 - risks: anything that could make this land badly
 - estimatedStrength: your honest 1-100 assessment`

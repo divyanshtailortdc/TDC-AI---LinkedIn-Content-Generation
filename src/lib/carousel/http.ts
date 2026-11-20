@@ -4,6 +4,8 @@ import { requireIdentityId } from '@/lib/identity'
 import { getSessionUser } from '@/lib/session'
 import { isUuid } from '~/lib/ids'
 import { CarouselError, type CarouselErrorCode } from './service'
+import { publicErrorMessage } from '@/lib/public-error'
+import { readTextCapped } from '@/lib/safe-url'
 
 /**
  * What the carousel routes (src/app/api/posts/[id]/slides) share: the
@@ -51,8 +53,9 @@ export async function jsonBody(
   request: Request,
   maxBytes = 16 * 1024
 ): Promise<unknown> {
-  const raw = await request.text().catch(() => '')
-  if (raw.length > maxBytes) return null
+  const read = await readTextCapped(request, maxBytes).catch(() => null)
+  if (!read || read.truncated) return null
+  const raw = read.text
   try {
     return raw ? JSON.parse(raw) : {}
   } catch {
@@ -69,8 +72,5 @@ export function errorResponse(
   if (err instanceof CarouselError) return fail(STATUS[err.code], err.message)
   if (request.signal.aborted) return fail(499, 'Stopped.')
   console.error(`${what}:`, err)
-  return fail(
-    500,
-    err instanceof Error && err.message ? err.message : `${what}.`
-  )
+  return fail(500, publicErrorMessage(err, `${what}.`))
 }

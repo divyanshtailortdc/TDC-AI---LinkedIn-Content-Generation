@@ -201,3 +201,19 @@ export function parseReferenceLink(input: string): ReferenceLink {
       : postKey(source, tidy)
   return { url: tidy, source, kind, key: keyed }
 }
+
+/**
+ * How a shared post's address is searched for: as given, and without its
+ * scheme, "www." and closing slash. Google takes some spellings as loose words
+ * and others as the page: on 2026-11-20 "https://www.instagram.com/p/…/"
+ * found unrelated Reels while "instagram.com/p/…" found the post itself.
+ */
+export function searchSpellings(url: string): string[] {
+  try {
+    const parsed = new URL(url)
+    const bare = `${parsed.hostname.replace(/^www\./i, '')}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}`
+    return bare === url ? [url] : [url, bare]
+  } catch {
+    return [url]
+  }
+}
