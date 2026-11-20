@@ -34,6 +34,7 @@ export function CreatePostsDialog({
   suggested,
   enabledFormats,
   initialPlatforms,
+  imageByDefault = true,
   confirmLabel,
   onCancel,
   onConfirm
@@ -46,6 +47,11 @@ export function CreatePostsDialog({
   enabledFormats: readonly FormatId[]
   /** Picked when it opens (the platform whose ideas are shown); still changeable. */
   initialPlatforms?: readonly PlatformId[]
+  /**
+   * Whether "Add an image" starts ticked (it does unless told otherwise; a
+   * post like a text-only one starts without). Still changeable.
+   */
+  imageByDefault?: boolean
   confirmLabel: string
   onCancel: () => void
   /**
@@ -79,11 +85,14 @@ export function CreatePostsDialog({
         })
     )
   )
-  const [noImage, setNoImage] = useState<PlatformId[]>([])
+  const [noImage, setNoImage] = useState<PlatformId[]>(() =>
+    imageByDefault ? [] : platforms
+  )
   const togglePlatform = (platform: PlatformId) => {
     if (chosen.includes(platform)) {
       setChosen(prev => prev.filter(p => p !== platform))
-      setNoImage(prev => prev.filter(p => p !== platform))
+      // Picked again, it starts as the dialog did: with an image, or without.
+      setNoImage(prev => (imageByDefault ? prev.filter(p => p !== platform) : prev))
       setTypes(prev => {
         const next = { ...prev }
         delete next[platform]

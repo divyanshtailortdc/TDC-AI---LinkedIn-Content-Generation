@@ -38,6 +38,7 @@ import {
   Image as ImageIcon,
   ImageOff,
   LayoutGrid,
+  Link2,
   List,
   Loader2,
   MoreVertical,
@@ -866,6 +867,15 @@ export function PostsClientInner({
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Link
+              href="/ideas?similar=1"
+              title="Create a post like a public post, reel or video, from its link"
+              aria-label="Create a post like one you saw, from its link"
+              className="border-border bg-surface text-foreground hover:bg-surface-hover flex h-9 items-center gap-2 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
+            >
+              <Link2 className="text-accent h-4 w-4" />
+              <span className="hidden sm:inline">From a link</span>
+            </Link>
             <Link
               href="/ideas"
               title="Posts are drafted from ideas: approve one to draft its post"

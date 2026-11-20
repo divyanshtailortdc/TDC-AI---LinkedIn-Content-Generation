@@ -11,6 +11,7 @@ import {
   Edit3,
   ExternalLink,
   Flame,
+  Link2,
   Loader2,
   Sparkles,
   Target,
@@ -24,6 +25,8 @@ import {
   type IdeaScorecard
 } from '@/lib/idea-scorecard'
 import { rateSource, type SourceRating } from '@/lib/research/source-credibility'
+import { describeReference } from '@/lib/reference-post/render'
+import type { SharedPostRef } from '@/lib/reference-post/types'
 
 interface EvidenceItem {
   claim?: string
@@ -73,6 +76,8 @@ export interface RunIdeaCardData {
   scorecard?: IdeaScorecard | null
   /** Claims dropped for lack of a source. */
   unsupportedClaims?: string[] | null
+  /** The public post it was made from ("From a link"); null for ideas from a run. */
+  reference?: SharedPostRef | null
   status: string
 }
 
@@ -263,7 +268,12 @@ export function RunIdeaCard({
         collapsed ? 'h-64' : 'min-h-64'
       )}
     >
-      {(showCheckbox || goals.length > 0 || weakSources || onTrend || showStatus) && (
+      {(showCheckbox ||
+        goals.length > 0 ||
+        !!idea.reference ||
+        weakSources ||
+        onTrend ||
+        showStatus) && (
         <div className="mb-2 flex min-w-0 items-center gap-2 text-xs">
           {showCheckbox && (
             <input
@@ -298,6 +308,25 @@ export function RunIdeaCard({
                 </span>
               ))}
             </span>
+          )}
+          {idea.reference && (
+            // What it was made from, one click away.
+            <a
+              href={idea.reference.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`A post like this ${describeReference({
+                ...idea.reference,
+                author: idea.reference.author ?? undefined
+              })}`}
+              className="text-muted hover:text-foreground flex min-w-0 items-center gap-1"
+            >
+              <Link2 className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">
+                Like: {describeReference({ source: idea.reference.source, kind: idea.reference.kind })}
+              </span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
           )}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {onTrend && !weakSources && (

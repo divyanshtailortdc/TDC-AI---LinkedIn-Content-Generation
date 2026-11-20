@@ -13,16 +13,19 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, SquareCheck, Wand2, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, Link2, SquareCheck, Wand2, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
-import { PLATFORMS, type FormatId, type PlatformId } from '@/lib/formats'
+import { SimilarPostDialog } from '@/components/similar-post-dialog'
+import { FORMATS, isPlatformId, PLATFORMS, type FormatId, type PlatformId } from '@/lib/formats'
+import type { ReferencePost, SharedPostRef } from '@/lib/reference-post/types'
 import { GenerateRunDialog, type RunPickerData } from '@/components/generate-run-dialog'
 import { PlatformTabs } from '@/components/platform-tabs'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
 import { approveIdea, rejectIdea, editIdea, draftSelectedIdeas, approveAllIdeas } from './actions'
+import { createSimilarPostAction } from './reference-actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { StatusFilterMenu } from '@/components/status-filter-menu'
@@ -43,6 +46,8 @@ type ClientIdeaData = IdeaCardData & {
   runAccountName?: string | null
   /** The goals the run was started for. */
   runGoalTitles?: string[] | null
+  /** The public post it was made from ("From a link"). */
+  reference?: SharedPostRef | null
 }
 
 const statusLabel = (status: StatusFilter) =>
@@ -77,7 +82,8 @@ export function IdeasClient({
   platformOptions = [],
   platformCounts,
   enabledFormats,
-  picker
+  picker,
+  openSimilar = false
 }: {
   /** One page of the ideas the status filter shows; pageInfo says which. */
   initialIdeas: ClientIdeaData[]
@@ -99,6 +105,8 @@ export function IdeasClient({
   enabledFormats: FormatId[]
   /** For Generate ideas: the goals and platforms a run can be for. */
   picker?: RunPickerData
+  /** Opens "Create a post like one you saw" (?similar=1, from the Posts page). */
+  openSimilar?: boolean
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -108,8 +116,28 @@ export function IdeasClient({
     | { kind: 'selected' }
     | { kind: 'approve' }
     | { kind: 'single'; id: string }
+    // A post like a shared one: its platforms, once the post has been read.
+    | { kind: 'similar'; reference: ReferencePost }
     | null
   >(null)
+  // "From a link": reading the shared post comes first (SimilarPostDialog).
+  const [similarOpen, setSimilarOpen] = useState(openSimilar)
+  // The latest post like a shared one, kept for Try again.
+  const [similarJob, setSimilarJob] = useState<{
+    reference: ReferencePost
+    formats: FormatId[]
+    imageFormats: FormatId[]
+  } | null>(null)
+  // Opened from the Posts page: the address drops ?similar=1, so a reload
+  // or Back does not open it again.
+  useEffect(() => {
+    if (!openSimilar) return
+    const params = new URLSearchParams(window.location.search)
+    if (!params.has('similar')) return
+    params.delete('similar')
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
+  }, [openSimilar])
   const [lastFormats, setLastFormats] = useState<FormatId[] | undefined>()
   // The formats ticked "Add an image" in Create posts, sent with the formats
   // (runDrafting) and kept for Try again, as lastFormats is.
@@ -218,7 +246,7 @@ export function IdeasClient({
   // Ideas come in batches, one per run. Once the list holds more than one, or
   // a batch made under another name, each batch gets a heading.
   const showRunHeaders =
-    new Set(filteredIdeas.map(i => i.runId)).size > 1 ||
+    new Set(filteredIdeas.map(groupOf)).size > 1 ||
     filteredIdeas.some(
       i => i.runAccountName && i.runAccountName !== identity.name
     )
@@ -355,6 +383,7 @@ export function IdeasClient({
   // useDraftingPoll below.
   const runDrafting = async (targetIds: string[], formats?: FormatId[]) => {
     setIsActionBusy(true)
+    setSimilarJob(null)
     setLastFormats(formats)
     setDraftStatus('processing')
     setDraftError(null)
@@ -446,6 +475,43 @@ export function IdeasClient({
   // Posts are made only from the selected ideas that are approved.
   const handleDraftSelected = async (formats: FormatId[]) => {
     await draftIdeas(selectedApproved, formats)
+  }
+
+  // A post like a shared one. The action reads the post and makes its idea
+  // (a minute at most), then its post is written in the background and
+  // followed like any other drafting.
+  const startSimilar = async (job: NonNullable<typeof similarJob>) => {
+    if (draftingRef.current) return
+    draftingRef.current = true
+    setSimilarJob(job)
+    setIsActionBusy(true)
+    setDraftStatus('processing')
+    setDraftError(null)
+    setDraftTargetIds([])
+    try {
+      const res = await createSimilarPostAction({
+        reference: job.reference,
+        formats: job.formats,
+        imageFormats: job.imageFormats
+      })
+      if (res.success) {
+        markDataChanged()
+        setOpenPostsWhenDone(true)
+        setPollIds([res.ideaId])
+      } else {
+        setDraftStatus('error')
+        setDraftError(res.error)
+        showToast({ title: 'The post could not be started', message: res.error, type: 'error' })
+      }
+    } catch (err: any) {
+      const message = err?.message || 'Something went wrong while starting the post.'
+      setDraftStatus('error')
+      setDraftError(message)
+      showToast({ title: 'The post could not be started', message, type: 'error' })
+    } finally {
+      draftingRef.current = false
+      setIsActionBusy(false)
+    }
   }
 
   const handleApproveSelected = async () => {
@@ -541,7 +607,8 @@ export function IdeasClient({
     setCreateDialog(null)
     imageFormatsRef.current = imageFormats
     // Not awaited: drafting shows its own progress.
-    if (open?.kind === 'single') void draftSingle(open.id, formats)
+    if (open?.kind === 'similar') void startSimilar({ reference: open.reference, formats, imageFormats })
+    else if (open?.kind === 'single') void draftSingle(open.id, formats)
     else if (open?.kind === 'approve') void handleApproveSelectedAndDraft(formats)
     else void handleDraftSelected(formats)
   }
@@ -618,6 +685,17 @@ export function IdeasClient({
             </>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={() => setSimilarOpen(true)}
+                aria-label="Create a post like one you saw, from its link"
+                title="Create a post like a public post, reel or video, from its link"
+                className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
+              >
+                <Link2 className="text-accent h-3.5 w-3.5" />
+                {/* Icon only on phones, so the header's buttons stay on one row. */}
+                <span className="hidden sm:inline">From a link</span>
+              </button>
               {picker && (
                 <button
                   type="button"
@@ -720,12 +798,16 @@ export function IdeasClient({
           <AiDraftingStatus
             status={draftStatus}
             subject={
-              draftTargetIds.length > 0
-                ? `${draftTargetIds.length} approved idea${draftTargetIds.length === 1 ? '' : 's'}`
-                : 'your ideas'
+              similarJob
+                ? 'the post you shared'
+                : draftTargetIds.length > 0
+                  ? `${draftTargetIds.length} approved idea${draftTargetIds.length === 1 ? '' : 's'}`
+                  : 'your ideas'
             }
             errorMessage={draftError}
-            onRetry={() => void draftIdeas(draftTargetIds, lastFormats)}
+            onRetry={() =>
+              void (similarJob ? startSimilar(similarJob) : draftIdeas(draftTargetIds, lastFormats))
+            }
             retryDisabled={isActionBusy}
           />
 
@@ -758,6 +840,14 @@ export function IdeasClient({
                     {platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setSimilarOpen(true)}
+                  className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
+                >
+                  <Link2 className="text-accent h-3.5 w-3.5" />
+                  From a link
+                </button>
                 {platform ? (
                   <button
                     type="button"
@@ -788,7 +878,7 @@ export function IdeasClient({
               {filteredIdeas.map((idea, index) => (
                 <Fragment key={idea.id}>
                   {showRunHeaders &&
-                    idea.runId !== filteredIdeas[index - 1]?.runId && (
+                    (index === 0 || groupOf(idea) !== groupOf(filteredIdeas[index - 1]!)) && (
                       <RunGroupHeader
                         idea={idea}
                         currentName={identity.name}
@@ -831,7 +921,38 @@ export function IdeasClient({
         />
       )}
 
-      {createDialog && (
+      {similarOpen && (
+        <SimilarPostDialog
+          onCancel={() => setSimilarOpen(false)}
+          onNext={(reference) => {
+            setSimilarOpen(false)
+            setCreateDialog({ kind: 'similar', reference })
+          }}
+        />
+      )}
+
+      {createDialog?.kind === 'similar' && (
+        <CreatePostsDialog
+          title="Create a post like this one"
+          description="Choose where your post goes and what type of post to write. It is written in your voice and saved for review, like any post."
+          suggested={similarSuggested(createDialog.reference, enabledFormats)}
+          enabledFormats={enabledFormats}
+          initialPlatforms={
+            isPlatformId(createDialog.reference.source) &&
+            enabledFormats.some((f) => FORMATS[f].platform === createDialog.reference.source)
+              ? [createDialog.reference.source]
+              : platform
+                ? [platform]
+                : undefined
+          }
+          imageByDefault={similarWantsImage(createDialog.reference)}
+          confirmLabel="Create post"
+          onCancel={() => setCreateDialog(null)}
+          onConfirm={confirmCreate}
+        />
+      )}
+
+      {createDialog && createDialog.kind !== 'similar' && (
         <CreatePostsDialog
           title={
             createDialog.kind === 'approve'
@@ -878,7 +999,9 @@ function RunGroupHeader({
           ? mounted
             ? `Run of ${formatAbsoluteDateTime(idea.runCreatedAt)}`
             : 'Run'
-          : 'Earlier ideas'}
+          : idea.reference
+            ? 'From links'
+            : 'Earlier ideas'}
       </span>
       {ranAs && (
         <span
@@ -908,4 +1031,23 @@ function RunGroupHeader({
       )}
     </div>
   )
+}
+
+/** The formats on the shared post's own platform, marked as suggested for a post like it. */
+function similarSuggested(reference: ReferencePost, enabled: FormatId[]): FormatId[] {
+  return enabled.filter((f) => FORMATS[f].platform === reference.source)
+}
+
+/**
+ * Whether a post like the shared one starts with "Add an image" ticked: not
+ * when the shared post is text alone (an X or Threads post read in full with
+ * no picture); every other kind has a picture, a cover or may have one.
+ */
+function similarWantsImage(reference: ReferencePost): boolean {
+  return !(reference.kind === 'post' && (reference.source === 'x' || reference.source === 'threads'))
+}
+
+/** The heading an idea is listed under: its run, "From links", or "Earlier ideas". */
+function groupOf(idea: { runId?: string | null; reference?: unknown }): string {
+  return idea.runId ?? (idea.reference ? 'links' : 'earlier')
 }

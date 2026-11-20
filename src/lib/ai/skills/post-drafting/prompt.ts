@@ -26,6 +26,7 @@ import {
   casualStyleRules
 } from '../shared/casual-rules'
 import { renderIdeaEvidence } from '../shared/evidence'
+import { renderReferenceForDrafting } from '@/lib/reference-post/render'
 import { TRUTH_RULES } from '../shared/truth-rules'
 import type { DraftGenerationResult } from './schema'
 
@@ -143,6 +144,8 @@ export function buildPrompt(
     overused.length > 0
       ? `\nThis author's recent ideas and posts keep using the same specifics: ${motifList(overused)}. Use other examples, objects, places and situations in this post, unless the idea is about one of them.\n`
       : ''
+  // Only for an idea made from a shared post, so every other prompt stays as it was.
+  const reference = renderReferenceForDrafting(idea.reference)
 
   return `Write the post for this approved idea.
 ${recent}${habits}
@@ -156,7 +159,7 @@ Reader takeaway: ${idea.audienceTakeaway || ''}
 
 EVIDENCE YOU MAY USE (nothing outside this):
 ${renderIdeaEvidence(idea.supportingEvidence)}
-
+${reference ? `\n${reference}\n` : ''}
 Produce:
 1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold
 2. body — the rest of the post after the hook; do not repeat the hook. Plain text; hook and body together about ${constraints.target_chars} characters${

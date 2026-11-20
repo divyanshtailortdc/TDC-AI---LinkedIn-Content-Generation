@@ -503,7 +503,7 @@ export function aspectOf(width?: number, height?: number): string | null {
 }
 
 /** The search engine's own thumbnails; a platform's image servers are never fetched. */
-const isSearchThumbnail = (url: string) => {
+export const isSearchThumbnail = (url: string) => {
   try {
     const parsed = new URL(url)
     return (

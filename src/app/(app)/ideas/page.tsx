@@ -72,6 +72,8 @@ export default async function IdeasPage({
       platformCounts={platformCounts}
       enabledFormats={channels.enabledFormats}
       picker={picker}
+      // "From a link" on the Posts page lands here with the dialog open.
+      openSimilar={params.similar === '1'}
     />
   )
 }

@@ -358,6 +358,7 @@ function idea(overrides: Partial<Idea>): Idea {
     goalFitScore: null,
     goalFitNote: null,
     scorecard: null,
+    reference: null,
     unsupportedClaims: [],
     sourceIds: [],
     risks: [],

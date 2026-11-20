@@ -30,6 +30,7 @@ import {
 } from '../../context-blocks'
 import { CASUAL_TRUTH_RULES, casualStyleRules } from '../shared/casual-rules'
 import { renderIdeaEvidence } from '../shared/evidence'
+import { renderReferenceForDrafting } from '@/lib/reference-post/render'
 import { TRUTH_RULES } from '../shared/truth-rules'
 import type { VariantDraft } from './schema'
 
@@ -136,6 +137,8 @@ ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own correcti
 }
 
 export function buildIdeaBlock(idea: Idea): string {
+  // Only for an idea made from a shared post, so every other prompt stays as it was.
+  const reference = renderReferenceForDrafting(idea.reference)
   return `THE APPROVED IDEA
 Title: ${idea.title}
 Thesis: ${idea.thesis || ''}
@@ -146,7 +149,7 @@ Core argument: ${idea.coreArgument || ''}
 Reader takeaway: ${idea.audienceTakeaway || ''}
 
 EVIDENCE YOU MAY USE (nothing outside this):
-${renderIdeaEvidence(idea.supportingEvidence)}`
+${renderIdeaEvidence(idea.supportingEvidence)}${reference ? `\n\n${reference}` : ''}`
 }
 
 function describeRange(range: { min: number; max: number }): string {

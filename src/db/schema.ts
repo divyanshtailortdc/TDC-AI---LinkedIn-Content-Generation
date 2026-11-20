@@ -56,6 +56,7 @@ import {
   type ProfileInsights
 } from '../lib/profile-insights/types'
 import type { IdeaScorecard } from '../lib/idea-scorecard'
+import type { ReferencePost } from '../lib/reference-post/types'
 import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
 import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
 import { authUsersTable } from './auth-schema'
@@ -645,6 +646,10 @@ export const ideasTable = pgTable('ideas', {
   // The enabled formats ideation judged this idea suits; empty when the run
   // had only one format to choose from.
   formatFit: jsonb('format_fit').$type<string[]>().default([]).notNull(),
+  // The public post this idea was made from ("a post like this one", see
+  // src/lib/reference-post): its link and what could be read of it. Drafting
+  // writes a post like it. Null for ideas from a run.
+  reference: jsonb('reference').$type<ReferencePost>(),
   ...commonFieldDefs.dates
 },
   table => [

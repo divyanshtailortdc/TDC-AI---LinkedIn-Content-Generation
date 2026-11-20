@@ -5,7 +5,8 @@
  * - runs: a run's research, ideation and drafting (the worker and the
  *   drafting queue);
  * - posts: work on a post after its run: another version, a rewrite, an
- *   image, a carousel;
+ *   image, a carousel; and reading a shared post into the idea for a post
+ *   like it ("From a link", whose post is then drafted under runs);
  * - newsletters: discovering newsletters to subscribe to;
  * - inbox: reading received email and the articles it links to. Anyone who
  *   knows an inbox address can start this work, so it has limits of its own
