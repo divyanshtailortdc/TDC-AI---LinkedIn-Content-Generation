@@ -5,6 +5,7 @@ import { loadRunPicker } from '@/lib/run-picker'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from '../../runs/runs-client'
 import { loadRunsPage } from '../../runs/runs-data'
+import { parseRunFilter } from '../../runs/run-display'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,11 +16,13 @@ interface AccountRunsPageProps {
 export default async function AccountRunsPage({
   searchParams
 }: AccountRunsPageProps) {
-  const page = parsePage((await searchParams).page)
+  const params = await searchParams
+  const page = parsePage(params.page)
+  const filter = parseRunFilter(params.status)
   const account = await requireIdentity()
   const id = account.id
-  const [{ rows, pageInfo }, spend, picker] = await Promise.all([
-    loadRunsPage(id, page),
+  const [{ rows, pageInfo, counts, latestRunId }, spend, picker] = await Promise.all([
+    loadRunsPage(id, page, filter),
     getRunSpendSummary(id),
     loadRunPicker(id)
   ])
@@ -35,6 +38,9 @@ export default async function AccountRunsPage({
       <RunsClient
         initialRuns={formattedRuns}
         pageInfo={pageInfo}
+        filter={filter}
+        counts={counts}
+        latestRunId={latestRunId}
         picker={picker}
         hideHeader={true}
         spend={spend}

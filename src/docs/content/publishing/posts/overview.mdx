@@ -23,17 +23,20 @@ One idea can have a post on each platform, for example a LinkedIn post and an X 
 ## Find your way around the list
 
 - **Platform tabs**: **All platforms**, or one platform's posts. Each tab shows how many posts it holds.
-- **Status chips**: **All**, **Awaiting review**, **Approved**, **Published**, **Rejected** and **Drafts**. Every post is under exactly one chip. **Approved** includes posts that are scheduled or being published.
+- **Overview tiles**: **Awaiting review**, **Approved**, **Scheduled** and **Published**, each with its count. **Awaiting review** also says how long the oldest post has waited, and **Scheduled** when the next one goes out. Click a tile to see only those posts, and click it again to see them all.
+- **Status chips**: **All**, **Rejected** and **Drafts**. The total number of posts is beside the page title.
 - **Search posts...**: searches the text and hashtags. Press <Kbd>Ctrl</Kbd> + <Kbd>K</Kbd> (<Kbd>⌘</Kbd> + <Kbd>K</Kbd> on a Mac) to jump to it.
 - **Filters**: a **Date range** (**From** and **To**) and **Hidden posts**. Click **Apply** to use them.
-- **Sort**: **Newest first** or **Oldest first**.
+- **Sort**: **Newest** or **Oldest**.
 - **Cards** or **List** view.
+
+Every post is under exactly one of **Awaiting review**, **Approved**, **Published**, **Rejected** and **Drafts**. **Approved** includes posts that are scheduled or being published, and **Scheduled** shows just those.
 
 Posts are grouped by the day they were drafted. Older posts load in batches: click **Load older posts** at the end of the list. Search and filters only cover the posts loaded so far.
 
 Your filters are kept in the page address, so **All posts** on a post's page brings you back to the list as you left it.
 
-Each post also shows what it cost in AI so far, such as "$0.0734 · 18.2k tokens": on every card, and in **List** view on wide screens. Hover over it for the number of AI calls. Posts drafted before this was tracked show nothing. See [AI Usage & Limits](/docs/help/ai-usage#on-a-post).
+Hover over the time a post was drafted, on its card or in **List** view, to see its exact date, its length and what it cost in AI so far, such as "AI cost $0.0734, 18.2k tokens". Posts drafted before this was tracked show no cost. See [AI Usage & Limits](/docs/help/ai-usage#on-a-post).
 
 ## Post statuses
 
@@ -52,20 +55,25 @@ Each post shows a coloured status:
 
 ## What each post card offers
 
-The button at the bottom of each card is the next step:
+Click a card to open its post.
+
+A post awaiting review has **Approve** at the bottom of its card, so you can approve it without opening it. In **List** view it shows on wide screens. To reject it, choose **Reject…** in the ⋮ menu: it asks **Why reject it?**; a reason is optional, and it shapes future drafts. Click **Reject post** to confirm. Open the post instead when you want to check its preview, image and checks first.
+
+On other posts, the button at the bottom of the card is the next step:
 
 | Button            | When                                                                                    |
 | ----------------- | --------------------------------------------------------------------------------------- |
-| **Review Draft**  | The post is awaiting review.                                                            |
 | **Publish Now**   | It is approved and the app can publish it. Opens the post.                              |
 | **Copy & post**   | It is approved, but the app doesn't publish this type of post, so you post it yourself. |
 | **Retry publish** | The last attempt failed.                                                                |
-| **Scheduled**     | It is set to go out. Hover to see when.                                                 |
+| Date and time     | It is scheduled to go out then.                                                         |
 | **Live on …**     | It is published. Click to open it on the platform.                                      |
 | **Revisit**       | It was rejected.                                                                        |
 | **Continue Edit** | It is a draft.                                                                          |
 
-The ⋮ menu on each card has **Open post**, **Copy text**, **Hide** (or **Unhide**) and **Delete**.
+A post being published shows no button.
+
+The ⋮ menu on each card has **Open post**, **Approve** and **Reject…** (on a post awaiting review), **Copy text**, **Hide** (or **Unhide**) and **Delete**.
 
 - **Hide** only takes the post out of the list. Turn on **Hidden posts** in **Filters** to see it again. A hidden post that is scheduled still goes out.
 - **Delete** removes the post from the app for good, with its images and alternates. Scheduled publishing is cancelled, and anything already published stays on its platform.
@@ -74,7 +82,7 @@ The ⋮ menu on each card has **Open post**, **Copy text**, **Hide** (or **Unhid
 
 1. **Drafted** from an idea: **Awaiting review**.
 2. **Reviewed** on its page: you check the preview, the image and the checks, and edit anything you like. See [Editing a Post](/docs/publishing/posts/editing).
-3. **Approved**, or **Rejected** with an optional reason that shapes future drafts.
+3. **Approved**, or **Rejected** with an optional reason that shapes future drafts, on its page or straight from the list.
 4. **Published** with **Publish now**, at a set time with **Schedule**, automatically on its planned day, or by copying it and posting it yourself. See [Schedule](/docs/publishing/schedule).
 5. **Live**: once it is out, its text and image can no longer change.
 

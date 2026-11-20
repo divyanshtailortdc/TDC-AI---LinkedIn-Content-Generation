@@ -5,6 +5,8 @@ import { isAICapable } from '@/lib/ai'
 import { getIdentity } from '@/lib/identity'
 import { isWebSearchConfigured } from '@/lib/research/web-search'
 import { and, desc, eq, ne } from 'drizzle-orm'
+import { ensureInboundAddress } from '~/lib/mail/addresses'
+import { inboxConfig } from '~/lib/mail/settings'
 import { NewslettersClient } from './newsletters-client'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +19,18 @@ export default async function NewslettersPage() {
   const identity = await getIdentity()
   if (!identity) return <NoIdentity title="Newsletters" />
 
-  const newsletters = await db
+  // The address to sign up with, shown beside the list, so issues land in
+  // the Inbox. The Inbox page makes it the same way on first visit; without
+  // one (none could be made) the user is sent there to choose it.
+  const config = inboxConfig()
+  const addressLoad = config
+    ? ensureInboundAddress(identity.id, config.domain).catch(error => {
+        console.error('Loading the inbox address failed:', error)
+        return null
+      })
+    : null
+
+  const newslettersLoad = db
     .select({
       id: newslettersTable.id,
       name: newslettersTable.name,
@@ -44,6 +57,10 @@ export default async function NewslettersPage() {
       desc(newslettersTable.relevanceScore),
       desc(newslettersTable.discoveredAt)
     )
+  const [newsletters, address] = await Promise.all([
+    newslettersLoad,
+    addressLoad
+  ])
 
   const missing = [
     isAICapable ? null : 'ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY',
@@ -51,6 +68,10 @@ export default async function NewslettersPage() {
   ].filter((key): key is string => key !== null)
 
   return (
-    <NewslettersClient initialNewsletters={newsletters} missingKeys={missing} />
+    <NewslettersClient
+      initialNewsletters={newsletters}
+      missingKeys={missing}
+      inbox={config ? { address } : null}
+    />
   )
 }

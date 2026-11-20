@@ -91,7 +91,7 @@ const NEW_TEXT_ON_ITS_WAY =
   'A new version of the text is on its way; read and approve it first'
 
 const SMALL_BUTTON =
-  'flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+  'focus-visible:ring-foreground/30 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50'
 
 /**
  * Publish now, Schedule, and the state of the post's publication, for an
@@ -271,7 +271,7 @@ function PublishControlsInner({
       type: 'error',
       title: 'Unsaved changes',
       message:
-        'Save or cancel your edits before publishing this post. Use Edit Post Text to reopen them.'
+        'Save or cancel your edits before publishing this post. Use Edit text to reopen them.'
     })
     return true
   }
@@ -498,7 +498,7 @@ function PublishControlsInner({
       <span className="inline-flex flex-wrap items-center gap-2">
         {lastFailed && (
           <span
-            className="inline-flex max-w-40 items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400"
+            className="inline-flex max-w-40 items-center gap-1 text-xs text-rose-600 dark:text-rose-400"
             title={publication.error ?? undefined}
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />

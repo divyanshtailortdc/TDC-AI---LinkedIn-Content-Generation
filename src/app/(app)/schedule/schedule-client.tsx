@@ -1,9 +1,13 @@
 'use client'
 
+import { Button } from '@/components/button'
 import { PageHeader } from '@/components/page-header'
-import { Pagination } from '@/components/pagination'
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
+import { EmptyState } from '@/components/ui/empty-state'
+import { FilterChips } from '@/components/ui/filter-chips'
+import { StatTile } from '@/components/ui/stat-tile'
+import { FOCUS_RING, type Tone } from '@/components/ui/tone'
 import type { Schedule } from '@/db/schema'
 import {
   dayLabel,
@@ -15,62 +19,71 @@ import {
   type Month
 } from '@/lib/calendar'
 import { cn } from '@/lib/cn'
-import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { getPlatform, type PlatformId } from '@/lib/platforms'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import {
-  ArrowRight,
+  AlertTriangle,
   CalendarClock,
-  CalendarX,
+  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Info,
+  ClipboardCheck,
   Loader2,
-  Target,
-  Undo2,
-  X
+  type LucideIcon
 } from 'lucide-react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useId, useRef, useState, useTransition } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type DragEvent,
+  type ReactNode
+} from 'react'
 import { planPost, setPostPosted } from './actions'
+import { PostDialog } from './post-dialog'
+import { stageOf, STAGE_ORDER, type Stage } from './post-stage'
 import type { NextRun, PlannedPost } from './schedule-data'
 import { ScheduleForm, type ScheduleGoal } from './schedule-form'
-
-type ShownStatus = 'awaiting_review' | 'approved' | 'posted'
-
-/** Posted once the reviewer says so; otherwise where review stands. */
-function shownStatus(post: PlannedPost): ShownStatus {
-  if (post.postedAt) return 'posted'
-  return post.status === 'approved' ? 'approved' : 'awaiting_review'
-}
-
-const STATUS: Record<
-  ShownStatus,
-  { label: string; dot: string; chip: string }
-> = {
-  awaiting_review: {
-    label: 'To review',
-    dot: 'bg-amber-500',
-    chip: 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300'
-  },
-  approved: {
-    label: 'Approved',
-    dot: 'bg-emerald-500',
-    chip: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
-  },
-  posted: {
-    label: 'Posted',
-    dot: 'bg-brand',
-    chip: 'border-brand/30 bg-brand/10 text-brand-strong'
-  }
-}
+import { focusPost, InfoHint, PostChip, StageChip } from './schedule-parts'
+import { UnplannedList } from './unplanned-list'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 /** Calendar cells show this many posts, then "+N more". */
 const CELL_LIMIT = 3
+
+/** The month's figures that narrow the calendar, and the stages each covers. */
+type StageFilter = 'all' | 'to_review' | 'scheduled' | 'posted' | 'failed'
+const FILTER_STAGES: Record<Exclude<StageFilter, 'all'>, Stage[]> = {
+  to_review: ['to_review'],
+  scheduled: ['scheduled', 'publishing'],
+  posted: ['posted'],
+  failed: ['failed']
+}
+const FILTER_EMPTY: Record<Exclude<StageFilter, 'all'>, string> = {
+  to_review: 'No posts to review',
+  scheduled: 'No scheduled posts',
+  posted: 'Nothing posted',
+  failed: 'No failed posts'
+}
+
+type PlatformFilter = PlatformId | 'all'
+
+/** What failed on a post, so its dialog can offer to try it again. */
+type Failure = {
+  id: string
+  message: string
+  retry: { kind: 'plan'; day: string | null } | { kind: 'posted'; posted: boolean }
+}
+
+const OFFLINE = 'Could not reach the server. Check your connection and try again.'
+
+const monthOf = (day: string): Month => ({
+  year: Number(day.slice(0, 4)),
+  month: Number(day.slice(5, 7))
+})
 
 export function ScheduleClient({
   accountId,
@@ -81,7 +94,8 @@ export function ScheduleClient({
   schedule,
   nextRun,
   goals,
-  platforms
+  platforms,
+  initialPlatform = null
 }: {
   accountId: string
   month: Month
@@ -96,6 +110,8 @@ export function ScheduleClient({
   goals: ScheduleGoal[]
   /** The platforms the identity posts on: a day's run can plan for one. */
   platforms: PlatformId[]
+  /** The platform the address asks to show (?platform=), if any. */
+  initialPlatform?: PlatformId | null
 }) {
   const router = useRouter()
   const mounted = useHasMounted()
@@ -115,35 +131,105 @@ export function ScheduleClient({
   }
   const [busyId, setBusyId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
   const [dropDay, setDropDay] = useState<string | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
   // Days whose cell shows every post rather than the first few.
   const [expanded, setExpanded] = useState<string[]>([])
-  // The "Not planned yet" list, a page at a time.
-  const [unplannedPage, setUnplannedPage] = useState(1)
-  const unplannedRef = useRef<HTMLElement>(null)
+  const [stageFilter, setStageFilter] = useState<StageFilter>('all')
+  const [platformPick, setPlatformPick] = useState<PlatformFilter>(
+    initialPlatform ?? 'all'
+  )
+  const monthHeadingRef = useRef<HTMLHeadingElement>(null)
+  // What opened the dialog, to put focus back there (or on the post's new
+  // place) once it closes.
+  const lastOpen = useRef<{ id: string; opener: HTMLElement | null } | null>(
+    null
+  )
+
+  // The platforms to filter by: the identity's, and any a post here is for.
+  const platformOptions = PLATFORM_IDS.filter(
+    id => platforms.includes(id) || posts.some(p => p.platform === id)
+  )
+  const platform: PlatformFilter =
+    platformPick !== 'all' &&
+    platformOptions.length > 1 &&
+    platformOptions.includes(platformPick)
+      ? platformPick
+      : 'all'
+  const ofPlatform = (post: PlannedPost) =>
+    platform === 'all' || post.platform === platform
 
   const weeks = monthGrid(month)
+  const gridFrom = weeks[0]![0]!
+  const gridTo = weeks[weeks.length - 1]![6]!
   const inMonth = (day: string) => day.startsWith(monthParam(month))
+
+  // The month's figures: its own days only, of the platform picked.
+  const monthPosts = posts.filter(
+    p => p.plannedFor && inMonth(p.plannedFor) && ofPlatform(p)
+  )
+  const counts = Object.fromEntries(STAGE_ORDER.map(s => [s, 0])) as Record<
+    Stage,
+    number
+  >
+  for (const post of monthPosts) counts[stageOf(post)]++
+  const filterCount = (f: Exclude<StageFilter, 'all'>) =>
+    FILTER_STAGES[f].reduce((n, s) => n + counts[s], 0)
+  const plannedDays = new Set(monthPosts.map(p => p.plannedFor)).size
+
+  const onCalendar = (post: PlannedPost) =>
+    ofPlatform(post) &&
+    (stageFilter === 'all' || FILTER_STAGES[stageFilter].includes(stageOf(post)))
   const byDay = new Map<string, PlannedPost[]>()
   for (const post of posts) {
-    if (!post.plannedFor) continue
+    if (!post.plannedFor || !onCalendar(post)) continue
     byDay.set(post.plannedFor, [...(byDay.get(post.plannedFor) ?? []), post])
   }
   const notPlanned = posts.filter(p => !p.plannedFor)
-  const { rows: unplannedRows, pageInfo: unplannedPageInfo } = paginate(
-    notPlanned,
-    unplannedPage,
-    PAGE_SIZE
-  )
-  const openPost = posts.find(p => p.id === openId) ?? null
 
+  const openPost = posts.find(p => p.id === openId) ?? null
+  // A post that left the page (moved past the days loaded) closes its dialog.
+  if (openId && !openPost) setOpenId(null)
+
+  useEffect(() => {
+    if (openId || !lastOpen.current) return
+    const { id, opener } = lastOpen.current
+    lastOpen.current = null
+    focusPost(id, opener, monthHeadingRef.current)
+  }, [openId])
+
+  const openDialog = (id: string) => {
+    lastOpen.current = {
+      id,
+      opener:
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+    }
+    setFailure(null)
+    setOpenId(id)
+  }
+  const closeDialog = () => {
+    setFailure(null)
+    setOpenId(null)
+  }
+
+  const hrefFor = (next: Month, shown: PlatformFilter = platform) => {
+    const params = new URLSearchParams({ month: monthParam(next) })
+    if (shown !== 'all') params.set('platform', shown)
+    return `/schedule?${params}`
+  }
   const goToMonth = (next: Month) =>
-    startNavigation(() => router.push(`/schedule?month=${monthParam(next)}`))
+    startNavigation(() => router.push(hrefFor(next)))
+  const pickPlatform = (next: PlatformFilter) => {
+    setPlatformPick(next)
+    // In the address too, so a reload or another month keeps it.
+    window.history.replaceState(null, '', hrefFor(month, next))
+  }
 
   // A viewer whose day differs from the server's sees their own month.
-  const todayMonth = today
-    ? { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) }
-    : null
+  const todayMonth = today ? monthOf(today) : null
 
   const update = (id: string, patch: Partial<PlannedPost>) =>
     setPosts(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)))
@@ -152,14 +238,29 @@ export function ScheduleClient({
     const before = posts.find(p => p.id === id)
     if (!before || before.plannedFor === day) return
     setBusyId(id)
+    setFailure(null)
     update(id, { plannedFor: day })
+    const fail = (message: string) => {
+      update(id, { plannedFor: before.plannedFor })
+      showToast({ type: 'error', title: 'Not planned', message })
+      setFailure({ id, message, retry: { kind: 'plan', day } })
+    }
     try {
       const res = await planPost(id, day)
       if (!res.success) {
-        update(id, { plannedFor: before.plannedFor })
-        showToast({ type: 'error', title: 'Not planned', message: res.error })
+        fail(res.error || 'Failed to plan the post')
         return
       }
+      // Past the days on screen it leaves the calendar: say where it went.
+      if (day && (day < gridFrom || day > gridTo)) {
+        showToast({
+          type: 'success',
+          title: `Planned for ${dayLabel(day)}`,
+          message: `It is on the ${monthLabel(monthOf(day))} calendar.`
+        })
+      }
+    } catch {
+      fail(OFFLINE)
     } finally {
       setBusyId(null)
     }
@@ -170,82 +271,252 @@ export function ScheduleClient({
     if (!before) return
     const day = localDay()
     setBusyId(id)
+    setFailure(null)
     update(id, {
       postedAt: posted ? new Date() : null,
       plannedFor: posted ? (before.plannedFor ?? day) : before.plannedFor
     })
+    const fail = (message: string) => {
+      update(id, { postedAt: before.postedAt, plannedFor: before.plannedFor })
+      showToast({ type: 'error', title: 'Not updated', message })
+      setFailure({ id, message, retry: { kind: 'posted', posted } })
+    }
     try {
       const res = await setPostPosted(id, posted, day)
       if (!res.success) {
-        update(id, { postedAt: before.postedAt, plannedFor: before.plannedFor })
-        showToast({ type: 'error', title: 'Not updated', message: res.error })
+        fail(res.error || 'Failed to update the post')
         return
       }
+    } catch {
+      fail(OFFLINE)
     } finally {
       setBusyId(null)
     }
   }
 
-  const onDrop = (day: string, e: React.DragEvent) => {
-    e.preventDefault()
+  const retry = () => {
+    if (!failure) return
+    const { id, retry: action } = failure
+    if (action.kind === 'plan') void plan(id, action.day)
+    else void markPosted(id, action.posted)
+  }
+
+  const startDrag = (id: string, e: DragEvent) => {
+    e.dataTransfer.setData('text/plain', id)
+    e.dataTransfer.effectAllowed = 'move'
+    // Once the browser has its drag image: changing the dragged element
+    // during dragstart can cancel the drag.
+    setTimeout(() => setDraggingId(id), 0)
+  }
+  const endDrag = () => {
+    setDraggingId(null)
     setDropDay(null)
+  }
+  const onDrop = (day: string, e: DragEvent) => {
+    e.preventDefault()
+    endDrag()
     const id = e.dataTransfer.getData('text/plain')
     if (id) void plan(id, day)
   }
+  const dragged = draggingId ? posts.find(p => p.id === draggingId) : null
+  // Dropped on the list it is unscheduled, as Unschedule does: not once posted.
+  const canDropToUnplan = Boolean(
+    dragged?.plannedFor && stageOf(dragged) !== 'posted'
+  )
+
+  const platformName = platform === 'all' ? null : getPlatform(platform).name
+  const monthName = monthLabel(month)
+  // What the phone agenda says when it has nothing to list.
+  const empty: { title: string; showAll?: () => void } =
+    monthPosts.length === 0
+      ? platformName && posts.some(p => p.plannedFor && inMonth(p.plannedFor))
+        ? { title: `No ${platformName} posts`, showAll: () => pickPlatform('all') }
+        : { title: 'Nothing planned' }
+      : stageFilter !== 'all'
+        ? {
+            title: FILTER_EMPTY[stageFilter],
+            showAll: () => setStageFilter('all')
+          }
+        : { title: 'Nothing planned' }
+
+  const tiles: {
+    key: StageFilter
+    label: string
+    value: number
+    hint?: string
+    icon: LucideIcon
+    tone: Tone
+  }[] = [
+    {
+      key: 'all',
+      label: 'Planned',
+      value: monthPosts.length,
+      hint:
+        plannedDays > 0
+          ? `${plannedDays} ${plannedDays === 1 ? 'day' : 'days'}`
+          : undefined,
+      icon: CalendarDays,
+      tone: 'neutral'
+    },
+    {
+      key: 'to_review',
+      label: 'To review',
+      value: filterCount('to_review'),
+      icon: ClipboardCheck,
+      tone: 'warning'
+    },
+    {
+      key: 'scheduled',
+      label: 'Scheduled',
+      value: filterCount('scheduled'),
+      hint:
+        counts.publishing > 0 ? `${counts.publishing} publishing` : undefined,
+      icon: CalendarClock,
+      tone: 'brand'
+    },
+    {
+      key: 'posted',
+      label: 'Posted',
+      value: filterCount('posted'),
+      icon: CheckCircle2,
+      tone: 'success'
+    },
+    {
+      key: 'failed',
+      label: 'Failed',
+      value: filterCount('failed'),
+      icon: AlertTriangle,
+      tone: 'danger'
+    }
+  ]
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <PageHeader
         title="Schedule"
-        description="Plan the day each post goes out. Publish approved posts from Posts, or turn on auto-publishing in Settings → Integrations to publish them on their planned day."
+        description="Plan when each post goes out."
       />
 
       <div className="relative flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
-            {/* Calendar */}
-            <section
-              aria-label={`Posts planned in ${monthLabel(month)}`}
-              className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs"
-            >
-              <div className="border-border flex items-center gap-1.5 border-b px-3 py-2.5">
+          {/* Month: navigation, platform, and its figures */}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => goToMonth(shiftMonth(month, -1))}
                   aria-label="Previous month"
-                  className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 items-center justify-center rounded-lg border transition-colors"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span
-                  aria-live="polite"
-                  className="text-foreground min-w-32 text-center text-sm font-semibold tabular-nums"
-                >
-                  {isNavigating ? (
-                    <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    monthLabel(month)
+                  className={cn(
+                    'border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors',
+                    FOCUS_RING
                   )}
-                </span>
+                >
+                  <ChevronLeft aria-hidden className="h-4 w-4" />
+                </button>
+                <h2
+                  ref={monthHeadingRef}
+                  tabIndex={-1}
+                  aria-live="polite"
+                  className="text-foreground min-w-36 text-center text-base font-semibold tracking-tight tabular-nums outline-none sm:text-lg"
+                >
+                  {monthName}
+                </h2>
                 <button
                   type="button"
                   onClick={() => goToMonth(shiftMonth(month, 1))}
                   aria-label="Next month"
-                  className="border-border text-foreground hover:bg-surface-hover flex h-8 w-8 items-center justify-center rounded-lg border transition-colors"
+                  className={cn(
+                    'border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors',
+                    FOCUS_RING
+                  )}
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight aria-hidden className="h-4 w-4" />
                 </button>
                 {todayMonth && monthParam(todayMonth) !== monthParam(month) && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => goToMonth(todayMonth)}
-                    className="border-border text-foreground hover:bg-surface-hover h-8 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
+                    className={cn('ml-1', FOCUS_RING)}
                   >
                     Today
-                  </button>
+                  </Button>
+                )}
+                <span className="ml-1 hidden md:inline-flex">
+                  <InfoHint title="Drag a post onto a day to move it, or open it to pick a day." />
+                </span>
+                {isNavigating && (
+                  <Loader2
+                    role="status"
+                    aria-label="Loading the month"
+                    className="text-muted ml-1 h-4 w-4 animate-spin motion-reduce:animate-none"
+                  />
                 )}
               </div>
+              {platformOptions.length > 1 && (
+                <FilterChips<PlatformFilter>
+                  label="Show posts for platform"
+                  value={platform}
+                  onChange={pickPlatform}
+                  options={[
+                    { value: 'all', label: 'All platforms' },
+                    ...platformOptions.map(id => ({
+                      value: id,
+                      label: (
+                        <span className="inline-flex items-center gap-1.5">
+                          <PlatformMark
+                            platform={id}
+                            colored
+                            className="h-3.5 w-3.5 shrink-0"
+                          />
+                          {getPlatform(id).name}
+                        </span>
+                      )
+                      // No counts: the month's figures below already count,
+                      // and a row of zeros said nothing.
+                    }))
+                  ]}
+                />
+              )}
+            </div>
 
+            <div
+              role="group"
+              aria-label={`${monthName} at a glance. Pick one to show only those posts on the calendar.`}
+              className={cn(
+                'grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 xl:grid-cols-5',
+                isNavigating && 'opacity-60'
+              )}
+            >
+              {tiles.map(tile => (
+                <StatTile
+                  key={tile.key}
+                  label={tile.label}
+                  value={tile.value}
+                  hint={tile.hint}
+                  icon={tile.icon}
+                  tone={tile.value > 0 ? tile.tone : 'neutral'}
+                  active={stageFilter === tile.key}
+                  onClick={() =>
+                    setStageFilter(current =>
+                      tile.key === 'all' || current === tile.key
+                        ? 'all'
+                        : tile.key
+                    )
+                  }
+                  className={tile.key === 'all' ? 'col-span-2 sm:col-span-1' : undefined}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            {/* Calendar */}
+            <section
+              aria-label={`Posts planned in ${monthName}`}
+              className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs"
+            >
               <div
                 className={cn(
                   'transition-opacity',
@@ -254,11 +525,17 @@ export function ScheduleClient({
               >
                 {/* Month grid, from tablet width up */}
                 <div className="hidden md:block">
-                  <div className="border-border grid grid-cols-7 border-b">
-                    {WEEKDAYS.map(d => (
+                  <div
+                    aria-hidden
+                    className="border-border grid grid-cols-7 border-b"
+                  >
+                    {WEEKDAYS.map((d, i) => (
                       <div
                         key={d}
-                        className="text-muted px-2 py-2 text-center text-[11px] font-semibold tracking-wider uppercase"
+                        className={cn(
+                          'text-muted px-2 py-2 text-center text-xs font-medium',
+                          i >= 5 && 'bg-surface-hover/25'
+                        )}
                       >
                         {d}
                       </div>
@@ -269,10 +546,12 @@ export function ScheduleClient({
                       key={week[0]}
                       className="border-border grid grid-cols-7 border-b last:border-b-0"
                     >
-                      {week.map(day => {
+                      {week.map((day, col) => {
                         const dayPosts = byDay.get(day) ?? []
                         const isToday = day === today
-                        const shown = expanded.includes(day)
+                        const isPast = today !== null && day < today
+                        const open = expanded.includes(day)
+                        const shown = open
                           ? dayPosts
                           : dayPosts.slice(0, CELL_LIMIT)
                         return (
@@ -280,17 +559,26 @@ export function ScheduleClient({
                             key={day}
                             onDragOver={e => {
                               e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
                               setDropDay(day)
                             }}
-                            onDragLeave={() =>
+                            onDragLeave={e => {
+                              // Moving onto a chip inside the cell is not leaving it.
+                              if (e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                                return
+                              }
                               setDropDay(current =>
                                 current === day ? null : current
                               )
-                            }
+                            }}
                             onDrop={e => onDrop(day, e)}
                             className={cn(
-                              'border-border min-h-28 border-r p-1.5 last:border-r-0',
-                              !inMonth(day) && 'bg-surface-hover/40',
+                              'border-border @container min-h-28 min-w-0 border-r p-1.5 transition-colors last:border-r-0',
+                              !inMonth(day)
+                                ? 'bg-surface-hover/50'
+                                : isPast
+                                  ? 'bg-surface-hover/30'
+                                  : col >= 5 && 'bg-surface-hover/20',
                               dropDay === day &&
                                 'bg-brand/10 ring-brand ring-2 ring-inset'
                             )}
@@ -301,34 +589,61 @@ export function ScheduleClient({
                                   'flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs tabular-nums',
                                   isToday
                                     ? 'bg-accent text-background font-semibold'
-                                    : inMonth(day)
-                                      ? 'text-foreground'
-                                      : 'text-muted'
+                                    : !inMonth(day)
+                                      ? 'text-muted/70'
+                                      : isPast
+                                        ? 'text-muted'
+                                        : 'text-foreground font-medium'
                                 )}
                               >
-                                {Number(day.slice(8))}
+                                <span aria-hidden>{Number(day.slice(8))}</span>
+                                <span className="sr-only">
+                                  {dayLabel(day)}
+                                  {isToday ? ', today' : ''}
+                                </span>
                               </span>
                             </div>
-                            <ul className="space-y-1">
-                              {shown.map(post => (
-                                <li key={post.id}>
-                                  <PostChip
-                                    post={post}
-                                    busy={busyId === post.id}
-                                    onOpen={() => setOpenId(post.id)}
-                                  />
-                                </li>
-                              ))}
-                            </ul>
-                            {dayPosts.length > shown.length && (
+                            {shown.length > 0 && (
+                              <ul className="space-y-1">
+                                {shown.map(post => (
+                                  <li key={post.id}>
+                                    <PostChip
+                                      post={post}
+                                      busy={busyId === post.id}
+                                      dragging={draggingId === post.id}
+                                      mounted={mounted}
+                                      onOpen={() => openDialog(post.id)}
+                                      onDragStart={e => startDrag(post.id, e)}
+                                      onDragEnd={endDrag}
+                                    />
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {dayPosts.length > CELL_LIMIT && (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setExpanded(prev => [...prev, day])
+                                aria-expanded={open}
+                                aria-label={
+                                  open
+                                    ? `Show fewer posts on ${dayLabel(day)}`
+                                    : `Show ${dayPosts.length - CELL_LIMIT} more posts on ${dayLabel(day)}`
                                 }
-                                className="text-muted hover:text-foreground mt-1 px-1 text-[11px] font-medium"
+                                onClick={() =>
+                                  setExpanded(prev =>
+                                    open
+                                      ? prev.filter(d => d !== day)
+                                      : [...prev, day]
+                                  )
+                                }
+                                className={cn(
+                                  'text-muted hover:text-foreground mt-1 cursor-pointer rounded px-1 text-xs font-medium',
+                                  FOCUS_RING
+                                )}
                               >
-                                +{dayPosts.length - shown.length} more
+                                {open
+                                  ? 'Show less'
+                                  : `+${dayPosts.length - CELL_LIMIT} more`}
                               </button>
                             )}
                           </div>
@@ -345,119 +660,53 @@ export function ScheduleClient({
                     byDay={byDay}
                     today={today}
                     busyId={busyId}
-                    onOpen={setOpenId}
-                  />
-                </div>
-              </div>
-
-              <div className="border-border text-muted flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2.5 text-[11px]">
-                {(Object.keys(STATUS) as ShownStatus[]).map(key => (
-                  <span key={key} className="inline-flex items-center gap-1.5">
-                    <span
-                      aria-hidden
-                      className={cn('h-2 w-2 rounded-full', STATUS[key].dot)}
-                    />
-                    {STATUS[key].label}
-                  </span>
-                ))}
-                <span className="ml-auto hidden md:inline">
-                  Drag a post onto a day to plan it.
-                </span>
-              </div>
-            </section>
-
-            {/* Posts not planned yet */}
-            <section
-              ref={unplannedRef}
-              aria-labelledby="unplanned-heading"
-              className="border-border bg-surface scroll-mt-4 rounded-2xl border shadow-xs"
-            >
-              <div className="border-border border-b px-4 py-3">
-                <h2
-                  id="unplanned-heading"
-                  className="text-foreground flex items-center gap-2 text-sm font-semibold"
-                >
-                  <CalendarClock className="text-accent h-4 w-4" />
-                  Not planned yet
-                  <span className="text-muted font-normal tabular-nums">
-                    ({unscheduledTotal})
-                  </span>
-                </h2>
-                <p className="text-muted mt-0.5 text-[11px]">
-                  Posts in review or approved. Pick a day for each.
-                </p>
-              </div>
-              {notPlanned.length === 0 ? (
-                <div className="text-muted p-6 text-center text-xs">
-                  Every post is planned.{' '}
-                  <Link href="/ideas" className="text-accent hover:underline">
-                    Create posts from ideas
-                  </Link>
-                </div>
-              ) : (
-                <ul
-                  key={unplannedPageInfo.page}
-                  className="divide-border max-h-128 divide-y overflow-y-auto"
-                >
-                  {unplannedRows.map(post => (
-                    <li
-                      key={post.id}
-                      draggable
-                      onDragStart={e =>
-                        e.dataTransfer.setData('text/plain', post.id)
-                      }
-                      className="space-y-2 px-4 py-3"
-                    >
-                      <div className="flex items-center gap-2">
-                        <PlatformMark
-                          platform={post.platform}
-                          className="text-muted h-3.5 w-3.5 shrink-0"
-                        />
-                        <span className="sr-only">
-                          {getPlatform(post.platform).name}
-                        </span>
-                        <StatusBadge post={post} />
-                        {post.goalTitle && (
-                          <span className="text-muted inline-flex min-w-0 items-center gap-1 text-[11px]">
-                            <Target className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{post.goalTitle}</span>
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setOpenId(post.id)}
-                        className="text-foreground hover:text-accent line-clamp-2 text-left text-xs leading-relaxed"
-                      >
-                        {post.hook}
-                      </button>
-                      <DayInput
-                        label="Plan for"
-                        value={null}
-                        disabled={busyId === post.id}
-                        onChange={day => void plan(post.id, day)}
+                    mounted={mounted}
+                    onOpen={openDialog}
+                    empty={
+                      <EmptyState
+                        compact
+                        bordered={false}
+                        icon={CalendarDays}
+                        title={empty.title}
+                        action={
+                          empty.showAll && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={empty.showAll}
+                              className={FOCUS_RING}
+                            >
+                              Show all
+                            </Button>
+                          )
+                        }
                       />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {unplannedPageInfo.pageCount > 1 && (
-                <div className="border-border border-t px-4 py-2.5">
-                  <Pagination
-                    {...unplannedPageInfo}
-                    noun="posts"
-                    onPageChange={setUnplannedPage}
-                    scrollTarget={unplannedRef}
+                    }
                   />
                 </div>
-              )}
-              {unscheduledTotal > notPlanned.length && (
-                <p className="text-muted border-border border-t px-4 py-2 text-[11px]">
-                  Showing the newest {notPlanned.length}. Plan these to see
-                  more.
-                </p>
-              )}
+              </div>
             </section>
+
+            <UnplannedList
+              posts={notPlanned.filter(ofPlatform)}
+              loaded={notPlanned.length}
+              total={unscheduledTotal}
+              platformName={platformName}
+              today={today}
+              mounted={mounted}
+              busyId={busyId}
+              draggingId={draggingId}
+              canDropToUnplan={canDropToUnplan}
+              onOpen={openDialog}
+              onPlan={(id, day) => void plan(id, day)}
+              onDragStart={startDrag}
+              onDragEnd={endDrag}
+              onDropToUnplan={id => {
+                endDrag()
+                void plan(id, null)
+              }}
+              onShowAllPlatforms={() => pickPlatform('all')}
+            />
           </div>
 
           <ScheduleForm
@@ -473,8 +722,11 @@ export function ScheduleClient({
       {openPost && (
         <PostDialog
           post={openPost}
+          today={today}
           busy={busyId === openPost.id}
-          onClose={() => setOpenId(null)}
+          failure={failure?.id === openPost.id ? failure.message : null}
+          onRetry={retry}
+          onClose={closeDialog}
           onPlan={day => void plan(openPost.id, day)}
           onPosted={posted => void markPosted(openPost.id, posted)}
         />
@@ -483,280 +735,87 @@ export function ScheduleClient({
   )
 }
 
-function StatusBadge({ post }: { post: PlannedPost }) {
-  const status = STATUS[shownStatus(post)]
-  return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
-        status.chip
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn('h-1.5 w-1.5 rounded-full', status.dot)}
-      />
-      {status.label}
-    </span>
-  )
-}
-
-function PostChip({
-  post,
-  busy,
-  onOpen
-}: {
-  post: PlannedPost
-  busy: boolean
-  onOpen: () => void
-}) {
-  const status = STATUS[shownStatus(post)]
-  return (
-    <button
-      type="button"
-      draggable
-      onDragStart={e => e.dataTransfer.setData('text/plain', post.id)}
-      onClick={onOpen}
-      title={`${getPlatform(post.platform).name} · ${status.label}: ${post.hook}`}
-      className={cn(
-        'flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight transition-opacity hover:opacity-80',
-        status.chip,
-        busy && 'opacity-60'
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn('h-1.5 w-1.5 shrink-0 rounded-full', status.dot)}
-      />
-      {/* A post and its X version share a hook: the mark tells them apart. */}
-      <PlatformMark platform={post.platform} className="h-3 w-3 shrink-0" />
-      <span className="sr-only">
-        {getPlatform(post.platform).name}, {status.label}:{' '}
-      </span>
-      <span className="min-w-0 truncate">{post.hook}</span>
-    </button>
-  )
-}
-
+/** The month as a list of the days that have posts, for phones. */
 function AgendaList({
   days,
   byDay,
   today,
   busyId,
-  onOpen
+  mounted,
+  onOpen,
+  empty
 }: {
   days: string[]
   byDay: Map<string, PlannedPost[]>
   today: string | null
   busyId: string | null
+  mounted: boolean
   onOpen: (id: string) => void
+  /** Shown when no day has a post. */
+  empty: ReactNode
 }) {
   const withPosts = days.filter(day => (byDay.get(day) ?? []).length > 0)
-  if (withPosts.length === 0) {
-    return (
-      <p className="text-muted p-6 text-center text-xs">
-        No posts planned this month.
-      </p>
-    )
-  }
+  if (withPosts.length === 0) return empty
   return (
     <ol className="divide-border divide-y">
-      {withPosts.map(day => (
-        <li key={day} className="space-y-1.5 px-4 py-3">
-          <p className="text-foreground text-xs font-semibold">
-            {dayLabel(day)}
-            {day === today && (
-              <span className="bg-accent text-background ml-2 rounded-full px-1.5 py-0.5 text-[10px]">
-                Today
-              </span>
-            )}
-          </p>
-          <ul className="space-y-1">
-            {(byDay.get(day) ?? []).map(post => (
-              <li key={post.id}>
-                <PostChip
-                  post={post}
-                  busy={busyId === post.id}
-                  onOpen={() => onOpen(post.id)}
-                />
-              </li>
-            ))}
-          </ul>
-        </li>
-      ))}
-    </ol>
-  )
-}
-
-/** A date field that reports a whole day, or null when cleared. */
-function DayInput({
-  label,
-  value,
-  disabled,
-  onChange
-}: {
-  label: string
-  value: string | null
-  disabled?: boolean
-  onChange: (day: string | null) => void
-}) {
-  const id = useId()
-  return (
-    <div className="flex items-center gap-2">
-      <label htmlFor={id} className="text-muted shrink-0 text-[11px]">
-        {label}
-      </label>
-      <input
-        id={id}
-        type="date"
-        value={value ?? ''}
-        disabled={disabled}
-        onChange={e => onChange(e.target.value || null)}
-        className="border-border bg-surface-hover text-foreground h-7 min-w-0 flex-1 rounded-lg border px-2 text-xs disabled:opacity-60"
-      />
-    </div>
-  )
-}
-
-function PostDialog({
-  post,
-  busy,
-  onClose,
-  onPlan,
-  onPosted
-}: {
-  post: PlannedPost
-  busy: boolean
-  onClose: () => void
-  onPlan: (day: string | null) => void
-  onPosted: (posted: boolean) => void
-}) {
-  const titleId = useId()
-  const status = shownStatus(post)
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="border-border bg-surface w-full max-w-md space-y-4 rounded-2xl border p-5 shadow-xl"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <StatusBadge post={post} />
-            {post.goalTitle && (
-              <span className="text-muted inline-flex min-w-0 items-center gap-1 text-xs">
-                <Target className="h-3 w-3 shrink-0" />
-                <span className="truncate">{post.goalTitle}</span>
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            autoFocus
-            className="text-muted hover:text-foreground hover:bg-surface-hover flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <p
-          id={titleId}
-          className="text-foreground text-sm leading-relaxed font-medium"
-        >
-          {post.hook}
-        </p>
-
-        <div className="border-border space-y-3 border-t pt-4">
-          <DayInput
-            label="Planned for"
-            value={post.plannedFor}
-            disabled={busy}
-            onChange={day => onPlan(day)}
-          />
-          {post.plannedFor && (
-            <p className="text-muted text-xs">{dayLabel(post.plannedFor)}</p>
-          )}
-
-          {status === 'awaiting_review' && (
-            <p className="text-muted flex items-start gap-1.5 text-xs">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Approve this post on Posts before it goes out.
-            </p>
-          )}
-          {status === 'posted' && post.publishedFromApp && (
-            <p className="text-muted flex items-start gap-1.5 text-xs">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Published on {getPlatform(post.platform).name} from this app, so
-              it stays posted.
-            </p>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {post.plannedFor && status !== 'posted' && (
-            <button
-              type="button"
-              onClick={() => onPlan(null)}
-              disabled={busy}
-              className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
-            >
-              <CalendarX className="h-3.5 w-3.5" />
-              Unschedule
-            </button>
-          )}
-          {status === 'approved' && (
-            <button
-              type="button"
-              onClick={() => onPosted(true)}
-              disabled={busy}
-              title={`You published it on ${getPlatform(post.platform).name} yourself`}
-              className="bg-accent text-background hover:bg-accent-hover inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
-            >
-              {busy ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5" />
+      {withPosts.map(day => {
+        const dayPosts = byDay.get(day) ?? []
+        const isPast = today !== null && day < today
+        return (
+          <li key={day} className="space-y-2 px-4 py-3">
+            <h3
+              className={cn(
+                'flex items-center gap-2 text-xs font-semibold',
+                isPast ? 'text-muted' : 'text-foreground'
               )}
-              Mark as posted
-            </button>
-          )}
-          {status === 'posted' && !post.publishedFromApp && (
-            <button
-              type="button"
-              onClick={() => onPosted(false)}
-              disabled={busy}
-              className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
             >
-              <Undo2 className="h-3.5 w-3.5" />
-              Not posted yet
-            </button>
-          )}
-          <Link
-            href="/posts"
-            className="text-accent inline-flex h-7 items-center gap-1 px-1 text-xs font-medium hover:underline"
-          >
-            Open Posts
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-      </div>
-    </div>
+              {dayLabel(day)}
+              {day === today && (
+                <span className="text-brand-strong font-medium">Today</span>
+              )}
+            </h3>
+            <ul className="space-y-1.5">
+              {dayPosts.map(post => (
+                <li key={post.id}>
+                  <button
+                    type="button"
+                    data-post-focus={post.id}
+                    aria-busy={busyId === post.id || undefined}
+                    onClick={() => onOpen(post.id)}
+                    className={cn(
+                      'border-border bg-surface hover:bg-surface-hover flex w-full cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                      FOCUS_RING,
+                      busyId === post.id && 'opacity-60'
+                    )}
+                  >
+                    <PlatformMark
+                      platform={post.platform}
+                      colored
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span className="sr-only">
+                      {getPlatform(post.platform).name}:{' '}
+                    </span>
+                    <span className="min-w-0 flex-1 space-y-1.5">
+                      <span className="text-foreground line-clamp-2 block text-[13px] leading-snug">
+                        {post.hook}
+                      </span>
+                      <span className="flex min-w-0 flex-wrap items-center gap-2">
+                        <StageChip post={post} withTime mounted={mounted} />
+                        {post.goalTitle && (
+                          <span className="text-muted min-w-0 truncate text-xs">
+                            {post.goalTitle}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </li>
+        )
+      })}
+    </ol>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { Pagination } from '@/components/pagination'
+import { cn } from '@/lib/cn'
 import { showToast } from '@/components/toast-notification'
 import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
@@ -19,7 +20,8 @@ export function RegenerateControl({
   onDone,
   disabled,
   confirmStart,
-  onBusyChange
+  onBusyChange,
+  buttonClassName
 }: {
   post: PostDetail
   onDone: (post: PostDetail) => void
@@ -28,6 +30,8 @@ export function RegenerateControl({
   confirmStart?: () => boolean
   /** Told when writing starts and when it ends, however it ends. */
   onBusyChange?: (busy: boolean) => void
+  /** The button's look, to match the toolbar it sits in. */
+  buttonClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [instruction, setInstruction] = useState('')
@@ -98,14 +102,18 @@ export function RegenerateControl({
         disabled={disabled || running}
         aria-expanded={open}
         aria-controls={panelId}
-        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium disabled:cursor-wait disabled:opacity-60"
+        className={cn(
+          buttonClassName ??
+            'text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium',
+          'disabled:cursor-wait disabled:opacity-60'
+        )}
       >
         {running ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
         ) : (
-          <Wand2 className="h-4 w-4" />
+          <Wand2 aria-hidden className="h-3.5 w-3.5" />
         )}
-        <span>{running ? 'Writing a new version…' : 'Regenerate'}</span>
+        <span>{running ? 'Writing…' : 'Regenerate'}</span>
       </button>
       {open && (
         <div
@@ -118,7 +126,7 @@ export function RegenerateControl({
             htmlFor={`${panelId}-instruction`}
             className="text-foreground mb-1 block text-xs font-semibold"
           >
-            What should change? (optional)
+            What to change <span className="text-muted font-normal">· Optional</span>
           </label>
           <textarea
             id={`${panelId}-instruction`}
@@ -128,11 +136,9 @@ export function RegenerateControl({
             rows={3}
             autoFocus
             placeholder="e.g. Shorter. Open with the customer story. Less salesy."
+            title="Leave it empty for a different take on the same idea. The image stays as it is."
             className="border-border bg-surface-hover text-foreground focus:border-accent w-full resize-none rounded-lg border p-2 text-xs leading-relaxed outline-none"
           />
-          <p className="text-muted mt-1.5 text-[11px] leading-snug">
-            Leave it empty for a different take on the same idea. The image stays as it is.
-          </p>
           <div className="mt-2.5 flex justify-end gap-2">
             <button
               type="button"
@@ -146,7 +152,7 @@ export function RegenerateControl({
               onClick={() => void run()}
               className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-3 text-xs font-semibold"
             >
-              Write new version
+              Regenerate
             </button>
           </div>
         </div>
@@ -196,6 +202,8 @@ export function VersionHistory({
   const [versions, setVersions] = useState<Version[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [restoring, setRestoring] = useState<string | null>(null)
+  // Raised by Try again, to load the versions once more.
+  const [attempt, setAttempt] = useState(0)
   const count = post.versionCount ?? 0
   // Ten versions at a time, newest first; a new version starts at page 1.
   const [page, setPage] = useState(1)
@@ -221,7 +229,7 @@ export function VersionHistory({
     return () => {
       cancelled = true
     }
-  }, [open, count, post.id])
+  }, [open, count, post.id, attempt])
 
   if (count === 0) return null
 
@@ -258,22 +266,40 @@ export function VersionHistory({
   }
 
   return (
-    <section ref={sectionRef} className="border-border bg-surface rounded-xl border">
+    <section ref={sectionRef} className="border-border bg-surface rounded-2xl border shadow-xs">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
-        className="text-foreground flex w-full cursor-pointer items-center gap-2 px-4 py-3 text-left text-xs font-semibold"
+        className="text-foreground hover:bg-surface-hover/50 focus-visible:ring-foreground/30 flex w-full cursor-pointer items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
       >
-        <History className="text-muted h-3.5 w-3.5" />
-        Earlier versions ({count})
+        <History aria-hidden className="text-muted h-4 w-4" />
+        Earlier versions
+        <span className="border-border bg-surface-hover text-muted rounded-full border px-2 py-px text-[11px] font-semibold tabular-nums">
+          {count}
+        </span>
         <ChevronDown
-          className={`text-muted ml-auto h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+          className={`text-muted ml-auto h-4 w-4 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
         />
       </button>
       {open && (
         <div className="border-border border-t px-4 py-3">
-          {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+          {error && (
+            <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <span className="text-rose-600 dark:text-rose-400">{error}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null)
+                  setAttempt(n => n + 1)
+                }}
+                className="text-foreground focus-visible:ring-foreground/30 cursor-pointer rounded-md font-semibold hover:underline focus-visible:ring-2 focus-visible:outline-none"
+              >
+                Try again
+              </button>
+            </div>
+          )}
           {!versions && !error && (
             <p className="text-muted inline-flex items-center gap-1.5 text-xs">
               <Loader2 className="h-3 w-3 animate-spin" /> Loading…
@@ -288,7 +314,7 @@ export function VersionHistory({
                       Version {version.number}
                     </span>
                     <span
-                      className="text-muted text-[11px]"
+                      className="text-muted text-xs"
                       title={formatAbsoluteDateTime(version.createdAt)}
                     >
                       {formatRelativeDate(version.createdAt)} · {version.charCount.toLocaleString()} chars
@@ -297,17 +323,18 @@ export function VersionHistory({
                       type="button"
                       onClick={() => void restore(version)}
                       disabled={disabled || restoring !== null}
-                      className="text-accent ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold hover:underline disabled:cursor-wait disabled:opacity-60"
+                      aria-label={`Restore version ${version.number}`}
+                      className="text-accent focus-visible:ring-foreground/30 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md text-xs font-semibold hover:underline focus-visible:ring-2 focus-visible:outline-none disabled:cursor-wait disabled:opacity-60"
                     >
                       {restoring === version.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
                       ) : (
-                        <RotateCcw className="h-3 w-3" />
+                        <RotateCcw aria-hidden className="h-3 w-3" />
                       )}
                       Restore
                     </button>
                   </div>
-                  <p className="text-muted mt-0.5 text-[11px]">{replacedLabel(version)}</p>
+                  <p className="text-muted mt-0.5 text-xs">{replacedLabel(version)}</p>
                   <p className="text-foreground/80 mt-1 line-clamp-3 text-xs leading-relaxed whitespace-pre-wrap wrap-break-word">
                     <span className="font-semibold">{version.hook}</span>
                     {version.body ? `\n${version.body}` : ''}

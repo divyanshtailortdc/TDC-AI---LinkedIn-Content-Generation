@@ -8,37 +8,48 @@ import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import type { FormatId } from '@/lib/formats'
 import Link from 'next/link'
 import {
-  ArrowLeft,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Check,
   CheckCheck,
   ChevronDown,
+  CircleSlash,
   Clock,
-  Hourglass,
-  Sparkles,
-  ExternalLink,
-  ArrowRight,
-  Search,
-  BookOpen,
   FileText,
+  Filter,
+  Hourglass,
+  Lightbulb,
+  Loader2,
   RotateCcw,
+  Search,
+  Sparkles,
   Square,
   SquareCheck,
-  Target,
+  Workflow,
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
+import { Button } from '@/components/button'
 import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
 import { markDataChanged } from '@/components/refresh-on-back'
+import { EmptyState } from '@/components/ui/empty-state'
+import { FilterChips } from '@/components/ui/filter-chips'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatusChip } from '@/components/ui/status-chip'
+import { TimeAgo } from '@/components/ui/time-ago'
+import { FOCUS_RING, TONES, type Tone } from '@/components/ui/tone'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { cn } from '@/lib/cn'
+import { useHasMounted } from '@/lib/hooks/use-has-mounted'
+import { isPlatformId, PLATFORMS, type PlatformId } from '@/lib/platforms'
 import { fetchRunStatus, pollRunProgress, reanalyzeRun, stopRun } from '../actions'
 import { ACTIVE_RUN_STATUSES } from '@/lib/run-status'
+import { formatDuration, plural, runStatusDisplay, triggerLabel } from '../run-display'
 import {
   approveIdea,
   approveRunIdeas,
@@ -50,11 +61,12 @@ import { AiDraftingStatus, DraftingStatus } from '~/components/ai-drafting-statu
 import { useDraftingPoll } from '../../ideas/use-drafting-poll'
 import { isSelectableIdea, RunIdeaCard } from '~/components/run-idea-card'
 import {
-  KIND_LABELS,
-  kindOfProvider,
-  ownHosts,
-  rateSource
-} from '~/lib/research/source-credibility'
+  EvidenceSection,
+  IdeaQualitySection,
+  list,
+  ProblemsBanner,
+  stageFigure
+} from './run-insights'
 
 interface RunDetailProps {
   initialRun: any
@@ -78,20 +90,10 @@ const MAX_POLL_MS = 30 * 60_000
 
 const STAGES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'gathering_context', label: 'Gathering context', icon: BookOpen },
-  { key: 'researching', label: 'Researching web & KB', icon: Search },
+  { key: 'researching', label: 'Researching', icon: Search },
   { key: 'generating_ideas', label: 'Generating ideas', icon: Sparkles },
   { key: 'drafting', label: 'Drafting posts', icon: FileText }
 ]
-
-// Every stage a step can record, for labelling errors.
-const STEP_LABELS: Record<string, string> = {
-  gathering_context: 'Gathering context',
-  researching: 'Research',
-  generating_ideas: 'Ideation',
-  drafting: 'Drafting',
-  linting: 'Revision pass',
-  media: 'Media'
-}
 
 type StageState =
   | 'completed'
@@ -103,62 +105,50 @@ type StageState =
   | 'waiting'
   | 'pending'
 
-const STAGE_STYLE: Record<StageState, string> = {
-  completed: 'border-emerald-500/30 bg-emerald-500/5',
-  partial: 'border-amber-500/30 bg-amber-500/5',
-  running: 'border-accent/50 bg-accent/5',
-  failed: 'border-rose-500/30 bg-rose-500/5',
-  stopped: 'border-border bg-surface-hover/50',
-  incomplete: 'border-border bg-surface-hover/50',
-  waiting: 'border-border bg-surface-hover/50',
-  pending: 'border-border bg-surface-hover/50'
+/** How each stage state looks on the stepper: its tone and marker. */
+const STAGE_LOOK: Record<StageState, { tone: Tone; icon: LucideIcon }> = {
+  completed: { tone: 'success', icon: Check },
+  partial: { tone: 'warning', icon: AlertTriangle },
+  running: { tone: 'brand', icon: Loader2 },
+  failed: { tone: 'danger', icon: X },
+  stopped: { tone: 'neutral', icon: Square },
+  incomplete: { tone: 'neutral', icon: CircleSlash },
+  waiting: { tone: 'warning', icon: Hourglass },
+  pending: { tone: 'neutral', icon: Clock }
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+/** The idea filter over the run's ideas, in the Ideas page's order. */
+const IDEA_FILTERS = ['proposed', 'approved', 'drafted', 'rejected', 'all'] as const
+type IdeaFilter = (typeof IDEA_FILTERS)[number]
+const IDEA_FILTER_LABELS: Record<IdeaFilter, string> = {
+  proposed: 'To review',
+  approved: 'Approved',
+  drafted: 'Drafted',
+  rejected: 'Rejected',
+  all: 'All'
+}
+const IDEA_FILTER_TONES: Partial<Record<IdeaFilter, Tone>> = {
+  proposed: 'warning',
+  approved: 'info',
+  drafted: 'success',
+  rejected: 'danger'
 }
 
-/** The site name to show for a source link, or null when it isn't a web URL. */
-function sourceHost(url?: string | null): string | null {
-  if (!url || !/^https?:\/\//i.test(url)) return null
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return null
-  }
-}
+/** A text link that sits beside a heading. */
+const QUIET_LINK = cn(
+  'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 items-center gap-1 rounded-lg px-2 text-[13px] font-medium transition-colors',
+  FOCUS_RING
+)
 
 /**
- * How far a research source can be trusted, what it was found for (the news,
- * a trend, what people say) and when it was published, under its link.
+ * What a stage saved: the newest of its steps with figures. Steps come newest
+ * first. A step still running holds only its usage so far, if anything.
  */
-function FindingSourceLine({
-  finding,
-  accountSite
-}: {
-  finding: { url: string; provider?: string | null; publishedAt?: string | null }
-  accountSite?: string | null
-}) {
-  const rating = rateSource({
-    url: finding.url,
-    origin: 'web',
-    ownHosts: ownHosts([accountSite]),
-    fromNewsSearch: finding.provider?.startsWith('serper_news')
-  })
-  const kind = kindOfProvider(finding.provider)
-  const parts = [
-    rating.label,
-    kind ? KIND_LABELS[kind] : null,
-    finding.publishedAt ? finding.publishedAt.slice(0, 10) : null
-  ].filter(Boolean)
-  return (
-    <p className="text-muted" title={rating.note}>
-      {parts.join(' · ')}
-    </p>
+function stageData(steps: any[], stage: string): Record<string, any> | null {
+  const step = steps.find(
+    s => s.stage === stage && s.responseJson && typeof s.responseJson === 'object'
   )
+  return step?.responseJson ?? null
 }
 
 /**
@@ -193,17 +183,31 @@ function summarizeStage(
     completed:
       key === 'drafting'
         ? `${done} post${done === 1 ? '' : 's'}${duration ? ` · ${duration}` : ''}`
-        : duration || 'Done',
+        : duration
+          ? `Done · ${duration}`
+          : 'Done',
     partial: `${done} done · ${failed} failed`,
     running: 'In progress…',
     failed: 'Failed',
     stopped: 'Stopped',
     incomplete: 'Did not finish',
-    waiting: 'Waiting for idea approval',
+    waiting: 'Awaiting approval',
     pending: 'Not started'
   }
 
-  return { state, detail: detail[state], hasSteps: stageSteps.length > 0, durationMs }
+  // While a step runs, what it is doing ("Searching the web…"), for hover text.
+  const runningSummary: string | null =
+    state === 'running'
+      ? (stageSteps.find(s => s.status === 'running')?.requestSummary ?? null)
+      : null
+
+  return {
+    state,
+    detail: detail[state],
+    hasSteps: stageSteps.length > 0,
+    durationMs,
+    runningSummary
+  }
 }
 
 export function RunDetailClient({
@@ -215,6 +219,7 @@ export function RunDetailClient({
   enabledFormats
 }: RunDetailProps) {
   const router = useRouter()
+  const hasMounted = useHasMounted()
   // Creating posts asks first which platforms and types of post to write
   // (CreatePostsDialog); the last answer is kept for Try again.
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -242,15 +247,12 @@ export function RunDetailClient({
     pollIds.length > 0 ? 'processing' : 'idle'
   )
   const [draftError, setDraftError] = useState<string | null>(null)
-  // The ideas, research sources and failed steps, PAGE_SIZE at a time, each
-  // list on its own page. A page past the end shows the last one.
+  // The ideas, PAGE_SIZE at a time, by status; a filter change goes back to
+  // the first page, and a page past the end shows the last one. The sources,
+  // failed steps and discarded ideas page themselves (run-insights).
   const [ideaPage, setIdeaPage] = useState(1)
-  const [sourcePage, setSourcePage] = useState(1)
-  const [failedStepPage, setFailedStepPage] = useState(1)
-  const [uncoveredGoalPage, setUncoveredGoalPage] = useState(1)
+  const [ideaFilter, setIdeaFilter] = useState<IdeaFilter>('all')
   const ideaListRef = useRef<HTMLElement>(null)
-  const sourceListRef = useRef<HTMLElement>(null)
-  const failedStepListRef = useRef<HTMLDivElement>(null)
   // The ideas ticked for posts; only ones still at the gate count.
   const [ticked, setTicked] = useState<string[]>([])
   // The ideas behind the latest drafting attempt, so Try again retries exactly those.
@@ -582,6 +584,7 @@ export function RunDetailClient({
   const statusCount = (status: string) => ideas.filter((i) => i.status === status).length
   const approvedCount = statusCount('approved')
   const proposedCount = statusCount('proposed')
+  const draftedCount = statusCount('drafted')
   const isBusy = isDrafting || isApprovingAll
 
   const selection = ticked.filter((id) =>
@@ -616,376 +619,388 @@ export function RunDetailClient({
     steps.find((s) => s.stage === 'generating_ideas' && s.status === 'completed')
       ?.responseJson?.uncoveredGoals ?? []
 
-  const ideaSummary = [
-    proposedCount > 0 && `${proposedCount} to review`,
-    approvedCount > 0 && `${approvedCount} approved`,
-    statusCount('drafted') > 0 && `${statusCount('drafted')} drafted`,
-    statusCount('rejected') > 0 && `${statusCount('rejected')} rejected`
+  // What each stage saved (see ideation-run); older runs lack some figures.
+  const context = stageData(steps, 'gathering_context')
+  const research = stageData(steps, 'researching')
+  const ideation = stageData(steps, 'generating_ideas')
+  const draftingCount = statusCount('drafting')
+
+  // Drafting ideas count only toward All, as on the Ideas page.
+  const ideaCounts: Record<IdeaFilter, number> = {
+    proposed: proposedCount,
+    approved: approvedCount,
+    drafted: draftedCount,
+    rejected: statusCount('rejected'),
+    all: ideas.length
+  }
+  const shownIdeas =
+    ideaFilter === 'all' ? ideas : ideas.filter((i) => i.status === ideaFilter)
+  const { rows: pageIdeas, pageInfo: ideaPageInfo } = paginate(shownIdeas, ideaPage, PAGE_SIZE)
+
+  const goalTitles: string[] =
+    run.goalTitles && run.goalTitles.length > 0 ? run.goalTitles : list<string>(context?.goals)
+  const platform: PlatformId | null = isPlatformId(run.channel) ? run.channel : null
+  const status = runStatusDisplay(run.status)
+  const hasProblems = Boolean(run.error) || failedSteps.length > 0 || uncoveredGoals.length > 0
+  // The name the run was made under; the identity may have been renamed since.
+  const nameAtRun: string =
+    typeof context?.account === 'string' && context.account ? context.account : account.name
+  const researchNote = [
+    typeof research?.mode === 'string' ? research.mode : null,
+    typeof research?.fallbackReason === 'string' ? research.fallbackReason : null
   ]
     .filter(Boolean)
     .join(' · ')
 
-  const { rows: pageIdeas, pageInfo: ideaPageInfo } = paginate(ideas, ideaPage, PAGE_SIZE)
-  const { rows: visibleFindings, pageInfo: sourcePageInfo } = paginate(
-    findings,
-    sourcePage,
-    PAGE_SIZE
+  // One accent button at a time: Create posts while ideas are ticked, else
+  // Select approved, else Approve all.
+  const primaryAction: 'create' | 'select' | 'approve' | null =
+    isDrafting || !canDecide
+      ? null
+      : selection.length > 0
+        ? 'create'
+        : approvedCount > 0
+          ? 'select'
+          : proposedCount > 0
+            ? 'approve'
+            : null
+
+  const showAllIdeas = () => {
+    setIdeaFilter('all')
+    setIdeaPage(1)
+  }
+
+  const reanalyzeButton = (
+    <ConfirmPopover
+      title="Re-analyze these goals?"
+      description="Starts a new run. This one and its ideas stay."
+      confirmLabel="Re-analyze"
+      tone="neutral"
+      onConfirm={handleReanalyze}
+      disabled={isReanalyzing}
+    >
+      <Button className={FOCUS_RING} variant="secondary" size="sm" disabled={isReanalyzing}>
+        {isReanalyzing ? (
+          <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+        ) : (
+          <RotateCcw aria-hidden className="h-3.5 w-3.5" />
+        )}
+        Re-analyze
+      </Button>
+    </ConfirmPopover>
   )
-  const { rows: pageFailedSteps, pageInfo: failedStepPageInfo } = paginate(
-    failedSteps,
-    failedStepPage,
-    PAGE_SIZE
-  )
+
+  const meta = [
+    triggerLabel(run.trigger),
+    hasMounted && run.createdAt ? <TimeAgo key="time" value={run.createdAt} /> : null,
+    platform ? PLATFORMS[platform].name : null,
+    !isRunning && totalDurationMs > 0 ? formatDuration(totalDurationMs) : null
+  ].filter(Boolean)
 
   return (
     <div className="flex flex-col h-full lg:h-[calc(100vh-4rem)]">
       <PageHeader
-        title={`Run for ${account.name}`}
-        badge={run.status.replace(/_/g, ' ')}
+        // On a phone the buttons take a row of their own, so the title keeps
+        // its room instead of being squeezed to nothing beside them.
+        wrapActions
+        title={
+          <div className="flex min-w-0 items-center gap-2.5">
+            <h1
+              title={goalTitles.length > 2 ? goalTitles.join(', ') : undefined}
+              className="text-foreground min-w-0 truncate text-xl font-bold tracking-tight sm:text-2xl"
+            >
+              {goalTitles.length > 0 ? goalTitles.slice(0, 2).join(', ') : `Run for ${nameAtRun}`}
+              {goalTitles.length > 2 && (
+                <span className="text-muted font-semibold"> +{goalTitles.length - 2}</span>
+              )}
+            </h1>
+            <StatusChip tone={status.tone} spinning={status.spinning} size="md">
+              {status.label}
+            </StatusChip>
+          </div>
+        }
         preTitle={
           <Link
             href="/runs"
-            className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground"
+            aria-label="Back to all runs"
+            className={cn(
+              'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 items-center gap-1.5 rounded-lg px-1.5 text-[13px] font-medium transition-colors',
+              FOCUS_RING
+            )}
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Runs</span>
+            <ArrowLeft aria-hidden className="h-4 w-4" />
+            <span className="hidden sm:inline">All runs</span>
           </Link>
+        }
+        description={
+          <span className="tabular-nums">
+            {meta.map((part, i) => (
+              <span key={i}>
+                {i > 0 && <span aria-hidden> · </span>}
+                {part}
+              </span>
+            ))}
+          </span>
         }
         actions={
           isDrafting ? (
             <span
               aria-busy
-              className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent text-background text-[13px] font-semibold opacity-75 shadow-sm"
+              className="bg-accent text-background inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold opacity-75 shadow-sm"
             >
-              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              <Sparkles aria-hidden className="h-3.5 w-3.5 animate-pulse motion-reduce:animate-none" />
               Generating posts…
             </span>
-          ) : canDecide && selection.length > 0 ? (
-            // With ideas ticked, posts are made from the selection only.
-            <>
-              <span className="text-foreground inline-flex h-8 items-center gap-1 text-[13px] font-medium tabular-nums">
-                {/* The count is on the buttons too; phones keep one row. */}
-                <span className="hidden sm:inline">{selection.length} selected</span>
-                <button
-                  type="button"
-                  onClick={() => setTicked([])}
-                  aria-label={`Clear selection (${selection.length} selected)`}
-                  className="text-muted hover:text-foreground hover:bg-surface-hover ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </span>
-              {selectedProposed > 0 && (
-                <button
-                  type="button"
-                  onClick={() => void handleApproveSelected()}
-                  disabled={isBusy}
-                  className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
-                >
-                  {isApprovingAll ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <CheckCheck className="h-3.5 w-3.5" />
-                  )}
-                  <span>Approve {selectedProposed}</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setCreateDialogOpen(true)}
-                disabled={isBusy || selectedApproved.length === 0}
-                title={
-                  selectedApproved.length === 0
-                    ? 'Approve the selected ideas first'
-                    : undefined
-                }
-                className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </>
           ) : canDecide && (proposedCount > 0 || approvedCount > 0) ? (
             <>
               {proposedCount > 0 && (
                 <ConfirmPopover
                   title={`Approve all ${proposedCount} ideas?`}
-                  description="Every idea in this run waiting for review moves to Approved. No posts are written until you select ideas and create them."
+                  description="No posts are written until you create them."
                   confirmLabel="Approve all"
                   tone="neutral"
                   onConfirm={handleApproveAll}
                   disabled={isBusy}
                 >
-                  <button
-                    type="button"
+                  <Button
+                    className={FOCUS_RING}
+                    variant={primaryAction === 'approve' ? 'primary' : 'secondary'}
+                    size="sm"
                     disabled={isBusy}
-                    className="inline-flex cursor-pointer h-8 items-center gap-1.5 rounded-lg border border-accent/30 px-3.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60"
                   >
                     {isApprovingAll ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
                     ) : (
-                      <CheckCheck className="h-3.5 w-3.5" />
+                      <CheckCheck aria-hidden className="h-3.5 w-3.5" />
                     )}
-                    <span>Approve all ({proposedCount})</span>
-                  </button>
+                    <span>Approve all</span>
+                  </Button>
                 </ConfirmPopover>
               )}
               {approvedCount > 0 && (
-                <button
-                  type="button"
+                <Button
+                  className={FOCUS_RING}
+                  variant={primaryAction === 'select' ? 'primary' : 'secondary'}
+                  size="sm"
                   onClick={() =>
                     setTicked(ideas.filter((i) => i.status === 'approved').map((i) => i.id))
                   }
                   disabled={isBusy}
-                  className="inline-flex h-8 items-center gap-1.5 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-background text-[13px] font-semibold shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <SquareCheck className="w-3.5 h-3.5" />
-                  <span>Select {approvedCount} approved</span>
-                </button>
+                  <SquareCheck aria-hidden className="h-3.5 w-3.5" />
+                  <span>Select approved</span>
+                </Button>
               )}
             </>
           ) : undefined
         }
       />
 
-      <div className="relative flex-1 overflow-y-auto p-4 sm:p-6 bg-surface-hover/30">
-        <div className="space-y-6">
+      <div className="relative flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto max-w-7xl space-y-6">
           <AiDraftingStatus
             status={draftStatus}
-            subject={`${draftTargetIds.length} selected idea${draftTargetIds.length === 1 ? '' : 's'}`}
-            successMessage={
-              openPostsWhenDone
-                ? 'Posts generated! Opening the review queue…'
-                : 'Posts generated. They are in the review queue.'
-            }
+            subject={plural(draftTargetIds.length, 'selected idea')}
+            successMessage={openPostsWhenDone ? 'Posts ready. Opening them…' : 'Posts ready for review.'}
             errorMessage={draftError}
             onRetry={() => void handleDraftSelected(draftTargetIds, lastFormats)}
             retryDisabled={isDrafting}
           />
 
-          {run.goalTitles && run.goalTitles.length > 0 && (
-            <p className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-              <Target className="h-3.5 w-3.5 shrink-0" />
-              <span>{run.goalTitles.length === 1 ? 'Goal:' : 'Goals:'}</span>
-              {run.goalTitles.map((title: string) => (
-                <span
-                  key={title}
-                  className="bg-surface border-border text-foreground rounded-full border px-2 py-0.5 font-medium"
+          {hasProblems && (
+            <ProblemsBanner
+              error={run.error ?? null}
+              failedSteps={failedSteps}
+              uncoveredGoals={uncoveredGoals}
+              action={!isRunning ? reanalyzeButton : undefined}
+            />
+          )}
+
+          {/* Pipeline: one figure per stage is the run's summary */}
+          <SectionCard
+            title="Pipeline"
+            icon={Workflow}
+            actions={
+              isRunning ? (
+                <ConfirmPopover
+                  title="Stop this analysis?"
+                  description="This run saves no ideas. You can re-analyze it after."
+                  confirmLabel="Stop analysis"
+                  tone="danger"
+                  onConfirm={handleStop}
+                  disabled={isStopping}
                 >
-                  {title}
-                </span>
-              ))}
-            </p>
-          )}
-
-          {uncoveredGoals.length > 0 && (
-            <div
-              role="status"
-              className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300"
-            >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0">
-                <p className="font-semibold">
-                  {uncoveredGoals.length === 1
-                    ? 'One goal has no idea in this run'
-                    : `${uncoveredGoals.length} goals have no idea in this run`}
-                </p>
-                <ul className="mt-1 space-y-0.5 text-xs leading-relaxed">
-                  {paginate(uncoveredGoals, uncoveredGoalPage, PAGE_SIZE).rows.map((g) => (
-                    <li key={g.goalId} className="wrap-break-word">
-                      <span className="font-medium">{g.goal}</span>: {g.reason}
-                    </li>
-                  ))}
-                </ul>
-                {uncoveredGoals.length > PAGE_SIZE && (
-                  <div className="mt-2">
-                    <Pagination
-                      {...paginate(uncoveredGoals, uncoveredGoalPage, PAGE_SIZE).pageInfo}
-                      noun="goals"
-                      onPageChange={setUncoveredGoalPage}
-                    />
-                  </div>
-                )}
-                <p className="mt-1 text-xs">
-                  Start another run for {uncoveredGoals.length === 1 ? 'it' : 'them'}, or add
-                  knowledge base sources about {uncoveredGoals.length === 1 ? 'it' : 'them'}.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {run.error && (
-            <div
-              role="alert"
-              className="flex items-start gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-700 dark:text-rose-300"
-            >
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <p className="font-semibold">This run failed</p>
-                <p className="mt-0.5 text-xs leading-relaxed wrap-break-word">{run.error}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Progress */}
-          <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6 shadow-xs">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-foreground">Progress</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-muted inline-flex items-center gap-1.5 text-xs tabular-nums">
-                  {isRunning ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Updating live
-                    </>
-                  ) : totalDurationMs > 0 ? (
-                    <>
-                      <Clock className="h-3.5 w-3.5" />
-                      {formatDuration(totalDurationMs)} total
-                    </>
-                  ) : null}
-                </span>
-                {isRunning ? (
-                  <ConfirmPopover
-                    title="Stop this analysis?"
-                    description="Research and idea generation stop where they are, and this run saves no ideas. You can re-analyze it afterwards."
-                    confirmLabel="Stop analysis"
-                    tone="danger"
-                    onConfirm={handleStop}
+                  <button
+                    type="button"
                     disabled={isStopping}
+                    className={cn(
+                      'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3 text-[13px] font-semibold transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60',
+                      TONES.danger.border,
+                      TONES.danger.text,
+                      FOCUS_RING
+                    )}
                   >
-                    <button
-                      type="button"
-                      disabled={isStopping}
-                      className="inline-flex cursor-pointer h-7 items-center gap-1.5 rounded-lg border border-rose-500/30 px-3 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-400"
-                    >
-                      {isStopping ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Square className="h-3.5 w-3.5" />
-                      )}
-                      Stop analysis
-                    </button>
-                  </ConfirmPopover>
-                ) : (
-                  <ConfirmPopover
-                    title="Re-analyze these goals?"
-                    description="Starts a new run for the same goals, from gathering context onwards. This run, its ideas and their posts stay as they are."
-                    confirmLabel="Re-analyze"
-                    tone="neutral"
-                    onConfirm={handleReanalyze}
-                    disabled={isReanalyzing}
-                  >
-                    <button
-                      type="button"
-                      disabled={isReanalyzing}
-                      className="border-border text-foreground hover:bg-surface-hover inline-flex cursor-pointer h-7 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isReanalyzing ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      )}
-                      Re-analyze
-                    </button>
-                  </ConfirmPopover>
-                )}
-              </div>
-            </div>
-
-            <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {stages.map(({ key, label, icon: Icon, state, detail }) => (
-                <li key={key} className={cn('rounded-xl border p-3.5', STAGE_STYLE[state])}>
-                  <div className="flex items-center justify-between">
-                    <Icon className="text-muted h-4 w-4" />
-                    <StageIcon state={state} />
-                  </div>
-                  <p className="text-foreground mt-2 text-sm font-semibold">{label}</p>
-                  <p className="text-muted mt-0.5 text-xs tabular-nums">{detail}</p>
-                </li>
-              ))}
-            </ol>
-
-            {failedSteps.length > 0 && (
-              <div ref={failedStepListRef} className="mt-4 scroll-mt-4 space-y-2">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  {failedSteps.length} step{failedSteps.length === 1 ? '' : 's'} failed
-                </p>
-                <ul className="space-y-1.5">
-                  {pageFailedSteps.map((step) => (
-                    <li
-                      key={step.id}
-                      className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs"
-                    >
-                      <span className="text-foreground font-medium">
-                        {STEP_LABELS[step.stage] || step.stage}
-                      </span>
-                      {step.requestSummary && (
-                        <span className="text-muted"> · {step.requestSummary}</span>
-                      )}
-                      <p className="text-muted mt-0.5 line-clamp-2 wrap-break-word" title={step.error}>
-                        {step.error}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-                <Pagination
-                  {...failedStepPageInfo}
-                  noun="failed steps"
-                  onPageChange={setFailedStepPage}
-                  scrollTarget={failedStepListRef}
-                />
-              </div>
-            )}
-          </section>
-
-          <RunCostPanel
-            steps={steps}
-            draftCount={
-              steps.filter((s) => s.stage === 'drafting' && s.status === 'completed').length
+                    {isStopping ? (
+                      <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <Square aria-hidden className="h-3.5 w-3.5" />
+                    )}
+                    Stop analysis
+                  </button>
+                </ConfirmPopover>
+              ) : hasProblems ? undefined : (
+                // With problems, Re-analyze sits on their banner instead.
+                reanalyzeButton
+              )
             }
-            legacyCostUsd={run.costUsd}
-          />
+          >
+            <ol className="flex flex-col sm:flex-row">
+              {stages.map((stage, index) => {
+                const look = STAGE_LOOK[stage.state]
+                const t = TONES[look.tone]
+                const MarkerIcon = look.icon
+                const last = index === stages.length - 1
+                const figure = stageFigure(stage.key, {
+                  context,
+                  research,
+                  ideation,
+                  drafting: draftingCount
+                })
+                return (
+                  <li
+                    key={stage.key}
+                    aria-current={stage.state === 'running' ? 'step' : undefined}
+                    title={stage.runningSummary ?? figure.hover ?? undefined}
+                    className="flex min-w-0 gap-3 sm:flex-1 sm:flex-col"
+                  >
+                    <div aria-hidden className="flex flex-col items-center sm:flex-row">
+                      <span
+                        className={cn(
+                          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border',
+                          stage.state === 'pending'
+                            ? 'border-border text-muted border-dashed'
+                            : cn(t.border, t.soft, look.tone === 'neutral' ? 'text-muted' : t.text)
+                        )}
+                      >
+                        {stage.state === 'pending' ? (
+                          <stage.icon className="h-3.5 w-3.5" />
+                        ) : (
+                          <MarkerIcon
+                            className={cn(
+                              'h-4 w-4',
+                              stage.state === 'running' && 'animate-spin motion-reduce:animate-none'
+                            )}
+                          />
+                        )}
+                      </span>
+                      {!last && (
+                        <span
+                          className={cn(
+                            'my-1 w-px flex-1 sm:mx-2 sm:my-0 sm:h-px sm:w-auto',
+                            stage.state === 'completed' ? 'bg-emerald-500/50' : 'bg-border'
+                          )}
+                        />
+                      )}
+                    </div>
+                    <div className={cn('min-w-0 sm:pr-4', !last && 'pb-5 sm:pb-0')}>
+                      <p className="text-foreground text-sm font-semibold">{stage.label}</p>
+                      <p
+                        className={cn(
+                          'text-xs font-medium tabular-nums',
+                          look.tone === 'neutral' ? 'text-muted' : t.text
+                        )}
+                      >
+                        {stage.detail}
+                      </p>
+                      {figure.text && (
+                        <p className="text-muted mt-1 text-xs tabular-nums">{figure.text}</p>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          </SectionCard>
 
-          {/* Ideas generated by this run */}
+          {/* The ideas: the work to do, above the analytics */}
           {ideas.length > 0 ? (
-            <section ref={ideaListRef} className="scroll-mt-4 space-y-4">
-              <div className="flex flex-wrap items-end justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-accent" />
-                    Ideas ({ideas.length})
-                  </h2>
-                  {ideaSummary && <p className="text-muted mt-0.5 text-xs">{ideaSummary}</p>}
-                </div>
-                <Link
-                  href="/ideas"
-                  className="text-xs text-accent hover:underline flex items-center gap-1"
+            <section
+              ref={ideaListRef}
+              aria-labelledby="run-ideas-heading"
+              className="scroll-mt-4 space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id="run-ideas-heading"
+                  className="text-foreground flex items-center gap-2 text-sm font-semibold"
                 >
-                  <span>Open in Ideas</span>
-                  <ArrowRight className="w-3 h-3" />
-                </Link>
+                  <Lightbulb aria-hidden className="text-muted h-4 w-4" />
+                  Ideas
+                </h2>
+                <div className="flex items-center gap-1">
+                  {draftedCount > 0 && (
+                    <Link href={`/posts?runId=${run.id}`} className={QUIET_LINK}>
+                      View posts
+                    </Link>
+                  )}
+                  <Link href="/ideas" className={QUIET_LINK}>
+                    Open in Ideas
+                    <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-                {pageIdeas.map((idea) => (
-                  <RunIdeaCard
-                    key={idea.id}
-                    idea={idea}
-                    onApprove={handleApproveIdea}
-                    onReject={handleRejectIdea}
-                    onEditSave={handleEditIdeaSave}
-                    // Only the card's own action, or a bulk approve that
-                    // includes it. Drafting ideas show it in their status and
-                    // have no actions; the rest stay usable meanwhile.
-                    isBusy={ideaActionBusyId === idea.id || approvingIds.includes(idea.id)}
-                    selected={selection.includes(idea.id)}
-                    onSelectChange={canDecide ? setTick : undefined}
-                  />
-                ))}
-              </div>
+              <FilterChips
+                label="Show this run's ideas by status"
+                value={ideaFilter}
+                onChange={(next) => {
+                  setIdeaFilter(next)
+                  setIdeaPage(1)
+                }}
+                className="w-fit max-w-full"
+                options={IDEA_FILTERS.map((value) => ({
+                  value,
+                  label: IDEA_FILTER_LABELS[value],
+                  count: ideaCounts[value],
+                  tone: IDEA_FILTER_TONES[value]
+                }))}
+              />
+
+              {pageIdeas.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={Filter}
+                  title="No ideas here"
+                  action={
+                    <Button
+                      className={FOCUS_RING}
+                      variant="secondary"
+                      size="sm"
+                      onClick={showAllIdeas}
+                    >
+                      Show all
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                  {pageIdeas.map((idea) => (
+                    <RunIdeaCard
+                      key={idea.id}
+                      idea={idea}
+                      onApprove={handleApproveIdea}
+                      onReject={handleRejectIdea}
+                      onEditSave={handleEditIdeaSave}
+                      // Only the card's own action, or a bulk approve that
+                      // includes it. Drafting ideas show it in their status and
+                      // have no actions; the rest stay usable meanwhile.
+                      isBusy={ideaActionBusyId === idea.id || approvingIds.includes(idea.id)}
+                      selected={selection.includes(idea.id)}
+                      onSelectChange={canDecide ? setTick : undefined}
+                    />
+                  ))}
+                </div>
+              )}
               <Pagination
                 {...ideaPageInfo}
                 noun="ideas"
@@ -995,77 +1010,78 @@ export function RunDetailClient({
             </section>
           ) : (
             isRunning && (
-              <section className="border-border text-muted flex items-center gap-3 rounded-2xl border border-dashed p-6 text-sm">
-                <Hourglass className="h-4 w-4 shrink-0" />
-                Ideas appear here once ideation finishes.
-              </section>
+              <EmptyState
+                compact
+                icon={Hourglass}
+                tone="brand"
+                title="No ideas yet"
+                description="They appear when ideation finishes."
+              />
             )
           )}
 
-          {/* Research sources the ideas were grounded in */}
-          {findings.length > 0 && (
-            <section
-              ref={sourceListRef}
-              className="rounded-2xl border border-border bg-surface p-5 sm:p-6 space-y-4 shadow-xs scroll-mt-4"
-            >
-              <h2 className="text-sm font-semibold text-foreground">
-                Research sources ({findings.length})
-              </h2>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {visibleFindings.map((f, idx) => (
-                  <div
-                    key={f.id ?? idx}
-                    className="p-3 rounded-xl border border-border bg-surface-hover/60 text-xs space-y-1"
-                  >
-                    <p className="font-medium text-foreground line-clamp-1" title={f.title}>
-                      {f.title}
-                    </p>
-                    {f.snippet && <p className="text-muted line-clamp-2">{f.snippet}</p>}
-                    {sourceHost(f.url) ? (
-                      <a
-                        href={f.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex max-w-full items-center gap-1 pt-1 text-accent hover:underline"
-                      >
-                        <span className="truncate">{sourceHost(f.url)}</span>
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                      </a>
-                    ) : (
-                      <p className="text-muted pt-1">Knowledge base</p>
-                    )}
-                    {sourceHost(f.url) && (
-                      <FindingSourceLine finding={f} accountSite={account?.websiteUrl} />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <Pagination
-                {...sourcePageInfo}
-                noun="sources"
-                onPageChange={setSourcePage}
-                scrollTarget={sourceListRef}
-              />
-            </section>
-          )}
+          <EvidenceSection
+            research={research}
+            findings={findings}
+            accountSite={account?.websiteUrl ?? null}
+          />
+
+          {ideation && <IdeaQualitySection ideation={ideation} />}
+
+          <RunCostPanel
+            steps={steps}
+            draftCount={
+              steps.filter((s) => s.stage === 'drafting' && s.status === 'completed').length
+            }
+            legacyCostUsd={run.costUsd}
+          />
 
           {/* Settings frozen at run start, for auditing */}
-          <details className="group rounded-2xl border border-border bg-surface shadow-xs">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-5 sm:px-6 text-sm font-semibold text-foreground">
+          <details className="group border-border bg-surface rounded-2xl border shadow-xs">
+            <summary
+              className={cn(
+                'text-foreground flex cursor-pointer list-none items-center justify-between gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold sm:px-5 [&::-webkit-details-marker]:hidden',
+                FOCUS_RING
+              )}
+            >
               Run configuration
-              <ChevronDown className="text-muted h-4 w-4 transition-transform group-open:rotate-180" />
+              <ChevronDown
+                aria-hidden
+                className="text-muted h-4 w-4 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+              />
             </summary>
-            <div className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+            <div className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-[13px] sm:grid-cols-[auto_1fr]">
                 <dt className="text-muted">Run ID</dt>
                 <dd className="text-foreground font-mono break-all">{run.id}</dd>
                 <dt className="text-muted">Trigger</dt>
                 <dd className="text-foreground">{run.trigger}</dd>
+                <dt className="text-muted">Identity</dt>
+                <dd className="text-foreground">{nameAtRun}</dd>
+                <dt className="text-muted">Platform</dt>
+                <dd className="text-foreground">{platform ? PLATFORMS[platform].name : 'All'}</dd>
+                {run.createdAt && (
+                  <>
+                    <dt className="text-muted">Started</dt>
+                    <dd className="text-foreground">
+                      <TimeAgo value={run.createdAt} absolute />
+                    </dd>
+                  </>
+                )}
+                {researchNote && (
+                  <>
+                    <dt className="text-muted">Research</dt>
+                    <dd className="text-foreground wrap-break-word">{researchNote}</dd>
+                  </>
+                )}
+                {typeof ideation?.model === 'string' && (
+                  <>
+                    <dt className="text-muted">Model</dt>
+                    <dd className="text-foreground font-mono break-all">{ideation.model}</dd>
+                  </>
+                )}
               </dl>
-              <p className="text-xs text-muted">
-                The research and media settings active when this run started:
-              </p>
-              <pre className="p-4 rounded-xl bg-neutral-950 text-neutral-300 text-[11px] font-mono overflow-x-auto max-h-64">
+              <pre className="bg-surface-hover/60 text-foreground max-h-64 overflow-x-auto rounded-xl p-4 font-mono text-xs">
                 {JSON.stringify(
                   {
                     researchConfig: run.researchConfig,
@@ -1078,16 +1094,72 @@ export function RunDetailClient({
               </pre>
             </div>
           </details>
+
+          {/* With ideas ticked, posts are made from the selection only. */}
+          {canDecide && selection.length > 0 && !isDrafting && (
+            <div className="pointer-events-none sticky bottom-0 z-20 pt-2">
+              <div
+                role="region"
+                aria-label="Selected ideas"
+                className="border-border bg-surface pointer-events-auto mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border p-2 pl-4 shadow-lg"
+              >
+                <p className="text-foreground text-sm font-medium tabular-nums">
+                  {selection.length} selected
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTicked([])}
+                    aria-label={`Clear selection (${selection.length} selected)`}
+                    className={cn(
+                      'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg',
+                      FOCUS_RING
+                    )}
+                  >
+                    <X aria-hidden className="h-4 w-4" />
+                  </button>
+                  {selectedProposed > 0 && (
+                    <Button
+                      className={FOCUS_RING}
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleApproveSelected()}
+                      disabled={isBusy}
+                    >
+                      {isApprovingAll ? (
+                        <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                      ) : (
+                        <CheckCheck aria-hidden className="h-3.5 w-3.5" />
+                      )}
+                      <span>Approve {selectedProposed}</span>
+                    </Button>
+                  )}
+                  <Button
+                    className={FOCUS_RING}
+                    size="sm"
+                    onClick={() => setCreateDialogOpen(true)}
+                    disabled={isBusy || selectedApproved.length === 0}
+                    title={
+                      selectedApproved.length === 0
+                        ? 'Approve the selected ideas first'
+                        : undefined
+                    }
+                  >
+                    <Sparkles aria-hidden className="h-3.5 w-3.5" />
+                    <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {createDialogOpen && (
         <CreatePostsDialog
           title={`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}
-          description={`Choose where the post${selectedApproved.length === 1 ? '' : 's'} go and what type of post to write.${
-            selectedProposed > 0
-              ? ` The ${selectedProposed} selected idea${selectedProposed === 1 ? ' still to review is' : 's still to review are'} left out until approved.`
-              : ''
+          description={`Pick platforms and post types.${
+            selectedProposed > 0 ? ` ${selectedProposed} unapproved left out.` : ''
           }`}
           suggested={ideas
             .filter((i) => selectedApproved.includes(i.id))
@@ -1104,23 +1176,4 @@ export function RunDetailClient({
       )}
     </div>
   )
-}
-
-function StageIcon({ state }: { state: StageState }) {
-  switch (state) {
-    case 'completed':
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-    case 'partial':
-      return <AlertTriangle className="h-4 w-4 text-amber-500" />
-    case 'running':
-      return <Loader2 className="text-accent h-4 w-4 animate-spin" />
-    case 'failed':
-      return <AlertCircle className="h-4 w-4 text-rose-500" />
-    case 'waiting':
-      return <Hourglass className="text-muted h-4 w-4" />
-    case 'stopped':
-      return <Square className="text-muted h-4 w-4" />
-    default:
-      return <Clock className="text-muted h-4 w-4" />
-  }
 }

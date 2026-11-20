@@ -1,6 +1,7 @@
 import { NoIdentity } from '@/components/no-identity'
 import { localDay, parseMonthParam } from '@/lib/calendar'
 import { getIdentity } from '@/lib/identity'
+import { isPlatformId } from '@/lib/platforms'
 import { ScheduleClient } from './schedule-client'
 import { loadSchedulePage } from './schedule-data'
 
@@ -16,11 +17,14 @@ export default async function SchedulePage({
 
   // The month in the URL (?month=2026-10), or this one on the server's clock;
   // the page moves to the viewer's own month from there.
+  const params = await searchParams
   const today = localDay()
-  const month = parseMonthParam((await searchParams).month, {
+  const month = parseMonthParam(params.month, {
     year: Number(today.slice(0, 4)),
     month: Number(today.slice(5, 7))
   })
+  // The platform the calendar shows (?platform=x); every one by default.
+  const platform = isPlatformId(params.platform) ? params.platform : null
   const data = await loadSchedulePage(identity.id, month)
 
   return (
@@ -28,6 +32,7 @@ export default async function SchedulePage({
       key={`${month.year}-${month.month}`}
       accountId={identity.id}
       month={month}
+      initialPlatform={platform}
       {...data}
     />
   )

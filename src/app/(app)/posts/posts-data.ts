@@ -24,7 +24,8 @@ import { isImageStyle } from '@/lib/brand/theme'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
 import { summarizePostUsage } from '@/lib/post-usage'
-import { and, count, desc, eq, inArray, isNotNull, max, sql, sum, type SQL } from 'drizzle-orm'
+import type { PlatformId } from '@/lib/platforms'
+import { and, count, desc, eq, inArray, isNotNull, isNull, max, ne, sql, sum, type SQL } from 'drizzle-orm'
 import type { PostDetail } from './posts-client'
 
 /** A run makes a handful of posts; this only bounds a pathological one. */
@@ -398,6 +399,46 @@ export async function loadPostWithVersions(
   const { posts } = await loadPostsPage(accountId, { ids })
   const post = posts.find(p => p.id === postId)
   return post ? { post, versions: posts } : null
+}
+
+/**
+ * The post to review after this one: the account's newest other post awaiting
+ * review that is not hidden or already posted, as the list shows it first.
+ * Kept to the list's platform and run when it was narrowed to one, so the
+ * reviewer stays in the queue they were working through. Null when there is
+ * none.
+ */
+export async function loadNextToReview(
+  accountId: string,
+  exceptId: string,
+  scope: { platform?: PlatformId | null; runId?: string | null } = {}
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: postDraftsTable.id })
+    .from(postDraftsTable)
+    .where(
+      and(
+        eq(postDraftsTable.accountId, accountId),
+        eq(postDraftsTable.status, 'awaiting_review'),
+        isNull(postDraftsTable.hiddenAt),
+        isNull(postDraftsTable.postedAt),
+        ne(postDraftsTable.id, exceptId),
+        inKnownFormat(),
+        scope.platform ? eq(postDraftsTable.platform, scope.platform) : undefined,
+        scope.runId
+          ? inArray(
+              postDraftsTable.ideaId,
+              db
+                .select({ id: ideasTable.id })
+                .from(ideasTable)
+                .where(eq(ideasTable.runId, scope.runId))
+            )
+          : undefined
+      )
+    )
+    .orderBy(desc(postDraftsTable.createdAt), desc(postDraftsTable.id))
+    .limit(1)
+  return row?.id ?? null
 }
 
 export async function countPosts(accountId: string) {

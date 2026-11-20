@@ -17,21 +17,36 @@ The first three need the platform's account connected under [Integrations](/sett
 
 ## Plan posts on the calendar
 
-The calendar shows one month; use the arrows to move and **Today** to come back. Each post shows its platform's icon and opening line, coloured **To review**, **Approved** or **Posted**.
+The calendar shows one month; use the arrows to move and **Today** to come back. Above it, the month's figures count its posts: **Planned**, **To review**, **Scheduled**, **Posted** and **Failed**. Click a figure to show only those posts on the calendar, and click it again (or **Planned**) to show them all. If the identity posts on more than one platform, pick **All platforms** or one platform to show only its posts.
 
-To plan a post, drag it from **Not planned yet** onto a day (or from one day to another), or pick a date in **Plan for**. **Not planned yet** lists posts in review or approved that have no day yet. Rejected posts never appear here.
+Each post on the calendar shows its platform's icon and opening line, coloured by where it stands:
 
-Click a post on the calendar to change **Planned for**, **Unschedule** it, or **Open Posts**. On a phone, the calendar becomes a list of the days that have posts.
+| Status             | Meaning                                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------------------- |
+| **To review**      | Not approved yet.                                                                                         |
+| **Approved**       | Approved, and not queued to publish.                                                                      |
+| **Scheduled**      | Queued to publish, with the time it goes out (or the date, when that isn't its planned day).              |
+| **Publishing**     | Being sent to the platform right now.                                                                     |
+| **Publish failed** | The last attempt to publish did not work. Open the post on the calendar to see why.                       |
+| **Posted**         | Marked as posted. A post that went out from the app reads **Published**, and counts under **Posted** too. |
+
+The key under the calendar counts each status for the month.
+
+To plan a post, drag it from **Not planned yet** onto a day (or from one day to another), pick a date in **Plan for**, or click **Today** or **Tomorrow**. **Not planned yet** lists posts in review or approved that have no day yet, newest first. Search them with **Search hooks**, or pick a status to narrow them. Rejected posts never appear here. To take a post off the calendar, drag it back onto **Not planned yet**.
+
+Click a post on the calendar to open it. Under **Move to**, **Today**, **Tomorrow**, **−1 day**, **+1 day** and **Next week** move it in one click, or pick any date. **Unschedule** takes it off the calendar, and **Open post** opens its page. On a phone, the calendar becomes a list of the days that have posts.
 
 <Tags type="important">
 
 Planning a day doesn't publish anything by itself. A planned post only goes out on its day if auto-publishing is on for its platform.
 
+Moving a scheduled post to another day doesn't move its publication either: it still goes out at the time it was scheduled for, and its dialog says so. To change that time, or cancel it, open the post's page.
+
 </Tags>
 
 ### Mark a post as posted
 
-Posted an approved post yourself? Open it on the calendar and click **Mark as posted**. If it had no day, it goes on today. Any publishing queued for it is cancelled, and its text and image lock. **Not posted yet** undoes it, except for posts published from the app, which stay posted.
+Posted an approved post yourself? Open it on the calendar and click **Mark as posted**. If it had no day, it goes on today. If it was scheduled, you confirm first, and its queued publishing is cancelled so it doesn't go out twice. Its text and image lock. **Not posted yet** undoes it, except for posts published from the app, which stay posted.
 
 ## Publish now or at a set time
 
@@ -46,7 +61,7 @@ Good to know:
 
 - You can still edit a scheduled post. What is saved when its time comes is what goes out.
 - Rejecting or deleting a scheduled post cancels it. Hiding it from the Posts list doesn't.
-- Scheduling a time doesn't put the post on the calendar. Once published, it shows as **Posted** on its planned day, or the day it went out.
+- Scheduling a time doesn't put the post on the calendar. Once published, it shows as **Published** on its planned day, or the day it went out.
 - On X and Threads the post's reply is published with it, and on Facebook its first comment. A LinkedIn first comment isn't: use **Copy comment** in the preview and add it yourself. Instagram's **Link-in-bio note** is never posted.
 
 ## Auto-publishing
@@ -61,7 +76,7 @@ In [Integrations](/settings/integrations), tick **Publish automatically** for a 
 
 ## What happens at publish time
 
-Every rule is checked again: the post must still be approved, not marked as posted and within the platform's length limit, an Instagram post needs its image, a Reel or a Short needs its video, and the account must be connected. The post shows **Publishing** while it is sent. Once it is out it shows **Published**, its text and image lock, and Schedule shows it as **Posted**.
+Every rule is checked again: the post must still be approved, not marked as posted and within the platform's length limit, an Instagram post needs its image, a Reel or a Short needs its video, and the account must be connected. The post shows **Publishing** while it is sent. Once it is out, it shows **Published** on its page and on the calendar, and its text and image lock.
 
 ## Failures and retries
 

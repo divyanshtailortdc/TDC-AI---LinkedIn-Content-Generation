@@ -2,6 +2,9 @@
 
 import { Button } from '@/components/button'
 import { showToast } from '@/components/toast-notification'
+import { StatusChip } from '@/components/ui/status-chip'
+import { FOCUS_RING } from '@/components/ui/tone'
+import { cn } from '@/lib/cn'
 import { Copy, Pencil } from 'lucide-react'
 import { useState, useTransition } from 'react'
 import {
@@ -10,10 +13,13 @@ import {
   normalizeLocalPart
 } from '~/lib/mail/local-part'
 import { isTestDomain } from '~/lib/mail/test-domain'
+import { InfoTip } from '@/components/ui/info-tip'
 import { changeInboxAddress } from './actions'
 
-const ICON_BUTTON =
-  'text-muted hover:bg-foreground/10 hover:text-foreground flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors'
+const ICON_BUTTON = cn(
+  'text-muted hover:bg-foreground/10 hover:text-foreground flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors',
+  FOCUS_RING
+)
 
 /**
  * The identity's address under the Inbox title, with Copy, and Change to pick
@@ -46,7 +52,7 @@ export function InboxAddress({
 
   if (address && !editing) {
     return (
-      <div className="min-w-0 space-y-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <span className="text-muted shrink-0">Your address</span>
           <code className="text-foreground truncate font-medium">
@@ -75,11 +81,12 @@ export function InboxAddress({
           </button>
         </div>
         {isTestDomain(domain) && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            A test address: {domain} does not exist on the internet, so
-            newsletter sites refuse it and cannot send to it. It only receives
-            mail sent to the local mail server (mailserver/README.md).
-          </p>
+          <StatusChip
+            tone="warning"
+            title={`A test address: ${domain} does not exist on the internet, so newsletter sites refuse it and cannot send to it. It only receives mail sent to the local mail server (mailserver/README.md).`}
+          >
+            Test address
+          </StatusChip>
         )}
       </div>
     )
@@ -108,6 +115,17 @@ export function InboxAddress({
     })
   }
 
+  // What the form used to say under the box, behind its Info button.
+  const help = `${
+    address
+      ? `${address} keeps delivering here, so newsletters already sent to it still arrive.`
+      : 'The address you subscribe to newsletters with: letters and numbers, with dots, hyphens or underscores between them.'
+  }${
+    earlierAddresses.length > 0
+      ? ` Earlier addresses that still deliver here: ${earlierAddresses.join(', ')}.`
+      : ''
+  }`
+
   return (
     <form
       onSubmit={e => {
@@ -116,11 +134,12 @@ export function InboxAddress({
       }}
       className="space-y-2 text-sm"
     >
-      <label htmlFor="inbox-local-part" className="text-muted block">
-        {address
-          ? 'Choose your new address'
-          : 'Choose the address you subscribe to newsletters with'}
-      </label>
+      <div className="flex items-center gap-1">
+        <label htmlFor="inbox-local-part" className="text-muted">
+          {address ? 'New address' : 'Choose your address'}
+        </label>
+        <InfoTip label="About the address">{help}</InfoTip>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="border-border bg-surface-hover focus-within:ring-foreground/30 flex h-8 max-w-full min-w-0 items-center rounded-lg border focus-within:ring-2">
           <input
@@ -164,13 +183,6 @@ export function InboxAddress({
           {error}
         </p>
       )}
-      <p className="text-muted text-xs">
-        {address
-          ? `${address} keeps delivering here, so newsletters already sent to it still arrive.`
-          : 'Letters and numbers, with dots, hyphens or underscores between them.'}
-        {earlierAddresses.length > 0 &&
-          ` Earlier addresses that still deliver here: ${earlierAddresses.join(', ')}.`}
-      </p>
     </form>
   )
 }

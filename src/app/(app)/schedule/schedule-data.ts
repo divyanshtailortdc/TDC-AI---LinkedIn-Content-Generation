@@ -13,6 +13,10 @@ import { loadChannels } from '@/lib/channels'
 import type { PlatformId } from '@/lib/platforms'
 import { inKnownFormat } from '@/lib/known-formats'
 import { isPublishingConfigured } from '@/lib/publishing/config'
+import {
+  latestPublications,
+  type PublicationSummary
+} from '@/lib/publishing/engine'
 import { nextSlot } from '@/lib/schedule-time'
 import {
   and,
@@ -46,6 +50,11 @@ export type PlannedPost = {
    * deleted from it since: it stays posted.
    */
   publishedFromApp: boolean
+  /**
+   * Its newest publication, as Posts shows it; null with none, or when
+   * publishing is not set up.
+   */
+  publication: PublicationSummary | null
   goalTitle: string | null
   createdAt: Date
 }
@@ -180,9 +189,22 @@ export async function loadSchedulePage(accountId: string, month: Month) {
       loadChannels(accountId)
     ])
 
+  // Each post's newest publication, as Posts loads it: one query for all of
+  // the page's posts. Skipped when publishing is not set up.
+  const publications = publishingOn
+    ? await latestPublications(
+        db,
+        [...planned, ...unscheduled].map(post => post.id)
+      )
+    : new Map<string, PublicationSummary>()
+  const withPublication = (post: (typeof planned)[number]): PlannedPost => ({
+    ...post,
+    publication: publications.get(post.id) ?? null
+  })
+
   return {
-    planned: planned as PlannedPost[],
-    unscheduled: unscheduled as PlannedPost[],
+    planned: planned.map(withPublication),
+    unscheduled: unscheduled.map(withPublication),
     unscheduledTotal: unscheduledTotal?.n ?? 0,
     schedule: schedule ?? null,
     nextRun: nextRunOf(schedule),

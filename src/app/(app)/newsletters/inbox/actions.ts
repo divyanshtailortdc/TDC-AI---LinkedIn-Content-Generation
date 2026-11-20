@@ -4,6 +4,7 @@ import { requireIdentityId } from '@/lib/identity'
 import { isUuid } from '@/lib/ids'
 import { INBOX_PATH } from '@/lib/inbox-path'
 import { KNOWLEDGE_PATH } from '@/lib/knowledge-path'
+import { PAGE_SIZE } from '@/lib/pagination'
 import { requireUser } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
@@ -18,7 +19,12 @@ import { chooseInboundAddress } from '~/lib/mail/addresses'
 import { normalizeLocalPart } from '~/lib/mail/local-part'
 import { readMailSyncStatus, requestMailSync } from '~/lib/mail/mailbox'
 import { inboxConfig } from '~/lib/mail/settings'
-import { loadInboxInsights, loadInboxMessage } from './inbox-data'
+import {
+  loadInboxInsights,
+  loadInboxMessage,
+  loadInboxProgress,
+  loadInboxStats
+} from './inbox-data'
 
 const NOT_SET_UP = 'The inbox is not set up on this server.'
 
@@ -105,6 +111,30 @@ export async function getInboxSyncStatus() {
   } catch (err) {
     console.error('Reading the inbox sync status failed:', err)
     return { success: false as const, error: 'Could not check the sync.' }
+  }
+}
+
+/**
+ * What the inbox polls while emails are being read, instead of re-rendering
+ * the page: its figures, and where the listed emails stand. The page is
+ * refreshed only when one of them changed. Only the user's own identity's.
+ */
+export async function pollInbox(messageIds: string[]) {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    // A server action's arguments come from the browser, whatever the types say.
+    const ids = Array.isArray(messageIds)
+      ? messageIds.filter(isUuid).slice(0, PAGE_SIZE)
+      : []
+    const [stats, emails] = await Promise.all([
+      loadInboxStats(accountId),
+      loadInboxProgress(accountId, ids)
+    ])
+    return { success: true as const, stats, emails }
+  } catch (err) {
+    console.error('Polling the inbox failed:', err)
+    return { success: false as const, error: 'Could not check the inbox.' }
   }
 }
 

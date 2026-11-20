@@ -204,3 +204,14 @@ select,
   border-radius: 0.375rem;
   animation: docs-search-hit 2.4s ease-out;
 }
+
+/* ProgressBar's indeterminate state (src/components/ui/meter.tsx): a short
+   bar sliding across while there is no honest number for how far along. */
+@keyframes meter-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}

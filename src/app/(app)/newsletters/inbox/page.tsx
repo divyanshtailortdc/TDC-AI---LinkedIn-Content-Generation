@@ -9,7 +9,8 @@ import {
 import { readMailSyncStatus } from '~/lib/mail/mailbox'
 import { inboxConfig } from '~/lib/mail/settings'
 import { InboxClient } from './inbox-client'
-import { loadInboxPage, parseInboxQuery } from './inbox-data'
+import { loadInboxPage, loadInboxStats, parseInboxQuery } from './inbox-data'
+import { parseInboxFilter } from './inbox-status'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,12 +31,18 @@ export default async function InboxPage({
 
   const params = await searchParams
   const query = parseInboxQuery(params.q)
-  const [address, earlierAddresses, status, { rows, pageInfo }] =
+  const filter = parseInboxFilter(params.status)
+  const [address, earlierAddresses, status, { rows, pageInfo }, stats] =
     await Promise.all([
       ensureInboundAddress(identity.id, config.domain),
       replacedInboundAddresses(identity.id, config.domain),
       readMailSyncStatus(config.statusMailbox),
-      loadInboxPage(identity.id, { page: parsePage(params.page), query })
+      loadInboxPage(identity.id, {
+        page: parsePage(params.page),
+        query,
+        filter
+      }),
+      loadInboxStats(identity.id)
     ])
 
   return (
@@ -47,7 +54,9 @@ export default async function InboxPage({
         status,
         messages: rows,
         pageInfo,
-        query
+        query,
+        filter,
+        stats
       }}
     />
   )
