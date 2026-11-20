@@ -250,18 +250,14 @@ export function AiSetupCard({
 
   return (
     <>
-      {assistant ? (
+      {
         <div className="space-y-4">
           {card}
-          <ProTipCard />
         </div>
-      ) : (
-        card
-      )}
+     }
 
       {account && reviewOpen && draft && (
         <ReviewSuggestionsDialog
-          // Each analysis opens with its own selection and edits.
           key={draft.id}
           accountId={account.id}
           draft={draft}
@@ -272,18 +268,4 @@ export function AiSetupCard({
   )
 }
 
-/** A short nudge under the Profile step's assistant. */
-function ProTipCard() {
-  return (
-    <section className="border-border bg-surface rounded-xl border p-4 shadow-xs">
-      <h3 className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
-        <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
-        Pro Tip
-      </h3>
-      <p className="text-muted mt-1.5 text-xs leading-relaxed">
-        The more specific you are about who it&apos;s for, the better your
-        posts will land with them.
-      </p>
-    </section>
-  )
-}
+

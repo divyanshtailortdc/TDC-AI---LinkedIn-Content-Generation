@@ -148,7 +148,7 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
     label: 'What You Promote',
     type: 'textarea',
     placeholder:
-      'e.g. Weekend dance classes, a course, your product or services. Leave empty if nothing.',
+      'e.g. Weekend dance classes, a course, your product or services',
     hint: '(optional)'
   },
   {

@@ -21,7 +21,6 @@ import {
 } from '@/components/identity-fields'
 import { PlatformMark } from '@/components/platform-mark'
 import { PlatformCards, type PlatformCardNote } from '@/components/platform-cards'
-import { StyleLegend } from '@/components/platform-styles'
 import { showToast } from '@/components/toast-notification'
 import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
 import {
@@ -188,11 +187,12 @@ export function CreateIdentity({
   return (
     <SetupFrame
       stepIndex={0}
+      hideStepCount
       title={another ? 'Create Another Identity' : 'Create Your Identity'}
       description={
         another
-          ? 'A separate persona or brand with its own voice, goals and connected accounts. Your other identities stay as they are.'
-          : 'Three quick steps: where you post, a few words about you, then check what we filled in.'
+          ? 'A separate brand or persona with its own voice and goals.'
+          : 'Choose your platforms, describe yourself, and review your profile.'
       }
       identity={
         <Link
@@ -205,21 +205,21 @@ export function CreateIdentity({
       }
       nav={<SetupStepper activeIndex={0} draftKey={NEW_IDENTITY_KEY} />}
     >
-      <div className="mx-auto max-w-3xl space-y-5">
-        <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" aria-label="Progress">
+      <div className="mx-auto w-full max-w-5xl space-y-8 py-2 sm:py-6">
+        <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-2 text-sm sm:gap-x-3" aria-label="Progress">
           {STEPS.map((s, i) => {
             const index = STEPS.findIndex(x => x.key === step)
             const done = i < index
             const active = s.key === step
             return (
-              <li key={s.key} className="flex items-center gap-2">
-                {i > 0 && <span aria-hidden className="bg-border h-px w-6" />}
+              <li key={s.key} className="flex items-center gap-2 sm:gap-3">
+                {i > 0 && <span aria-hidden className="bg-border h-px w-5 sm:w-10" />}
                 <button
                   type="button"
                   disabled={!reachable(s.key) || active}
                   onClick={() => setStep(s.key)}
                   aria-current={active ? 'step' : undefined}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 font-medium transition-colors disabled:cursor-default ${
+                  className={`inline-flex items-center gap-2 rounded-full py-1.5 pl-1.5 font-medium transition-colors disabled:cursor-default ${active ? 'pr-3.5' : 'pr-1.5 sm:pr-3.5'} ${
                     active
                       ? 'bg-accent/10 text-accent'
                       : done
@@ -228,7 +228,7 @@ export function CreateIdentity({
                   }`}
                 >
                   <span
-                    className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
                       active
                         ? 'bg-accent text-background'
                         : done
@@ -236,9 +236,10 @@ export function CreateIdentity({
                           : 'border-border border'
                     }`}
                   >
-                    {done ? <Check className="h-3 w-3" /> : i + 1}
+                    {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
                   </span>
-                  {s.label}
+                  {/* On phones only the current step is named, so the bar fits one line. */}
+                  <span className={active ? '' : 'sr-only sm:not-sr-only'}>{s.label}</span>
                 </button>
               </li>
             )
@@ -309,11 +310,11 @@ export function CreateIdentity({
 }
 
 const primaryButton =
-  'bg-accent hover:bg-accent-hover text-background inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+  'bg-accent hover:bg-accent-hover text-background inline-flex h-11 items-center justify-center gap-2 rounded-lg px-6 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50'
 const secondaryButton =
-  'border-border text-foreground hover:bg-surface-hover inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border px-4 text-sm font-medium transition-colors disabled:opacity-50'
+  'border-border text-foreground hover:bg-surface-hover inline-flex h-11 items-center justify-center gap-2 rounded-lg border px-5 text-sm font-medium transition-colors disabled:opacity-50'
 const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-3.5 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
+  'w-full rounded-lg border border-border bg-surface px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
 
 function WhereStep({
   platforms,
@@ -334,19 +335,18 @@ function WhereStep({
         : CREATABLE_PLATFORMS.filter(p => p === platform || platforms.includes(p))
     )
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <div>
-        <h2 className="text-foreground text-base font-semibold">
+        <h2 className="text-foreground text-xl font-bold tracking-tight sm:text-2xl">
           {another ? 'Where does this identity post?' : 'Where do you post?'}
         </h2>
-        <p className="text-muted mt-0.5 text-sm">
-          Pick every platform this identity posts on. Each one gets its own
-          style (professional on LinkedIn, fun on Instagram), and goals and
-          ideas can be kept to one platform. You can change this later in
-          Preferences.
-        </p>
+
+<p className="text-muted mt-1.5 text-sm leading-relaxed sm:text-[15px]">
+  Select platforms for this identity. Each gets its own style and content goals. You can change this later in Preferences.
+</p>
+
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {CREATABLE_PLATFORMS.map(platform => {
           const selected = platforms.includes(platform)
           return (
@@ -356,65 +356,39 @@ function WhereStep({
               role="checkbox"
               aria-checked={selected}
               onClick={() => toggle(platform)}
-              className={`flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors ${
+              className={`flex min-h-24 items-center gap-4 rounded-2xl border px-5 py-5 text-left transition-all ${
                 selected
-                  ? 'border-accent bg-accent/5 ring-accent/20 ring-1'
-                  : 'border-border bg-surface hover:border-accent/40 hover:bg-surface-hover'
+                  ? 'border-accent bg-accent/5 ring-accent/20 ring-2'
+                  : 'border-border bg-surface hover:border-accent/40 hover:bg-surface-hover hover:shadow-sm'
               }`}
             >
               <span
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                  selected ? 'bg-accent text-background' : 'bg-surface-hover text-foreground'
-                }`}
+                className="bg-surface-hover flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
               >
-                <PlatformMark platform={platform} className="h-4.5 w-4.5" />
+                <PlatformMark platform={platform} colored className="h-6 w-6" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="text-foreground block text-sm font-semibold">
+                <span className="text-foreground block text-base font-semibold">
                   {PLATFORMS[platform].label}
                 </span>
-                <span className="text-muted block text-xs">{PLATFORM_HINTS[platform]}</span>
+                <span className="text-muted mt-0.5 block text-sm">{PLATFORM_HINTS[platform]}</span>
               </span>
               <span
                 aria-hidden
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 ${
                   selected ? 'border-accent bg-accent text-background' : 'border-border'
                 }`}
               >
-                {selected && <Check className="h-3.5 w-3.5" />}
+                {selected && <Check className="h-4 w-4" />}
               </span>
             </button>
           )
         })}
       </div>
-      <div className="border-border bg-surface-hover/40 flex items-start gap-3 rounded-xl border px-4 py-3">
-        <UsersRound aria-hidden className="text-accent mt-0.5 h-4 w-4 shrink-0" />
-        <p className="text-muted text-xs leading-relaxed">
-          {another ? (
-            <>
-              <span className="text-foreground font-medium">
-                This is a separate identity:
-              </span>{' '}
-              its own profile, voice, goals, ideas and connected accounts. Your
-              other identities are not changed, and you switch between them in
-              the sidebar.
-            </>
-          ) : (
-            <>
-              <span className="text-foreground font-medium">
-                Same you, different platforms?
-              </span>{' '}
-              Pick them all here. Posting somewhere as a different person or
-              brand (a separate persona on Instagram, say)? Create a separate
-              identity for it later from the sidebar, with its own voice,
-              goals and connected accounts.
-            </>
-          )}
-        </p>
-      </div>
-      <div className="flex items-center justify-end gap-3">
+   
+      <div className="flex items-center justify-end gap-4 pt-2">
         {platforms.length === 0 && (
-          <span className="text-muted text-xs">Pick at least one platform.</span>
+          <span className="text-muted text-sm">Pick at least one platform.</span>
         )}
         <button
           type="button"
@@ -534,17 +508,14 @@ function AboutStep({
   const where = platforms.map(p => PLATFORMS[p].label).join(', ')
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <div>
-        <h2 className="text-foreground text-base font-semibold">Tell us about you</h2>
-        <p className="text-muted mt-0.5 text-sm">
-          In your own words. We&apos;ll fill in your profile and pick how your
-          posts should sound on {where}.
-        </p>
+        <h2 className="text-foreground text-xl font-bold tracking-tight sm:text-2xl">Tell us about you</h2>
+
       </div>
 
       <div>
-        <label htmlFor="about-description" className="text-foreground mb-1.5 block text-sm font-medium">
+        <label htmlFor="about-description" className="text-foreground mb-2 block text-base font-semibold">
           What do you post about, and who is it for?
         </label>
         <textarea
@@ -553,18 +524,12 @@ function AboutStep({
           disabled={analyzing}
           onChange={e => set('description', e.target.value)}
           rows={5}
-          placeholder={`e.g. I'm Priya, a dance teacher in Pune. I post short Bollywood tutorials and funny rehearsal bloopers with my students, for teens learning at home. I also run weekend classes.
-
-or: I run Ledgerly, a bookkeeping service for D2C brands, and want founders to see me as the person to trust on finance.`}
-          className={`${inputClass} scrollbar-visible h-36 resize-y leading-relaxed`}
+          placeholder="e.g. I'm a dance teacher in Pune. I post short dance tutorials for teens learning at home."
+          className={`${inputClass} scrollbar-visible h-48 resize-y px-4 py-3 leading-relaxed`}
         />
-        <p className="text-muted mt-1.5 text-xs">
-          Who you are, what you post, who follows you, and anything you promote.
-          The more specific, the better the posts.
-        </p>
       </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         {platforms.map(platform => (
           <LinkInput
             key={platform}
@@ -572,7 +537,7 @@ or: I run Ledgerly, a bookkeeping service for D2C brands, and want founders to s
             label={`${PLATFORMS[platform].label} profile`}
             hint="(optional)"
             placeholder={profileLinkPlaceholder(platform)}
-            icon={<PlatformMark platform={platform} className="h-4 w-4" />}
+            icon={<PlatformMark platform={platform} colored className="h-4.5 w-4.5" />}
             value={value.links[platform] ?? ''}
             error={urlErrors.links?.[platform]}
             disabled={analyzing}
@@ -582,9 +547,9 @@ or: I run Ledgerly, a bookkeeping service for D2C brands, and want founders to s
         <LinkInput
           id="about-website"
           label="Website"
-          hint="(optional, we'll read it)"
+          hint="(optional)"
           placeholder="https://example.com"
-          icon={<Globe className="h-4 w-4" />}
+          icon={<Globe className="h-4.5 w-4.5" />}
           value={value.websiteUrl}
           error={urlErrors.websiteUrl}
           disabled={analyzing}
@@ -593,13 +558,13 @@ or: I run Ledgerly, a bookkeeping service for D2C brands, and want founders to s
       </div>
 
       {error && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs text-red-600 dark:text-red-400">
+        <div className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <p className="leading-relaxed">{error}</p>
         </div>
       )}
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
         <button type="button" onClick={onBack} disabled={analyzing} className={secondaryButton}>
           <ArrowLeft className="h-4 w-4" />
           Back
@@ -613,7 +578,7 @@ or: I run Ledgerly, a bookkeeping service for D2C brands, and want founders to s
             <button
               type="button"
               onClick={onFillMyself}
-              className="text-muted hover:text-foreground px-2 py-2 text-sm font-medium transition-colors"
+              className="text-muted hover:text-foreground px-3 py-2.5 text-sm font-medium transition-colors"
             >
               I&apos;ll fill it in myself
             </button>
@@ -660,12 +625,12 @@ function LinkInput({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="text-foreground mb-1.5 block text-sm font-medium">
+      <label htmlFor={id} className="text-foreground mb-2 block text-[15px] font-semibold">
         {label}
-        <span className="text-muted ml-1.5 text-xs font-normal">{hint}</span>
+        <span className="text-muted ml-1.5 text-sm font-normal">{hint}</span>
       </label>
       <div className="relative">
-        <span className="text-muted pointer-events-none absolute top-1/2 left-3 -translate-y-1/2">
+        <span className="text-muted pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2">
           {icon}
         </span>
         <input
@@ -675,10 +640,10 @@ function LinkInput({
           disabled={disabled}
           placeholder={placeholder}
           onChange={e => onChange(e.target.value)}
-          className={`${inputClass} pl-9 ${error ? 'border-red-500/60 ring-1 ring-red-500/30' : ''}`}
+          className={`${inputClass} h-11 pl-10 ${error ? 'border-red-500/60 ring-1 ring-red-500/30' : ''}`}
         />
       </div>
-      {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-1.5 text-sm text-red-500">{error}</p>}
     </div>
   )
 }
@@ -799,11 +764,7 @@ function ReviewStep({
           <Sparkles className="text-accent mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 flex-1 text-xs leading-relaxed">
             <p className="text-foreground font-medium">
-              We filled this in from what you wrote. Check it and change anything.
-            </p>
-            <p className="text-muted">
-              Nothing is saved until you create the identity. Voice, goals and
-              knowledge suggestions come next.
+              We filled this in for you. Check it and edit anything.
             </p>
           </div>
           <button
@@ -818,7 +779,6 @@ function ReviewStep({
 
       <SectionCard
         title="Your platforms"
-        description="Pick a style for each platform: you can be professional on one and fun on another. Edit to say who follows you there and how you sound."
         aside={
           <button
             type="button"
@@ -829,17 +789,14 @@ function ReviewStep({
           </button>
         }
       >
-        <div className="space-y-3">
-          <PlatformCards
-            platforms={platforms}
-            styles={styles}
-            notes={notes}
-            onStyleChange={onStyleChange}
-            onNoteChange={onNoteChange}
-            aiPicked={aiStyles}
-          />
-          <StyleLegend />
-        </div>
+        <PlatformCards
+          platforms={platforms}
+          styles={styles}
+          notes={notes}
+          onStyleChange={onStyleChange}
+          onNoteChange={onNoteChange}
+          aiPicked={aiStyles}
+        />
       </SectionCard>
 
       <IdentityFields

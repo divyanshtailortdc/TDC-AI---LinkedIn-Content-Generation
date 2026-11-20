@@ -396,13 +396,8 @@ export function KnowledgeClient({
               <Sparkles className="text-accent mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <h2 className="text-foreground text-sm font-semibold">
-                  Suggested from your AI setup
+                  Suggested for you
                 </h2>
-                <p className="text-muted mt-0.5 text-xs">
-                  Sources are pages you mentioned or that web search found and
-                  checked to be about you, and facts were checked against their
-                  source text. Nothing is added until you save it.
-                </p>
               </div>
             </div>
             <button
@@ -467,7 +462,7 @@ export function KnowledgeClient({
                   disabled={isSaving}
                   className="text-accent shrink-0 text-xs font-medium hover:underline disabled:opacity-50"
                 >
-                  {isSaving ? 'Saving…' : 'Save facts to knowledge base'}
+                  {isSaving ? 'Saving…' : 'Save facts'}
                 </button>
               </div>
               {pageFacts.map(fact => (
@@ -495,7 +490,7 @@ export function KnowledgeClient({
           {aiKnowledge.suggestedAdditions.length > 0 && (
             <div className="space-y-2">
               <p className="text-foreground text-xs font-semibold">
-                Worth adding (no source yet)
+                Worth adding
               </p>
               <ul className="space-y-1.5">
                 {aiKnowledge.suggestedAdditions.map(addition => (
@@ -512,7 +507,7 @@ export function KnowledgeClient({
                       }}
                       className="text-accent shrink-0 font-medium hover:underline"
                     >
-                      Add as artifact
+                      Add
                     </button>
                   </li>
                 ))}
@@ -539,7 +534,7 @@ export function KnowledgeClient({
             }`}
           >
             <Globe className="text-accent h-3.5 w-3.5" />
-            Add Web URL
+            Add a link
           </button>
           <button
             type="button"
@@ -551,7 +546,7 @@ export function KnowledgeClient({
             }`}
           >
             <FileText className="text-accent h-3.5 w-3.5" />
-            Add Custom Artifact
+            Paste text
           </button>
         </div>
 
@@ -562,7 +557,7 @@ export function KnowledgeClient({
                 type="url"
                 value={inputUrl}
                 onChange={e => setInputUrl(e.target.value)}
-                placeholder="https://company.com/blog/case-study or article URL"
+                placeholder="https://example.com/article"
                 className="border-border bg-surface-hover text-foreground placeholder:text-muted focus:ring-accent flex-1 rounded-lg border px-3.5 py-2 text-sm focus:ring-1"
               />
               <button
@@ -574,10 +569,10 @@ export function KnowledgeClient({
                 {isFetchingUrl ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Fetching &amp; Extracting…
+                    Fetching…
                   </>
                 ) : (
-                  'Fetch & Extract'
+                  'Fetch'
                 )}
               </button>
             </div>
@@ -588,7 +583,7 @@ export function KnowledgeClient({
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    Scraped successfully ({urlPreview.wordCount} words)
+                    {urlPreview.wordCount} words
                   </span>
                   <span className="text-muted max-w-xs truncate text-xs">
                     {urlPreview.url}
@@ -597,7 +592,7 @@ export function KnowledgeClient({
 
                 <div>
                   <label className="text-foreground mb-1 block text-xs font-medium">
-                    Document Title
+                    Title
                   </label>
                   <input
                     type="text"
@@ -611,7 +606,7 @@ export function KnowledgeClient({
 
                 <div>
                   <label className="text-foreground mb-1 block text-xs font-medium">
-                    Extracted Text Content
+                    Text
                   </label>
                   <textarea
                     rows={6}
@@ -633,10 +628,10 @@ export function KnowledgeClient({
                     {isSaving ? (
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Extracting Claims &amp; Saving…
+                        Saving…
                       </>
                     ) : (
-                      'Save to Knowledge Base →'
+                      'Save'
                     )}
                   </button>
                 </div>
@@ -649,27 +644,26 @@ export function KnowledgeClient({
           <div className="space-y-4">
             <div>
               <label className="text-foreground mb-1.5 block text-xs font-medium">
-                Artifact Title
+                Title
               </label>
               <input
                 type="text"
                 value={artifactTitle}
                 onChange={e => setArtifactTitle(e.target.value)}
-                placeholder="e.g. Q3 Customer Case Study: Fintech Cost Optimization"
+                placeholder="e.g. Customer case study"
                 className="border-border bg-surface-hover text-foreground focus:ring-accent w-full rounded-lg border px-3.5 py-2 text-sm focus:ring-1"
               />
             </div>
 
             <div>
               <label className="text-foreground mb-1.5 block text-xs font-medium">
-                Content (Case study, transcript, release note, interview, or
-                talk)
+                Text
               </label>
               <textarea
                 rows={6}
                 value={artifactContent}
                 onChange={e => setArtifactContent(e.target.value)}
-                placeholder="Paste the raw text here. Claude will summarize it and extract verifiable key claims with quotes..."
+                placeholder="Paste a case study, transcript, release note or talk"
                 className="border-border bg-surface-hover text-foreground focus:ring-accent w-full resize-none rounded-lg border p-3.5 text-sm focus:ring-1"
               />
             </div>
@@ -686,10 +680,10 @@ export function KnowledgeClient({
                 {isSaving ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Analyzing Claims &amp; Saving…
+                    Saving…
                   </>
                 ) : (
-                  'Save Artifact →'
+                  'Save'
                 )}
               </button>
             </div>
@@ -702,21 +696,17 @@ export function KnowledgeClient({
         <div className="flex items-center justify-between">
           <h2 className="text-foreground flex items-center gap-2 text-base font-semibold">
             <BookOpen className="text-accent h-4 w-4" />
-            Ingested Documents ({initialDocs.length})
+            Documents ({initialDocs.length})
           </h2>
-          <span className="text-muted text-xs">
-            Every statistic and anecdote traces back to an ingested claim
-          </span>
         </div>
 
         {initialDocs.length === 0 ? (
           <div className="border-border bg-surface rounded-xl border border-dashed py-12 text-center">
             <p className="text-foreground text-sm font-medium">
-              No documents in the knowledge base yet
+              No documents yet
             </p>
             <p className="text-muted mt-1 text-xs">
-              Add a URL or paste an artifact above to ground your post
-              generation in real proof.
+              Add a link or paste text above.
             </p>
           </div>
         ) : (

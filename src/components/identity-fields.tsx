@@ -498,7 +498,7 @@ export function IdentityFields({
                 }}
                 value={links.values[platform] ?? ''}
                 error={links.errors?.[platform]}
-                icon={<PlatformMark platform={platform} className="h-4 w-4" />}
+                icon={<PlatformMark platform={platform} colored className="h-4 w-4" />}
                 readOnly={readOnly}
                 aiFilled={aiFilled?.has(linkFieldKey(platform))}
                 onChange={value => links.onChange(platform, value)}

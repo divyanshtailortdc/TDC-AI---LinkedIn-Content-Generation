@@ -38,7 +38,7 @@ export function PlatformStyles({
             className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
           >
             <span className="text-foreground flex min-w-0 items-center gap-2 text-sm font-medium">
-              <PlatformMark platform={platform} className="h-4 w-4 shrink-0" />
+              <PlatformMark platform={platform} colored className="h-4 w-4 shrink-0" />
               {label}
               {aiPicked?.has(platform) && (
                 <span className="bg-accent/10 text-accent rounded-full px-1.5 py-px text-[10px] font-semibold">
@@ -103,18 +103,3 @@ export function StylePicker({
   )
 }
 
-/** What each style means, in one line, under the picker. */
-export function StyleLegend() {
-  return (
-    <p className="text-muted text-xs leading-relaxed">
-      {CONTENT_STYLES.map((style, i) => (
-        <span key={style}>
-          {i > 0 && ' · '}
-          <span className="text-foreground font-medium">{STYLE_LABELS[style].label}</span>
-          {': '}
-          {STYLE_LABELS[style].hint.toLowerCase()}
-        </span>
-      ))}
-    </p>
-  )
-}

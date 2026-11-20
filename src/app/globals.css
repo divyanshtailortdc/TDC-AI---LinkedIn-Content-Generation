@@ -24,6 +24,24 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * Identity setup (Create identity, Profile, Voice, Knowledge, Preferences,
+ * Runs) reads a size up: Tailwind's text-* utilities read these variables, so
+ * everything inside the setup frame's body is about 1px larger.
+ */
+.setup-text {
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.1875rem;
+}
+/* Fixed pixel sizes, a pixel up to match. */
+.setup-text .text-\[9px\] { font-size: 10px; }
+.setup-text .text-\[10px\] { font-size: 11px; }
+.setup-text .text-\[11px\] { font-size: 12px; }
+.setup-text .text-\[13px\] { font-size: 14px; }
+.setup-text .text-\[15px\] { font-size: 16px; }
+
 :root {
   --background: #fafafa;
   --foreground: #09090b;

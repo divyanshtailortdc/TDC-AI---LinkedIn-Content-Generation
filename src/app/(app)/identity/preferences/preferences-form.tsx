@@ -6,7 +6,7 @@ import {
 } from '@/components/account-setup/setup-frame'
 import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
-import { PlatformStyles, StyleLegend } from '@/components/platform-styles'
+import { PlatformStyles } from '@/components/platform-styles'
 import { showToast } from '@/components/toast-notification'
 import {
   preferencesSuggestionValues,
@@ -30,7 +30,8 @@ import {
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
-import { FileText, Share2, ShieldAlert } from 'lucide-react'
+import { PlatformMark } from '@/components/platform-mark'
+import { FileText, Mic, Share2, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { savePreferences, type PreferencesPayload } from './actions'
 import { LearnedStyle, type LearnedStyleValue } from './learned-style'
@@ -228,12 +229,12 @@ export function PreferencesForm({
 
       <PrefillBanner section="preferences" prefill={prefill} />
 
-      {/* 1. Posts */}
-      <Section icon={FileText} title="Posts">
+      {/* 1. Ideas */}
+      <Section icon={FileText} title="Ideas" description="What each run suggests.">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="text-foreground mb-1 block text-xs font-medium">
-              Ideas per Run
+              Ideas per run
             </label>
             <select
               value={ideasPerRun}
@@ -250,26 +251,30 @@ export function PreferencesForm({
             </select>
           </div>
 
-          <label className={`mt-5 flex items-center gap-3 rounded-lg border p-3 ${
-              editing
-                ? 'border-border bg-surface-hover cursor-pointer'
-                : 'cursor-default border-transparent px-0'
-            }`}>
-            <input
-              type="checkbox"
-              checked={constraints.cta_required}
-              onChange={e =>
-                setConstraints({
-                  ...constraints,
-                  cta_required: e.target.checked
-                })
-              }
-              className="accent-accent"
-            />
-            <span className="text-foreground text-xs font-medium">
-              End every post with a call to action
-            </span>
-          </label>
+          <div>
+            <p className="text-foreground mb-1 text-xs font-medium">Call to action</p>
+            {editing ? (
+              <label className="border-border bg-surface-hover flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={constraints.cta_required}
+                  onChange={e =>
+                    setConstraints({
+                      ...constraints,
+                      cta_required: e.target.checked
+                    })
+                  }
+                  className="accent-accent"
+                />
+                <span className="text-foreground text-sm">End every post with one</span>
+              </label>
+            ) : (
+              // The checkbox is hidden while viewing, so say which it is.
+              <p className="text-foreground py-2 text-sm">
+                {constraints.cta_required ? 'At the end of every post' : 'Off'}
+              </p>
+            )}
+          </div>
         </div>
       </Section>
 
@@ -277,19 +282,26 @@ export function PreferencesForm({
       <Section
         icon={Share2}
         title="Platforms"
-        description="The formats posts are written in. Each idea is written separately for every platform you pick when you create posts."
+        description="The kinds of posts written for each platform."
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {CREATABLE_PLATFORMS.map(platform => (
+          {/* While viewing, only the platforms with something turned on: the
+              checkboxes are hidden then, so an off format would look on. */}
+          {(editing ? CREATABLE_PLATFORMS : activePlatforms).map(platform => (
             <fieldset
               key={platform}
               className="border-border min-w-0 rounded-lg border p-3"
             >
-              <legend className="text-foreground px-1 text-xs font-semibold">
+              <legend className="text-foreground flex items-center gap-1.5 px-1 text-xs font-semibold">
+                <PlatformMark platform={platform} colored className="h-3.5 w-3.5" />
                 {PLATFORMS[platform].label}
               </legend>
               <div className="space-y-1.5">
-                {CREATABLE_FORMATS.filter(f => FORMATS[f].platform === platform).map(
+                {CREATABLE_FORMATS.filter(
+                  f =>
+                    FORMATS[f].platform === platform &&
+                    (editing || enabledFormats.includes(f))
+                ).map(
                   id => (
                     <label
                       key={id}
@@ -322,18 +334,16 @@ export function PreferencesForm({
             Turn on at least one format.
           </p>
         )}
+      </Section>
 
-        {activePlatforms.length > 0 && (
+      {/* 3. Style per platform */}
+      {activePlatforms.length > 0 && (
+        <Section
+          icon={Mic}
+          title="Style per platform"
+          description="How posts sound on each platform."
+        >
           <div className="space-y-2">
-            <div>
-              <p className="text-foreground text-xs font-medium">
-                How posts sound on each platform
-              </p>
-              <p className="text-muted text-xs">
-                Professional posts share expertise; casual and fun ones are
-                written for the people who follow you.
-              </p>
-            </div>
             <PlatformStyles
               platforms={activePlatforms}
               value={Object.fromEntries(
@@ -341,108 +351,107 @@ export function PreferencesForm({
               )}
               onChange={setStyle}
             />
-            <StyleLegend />
           </div>
-        )}
 
-        {notePlatforms.map(platform => {
-          const label = PLATFORMS[platform].label
-          const defaultEmoji = defaultEmojiOf(channelSettings, platform, voiceEmoji)
-          return (
-            <fieldset
-              key={platform}
-              className="border-border min-w-0 space-y-3 rounded-lg border p-3"
-            >
-              <legend className="text-foreground px-1 text-xs font-semibold">
-                {label}
-              </legend>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <label
-                    htmlFor={`audience-${platform}`}
-                    className="text-foreground mb-1 block text-xs font-medium"
-                  >
-                    Who follows you on {label} (optional)
-                  </label>
-                  <textarea
-                    id={`audience-${platform}`}
-                    autoComplete="off"
-                    value={channelSettings[platform]?.audience ?? ''}
-                    onChange={e => setNote(platform, 'audience', e.target.value)}
-                    placeholder={`e.g. Customers and local followers, not the partners on LinkedIn`}
-                    className={`${inputClass} h-20 resize-none leading-relaxed`}
-                  />
+          {notePlatforms.map(platform => {
+            const label = PLATFORMS[platform].label
+            const defaultEmoji = defaultEmojiOf(channelSettings, platform, voiceEmoji)
+            return (
+              <fieldset
+                key={platform}
+                className="border-border min-w-0 space-y-3 rounded-lg border p-3"
+              >
+                <legend className="text-foreground flex items-center gap-1.5 px-1 text-xs font-semibold">
+                  <PlatformMark platform={platform} colored className="h-3.5 w-3.5" />
+                  {label}
+                </legend>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <label
+                      htmlFor={`audience-${platform}`}
+                      className="text-foreground mb-1 block text-xs font-medium"
+                    >
+                      Who follows you here (optional)
+                    </label>
+                    <textarea
+                      id={`audience-${platform}`}
+                      autoComplete="off"
+                      value={channelSettings[platform]?.audience ?? ''}
+                      onChange={e => setNote(platform, 'audience', e.target.value)}
+                      placeholder={editing ? 'e.g. Customers and local followers' : 'Not set'}
+                      className={`${inputClass} ${editing ? 'h-20' : 'field-sizing-content'} resize-none leading-relaxed`}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label
+                      htmlFor={`tone-${platform}`}
+                      className="text-foreground mb-1 block text-xs font-medium"
+                    >
+                      How you sound here (optional)
+                    </label>
+                    <textarea
+                      id={`tone-${platform}`}
+                      autoComplete="off"
+                      value={channelSettings[platform]?.tone ?? ''}
+                      onChange={e => setNote(platform, 'tone', e.target.value)}
+                      placeholder={editing ? 'e.g. Lighter, more personal, first names' : 'Not set'}
+                      className={`${inputClass} ${editing ? 'h-20' : 'field-sizing-content'} resize-none leading-relaxed`}
+                    />
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <label
-                    htmlFor={`tone-${platform}`}
-                    className="text-foreground mb-1 block text-xs font-medium"
-                  >
-                    How you sound on {label} (optional)
-                  </label>
-                  <textarea
-                    id={`tone-${platform}`}
-                    autoComplete="off"
-                    value={channelSettings[platform]?.tone ?? ''}
-                    onChange={e => setNote(platform, 'tone', e.target.value)}
-                    placeholder="e.g. Lighter, more personal, first names, the odd emoji"
-                    className={`${inputClass} h-20 resize-none leading-relaxed`}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <label
-                    htmlFor={`emoji-${platform}`}
-                    className="text-foreground mb-1 block text-xs font-medium"
-                  >
-                    Emoji on {label}
-                  </label>
-                  <select
-                    id={`emoji-${platform}`}
-                    value={channelSettings[platform]?.emoji ?? ''}
-                    onChange={e =>
-                      setEmoji(
-                        platform,
-                        isEmojiLevel(e.target.value) ? e.target.value : undefined
-                      )
-                    }
-                    className={inputClass}
-                  >
-                    <option value="">
-                      Default: {EMOJI_LABELS[defaultEmoji]}
-                    </option>
-                    {EMOJI_LEVELS.map(level => (
-                      <option key={level} value={level}>
-                        {EMOJI_LABELS[level]}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <label
+                      htmlFor={`emoji-${platform}`}
+                      className="text-foreground mb-1 block text-xs font-medium"
+                    >
+                      Emoji
+                    </label>
+                    <select
+                      id={`emoji-${platform}`}
+                      value={channelSettings[platform]?.emoji ?? ''}
+                      onChange={e =>
+                        setEmoji(
+                          platform,
+                          isEmojiLevel(e.target.value) ? e.target.value : undefined
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">
+                        Default: {EMOJI_LABELS[defaultEmoji]}
                       </option>
-                    ))}
-                  </select>
+                      {EMOJI_LEVELS.map(level => (
+                        <option key={level} value={level}>
+                          {EMOJI_LABELS[level]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <p className="text-muted self-end text-[11px] leading-relaxed sm:pb-2">
-                  {styleOf(channelSettings, platform) === 'professional'
-                    ? 'Professional posts default to your Voice setting, as on LinkedIn.'
-                    : 'Casual and fun posts default to Freely. Your Voice setting is for LinkedIn and professional posts.'}
-                </p>
-              </div>
-              <LearnedStyle
-                accountId={accountId}
-                platform={platform}
-                value={learned[platform] ?? null}
-                onChange={next =>
-                  setLearned(current => {
-                    const { [platform]: _old, ...rest } = current
-                    return next ? { ...rest, [platform]: next } : rest
-                  })
-                }
-              />
-            </fieldset>
-          )
-        })}
-      </Section>
+                <LearnedStyle
+                  accountId={accountId}
+                  platform={platform}
+                  value={learned[platform] ?? null}
+                  onChange={next =>
+                    setLearned(current => {
+                      const { [platform]: _old, ...rest } = current
+                      return next ? { ...rest, [platform]: next } : rest
+                    })
+                  }
+                />
+              </fieldset>
+            )
+          })}
+        </Section>
+      )}
 
-      {/* 3. Guardrails */}
-      <Section icon={ShieldAlert} title="Things to Avoid">
+      {/* 4. Guardrails */}
+      <Section
+        icon={ShieldAlert}
+        title="Things to avoid"
+        description="Kept out of every post."
+      >
         <div>
           <label className="text-foreground mb-1 block text-xs font-medium">
             Topics to avoid
@@ -455,14 +464,14 @@ export function PreferencesForm({
             autoComplete="off"
             value={bannedTopicsInput}
             onChange={e => setBannedTopicsInput(e.target.value)}
-            placeholder="e.g. politics, competitor pricing"
+            placeholder={editing ? 'e.g. politics, competitor pricing' : 'None'}
             className={inputClass}
           />
         </div>
 
         <div>
           <label className="text-foreground mb-1 block text-xs font-medium">
-            Compliance notes (optional)
+            Rules posts must follow (optional)
           </label>
           {/* Fixed height (~5 lines); longer notes scroll inside the box
               rather than clipping or stretching the page. */}
@@ -470,8 +479,8 @@ export function PreferencesForm({
             autoComplete="off"
             value={complianceNotes}
             onChange={e => setComplianceNotes(e.target.value)}
-            placeholder="e.g. Never mention client names without approval."
-            className={`${inputClass} scrollbar-visible h-32 resize-none overflow-y-auto leading-relaxed wrap-break-word`}
+            placeholder={editing ? 'e.g. Never mention client names without approval.' : 'None'}
+            className={`${inputClass} scrollbar-visible ${editing ? 'h-32' : 'field-sizing-content'} resize-none overflow-y-auto leading-relaxed wrap-break-word`}
           />
         </div>
       </Section>
