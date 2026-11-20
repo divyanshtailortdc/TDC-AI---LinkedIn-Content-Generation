@@ -57,7 +57,7 @@ import {
 import { refreshRunTotals } from '../run-accounting'
 import { markIdeaDrafted, releaseDraftingClaim } from './drafting-claim'
 import { SkillError } from '../run-skill'
-import { withAiSpend } from '../spend'
+import { withAiSpend, withDraftSpend } from '../spend'
 import { collectLinkSources } from '../skills/post-drafting/guard'
 import {
   writeDraft,
@@ -72,6 +72,7 @@ import {
 import { forFormat } from '../channel-context'
 import type { GenerationContext } from '../context'
 import type { DraftingDb } from './drafting-claim'
+import { isVideoFormat } from '@/lib/video/formats'
 import {
   carouselWording,
   cleanFormats,
@@ -262,6 +263,18 @@ interface PrepareOptions {
    * a new post, which plans its own (plannedMediaFormat).
    */
   mediaFormat?: MediaFormat
+  /**
+   * The id a new post is saved under, made before its first model call so
+   * every call writing it is charged to it (withDraftSpend). One is made when
+   * absent.
+   */
+  draftId?: string
+}
+
+/** A new post's id, and its model calls tagged with it (each post shows its cost). */
+function asNewPost<T>(work: (draftId: string) => Promise<T>): Promise<T> {
+  const draftId = crypto.randomUUID()
+  return withDraftSpend(draftId, () => work(draftId))
 }
 
 /**
@@ -275,9 +288,10 @@ async function makeCarousel(
   idea: Idea,
   formatId: FormatId,
   caption: string,
-  recordStep: RecordStep
+  recordStep: RecordStep,
+  /** The id the post will be saved with; a new one when absent. */
+  draftId: string = crypto.randomUUID()
 ): Promise<{ draftId: string; slides: NewPostSlide[] } | null> {
-  const draftId = crypto.randomUUID()
   const start = Date.now()
   const label = FORMATS[formatId].label
   try {
@@ -525,9 +539,17 @@ async function prepareLinkedInPost(
     slides,
     lintErrorsCount: blockingCount(lintFindings)
   })
-  if (options.withMedia === false) return prepared(crypto.randomUUID(), null)
+  const newId = options.draftId ?? crypto.randomUUID()
+  if (options.withMedia === false) return prepared(newId, null)
   if (mediaFormat === 'carousel') {
-    const carousel = await makeCarousel(ctx, idea, DEFAULT_FORMAT, postFullText(draft), recordStep)
+    const carousel = await makeCarousel(
+      ctx,
+      idea,
+      DEFAULT_FORMAT,
+      postFullText(draft),
+      recordStep,
+      newId
+    )
     if (carousel) return prepared(carousel.draftId, null, carousel.slides)
     // No slides: the post gets a single image, and its caption is checked
     // again for promising slides it no longer has.
@@ -539,7 +561,9 @@ async function prepareLinkedInPost(
     idea,
     DEFAULT_FORMAT,
     postFullText(draft),
-    recordStep
+    recordStep,
+    undefined,
+    newId
   )
   return prepared(draftId, media)
 }
@@ -558,7 +582,9 @@ async function planPostImage(
   postText: string,
   recordStep: RecordStep,
   /** The post's own picture idea (an Instagram post's visualIdea). */
-  visualIdea?: string
+  visualIdea?: string,
+  /** The id the post will be saved with; a new one when absent. */
+  draftId: string = crypto.randomUUID()
 ): Promise<{ draftId: string; media: NonNullable<PreparedPost['media']> }> {
   // ------------------------------------------------------------------ media
   const suggested = (idea.suggestedMedia || {}) as {
@@ -655,9 +681,9 @@ async function planPostImage(
   })
 
   // ---------------------------------------------------------------- prepare
-  // The draft's id is chosen here so its image can be uploaded under it
-  // before the transaction, which should not wait on the network.
-  const draftId = crypto.randomUUID()
+  // The draft's id is chosen before its image is made, so the image can be
+  // uploaded under it before the transaction, which should not wait on the
+  // network.
   const storedImages = await storeMediaImages(draftId, mediaPlan)
 
   return {
@@ -818,7 +844,7 @@ async function prepareFormatPost(
   // longer has).
   const carousel =
     mediaFormat === 'carousel' && options.withMedia !== false
-      ? await makeCarousel(ctx, idea, formatId, caption, recordStep)
+      ? await makeCarousel(ctx, idea, formatId, caption, recordStep, options.draftId)
       : null
   if (mediaFormat === 'carousel' && options.withMedia !== false && !carousel) {
     mediaFormat = spec.withImage ? 'image' : 'text'
@@ -838,14 +864,15 @@ async function prepareFormatPost(
           formatId,
           caption,
           recordStep,
-          visualIdea || undefined
+          visualIdea || undefined,
+          options.draftId
         )
       : null
 
   return {
     formatId,
     values: {
-      id: carousel?.draftId ?? image?.draftId ?? crypto.randomUUID(),
+      id: carousel?.draftId ?? image?.draftId ?? options.draftId ?? crypto.randomUUID(),
       accountId: ctx.account.id,
       ideaId: idea.id,
       // Where it goes out. Publishing (src/lib/publishing) only takes the
@@ -902,12 +929,15 @@ async function prepareFormats(
   const linkedIn = formats.includes(DEFAULT_FORMAT)
     ? settle(
         DEFAULT_FORMAT,
-        // LinkedIn reads its own sample posts once others are tagged.
-        prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
-          // As ticked in Create posts. Without that choice, casual or fun
-          // posts carry the author's own photos and videos: no generated graphic.
-          withMedia: imageChosenFor(idea, DEFAULT_FORMAT) ?? !linkedInIsCasual(ctx)
-        })
+        asNewPost(draftId =>
+          // LinkedIn reads its own sample posts once others are tagged.
+          prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
+            // As ticked in Create posts. Without that choice, casual or fun
+            // posts carry the author's own photos and videos: no generated graphic.
+            withMedia: imageChosenFor(idea, DEFAULT_FORMAT) ?? !linkedInIsCasual(ctx),
+            draftId
+          })
+        )
       )
     : null
   const others = formats.filter(f => f !== DEFAULT_FORMAT)
@@ -916,9 +946,12 @@ async function prepareFormats(
     const [first, ...rest] = others
     const firstResult = await settle(
       first!,
-      prepareFormatPost(ctx, idea, first!, recordStep, {
-        withMedia: imageChosenFor(idea, first!)
-      })
+      asNewPost(draftId =>
+        prepareFormatPost(ctx, idea, first!, recordStep, {
+          withMedia: imageChosenFor(idea, first!),
+          draftId
+        })
+      )
     )
     // The rest are told how the first opens, so they open differently.
     const firstOpening = 'post' in firstResult ? [firstResult.post.values.hook] : []
@@ -926,10 +959,13 @@ async function prepareFormats(
       rest.map(f =>
         settle(
           f,
-          prepareFormatPost(ctx, idea, f, recordStep, {
-            siblingOpenings: firstOpening,
-            withMedia: imageChosenFor(idea, f)
-          })
+          asNewPost(draftId =>
+            prepareFormatPost(ctx, idea, f, recordStep, {
+              siblingOpenings: firstOpening,
+              withMedia: imageChosenFor(idea, f),
+              draftId
+            })
+          )
         )
       )
     )
@@ -937,6 +973,43 @@ async function prepareFormats(
   })()
   const [linkedInResult, rest] = await Promise.all([linkedIn, otherResults])
   return [...(linkedInResult ? [linkedInResult] : []), ...rest]
+}
+
+/**
+ * Starts the AI video of each Reel or Short just saved (src/lib/video), charged
+ * like the drafting itself. Only started: the video is made over the next
+ * minutes and stored by whoever looks next, the post page or the job timers.
+ * A video that cannot start (a spending limit, no provider) fails no post:
+ * its post offers Generate video instead.
+ */
+async function startDraftedVideos(
+  accountId: string,
+  posts: PreparedPost[]
+): Promise<void> {
+  const videos = posts.filter(
+    post => post.values.id && isVideoFormat(post.values.formatId)
+  )
+  if (videos.length === 0) return
+  const { startPostVideo } = await import('~/lib/video/post-video')
+  // Each its own post, so all start at once.
+  await Promise.all(
+    videos.map(async post => {
+      try {
+        const outcome = await startPostVideo({
+          accountId,
+          draftId: post.values.id!,
+          confirmedEstimateUsd: null
+        })
+        if (outcome.status !== 'started') {
+          console.warn(
+            `No video started for draft ${post.values.id}: ${'error' in outcome ? outcome.error : outcome.status}`
+          )
+        }
+      } catch (err) {
+        console.warn(`No video started for draft ${post.values.id}:`, err)
+      }
+    })
+  )
 }
 
 /** Saves prepared posts with their alternate hooks, citations and images. */
@@ -1068,6 +1141,9 @@ async function draftLoadedIdea(idea: Idea): Promise<DraftPostResult> {
     await savePreparedPosts(tx, idea, posts)
   })
 
+  // A Reel or a Short: its video starts now, made while the reviewer reads.
+  await startDraftedVideos(idea.accountId, posts)
+
   // ----------------------------------------------------- run bookkeeping
   if (runId) await updateRunAfterDrafting(runId, { batchRunning: true })
 
@@ -1124,15 +1200,19 @@ export async function draftAdditionalFormat(
 
   const ctx = await loadIdeaContext(idea)
   const recordStep = stepRecorder(idea.runId)
-  const post =
+  const siblings = formatId === DEFAULT_FORMAT ? null : await siblingsOf(ideaId, formatId)
+  const post = await asNewPost(draftId =>
     formatId === DEFAULT_FORMAT
-      ? await prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
-          withMedia: chosenImage ?? !linkedInIsCasual(ctx)
+      ? prepareLinkedInPost(forFormat(ctx, DEFAULT_FORMAT), idea, recordStep, {
+          withMedia: chosenImage ?? !linkedInIsCasual(ctx),
+          draftId
         })
-      : await prepareFormatPost(ctx, idea, formatId, recordStep, {
+      : prepareFormatPost(ctx, idea, formatId, recordStep, {
           withMedia: chosenImage,
-          ...(await siblingsOf(ideaId, formatId))
+          ...siblings,
+          draftId
         })
+  )
 
   await db.transaction(async tx => {
     await tx

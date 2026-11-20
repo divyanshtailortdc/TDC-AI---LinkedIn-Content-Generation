@@ -14,7 +14,19 @@ import {
   type PlatformId
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
-import { ArrowRight, Check, Image as ImageIcon, Sparkles } from 'lucide-react'
+import {
+  describeVideoSpec,
+  VIDEO_FORMATS,
+  VIDEO_SPECS,
+  type VideoFormatId
+} from '@/lib/video/formats'
+import {
+  ArrowRight,
+  Check,
+  Clapperboard,
+  Image as ImageIcon,
+  Sparkles
+} from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -97,8 +109,19 @@ export function CreatePostsDialog({
     if (only.length === 1) setTypes(prev => ({ ...prev, [platform]: only[0] }))
   }
 
+  // What to make: posts with an image (the steps below), or short videos.
+  const [kind, setKind] = useState<'image' | 'video'>('image')
+  const [videos, setVideos] = useState<VideoFormatId[]>([])
+  const toggleVideo = (id: VideoFormatId) =>
+    setVideos(prev =>
+      prev.includes(id)
+        ? prev.filter(v => v !== id)
+        : VIDEO_FORMATS.filter(v => v === id || prev.includes(v))
+    )
+
   const missingType = chosen.find(p => !types[p])
-  const ready = chosen.length > 0 && !missingType
+  const ready =
+    kind === 'video' ? videos.length > 0 : chosen.length > 0 && !missingType
   const formats = chosen.flatMap(p => (types[p] ? [types[p]!] : []))
   const imageFormats = formats.filter(
     f =>
@@ -149,6 +172,11 @@ export function CreatePostsDialog({
         </div>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
+          <KindChoice value={kind} onChange={setKind} />
+          {kind === 'video' ? (
+            <VideoChoice chosen={videos} onToggle={toggleVideo} />
+          ) : (
+          <>
           <fieldset>
             <legend className="text-foreground mb-2 text-xs font-semibold">
               1. Platform
@@ -293,6 +321,8 @@ export function CreatePostsDialog({
               </div>
             )}
           </fieldset>
+          </>
+          )}
         </div>
 
         <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
@@ -300,7 +330,11 @@ export function CreatePostsDialog({
             aria-live="polite"
             className="text-muted mr-auto min-w-0 text-[11px] leading-snug"
           >
-            {chosen.length === 0
+            {kind === 'video'
+              ? videos.length === 0
+                ? 'Pick where the video goes.'
+                : `${videos.map(v => FORMATS[v].label).join(', ')}: script now, video on the post page.`
+              : chosen.length === 0
               ? 'Pick a platform.'
               : missingType
                 ? `Pick the type of ${PLATFORMS[missingType].label} post.`
@@ -321,7 +355,11 @@ export function CreatePostsDialog({
           <button
             type="button"
             disabled={!ready}
-            onClick={() => onConfirm(formats, imageFormats)}
+            onClick={() =>
+              kind === 'video'
+                ? onConfirm([...videos], [])
+                : onConfirm(formats, imageFormats)
+            }
             className="bg-accent text-background hover:bg-accent-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles aria-hidden className="h-3.5 w-3.5" />
@@ -332,6 +370,140 @@ export function CreatePostsDialog({
       </div>
     </div>,
     document.body
+  )
+}
+
+/** What to make: an image post (the platform and type steps) or a short video. */
+function KindChoice({
+  value,
+  onChange
+}: {
+  value: 'image' | 'video'
+  onChange: (value: 'image' | 'video') => void
+}) {
+  const options = [
+    { value: 'image', label: 'Image post', Icon: ImageIcon },
+    { value: 'video', label: 'Short video', Icon: Clapperboard }
+  ] as const
+  return (
+    <div
+      role="radiogroup"
+      aria-label="What to make"
+      className="border-border bg-surface grid grid-cols-2 rounded-xl border p-1"
+    >
+      {options.map(({ value: option, label, Icon }) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={value === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+            value === option
+              ? 'bg-accent text-background shadow-xs'
+              : 'text-muted hover:bg-surface-hover hover:text-foreground'
+          )}
+        >
+          <Icon aria-hidden className="h-3.5 w-3.5" />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Short video: where it goes. Each pick drafts a script now; its 8-second
+ * vertical video is generated on the post page, on request, after its cost
+ * is shown. Offered whatever the identity turned on in Preferences.
+ */
+function VideoChoice({
+  chosen,
+  onToggle
+}: {
+  chosen: readonly VideoFormatId[]
+  onToggle: (id: VideoFormatId) => void
+}) {
+  // What one video costs with the server's model: each Reel and Short drafted
+  // starts its video at once, so the cost is shown before Create.
+  const [estimate, setEstimate] = useState<{
+    estimateUsd: number | null
+    modelLabel: string | null
+    unavailable: string | null
+  } | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch('/api/video/estimate', { signal: controller.signal, cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => {
+        if (data?.success) setEstimate(data)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  return (
+    <fieldset>
+      <legend className="text-foreground mb-2 text-xs font-semibold">
+        Platform
+      </legend>
+      <div className="space-y-1.5">
+        {VIDEO_FORMATS.map(id => {
+          const spec = VIDEO_SPECS[id]
+          const on = chosen.includes(id)
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onToggle(id)}
+              data-platform={spec.platform}
+              className={cn(
+                'flex w-full cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-colors',
+                on ? 'border-brand/50 bg-brand/5' : 'border-border hover:bg-surface-hover'
+              )}
+            >
+              <PlatformMark
+                platform={spec.platform}
+                className={cn('h-4 w-4 shrink-0', on ? 'text-foreground' : 'text-muted')}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="text-foreground block text-sm font-medium">{spec.label}</span>
+                <span className="text-muted block text-[11px]">{describeVideoSpec(spec)}</span>
+              </span>
+              {on && <Check aria-hidden className="text-brand h-4 w-4 shrink-0" />}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-muted mt-2 text-[11px] leading-relaxed">
+        Pick one or more. Each idea gets a short script for every platform you
+        pick, and its {VIDEO_SPECS['instagram.reel'].seconds}-second AI video
+        starts as soon as the script is written. Approve the post, then
+        publish it from its page.
+      </p>
+      {estimate?.estimateUsd != null ? (
+        <p className="text-foreground mt-2 text-[11px] leading-relaxed">
+          <span className="font-semibold">
+            About ${estimate.estimateUsd.toFixed(2)} per video
+          </span>
+          <span className="text-muted">
+            {' '}
+            with {estimate.modelLabel}, from your AI spending limit
+            {chosen.length > 1
+              ? ` (${chosen.length} videos per idea)`
+              : ''}
+            .
+          </span>
+        </p>
+      ) : estimate?.unavailable ? (
+        <p className="text-muted mt-2 text-[11px] leading-relaxed">
+          Videos cannot be made right now ({estimate.unavailable}); the scripts
+          are still written.
+        </p>
+      ) : null}
+    </fieldset>
   )
 }
 

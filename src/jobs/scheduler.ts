@@ -6,6 +6,7 @@ import { scheduledChannel } from '@/lib/schedule-payload'
 import { dueSlot, WEEKDAY_NAMES } from '@/lib/schedule-time'
 import { and, desc, eq } from 'drizzle-orm'
 import { runPublishing } from './publishing'
+import { runVideoFinishing } from './videos'
 import { runMailExtraction } from './mail-extraction'
 import { runInboxSync } from './mail-sync'
 import { enqueueRun } from './queue'
@@ -166,11 +167,13 @@ export function startScheduler() {
     { missedExecutionTolerance: 60_000 }
   )
 
-  // Every minute: posts scheduled (or auto-published) to their platform that are due.
+  // Every minute: posts scheduled (or auto-published) to their platform that
+  // are due, and AI videos still being made, stored once done.
   cron.schedule(
     '* * * * *',
     () => {
       void runPublishing()
+      void runVideoFinishing()
     },
     { missedExecutionTolerance: 60_000 }
   )

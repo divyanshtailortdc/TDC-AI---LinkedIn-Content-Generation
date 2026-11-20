@@ -6,7 +6,8 @@ import {
   bufferInstagramProvider,
   bufferLinkedInProvider,
   bufferThreadsProvider,
-  bufferXProvider
+  bufferXProvider,
+  bufferYouTubeProvider
 } from './buffer/provider'
 import { canPublishTo, type PublishingPlatformId } from './platform'
 
@@ -23,6 +24,7 @@ import { canPublishTo, type PublishingPlatformId } from './platform'
  *   threads    A Threads account through Buffer, connected the same way
  *   facebook   A Facebook Page through Buffer, likewise
  *   instagram  An Instagram professional account through Buffer, likewise
+ *   youtube    A YouTube channel through Buffer, for Shorts
  *
  * No `server-only` import, so tests can run what uses it.
  */
@@ -80,6 +82,7 @@ export type PublishConfigs = {
   threads?: BufferConfig
   facebook?: BufferConfig
   instagram?: BufferConfig
+  youtube?: BufferConfig
 }
 
 /** What a provider call runs with: the user's decrypted credential and the platform's config. */
@@ -100,6 +103,19 @@ export type PostImage = {
   bytes: Buffer
   mediaType: string
   altText: string | null
+}
+
+/**
+ * A Reel's or Short's video (src/lib/video). The provider links to it by id:
+ * a signed link to /api/publishing-media/video, which serves the file.
+ */
+export type PostVideo = {
+  /** The post_videos row. */
+  id: string
+  mediaType: string
+  byteSize: number | null
+  /** The video's title, where the platform shows one (a YouTube Short). */
+  title: string | null
 }
 
 /** One drawn slide of a carousel post, in swipe order. */
@@ -147,6 +163,11 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
   commentInPost?: boolean
   /** The platform refuses a post without an image (Instagram). */
   requiresImage?: boolean
+  /**
+   * Publishes a video post (a Reel, a Short) with its video, at most
+   * `maxBytes` large; absent when the provider publishes no video.
+   */
+  video?: { maxBytes: number }
   /**
    * How it publishes a carousel, when it does: one PDF document shown page
    * by page (LinkedIn), or several images in one post (Instagram, Facebook
@@ -197,6 +218,8 @@ export type PublishingProvider<C extends BaseConfig = PlatformConfig> = {
       image?: { ref: string; altText: string | null }
       /** Only for a provider with `carousel`: what prepareCarousel returned. */
       carousel?: { refs: string[]; title: string; altTexts: Array<string | null> }
+      /** Only for a provider with `video`: the post is that video (a Reel, a Short). */
+      video?: PostVideo
     }
   ) => Promise<CreatedPost>
   /** Where a `pending` post stands; only for providers that return one. */
@@ -226,7 +249,8 @@ const PROVIDERS: Record<PublishingPlatformId, PublishingProvider<any>> = {
   x: bufferXProvider,
   threads: bufferThreadsProvider,
   facebook: bufferFacebookProvider,
-  instagram: bufferInstagramProvider
+  instagram: bufferInstagramProvider,
+  youtube: bufferYouTubeProvider
 }
 
 /** The provider for `platform`; throws for one that has none. */

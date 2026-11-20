@@ -379,7 +379,83 @@ describe('Facebook and Instagram through Buffer', () => {
     })
     assert.strictEqual(bufferFacebookProvider.commentInPost, true)
     assert.strictEqual(bufferInstagramProvider.requiresImage, true)
-    assert.deepStrictEqual(bufferInstagramProvider.formats, ['instagram.caption'])
+    assert.deepStrictEqual(bufferInstagramProvider.formats, ['instagram.caption', 'instagram.reel'])
+  })
+
+  it('a Reel or a Short goes out as its video, with the network\'s own video metadata', async () => {
+    const { bufferFacebookProvider, bufferYouTubeProvider } = await import(
+      '../src/lib/publishing/buffer/provider'
+    )
+    const { verifyMediaToken } = await import('../src/lib/publishing/media-token')
+    const inputs: any[] = []
+    const fetchFn = (async (_url: string | URL, init: RequestInit = {}) => {
+      inputs.push(JSON.parse(String(init.body)).variables.input)
+      return Response.json({
+        data: {
+          createPost: {
+            __typename: 'PostActionSuccess',
+            post: { id: 'P1', status: 'sent', externalLink: 'https://youtube.com/shorts/1', sentAt: null }
+          }
+        }
+      })
+    }) as typeof fetch
+    const ctx = {
+      accessToken: 'KEY',
+      fetchFn,
+      config: {
+        oauth: null,
+        apiUrl: 'https://buffer.example/graphql',
+        appUrl: 'https://app.example.com',
+        encryptionKey: key,
+        inlineWaitMs: 0
+      }
+    }
+    const video = {
+      id: '0b9d7c1e-2f4a-4c6b-9e1d-3a5f7b9c1d2e',
+      mediaType: 'video/mp4',
+      byteSize: 7_000_000,
+      title: 'Define your month-end close in 5 checks'
+    }
+    await bufferYouTubeProvider.createPost(ctx, { authorId: 'Y1', text: 'Description', video })
+    await bufferFacebookProvider.createPost(ctx, {
+      authorId: 'F1',
+      text: 'Caption',
+      comment: 'Link: https://e.com',
+      video: { ...video, title: null }
+    })
+    // A signed link to this app's video route, ending in .mp4, for that video.
+    const link = new URL(inputs[0].assets[0].video.url)
+    assert.strictEqual(link.origin, 'https://app.example.com')
+    assert.match(link.pathname, /^\/api\/publishing-media\/video\/.+\.mp4$/)
+    const token = decodeURIComponent(link.pathname.split('/').pop()!).replace(/\.mp4$/, '')
+    assert.strictEqual(verifyMediaToken(key, token), `video_${video.id}`)
+    assert.deepStrictEqual(inputs[0].assets[0].video.metadata, {
+      title: 'Define your month-end close in 5 checks'
+    })
+    assert.deepStrictEqual(inputs[0].metadata, {
+      youtube: {
+        title: 'Define your month-end close in 5 checks',
+        categoryId: '22',
+        madeForKids: false,
+        isAiGenerated: true
+      }
+    })
+    assert.deepStrictEqual(Object.keys(inputs[1].assets[0].video), ['url'])
+    assert.deepStrictEqual(inputs[1].metadata, {
+      facebook: { type: 'reel', firstComment: 'Link: https://e.com' }
+    })
+    assert.deepStrictEqual(bufferYouTubeProvider.formats, ['youtube.short'])
+    assert.ok(bufferYouTubeProvider.video)
+
+    // An app only this computer can reach is refused before Buffer is called.
+    const local = await bufferYouTubeProvider
+      .createPost(
+        { ...ctx, config: { ...ctx.config, appUrl: 'https://localhost:3000' } },
+        { authorId: 'Y1', text: 'D', video }
+      )
+      .catch(e => e)
+    assert.match(local.message, /only this computer can reach/)
+    assert.strictEqual(inputs.length, 2)
   })
 
   it("Threads sends its reply as a thread under Threads' own key; X keeps twitter", async () => {

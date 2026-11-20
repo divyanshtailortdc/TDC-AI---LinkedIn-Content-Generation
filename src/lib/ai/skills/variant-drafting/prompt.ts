@@ -223,8 +223,13 @@ function renderProduceList(
   if (spec.structure === 'script') {
     const seconds = spec.limits.seconds!
     const words = Math.round(seconds.target * WORDS_PER_SECOND)
+    const shots = spec.limits.shots ?? { min: 4, max: 8 }
+    // A clip the AI makes (shots set) carries no overlay text.
+    const overlay = spec.limits.shots
+      ? 'Leave onScreenText empty: the clip has no overlays.'
+      : 'when it helps, onScreenText (a few words of overlay).'
     return `Produce:
-1. shots — the video in order, usually 4 to 8 shots. Each has: say (the words spoken, written to be said aloud), show (what is on screen) and, when it helps, onScreenText (a few words of overlay). The first shot is the hook. All the spoken words together take about ${seconds.target} seconds (about ${words} words), never over ${seconds.max} seconds. The last shot carries the call to action: ${cta}
+1. shots — the video in order, usually ${shots.min} to ${shots.max} shots. Each has: say (the words spoken, written to be said aloud), show (what is on screen, described so a video model can show it) and ${overlay} The first shot is the hook. All the spoken words together take about ${seconds.target} seconds (about ${words} words), never over ${seconds.max} seconds. The last shot carries the call to action: ${cta}
 2. caption — the text posted with the video, about ${spec.limits.targetChars} characters, never over ${spec.limits.maxChars}${spec.limits.foldChars ? `; its first ${spec.limits.foldChars} characters show before "more"` : ''}
 ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly what the viewer gets, in the words they would search' : '3. title — leave empty'}
 4. hashtags — ${hashtags}, without the # symbol; they go after the caption

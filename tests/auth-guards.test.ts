@@ -163,8 +163,8 @@ describe('the publishing image route checks its signed token first', () => {
     .filter(file => file.endsWith('route.ts'))
     .map(parse)
 
-  it('finds the image route', () => {
-    assert.strictEqual(routes.length, 1, 'no publishing image route found')
+  it('finds the image and video routes', () => {
+    assert.strictEqual(routes.length, 2, 'publishing media routes not found')
   })
 
   for (const source of routes) {

@@ -249,7 +249,7 @@ export async function regeneratePost(draftId: string, instruction?: string | nul
       )
     }
     const accountId = await requireIdentityId()
-    await withAiSpend({ source: 'posts', accountId }, () =>
+    await withAiSpend({ source: 'posts', accountId, draftId }, () =>
       regenerateDraft(accountId, draftId, wanted || null)
     )
     const { posts } = await loadPostsPage(accountId, { ids: [draftId] })
@@ -685,7 +685,7 @@ export async function regeneratePostMediaAction(
   await requireUser()
   try {
     const accountId = await requireIdentityId()
-    const outcome = await withAiSpend({ source: 'posts', accountId }, () =>
+    const outcome = await withAiSpend({ source: 'posts', accountId, draftId }, () =>
       createPostMedia({
         draftId,
         accountId,

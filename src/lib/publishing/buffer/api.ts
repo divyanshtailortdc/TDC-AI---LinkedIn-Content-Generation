@@ -383,7 +383,10 @@ function toState(post: PostNode, name: string): BufferPostState {
  * every post, the first included) in order, each a reply to the one before,
  * and the top-level text and image must be the first post's. `metadata` is
  * the network's own (`facebook`: the post type and first comment;
- * `instagram`: the post type).
+ * `instagram`: the post type; `youtube`: the title and category).
+ *
+ * With `video`, the post is that video (a Reel, a Short): one video asset,
+ * which Buffer downloads from the link, in place of any image.
  */
 export async function createPost(
   ctx: BufferContext,
@@ -396,18 +399,31 @@ export async function createPost(
     image?: { url: string; altText?: string | null }
     /** A carousel: several images in one post, in order (instead of `image`). */
     images?: Array<{ url: string; altText?: string | null }>
+    /** A video post: the video, instead of any image. */
+    video?: { url: string; title?: string | null }
     metadata?: Record<string, unknown>
   }
 ): Promise<BufferPostState> {
   const images = post.images?.length ? post.images : post.image ? [post.image] : []
-  const assets = images.map(image => ({
-    image: {
-      url: image.url,
-      ...(image.altText && {
-        metadata: { altText: image.altText.slice(0, 1000) }
-      })
-    }
-  }))
+  const assets: Array<Record<string, unknown>> = post.video
+    ? [
+        {
+          video: {
+            url: post.video.url,
+            ...(post.video.title && {
+              metadata: { title: post.video.title.slice(0, 100) }
+            })
+          }
+        }
+      ]
+    : images.map(image => ({
+        image: {
+          url: image.url,
+          ...(image.altText && {
+            metadata: { altText: image.altText.slice(0, 1000) }
+          })
+        }
+      }))
   const replies = post.replies?.filter(text => text.trim()) ?? []
   const metadata = {
     ...post.metadata,

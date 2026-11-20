@@ -2,6 +2,9 @@
 
 import { CarouselViewer } from '@/components/carousel/carousel-viewer'
 import { SlidesPanel } from '@/components/carousel/slides-panel'
+import { VideoPanel } from '@/components/video/video-panel'
+import { PostCostCard } from '@/components/post-cost'
+import { isVideoFormat } from '@/lib/video/formats'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PostTypePicker } from '@/components/post-type-picker'
 import { PublishChecks } from '@/components/publish-checks'
@@ -2235,6 +2238,7 @@ export function PostDetailClient({
                       onRestored={replacePostText}
                     />
                   )}
+                  {!isEditing && <PostCostCard usage={activePost.usage} />}
                 </div>
               </div>
             </div>
@@ -2251,7 +2255,7 @@ export function PostDetailClient({
                   disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
                   pending={pendingMediaFormat}
                 />
-                {shownMedia === 'carousel' ? (
+                {shownMedia === 'video' ? null : shownMedia === 'carousel' ? (
                   <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
                     {slides?.length ?? activePost.slideCount ?? 0} slides
                   </span>
@@ -2317,7 +2321,15 @@ export function PostDetailClient({
                     </button>
                   </div>
                 )}
-                {shownMedia === 'carousel' ? (
+                {shownMedia === 'video' && isVideoFormat(activeFormat) ? (
+                  // VIDEO CARD: a Reel's or Short's AI video, apart from the image tools.
+                  <VideoPanel
+                    key={activePost.id}
+                    postId={activePost.id}
+                    formatId={activeFormat}
+                    locked={mediaLocked ? lockedReason : null}
+                  />
+                ) : shownMedia === 'carousel' ? (
                   // SLIDES CARD: a carousel's slides, each edited on its own.
                   <div className="border-border bg-surface rounded-2xl border p-4 shadow-sm">
                     <SlidesPanel

@@ -72,6 +72,8 @@ export async function withAiSpend<T>(
     /** Looked up from accountId when not given. */
     userId?: string | null
     runId?: string | null
+    /** The post the work is for, so its calls show on that post. */
+    draftId?: string | null
   },
   work: () => Promise<T>
 ): Promise<T> {
@@ -83,9 +85,26 @@ export async function withAiSpend<T>(
         ? await accountOwnerIn(db, accountId)
         : null
   return charges.run(
-    { source: scope.source, userId, accountId, runId: scope.runId ?? null },
+    {
+      source: scope.source,
+      userId,
+      accountId,
+      runId: scope.runId ?? null,
+      draftId: scope.draftId ?? null
+    },
     work
   )
+}
+
+/**
+ * Runs `work` inside the current scope with its calls also tagged with the
+ * post they are for: drafting writes several posts of one idea in one scope,
+ * and each post's own calls should show on it. Outside a scope, `work` runs
+ * as it is (its calls are recorded unscoped, as before).
+ */
+export function withDraftSpend<T>(draftId: string, work: () => Promise<T>): Promise<T> {
+  const charge = charges.getStore()
+  return charge ? charges.run({ ...charge, draftId }, work) : work()
 }
 
 const usd = (value: number) => `$${value.toFixed(2)}`

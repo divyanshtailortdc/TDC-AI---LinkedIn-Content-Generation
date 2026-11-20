@@ -616,6 +616,9 @@ export const ideasTable = pgTable('ideas', {
       // The formats whose posts get an image, as ticked in Create posts.
       // Absent on ideas from before that choice (imageChosenFor).
       imageFormats?: string[]
+      // The video formats asked for in Create posts → Short video
+      // (src/lib/video/formats.ts); only these are drafted as videos.
+      videoFormats?: string[]
     }>()
     .default({ mode: 'none' }),
   noveltyNote: text('novelty_note'),
@@ -901,6 +904,71 @@ export const postSlidesTable = pgTable(
   },
   table => [index('post_slides_draft_position_idx').on(table.draftId, table.position)]
 )
+
+// ---------------------------------------------------------------------------
+// 14c. Post Videos (1:N with PostDraft) — AI clips made from a video script
+// ---------------------------------------------------------------------------
+
+/**
+ * One AI video generated for a Reel or Short (src/lib/video), newest the
+ * one shown. Kept out of post_media, whose active row every image path
+ * (publishing, thumbnails, image edits) reads as the post's image.
+ *
+ * A generation is started and then checked until its provider finishes
+ * (start/status, so no request outlives a serverless function):
+ * 'generating' → 'finishing' (one checker downloads and stores it) →
+ * 'ready' | 'failed'. A newer ready video marks the older ones 'superseded'.
+ */
+export const postVideosTable = pgTable(
+  'post_videos',
+  {
+    id: commonFieldDefs.id(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+    // 1, 2, 3… per post.
+    version: integer('version').notNull(),
+    status: varchar('status', { length: 20 })
+      .$type<'generating' | 'finishing' | 'ready' | 'failed' | 'superseded'>()
+      .notNull(),
+    // Which provider and model made it (src/lib/video/providers).
+    provider: varchar('provider', { length: 40 }).notNull(),
+    modelId: varchar('model_id', { length: 120 }).notNull(),
+    // The provider's opaque reference to the running job, for its status.
+    operation: jsonb('operation'),
+    // The prompt the video model was given, and what the reviewer asked for.
+    prompt: text('prompt').notNull(),
+    direction: text('direction'),
+    aspectRatio: varchar('aspect_ratio', { length: 10 }).notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    durationSeconds: integer('duration_seconds').notNull(),
+    // The clip: storage://… (src/lib/media/image-store), set once ready.
+    videoUrl: text('video_url'),
+    mediaType: varchar('media_type', { length: 40 }),
+    byteSize: integer('byte_size'),
+    error: text('error'),
+    // What it was estimated to cost when started, and what was billed.
+    estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 4 }).notNull(),
+    costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
+    // Warnings and anything else the provider reported.
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
+    lastCheckedAt: commonFieldDefs.date('last_checked_at'),
+    completedAt: commonFieldDefs.date('completed_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('post_videos_draft_created_idx').on(table.draftId, table.createdAt),
+    // One generation at a time per post: a second request (a double click,
+    // two tabs) fails here instead of paying for a second video.
+    uniqueIndex('post_videos_one_running_uq')
+      .on(table.draftId)
+      .where(sql`${table.status} in ('generating', 'finishing')`),
+    uniqueIndex('post_videos_draft_version_uq').on(table.draftId, table.version)
+  ]
+)
+
+export type PostVideo = typeof postVideosTable.$inferSelect
 
 // ---------------------------------------------------------------------------
 // 15. Schedules (1:1 with Account) — when automatic runs fire
@@ -1769,6 +1837,12 @@ export const aiUsageTable = pgTable(
     runId: uuid('run_id').references(() => runsTable.id, {
       onDelete: 'set null'
     }),
+    // The post the call was for: writing it, its image, slides or video, and
+    // every rewrite since, so each post can show what it cost. No foreign
+    // key: drafting's calls are recorded before the post row is saved, and a
+    // deleted post's spend stays counted. Null for work no one post owns
+    // (research, ideation) and for calls from before posts were tagged.
+    draftId: uuid('draft_id'),
     source: varchar('source', { length: 20 }).$type<AiSpendSource>().notNull(),
     // A text call's stage (AIStage in src/lib/ai.ts), else 'embedding' or
     // 'image'. Rows copied from run_steps keep the step's stage.
@@ -1795,6 +1869,8 @@ export const aiUsageTable = pgTable(
     index('ai_usage_user_created_idx').on(table.userId, table.createdAt),
     // The usage cards, and the limit of an identity no user owns.
     index('ai_usage_account_created_idx').on(table.accountId, table.createdAt),
+    // Each post's cost, on the posts pages.
+    index('ai_usage_draft_idx').on(table.draftId),
     check(
       'ai_usage_source_check',
       sql`${table.source} in (${sqlList(AI_SPEND_SOURCES)})`

@@ -31,6 +31,8 @@ export interface SpendCharge {
   /** The identity the work was for, when there is one. */
   accountId: string | null
   runId: string | null
+  /** The post the call was for, when it was for one (writing it, its media). */
+  draftId?: string | null
 }
 
 /** The user who owns an identity: null for one made before sign-in existed, or one deleted. */
@@ -79,6 +81,7 @@ export async function recordUsageIn(
     userId: ifStillThere(authUsersTable, charge.userId),
     accountId: ifStillThere(accountsTable, charge.accountId),
     runId: ifStillThere(runsTable, charge.runId),
+    draftId: charge.draftId ?? null,
     source: charge.source,
     stage: call.stage.slice(0, 30),
     model: call.modelId.slice(0, 100),
