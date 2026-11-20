@@ -534,7 +534,7 @@ export function GoalsClient({
         ref={scrollRef}
         className="relative flex-1 overflow-y-auto p-4 sm:p-6"
       >
-        <div className="mx-auto max-w-4xl space-y-8">
+        <div className="w-full space-y-8">
           {error && (
             <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
               {error}

@@ -248,6 +248,7 @@ export function SetupFrame({
   hasSavedData = false,
   title,
   description,
+  hideStepCount = false,
   children
 }: {
   identity: ReactNode
@@ -266,6 +267,8 @@ export function SetupFrame({
   /** Override the step's own title and description. */
   title?: string
   description?: string
+  /** Leave out "Step 1 of 5": a page with its own steps (Create identity). */
+  hideStepCount?: boolean
   children: ReactNode
 }) {
   const step = SETUP_STEPS[stepIndex]!
@@ -435,7 +438,7 @@ export function SetupFrame({
             Every scroll box here is `relative`, so absolutely positioned
             content inside it (screen-reader-only text, for one) is clipped
             and scrolled by that box instead of stretching <main>. */}
-        <div className="relative min-h-0 flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5 xl:overflow-hidden">
+        <div className="setup-text relative min-h-0 flex-1 overflow-y-auto p-4 sm:px-6 sm:pb-5 xl:overflow-hidden">
           <div
             className={`mx-auto grid h-full gap-5 ${
               aside
@@ -461,9 +464,11 @@ export function SetupFrame({
                     {description ?? step.description}
                   </p>
                 </div>
-                <span className="border-border bg-surface text-foreground shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium">
-                  Step {stepIndex + 1} of {SETUP_STEPS.length}
-                </span>
+                {!hideStepCount && (
+                  <span className="border-border bg-surface text-foreground shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium">
+                    Step {stepIndex + 1} of {SETUP_STEPS.length}
+                  </span>
+                )}
               </div>
               <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-5">
                 <StepViewContext.Provider value={viewCtx}>

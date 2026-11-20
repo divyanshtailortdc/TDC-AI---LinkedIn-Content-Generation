@@ -260,7 +260,7 @@ async function scrapeUncached(validUrl: string): Promise<ScrapedContent> {
   }
 
   throw new Error(
-    'Unable to extract content from this URL. Please copy and paste the text directly into the "Add Custom Artifact" tab.'
+    'Unable to extract content from this URL. Please copy and paste the text directly into the "Paste text" tab.'
   )
 }
 

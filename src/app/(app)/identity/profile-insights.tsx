@@ -666,7 +666,7 @@ function ProfileInsightsDialog({
               id={titleId}
               className="text-foreground flex items-center gap-2 text-base font-semibold"
             >
-              <PlatformMark platform={view.platform} className="h-4 w-4" />
+              <PlatformMark platform={view.platform} colored className="h-4 w-4" />
               How you post on {label}
             </h2>
             <p className="text-muted mt-0.5 truncate text-xs">
