@@ -17,6 +17,7 @@ import { canPublishFormat } from '@/lib/publishing/platform'
 import {
   describeVideoSpec,
   VIDEO_FORMATS,
+  VIDEO_GENERATION_ENABLED,
   VIDEO_SPECS,
   type VideoFormatId
 } from '@/lib/video/formats'
@@ -181,7 +182,10 @@ export function CreatePostsDialog({
         </div>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-          <KindChoice value={kind} onChange={setKind} />
+          {/* Short video is switched off for now (VIDEO_GENERATION_ENABLED). */}
+          {VIDEO_GENERATION_ENABLED && (
+            <KindChoice value={kind} onChange={setKind} />
+          )}
           {kind === 'video' ? (
             <VideoChoice chosen={videos} onToggle={toggleVideo} />
           ) : (

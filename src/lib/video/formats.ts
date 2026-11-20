@@ -10,6 +10,16 @@ import type { FormatId, PlatformId } from '@/lib/formats/types'
  * Pure data: imported by the browser, server code and tests.
  */
 
+/**
+ * Short video generation, switched off for now (2026-11-20): nothing about
+ * videos shows in the app. Create posts has no Short video choice, ideas
+ * draft no video scripts and start no clips, and existing Reels and Shorts
+ * are hidden from Posts and Schedule (inKnownFormat), so their pages 404.
+ * Starting a clip through the API is refused. All the code stays; set this
+ * back to true to bring it all back.
+ */
+export const VIDEO_GENERATION_ENABLED = false
+
 export const VIDEO_FORMATS = [
   'instagram.reel',
   'youtube.short',
@@ -96,6 +106,8 @@ export const videoFormatLabel = (formatId: VideoFormatId) =>
 export function videoFormatsChosen(idea: {
   suggestedMedia?: unknown
 }): VideoFormatId[] {
+  // Switched off: an idea that asked for videos drafts its other formats.
+  if (!VIDEO_GENERATION_ENABLED) return []
   const chosen = (idea.suggestedMedia as { videoFormats?: unknown } | null)
     ?.videoFormats
   return Array.isArray(chosen)

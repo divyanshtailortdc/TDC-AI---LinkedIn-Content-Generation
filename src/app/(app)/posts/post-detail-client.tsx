@@ -4,7 +4,7 @@ import { CarouselViewer } from '@/components/carousel/carousel-viewer'
 import { SlidesPanel } from '@/components/carousel/slides-panel'
 import { VideoPanel } from '@/components/video/video-panel'
 import { PostCostCard } from '@/components/post-cost'
-import { isVideoFormat } from '@/lib/video/formats'
+import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PostTypePicker } from '@/components/post-type-picker'
 import { PublishChecks } from '@/components/publish-checks'
@@ -2323,12 +2323,14 @@ export function PostDetailClient({
                 )}
                 {shownMedia === 'video' && isVideoFormat(activeFormat) ? (
                   // VIDEO CARD: a Reel's or Short's AI video, apart from the image tools.
-                  <VideoPanel
-                    key={activePost.id}
-                    postId={activePost.id}
-                    formatId={activeFormat}
-                    locked={mediaLocked ? lockedReason : null}
-                  />
+                  VIDEO_GENERATION_ENABLED ? (
+                    <VideoPanel
+                      key={activePost.id}
+                      postId={activePost.id}
+                      formatId={activeFormat}
+                      locked={mediaLocked ? lockedReason : null}
+                    />
+                  ) : null
                 ) : shownMedia === 'carousel' ? (
                   // SLIDES CARD: a carousel's slides, each edited on its own.
                   <div className="border-border bg-surface rounded-2xl border p-4 shadow-sm">

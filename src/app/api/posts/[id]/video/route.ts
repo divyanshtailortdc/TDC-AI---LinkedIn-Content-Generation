@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { AiSpendLimitError, withAiSpend } from '~/lib/ai/spend'
 import { isUuid } from '~/lib/ids'
 import { getPostVideoState, startPostVideo } from '~/lib/video/post-video'
+import { VIDEO_GENERATION_ENABLED } from '~/lib/video/formats'
 import { MAX_VIDEO_DIRECTION_CHARS } from '~/lib/video/prompt'
 
 /**
@@ -84,6 +85,7 @@ export async function POST(
 ) {
   // Checked here so a missing session is a 401, not a redirect to sign-in.
   if (!(await getSessionUser())) return fail(401, 'Please sign in again.')
+  if (!VIDEO_GENERATION_ENABLED) return fail(404, 'Video generation is switched off.')
   const auth = await authorize(params)
   if (auth instanceof Response) return auth
 

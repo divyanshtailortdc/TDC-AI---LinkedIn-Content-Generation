@@ -9,7 +9,7 @@ import {
   isCreatableFormat,
   type FormatId
 } from '@/lib/formats'
-import { isVideoFormat } from '@/lib/video/formats'
+import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { loadChannels } from '@/lib/channels'
 import { requireIdentityId } from '@/lib/identity'
@@ -36,7 +36,9 @@ import {
 function chosenFormats(raw: unknown, enabled: readonly FormatId[]): FormatId[] {
   // Videos (Short video in "Create posts") are asked for each time and are
   // never turned on in Preferences, so only the other formats must be on.
-  const formats = cleanFormats(raw).filter(f => isCreatableFormat(f) || isVideoFormat(f))
+  const formats = cleanFormats(raw).filter(
+    f => isCreatableFormat(f) || (VIDEO_GENERATION_ENABLED && isVideoFormat(f))
+  )
   if (formats.length === 0) {
     throw new Error('Choose at least one platform to write these posts for.')
   }

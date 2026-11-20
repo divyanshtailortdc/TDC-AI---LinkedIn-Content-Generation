@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { VIDEO_GENERATION_ENABLED } from '../src/lib/video/formats'
+
+/** Tests of video drafting, run only while videos are switched on. */
+const whileVideosOn = { skip: !VIDEO_GENERATION_ENABLED && 'video generation is switched off' }
 
 /**
  * Short-form video: the formats and their platform specs, the cost shown
@@ -184,7 +188,18 @@ describe('video prompt', () => {
 })
 
 describe('which ideas draft a video', () => {
-  it('drafts a video only when Short video asked for it', async () => {
+  it('drafts no video while video generation is switched off', { skip: VIDEO_GENERATION_ENABLED }, async () => {
+    const { formatsToDraft } = await import('../src/lib/formats')
+    const { videoFormatsChosen } = await import('../src/lib/video/formats')
+    const idea = {
+      targetFormats: ['instagram.reel', 'linkedin.post'],
+      suggestedMedia: { mode: 'none', videoFormats: ['instagram.reel'] }
+    }
+    assert.deepEqual(videoFormatsChosen(idea), [])
+    assert.deepEqual(formatsToDraft(idea), ['linkedin.post'])
+  })
+
+  it('drafts a video only when Short video asked for it', whileVideosOn, async () => {
     const { formatsToDraft } = await import('../src/lib/formats')
     assert.deepEqual(
       formatsToDraft({
@@ -213,7 +228,7 @@ describe('which ideas draft a video', () => {
     )
   })
 
-  it('reads the choice from the idea, ignoring anything that is not a video format', async () => {
+  it('reads the choice from the idea, ignoring anything that is not a video format', whileVideosOn, async () => {
     const { videoFormatsChosen } = await import('../src/lib/video/formats')
     assert.deepEqual(
       videoFormatsChosen({

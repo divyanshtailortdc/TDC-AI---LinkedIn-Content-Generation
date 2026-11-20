@@ -72,7 +72,7 @@ import {
 import { forFormat } from '../channel-context'
 import type { GenerationContext } from '../context'
 import type { DraftingDb } from './drafting-claim'
-import { isVideoFormat } from '@/lib/video/formats'
+import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import {
   carouselWording,
   cleanFormats,
@@ -986,6 +986,7 @@ async function startDraftedVideos(
   accountId: string,
   posts: PreparedPost[]
 ): Promise<void> {
+  if (!VIDEO_GENERATION_ENABLED) return
   const videos = posts.filter(
     post => post.values.id && isVideoFormat(post.values.formatId)
   )

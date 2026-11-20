@@ -1227,12 +1227,12 @@ type PostItemProps = {
 const thumbnailCache = new Map<string, { at: number; url: Promise<string | null> }>()
 /** Signed image links expire; one is reused for this long. */
 const THUMBNAIL_TTL_MS = 45 * 60_000
-function loadThumbnail(mediaId: string): Promise<string | null> {
-  const cached = thumbnailCache.get(mediaId)
+function loadThumbnail(endpoint: string): Promise<string | null> {
+  const cached = thumbnailCache.get(endpoint)
   let pending =
     cached && Date.now() - cached.at < THUMBNAIL_TTL_MS ? cached.url : null
   if (!pending) {
-    pending = fetch(`/api/media/${mediaId}`)
+    pending = fetch(endpoint)
       .then(res => res.json())
       .then(body =>
         body?.success && typeof body.imageUrl === 'string' ? body.imageUrl : null
@@ -1240,22 +1240,46 @@ function loadThumbnail(mediaId: string): Promise<string | null> {
       .catch(() => null)
       .then(url => {
         // A failure is tried again next time the image is shown.
-        if (!url) thumbnailCache.delete(mediaId)
+        if (!url) thumbnailCache.delete(endpoint)
         return url
       })
-    thumbnailCache.set(mediaId, { at: Date.now(), url: pending })
+    thumbnailCache.set(endpoint, { at: Date.now(), url: pending })
   }
   return pending
 }
 
+/**
+ * Where a post's card picture comes from: its first slide when it goes out as
+ * a carousel, else its image; null when it has neither.
+ */
+function thumbnailSourceOf(
+  post: PostDetail
+): { endpoint: string; whole: boolean } | null {
+  const media = resolveMediaFormat(formatOf(post.formatId), post.mediaFormat, {
+    image: Boolean(post.media)
+  })
+  if (media === 'carousel' && (post.slideCount ?? 0) > 0) {
+    return { endpoint: `/api/posts/${post.id}/slides?cover`, whole: true }
+  }
+  if (post.media?.id) return { endpoint: `/api/media/${post.media.id}`, whole: false }
+  return null
+}
+
 function Thumbnail({
-  mediaId,
+  endpoint,
   alt,
-  className
+  className,
+  whole = false
 }: {
-  mediaId: string
+  /** The route answering { success, imageUrl } for the picture. */
+  endpoint: string
   alt: string
   className?: string
+  /**
+   * Show all of it (a 4:5 slide in a wide frame) over a blurred copy of
+   * itself, instead of cropping it to fill.
+   */
+  whole?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(null)
@@ -1273,7 +1297,7 @@ function Thumbnail({
       entries => {
         if (!entries.some(e => e.isIntersecting)) return
         observer.disconnect()
-        void loadThumbnail(mediaId).then(loaded => {
+        void loadThumbnail(endpoint).then(loaded => {
           if (cancelled) return
           if (loaded) setUrl(loaded)
           else setFailed(true)
@@ -1286,24 +1310,33 @@ function Thumbnail({
       cancelled = true
       observer.disconnect()
     }
-  }, [mediaId])
+  }, [endpoint])
   return (
     <div ref={ref} className={`bg-surface-hover relative overflow-hidden ${className ?? ''}`}>
+      {url && whole && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+        />
+      )}
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
           alt={alt}
-          className="h-full w-full object-cover"
+          className={`relative h-full w-full ${whole ? 'object-contain' : 'object-cover'}`}
           onError={() => {
-            thumbnailCache.delete(mediaId)
+            thumbnailCache.delete(endpoint)
             setUrl(null)
             if (retried) {
               setFailed(true)
               return
             }
             setRetried(true)
-            void loadThumbnail(mediaId).then(loaded =>
+            void loadThumbnail(endpoint).then(loaded =>
               loaded ? setUrl(loaded) : setFailed(true)
             )
           }}
@@ -1360,9 +1393,10 @@ function PostAction({
   const publication = post.publication
   const platform = getPlatform(post.platform)
   const live = Boolean(post.postedAt) || isOnPlatform(publication)
-  const chip = 'relative z-10 inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium'
+  const chip =
+    'relative z-10 inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs font-medium'
   const button =
-    'relative z-10 inline-flex h-7 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition-colors'
+    'relative z-10 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold transition-colors'
   if (live) {
     const label = `Live on ${LIVE_ON[post.platform] ?? platform.name}`
     return publication?.postUrl && !publication.deletedAt ? (
@@ -1441,9 +1475,10 @@ function PostAction({
   return (
     <Link
       href={href}
-      className={`${button} border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400`}
+      className={`${button} border-amber-500/40 bg-amber-500/10 text-amber-700 hover:border-amber-500/60 hover:bg-amber-500/20 dark:text-amber-300`}
     >
       Review Draft
+      <ArrowRight className="h-3.5 w-3.5" />
     </Link>
   )
 }
@@ -1559,6 +1594,7 @@ function PostCard(props: PostItemProps) {
   const format = formatOf(post.formatId)
   const spec = FORMATS[format]
   const badge = mediaBadge(post)
+  const picture = thumbnailSourceOf(post)
   const tags = (post.hashtags || []).slice(0, 2)
   return (
     <article
@@ -1584,10 +1620,11 @@ function PostCard(props: PostItemProps) {
           post={post}
           className="absolute top-2 right-2 z-10 bg-white/95 shadow-sm dark:bg-neutral-900/90"
         />
-        {post.media?.id ? (
+        {picture ? (
           <Thumbnail
-            mediaId={post.media.id}
-            alt={post.media.altText || post.hook}
+            endpoint={picture.endpoint}
+            whole={picture.whole}
+            alt={post.media?.altText || post.hook}
             className="aspect-5/2 w-full rounded-lg"
           />
         ) : (
@@ -1610,7 +1647,7 @@ function PostCard(props: PostItemProps) {
             {badge.label}
           </span>
         )}
-        {badge?.video && post.media?.id && (
+        {badge?.video && picture && (
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm">
               <Play className="ml-0.5 h-4 w-4 fill-current" />
@@ -1643,29 +1680,33 @@ function PostCard(props: PostItemProps) {
         )}
       </div>
 
-      <div className="border-border pointer-events-none relative mt-auto flex items-center gap-2.5 border-t px-3.5 py-2.5">
-        {/* The exact time on hover; dates only once mounted, in the viewer's
-            own time zone. */}
-        <span
-          className="text-muted pointer-events-auto flex items-center gap-1.5 text-xs"
-          title={mounted ? formatAbsoluteDateTime(post.createdAt) : undefined}
-        >
-          <Clock className="h-3.5 w-3.5" />
-          {mounted ? shortAgo(post.createdAt) : ''}
-        </span>
-        <span className="text-muted text-xs tabular-nums">
-          {spec.structure === 'script'
-            ? `~${videoScriptOf(post).seconds}s script`
-            : `${post.charCount.toLocaleString('en-US')} chars`}
-        </span>
-        <PostCostChip usage={post.usage} className="pointer-events-auto" />
-        {post.hiddenAt && (
-          <span className="text-muted flex items-center gap-1 text-xs">
-            <EyeOff className="h-3 w-3" />
-            Hidden
+      <div className="border-border pointer-events-none relative mt-auto flex items-center gap-3 border-t px-3.5 py-2.5">
+        {/* Facts wrap onto a second line in a narrow card; the action keeps
+            its own line on the right. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
+          {/* The exact time on hover; dates only once mounted, in the viewer's
+              own time zone. */}
+          <span
+            className="text-muted pointer-events-auto flex items-center gap-1.5 text-xs"
+            title={mounted ? formatAbsoluteDateTime(post.createdAt) : undefined}
+          >
+            <Clock className="h-3.5 w-3.5" />
+            {mounted ? shortAgo(post.createdAt) : ''}
           </span>
-        )}
-        <span className="pointer-events-auto ml-auto">
+          <span className="text-muted text-xs tabular-nums">
+            {spec.structure === 'script'
+              ? `~${videoScriptOf(post).seconds}s script`
+              : `${post.charCount.toLocaleString('en-US')} chars`}
+          </span>
+          <PostCostChip usage={post.usage} className="pointer-events-auto" />
+          {post.hiddenAt && (
+            <span className="text-muted flex items-center gap-1 text-xs">
+              <EyeOff className="h-3 w-3" />
+              Hidden
+            </span>
+          )}
+        </div>
+        <span className="pointer-events-auto shrink-0">
           <PostAction post={post} href={href} mounted={mounted} />
         </span>
       </div>
@@ -1677,14 +1718,16 @@ function PostCard(props: PostItemProps) {
 function PostRow(props: PostItemProps) {
   const { post, href, mounted } = props
   const spec = FORMATS[formatOf(post.formatId)]
+  const picture = thumbnailSourceOf(post)
   return (
     <div className="group hover:bg-surface-hover/50 relative flex items-center gap-3 px-3 py-2.5 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
       <CardCover post={post} href={href} />
       <div className="pointer-events-none relative shrink-0">
-        {post.media?.id ? (
+        {picture ? (
           <Thumbnail
-            mediaId={post.media.id}
-            alt={post.media.altText || post.hook}
+            endpoint={picture.endpoint}
+            whole={picture.whole}
+            alt={post.media?.altText || post.hook}
             className="h-12 w-20 rounded-lg"
           />
         ) : (

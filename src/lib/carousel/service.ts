@@ -298,6 +298,20 @@ export async function loadCarousel(
   return Promise.all(rows.map(toView))
 }
 
+/**
+ * A link to the carousel's first drawn slide, for the post's card on the
+ * Posts list; null when no slide has been drawn yet.
+ */
+export async function loadCarouselCover(
+  accountId: string,
+  draftId: string
+): Promise<string | null> {
+  await ownedPost(accountId, draftId)
+  const rows = await loadSlideRows(db, draftId)
+  const first = rows.find(row => row.imageUrl)
+  return first?.imageUrl ? viewableImageUrl(first.imageUrl) : null
+}
+
 async function toView(row: PostSlide): Promise<SlideView> {
   let imageUrl: string | null = null
   if (row.imageUrl) {

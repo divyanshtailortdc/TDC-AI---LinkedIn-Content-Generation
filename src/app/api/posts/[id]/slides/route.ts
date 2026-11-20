@@ -12,6 +12,7 @@ import {
   addSlide,
   createCarouselForPost,
   loadCarousel,
+  loadCarouselCover,
   redrawCarousel
 } from '~/lib/carousel/service'
 
@@ -19,6 +20,7 @@ import {
  * A post's carousel slides.
  *
  * GET   the slides, in order, with a link to each drawn image.
+ *       ?cover: just { imageUrl } of the first drawn slide, for the list card.
  * POST  { action: 'generate', instruction?, replace? }  writes and draws the
  *       whole carousel, turning the post into one; takes up to a minute or
  *       two and stops when the browser aborts the request. A post that has
@@ -51,6 +53,15 @@ export async function GET(request: Request, { params }: Params) {
   const who = await identityFor([id])
   if ('response' in who) return who.response
   try {
+    // ?cover: only the first drawn slide's link, for the post's card.
+    if (new URL(request.url).searchParams.has('cover')) {
+      const imageUrl = await loadCarouselCover(who.accountId, id)
+      if (!imageUrl) return fail(404, 'No slide drawn yet.')
+      return Response.json(
+        { success: true, imageUrl },
+        { headers: { 'Cache-Control': 'private, no-store' } }
+      )
+    }
     const slides = await loadCarousel(who.accountId, id)
     return Response.json(
       { success: true, slides },
