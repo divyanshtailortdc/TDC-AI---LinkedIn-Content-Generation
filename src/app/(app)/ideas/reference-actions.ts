@@ -21,6 +21,7 @@ import {
   REFERENCE_KINDS,
   REFERENCE_TEXT_MAX,
   REFERENCE_TEXT_MIN,
+  SIMILAR_POST_ENABLED,
   type ReferenceKind,
   type ReferencePost
 } from '~/lib/reference-post/types'
@@ -30,6 +31,9 @@ import {
  * could be read of it (or pastes its text), picks where the new post goes,
  * and a post like it is written for the active identity.
  */
+
+/** Switched off for now (SIMILAR_POST_ENABLED): both actions say so. */
+const NOT_AVAILABLE = 'Creating a post from a link is not available right now.'
 
 /** What the dialog shows once a link has been looked at. */
 export type ReadReferenceResult =
@@ -46,6 +50,7 @@ export type ReadReferenceResult =
 /** Reads a shared link: nothing is saved and no AI is used, only searches and public embeds. */
 export async function readReferenceAction(rawUrl: string): Promise<ReadReferenceResult> {
   await requireUser()
+  if (!SIMILAR_POST_ENABLED) return { success: false, error: NOT_AVAILABLE }
   try {
     await requireIdentityId()
     const link = parseReferenceLink(typeof rawUrl === 'string' ? rawUrl : '')
@@ -122,6 +127,7 @@ export async function createSimilarPostAction(input: {
   imageFormats: string[]
 }): Promise<{ success: true; ideaId: string; title: string } | { success: false; error: string }> {
   const user = await requireUser()
+  if (!SIMILAR_POST_ENABLED) return { success: false, error: NOT_AVAILABLE }
   try {
     const accountId = await requireIdentityId()
     const reference = referenceFrom(input?.reference)

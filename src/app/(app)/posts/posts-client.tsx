@@ -23,6 +23,7 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
+import { SIMILAR_POST_ENABLED } from '@/lib/reference-post/types'
 import type { IdentitySummary } from '@/lib/identity'
 import { PAGE_SIZE, pageNumbers, paginate, parsePage } from '@/lib/pagination'
 import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
@@ -1083,19 +1084,21 @@ export function PostsClientInner({
               <p className="text-muted mt-1 text-sm">@{identity.handle}</p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Link
-                href="/ideas?similar=1"
-                title="Create a post like a public post, reel or video, from its link"
-                aria-label="Create a post like one you saw, from its link"
-                className={buttonClassName({
-                  variant: 'secondary',
-                  size: 'sm',
-                  className: cn('h-9', FOCUS_RING)
-                })}
-              >
-                <Link2 aria-hidden className="text-accent h-4 w-4" />
-                <span className="hidden sm:inline">From a link</span>
-              </Link>
+              {SIMILAR_POST_ENABLED && (
+                <Link
+                  href="/ideas?similar=1"
+                  title="Create a post like a public post, reel or video, from its link"
+                  aria-label="Create a post like one you saw, from its link"
+                  className={buttonClassName({
+                    variant: 'secondary',
+                    size: 'sm',
+                    className: cn('h-9', FOCUS_RING)
+                  })}
+                >
+                  <Link2 aria-hidden className="text-accent h-4 w-4" />
+                  <span className="hidden sm:inline">From a link</span>
+                </Link>
+              )}
               <Link
                 href="/ideas"
                 title="Posts are drafted from ideas: approve one to draft its post"

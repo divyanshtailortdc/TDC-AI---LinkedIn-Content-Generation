@@ -8,6 +8,16 @@
  * the same definitions.
  */
 
+/**
+ * "From a link" (a post like one you saw), switched off for now
+ * (2026-11-20): the buttons on Ideas and Posts are hidden, ?similar=1 opens
+ * nothing, both actions refuse, and its help page section is taken out
+ * (restore it from commit 5fa692a, then rerun pnpm docs:index). Ideas
+ * already made from a link still show their "Like:" link. All the code
+ * stays; set this back to true to bring it back.
+ */
+export const SIMILAR_POST_ENABLED = false
+
 /** Where a reference link points: a platform the app knows, TikTok, or any other web page. */
 export const REFERENCE_SOURCES = [
   'linkedin',

@@ -18,7 +18,11 @@ import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import { SimilarPostDialog } from '@/components/similar-post-dialog'
 import { FORMATS, isPlatformId, PLATFORMS, type FormatId, type PlatformId } from '@/lib/formats'
-import type { ReferencePost, SharedPostRef } from '@/lib/reference-post/types'
+import {
+  SIMILAR_POST_ENABLED,
+  type ReferencePost,
+  type SharedPostRef
+} from '@/lib/reference-post/types'
 import { GenerateRunDialog, type RunPickerData } from '@/components/generate-run-dialog'
 import { PlatformTabs } from '@/components/platform-tabs'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
@@ -121,7 +125,8 @@ export function IdeasClient({
     | null
   >(null)
   // "From a link": reading the shared post comes first (SimilarPostDialog).
-  const [similarOpen, setSimilarOpen] = useState(openSimilar)
+  // Switched off for now (SIMILAR_POST_ENABLED): ?similar=1 opens nothing.
+  const [similarOpen, setSimilarOpen] = useState(SIMILAR_POST_ENABLED && openSimilar)
   // The latest post like a shared one, kept for Try again.
   const [similarJob, setSimilarJob] = useState<{
     reference: ReferencePost
@@ -685,17 +690,19 @@ export function IdeasClient({
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => setSimilarOpen(true)}
-                aria-label="Create a post like one you saw, from its link"
-                title="Create a post like a public post, reel or video, from its link"
-                className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
-              >
-                <Link2 className="text-accent h-3.5 w-3.5" />
-                {/* Icon only on phones, so the header's buttons stay on one row. */}
-                <span className="hidden sm:inline">From a link</span>
-              </button>
+              {SIMILAR_POST_ENABLED && (
+                <button
+                  type="button"
+                  onClick={() => setSimilarOpen(true)}
+                  aria-label="Create a post like one you saw, from its link"
+                  title="Create a post like a public post, reel or video, from its link"
+                  className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
+                >
+                  <Link2 className="text-accent h-3.5 w-3.5" />
+                  {/* Icon only on phones, so the header's buttons stay on one row. */}
+                  <span className="hidden sm:inline">From a link</span>
+                </button>
+              )}
               {picker && (
                 <button
                   type="button"
@@ -840,14 +847,16 @@ export function IdeasClient({
                     {platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setSimilarOpen(true)}
-                  className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
-                >
-                  <Link2 className="text-accent h-3.5 w-3.5" />
-                  From a link
-                </button>
+                {SIMILAR_POST_ENABLED && (
+                  <button
+                    type="button"
+                    onClick={() => setSimilarOpen(true)}
+                    className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-medium transition-colors"
+                  >
+                    <Link2 className="text-accent h-3.5 w-3.5" />
+                    From a link
+                  </button>
+                )}
                 {platform ? (
                   <button
                     type="button"
@@ -921,7 +930,7 @@ export function IdeasClient({
         />
       )}
 
-      {similarOpen && (
+      {SIMILAR_POST_ENABLED && similarOpen && (
         <SimilarPostDialog
           onCancel={() => setSimilarOpen(false)}
           onNext={(reference) => {
