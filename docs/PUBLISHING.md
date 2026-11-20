@@ -1,6 +1,6 @@
 # Publishing
 
-How users connect their accounts for publishing, and how approved posts are published: now, at a scheduled time, or automatically. Five platforms publish, **all through each user's own Buffer account**: **LinkedIn**, **X**, **Threads**, **Facebook** and **Instagram**. Each user connects Buffer once (OAuth) and picks the account each network publishes to; how that works, and its setup, is in [BUFFER_OAUTH.md](BUFFER_OAUTH.md). Network specifics: [PUBLISHING_X.md](PUBLISHING_X.md), [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md). Until 2026-11-16 LinkedIn published through its own API; that code is gone. The pipeline, states, retries and security below apply to every network.
+How users connect their accounts for publishing, and how approved posts are published: now, at a scheduled time, or automatically. Six platforms publish, **all through each user's own Buffer account**: **LinkedIn**, **X**, **Threads**, **Facebook**, **Instagram** and **YouTube** (Shorts only). Each user connects Buffer once (OAuth) and picks the account each network publishes to; how that works, and its setup, is in [BUFFER_OAUTH.md](BUFFER_OAUTH.md). Network specifics: [PUBLISHING_X.md](PUBLISHING_X.md), [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md); Reels and Shorts, which go out with an AI video: [SHORT_VIDEOS.md](SHORT_VIDEOS.md#publishing). Until 2026-11-16 LinkedIn published through its own API; that code is gone. The pipeline, states, retries and security below apply to every network.
 
 - [Platforms and providers](#platforms-and-providers)
 - [Sign-in and publishing are separate](#sign-in-and-publishing-are-separate)
@@ -85,7 +85,7 @@ requestPublication   checks: post is the user's (via accounts.user_id), approved
 claimPublication     UPDATE … SET status='publishing', attempts+1 WHERE status='scheduled' AND due
 executePublication   checks everything again, then:
                        Buffer token (refreshed under a row lock, or marked expired)
-                       image or slides → signed links to this app that Buffer downloads
+                       image, slides or video → signed links to this app that Buffer downloads
                        metadata.postRequestedAt = now        ← from here the post may exist
                        Buffer createPost (text, images, network metadata, first comment)
                        sent at once: status 'published', its link, publishedAt; post_drafts.posted_at set
@@ -137,7 +137,7 @@ Creating a LinkedIn post is not idempotent, and a member token cannot read posts
 
 ### 1. The Buffer app client, and 2. Environment
 
-See [BUFFER_OAUTH.md → Setup](BUFFER_OAUTH.md#setup): one Buffer app client with the redirect URI `{BETTER_AUTH_URL}/api/integrations/buffer/callback`, `BUFFER_CLIENT_ID` (and `BUFFER_CLIENT_SECRET` for a confidential client), and `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`; changing it makes every stored token unreadable, and users reconnect). `BUFFER_TOKEN_ENCRYPTION_KEY` is optional. Each network is on by default; `LINKEDIN_PUBLISHING`, `X_PUBLISHING`, `THREADS_PUBLISHING`, `FACEBOOK_PUBLISHING` or `INSTAGRAM_PUBLISHING` set to `off` hides it. `BETTER_AUTH_URL` (or `PUBLISHING_MEDIA_URL`) must be reachable from the internet: Buffer downloads post images from it.
+See [BUFFER_OAUTH.md → Setup](BUFFER_OAUTH.md#setup): one Buffer app client with the redirect URI `{BETTER_AUTH_URL}/api/integrations/buffer/callback`, `BUFFER_CLIENT_ID` (and `BUFFER_CLIENT_SECRET` for a confidential client), and `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`; changing it makes every stored token unreadable, and users reconnect). `BUFFER_TOKEN_ENCRYPTION_KEY` is optional. Each network is on by default; `LINKEDIN_PUBLISHING`, `X_PUBLISHING`, `THREADS_PUBLISHING`, `FACEBOOK_PUBLISHING`, `INSTAGRAM_PUBLISHING` or `YOUTUBE_PUBLISHING` set to `off` hides it. `BETTER_AUTH_URL` (or `PUBLISHING_MEDIA_URL`) must be reachable from the internet: Buffer downloads post images and videos from it.
 
 ### 3. Database
 
@@ -147,12 +147,12 @@ Apply every migration, including `0049_buffer_oauth` (the Buffer connection and 
 npm run db:migrate
 ```
 
-**The Posts page reads `linkedin_publications`, so apply the migration before deploying this code**, or Posts fails with "relation does not exist".
+**The Posts page reads `linkedin_publications`, so apply the migration before deploying this code**, or Posts fails with "relation does not exist". The same goes for `0056_post_videos` (Reels and Shorts, [SHORT_VIDEOS.md](SHORT_VIDEOS.md#setup)) and `0057_ai_usage_draft` (per-post cost, [POST_COST.md](POST_COST.md)): without 0057, every AI call fails to record and the Posts page fails.
 
 ### 4. The worker
 
-- **Long-running server / `next dev`**: the scheduler runs a publishing pass every minute (`APP_ROLE` `all` or `worker`).
-- **Vercel**: timers do not run. `/api/cron/jobs` runs a pass each time it is called, so scheduled posts go out as late as the calls are apart. Vercel Hobby cron runs once a day, so point an external pinger at it every 1–5 minutes (`Authorization: Bearer $CRON_SECRET`).
+- **Long-running server / `next dev`**: the scheduler runs a publishing pass every minute (`APP_ROLE` `all` or `worker`), and beside it a pass that stores finished AI videos ([SHORT_VIDEOS.md](SHORT_VIDEOS.md#generation-start-then-check)).
+- **Vercel**: timers do not run. `/api/cron/jobs` runs both passes, side by side, each time it is called, so scheduled posts go out as late as the calls are apart. Vercel Hobby cron runs once a day, so point an external pinger at it every 1–5 minutes (`Authorization: Bearer $CRON_SECRET`).
 
 ## Local development
 

@@ -15,8 +15,10 @@ Threads, Facebook and Instagram posts are published the same way as X posts: thr
 | Platform | What Buffer can connect | Format published | Formats copied by hand |
 | --- | --- | --- | --- |
 | Threads | A **Threads** account | `threads.post` | none |
-| Facebook | A **Facebook Page** | `facebook.post` | none |
-| Instagram | An Instagram **business or creator** account (Buffer cannot connect personal accounts) | `instagram.caption`, shown as **Instagram post**: a picture with its caption | `instagram.reel` (posts have no video) |
+| Facebook | A **Facebook Page** | `facebook.post`; `facebook.reel`, shown as **Facebook Reel**: an AI video with its caption | none |
+| Instagram | An Instagram **business or creator** account (Buffer cannot connect personal accounts) | `instagram.caption`, shown as **Instagram post**: a picture with its caption; `instagram.reel`, shown as **Instagram Reel**: an AI video with its caption | none |
+
+Reels go out only once their AI video is ready. How the video is made and sent is in [SHORT_VIDEOS.md](SHORT_VIDEOS.md).
 
 This is set in `PUBLISHABLE_FORMATS` in `src/lib/publishing/platform.ts`. Each platform has its own connection (one row per identity and platform in `linkedin_connections`), its own Buffer authorization, its own auto-publishing time, and its own **Change account** for picking another Page or Instagram account in the same Buffer account. Disconnecting one leaves the others alone.
 
@@ -27,8 +29,8 @@ All use `createPost` with `mode: shareNow`, like X. Each network has its own `me
 | Platform | `metadata` | First comment field |
 | --- | --- | --- |
 | Threads | `{ threads: { thread: [post, reply] } }`, only when the post has a reply | **Published** as a reply under the post, inside the same Buffer post, as on X (`threads`, with `threadKey: 'threads'`) |
-| Facebook | `{ facebook: { type: "post", firstComment } }` | **Published** as the first comment, inside the same Buffer post (`commentInPost`), so there is no second request |
-| Instagram | `{ instagram: { type: "post", shouldShareToFeed: true } }` | **Never published.** For an Instagram post this field is the "Link-in-bio note", a reminder for the author and not a comment |
+| Facebook | `{ facebook: { type: "post", firstComment } }`; a Reel has `type: "reel"` | **Published** as the first comment, inside the same Buffer post (`commentInPost`), so there is no second request |
+| Instagram | `{ instagram: { type: "post", shouldShareToFeed: true } }`; a Reel has `{ type: "reel", shouldShareToFeed: true, isAiGenerated: true }` | **Never published.** For an Instagram post this field is the "Link-in-bio note", a reminder for the author and not a comment |
 
 The text is exactly what Copy gives. Length is checked before Buffer is called: 500 characters for a Threads post and its reply (counted in UTF-16 units, as Buffer does), 2,200 for an Instagram caption (Instagram's limit) and 63,206 for Facebook (Facebook's limit; drafting aims far shorter).
 
@@ -81,7 +83,7 @@ Use test Pages and accounts, because the posts are public.
 | Test | Covers |
 | --- | --- |
 | `tests/publishing-units.test.ts` → "Facebook and Instagram through Buffer" | Instagram padding and JPEG output, Facebook WebP to JPEG, the `?for=` link, channels listed per network, network names in Buffer's errors, each network's `metadata` |
-| `tests/publishing.test.ts` → "Facebook and Instagram through Buffer" (needs `DATABASE_URL`) | M1–M5: a Facebook post with its first comment in one Buffer post; an Instagram caption refused without an image, then published as a feed post with the note kept back; an image removed after queueing; Reels refused; auto-publishing skipping Instagram posts without an image; separate connections per network |
+| `tests/publishing.test.ts` → "Facebook and Instagram through Buffer" (needs `DATABASE_URL`) | M1–M5: a Facebook post with its first comment in one Buffer post; an Instagram caption refused without an image, then published as a feed post with the note kept back; an image removed after queueing; a Reel without its video refused, and one with its video published as a Reel (M3b); auto-publishing skipping Instagram posts without an image; separate connections per network |
 
 Buffer, Facebook and Instagram themselves cannot run in CI. Check them by hand with test accounts, as above.
 
