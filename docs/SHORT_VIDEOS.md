@@ -1,11 +1,13 @@
 # Short videos (Reels and Shorts)
 
+> **Switched off for now (2026-11-20).** `VIDEO_GENERATION_ENABLED` in `src/lib/video/formats.ts` is `false`, so the app shows nothing about videos: Create posts has no Short video choice, no idea drafts a video script or starts a clip, existing Reels and Shorts are hidden from Posts and Schedule (`inKnownFormat`) and their pages 404, and `POST /api/posts/[id]/video` answers 404. The code below is unchanged; set the constant to `true` to bring it all back.
+
 The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** and **Facebook Reels**. Each video post is a script drafted from an idea and one AI-generated clip made from that script: 8 seconds, 9:16, 1080×1920 MP4, with a voiceover. The clip comes from a video model through the Vercel AI Gateway (Veo 3.1 Lite by default) and is published through Buffer like every other post.
 
 - [How a video post is made](#how-a-video-post-is-made)
 - [Generation: start, then check](#generation-start-then-check)
 - [Cost](#cost)
-- [Models](#models)
+- [Models](#models)  
 - [Publishing](#publishing)
 - [Setup](#setup)
 - [Operating it](#operating-it)
