@@ -23,15 +23,18 @@ export async function createIdeaFromReference(input: {
   formats: FormatId[]
   /** Of those, the ones whose posts get an image ("Add an image"). */
   imageFormats: FormatId[]
+  /** Of those, the ones set to "Carousel"; the rest get a single image. */
+  carouselFormats: FormatId[]
 }): Promise<{ ideaId: string; title: string }> {
-  const { accountId, reference, formats, imageFormats } = input
+  const { accountId, reference, formats, imageFormats, carouselFormats } = input
   const platforms = platformsOf(formats)
   // Every active goal, newest first: the model picks the one it serves.
   const [ctx, image] = await Promise.all([
     loadGenerationContext(accountId),
     downloadReferenceImage(reference.imageUrl)
   ])
-  const carouselPossible = formats.some(
+  // Slides only where Create posts asked for them.
+  const carouselPossible = carouselFormats.some(
     f => imageFormats.includes(f) && supportsMediaFormat(f, 'carousel')
   )
   const idea = await ideaFromReferencePost({
@@ -71,7 +74,8 @@ export async function createIdeaFromReference(input: {
       suggestedMedia: {
         mode: 'none',
         ...(brief ? { brief } : {}),
-        imageFormats
+        imageFormats,
+        carouselFormats
       },
       status: 'approved',
       targetFormats: formats,

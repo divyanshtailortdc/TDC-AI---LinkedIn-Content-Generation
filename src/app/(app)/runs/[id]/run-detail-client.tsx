@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
-import { Button } from '@/components/button'
+import { Button, buttonClassName } from '@/components/button'
 import { RunCostPanel } from '@/components/run-cost-panel'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
@@ -227,6 +227,8 @@ export function RunDetailClient({
   // The formats ticked "Add an image", sent with the formats and kept for
   // Try again, as lastFormats is.
   const imageFormatsRef = useRef<FormatId[] | undefined>(undefined)
+  // Of those, the ones set to "Carousel"; the rest get a single image.
+  const carouselFormatsRef = useRef<FormatId[] | undefined>(undefined)
   const [run, setRun] = useState(initialRun)
   const [steps, setSteps] = useState(initialSteps)
   const [findings, setFindings] = useState(initialFindings)
@@ -517,7 +519,8 @@ export function RunDetailClient({
         runId: run.id,
         ideaIds: approvedIds,
         formats,
-        imageFormats: formats ? imageFormatsRef.current : undefined
+        imageFormats: formats ? imageFormatsRef.current : undefined,
+        carouselFormats: formats ? carouselFormatsRef.current : undefined
       })
       if (!res.success) {
         await fail(res.error || 'Drafting failed. Please try again.')
@@ -690,6 +693,23 @@ export function RunDetailClient({
     </ConfirmPopover>
   )
 
+  // The run's drafted posts, from the header: the accent button once nothing
+  // is left to approve or create.
+  const viewPostsButton =
+    draftedCount > 0 ? (
+      <Link
+        href={`/posts?runId=${run.id}`}
+        className={buttonClassName({
+          variant: primaryAction ? 'secondary' : 'primary',
+          size: 'sm',
+          className: FOCUS_RING
+        })}
+      >
+        <FileText aria-hidden className="h-3.5 w-3.5" />
+        View posts
+      </Link>
+    ) : null
+
   const meta = [
     triggerLabel(run.trigger),
     hasMounted && run.createdAt ? <TimeAgo key="time" value={run.createdAt} /> : null,
@@ -698,7 +718,8 @@ export function RunDetailClient({
   ].filter(Boolean)
 
   return (
-    <div className="flex flex-col h-full lg:h-[calc(100vh-4rem)]">
+    // Fills the app's main area, top to bottom and edge to edge, as Posts does.
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         // On a phone the buttons take a row of their own, so the title keeps
         // its room instead of being squeezed to nothing beside them.
@@ -753,6 +774,7 @@ export function RunDetailClient({
             </span>
           ) : canDecide && (proposedCount > 0 || approvedCount > 0) ? (
             <>
+              {viewPostsButton}
               {proposedCount > 0 && (
                 <ConfirmPopover
                   title={`Approve all ${proposedCount} ideas?`}
@@ -792,12 +814,14 @@ export function RunDetailClient({
                 </Button>
               )}
             </>
-          ) : undefined
+          ) : (
+            viewPostsButton ?? undefined
+          )
         }
       />
 
-      <div className="relative flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto max-w-7xl space-y-6">
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="space-y-6">
           <AiDraftingStatus
             status={draftStatus}
             subject={plural(draftTargetIds.length, 'selected idea')}
@@ -1167,9 +1191,10 @@ export function RunDetailClient({
           enabledFormats={enabledFormats}
           confirmLabel="Create posts"
           onCancel={() => setCreateDialogOpen(false)}
-          onConfirm={(formats, imageFormats) => {
+          onConfirm={(formats, imageFormats, carouselFormats) => {
             setCreateDialogOpen(false)
             imageFormatsRef.current = imageFormats
+            carouselFormatsRef.current = carouselFormats
             void handleDraftSelected(selection, formats)
           }}
         />

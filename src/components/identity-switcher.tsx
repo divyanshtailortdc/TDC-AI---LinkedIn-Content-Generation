@@ -4,8 +4,8 @@ import { switchIdentity } from '@/app/(app)/identity/actions'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
-import { NEW_IDENTITY_PATH } from '@/lib/identity-path'
-import { Check, ChevronsUpDown, Loader2, Plus } from 'lucide-react'
+import { IDENTITIES_PATH, NEW_IDENTITY_PATH } from '@/lib/identity-path'
+import { Check, ChevronsUpDown, Loader2, Plus, Settings2 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useId, useRef, useState, useTransition } from 'react'
@@ -21,7 +21,7 @@ export type SwitcherIdentity = {
 const ITEM_SELECTOR = '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)'
 
 /** Up to two initials, e.g. "Priya Rao" → "PR". */
-function initialsOf(name: string) {
+export function initialsOf(name: string) {
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -235,6 +235,15 @@ export function IdentitySwitcher({
         >
           <Plus aria-hidden className="text-muted h-4 w-4" />
           New identity
+        </Link>
+        <Link
+          href={IDENTITIES_PATH}
+          role="menuitem"
+          onClick={close}
+          className="text-foreground hover:bg-foreground/10 focus-visible:bg-foreground/10 flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none"
+        >
+          <Settings2 aria-hidden className="text-muted h-4 w-4" />
+          Manage identities
         </Link>
       </div>
     </div>

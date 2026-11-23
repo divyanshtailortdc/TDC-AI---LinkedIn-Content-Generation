@@ -134,34 +134,63 @@ function Swiper({
   const [own, setOwn] = useState(0)
   const index = Math.min(controlled ?? own, slides.length - 1)
   const isDocument = platform === 'linkedin'
+  // The slide this viewer last reported, so a new `index` from the page can
+  // be told apart from one it reported itself.
+  const reported = useRef<number | null>(null)
+  // The slide an arrow or the page is scrolling to. Until the scroll ends,
+  // the slides it passes are not reported: the first of them is the one it
+  // is leaving, and reporting that would scroll it back, losing the click.
+  const heading = useRef<number | null>(null)
+  const settle = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  useEffect(() => () => clearTimeout(settle.current), [])
+
+  const scrollToSlide = (next: number) => {
+    const el = track.current
+    if (!el) return
+    const left = next * el.clientWidth
+    if (Math.abs(el.scrollLeft - left) <= 4) return
+    heading.current = next
+    el.scrollTo({ left, behavior: 'smooth' })
+  }
+
+  const report = (next: number) => {
+    if (next === reported.current) return
+    reported.current = next
+    setOwn(next)
+    onIndexChange?.(next)
+  }
 
   // Follows the page: a slide picked in the editor scrolls into view.
   useEffect(() => {
+    if (index === reported.current) return
+    reported.current = index
     const el = track.current
     if (!el) return
-    const target = index * el.clientWidth
-    if (Math.abs(el.scrollLeft - target) > 4)
-      el.scrollTo({ left: target, behavior: 'smooth' })
+    const left = index * el.clientWidth
+    if (Math.abs(el.scrollLeft - left) <= 4) return
+    heading.current = index
+    el.scrollTo({ left, behavior: 'smooth' })
   }, [index])
 
   const go = (next: number) => {
     const clamped = Math.max(0, Math.min(slides.length - 1, next))
-    setOwn(clamped)
-    onIndexChange?.(clamped)
-    track.current?.scrollTo({
-      left: clamped * track.current.clientWidth,
-      behavior: 'smooth'
-    })
+    report(clamped)
+    scrollToSlide(clamped)
   }
 
   const onScroll = () => {
     const el = track.current
     if (!el || el.clientWidth === 0) return
-    const current = Math.round(el.scrollLeft / el.clientWidth)
-    if (current !== index) {
-      setOwn(current)
-      onIndexChange?.(current)
-    }
+    const current = () => Math.round(el.scrollLeft / el.clientWidth)
+    // Scroll events stop when the track comes to rest on a slide.
+    clearTimeout(settle.current)
+    settle.current = setTimeout(() => {
+      heading.current = null
+      report(current())
+    }, 120)
+    // A swipe moves the counter as it goes; an arrow's scroll already has.
+    if (heading.current === null) report(current())
   }
 
   const onKeyDown = (event: KeyboardEvent) => {

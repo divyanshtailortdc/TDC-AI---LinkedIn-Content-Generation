@@ -84,6 +84,7 @@ import {
   formatsToDraft,
   imageChosenFor,
   isCasualStyle,
+  mediaChosenFor,
   needsImage,
   plannedMediaFormat,
   postTexts,
@@ -264,6 +265,11 @@ interface PrepareOptions {
    */
   mediaFormat?: MediaFormat
   /**
+   * A new post's media as chosen in Create posts (mediaChosenFor): written
+   * for, and never turned into a carousel on its own. Absent: planned.
+   */
+  chosenMedia?: MediaFormat
+  /**
    * The id a new post is saved under, made before its first model call so
    * every call writing it is charged to it (withDraftSpend). One is made when
    * absent.
@@ -417,8 +423,10 @@ async function prepareLinkedInPost(
       responseJson: { model: handle?.modelId ?? null, usage: draftUsage }
     })
 
-  // A carousel when the idea asks for one; the caption is written for it.
-  const planned = options.mediaFormat ?? plannedMediaFormat(DEFAULT_FORMAT, idea)
+  // What Create posts chose, else a carousel when the idea asks for one; the
+  // caption is written for it.
+  const planned =
+    options.mediaFormat ?? options.chosenMedia ?? plannedMediaFormat(DEFAULT_FORMAT, idea)
 
   let draft: DraftGenerationResult
   try {
@@ -438,9 +446,15 @@ async function prepareLinkedInPost(
   await recordDraftStep(null)
 
   // A new post whose caption tells readers to swipe gets the slides it
-  // promises. A rewrite keeps the post's own media.
+  // promises. A rewrite keeps the post's own media, and a post whose media
+  // was chosen keeps it (the checks have a "swipe" removed instead).
   let mediaFormat: MediaFormat = planned
-  if (!options.regenerate && planned !== 'carousel' && carouselWording(postFullText(draft))) {
+  if (
+    !options.regenerate &&
+    !options.chosenMedia &&
+    planned !== 'carousel' &&
+    carouselWording(postFullText(draft))
+  ) {
     mediaFormat = 'carousel'
   }
 
@@ -725,12 +739,16 @@ async function prepareFormatPost(
       responseJson: { model: handle?.modelId ?? null, usage: draftUsage, formatId }
     })
 
-  // What goes out with the text: the idea's carousel, or the format's
-  // default. A new single-image post may become a carousel if the writer
-  // finds the idea is best told as slides.
-  const planned = options.mediaFormat ?? plannedMediaFormat(formatId, idea)
+  // What goes out with the text: what Create posts chose, else the idea's
+  // carousel, or the format's default. A new single-image post not chosen
+  // so may become a carousel if the writer finds the idea is best told as
+  // slides.
+  const planned = options.mediaFormat ?? options.chosenMedia ?? plannedMediaFormat(formatId, idea)
   const mayChooseCarousel =
-    !options.regenerate && planned === 'image' && supportsMediaFormat(formatId, 'carousel')
+    !options.regenerate &&
+    !options.chosenMedia &&
+    planned === 'image' &&
+    supportsMediaFormat(formatId, 'carousel')
 
   let draft: VariantDraft
   try {
@@ -758,7 +776,7 @@ async function prepareFormatPost(
 
   // A carousel when the writer asked for one in its visual idea, or its
   // caption tells readers to swipe, and the format takes one. A rewrite
-  // keeps the post's own media.
+  // keeps the post's own media, and so does a post whose media was chosen.
   const visualIdeaOf = (d: VariantDraft) => {
     const value = (d.payload as { visualIdea?: unknown } | null)?.visualIdea
     return typeof value === 'string' ? value : ''
@@ -766,6 +784,7 @@ async function prepareFormatPost(
   let mediaFormat: MediaFormat = planned
   if (
     !options.regenerate &&
+    !options.chosenMedia &&
     planned !== 'carousel' &&
     supportsMediaFormat(formatId, 'carousel') &&
     (suggestsCarousel(visualIdeaOf(draft)) ||
@@ -935,6 +954,7 @@ async function prepareFormats(
             // As ticked in Create posts. Without that choice, casual or fun
             // posts carry the author's own photos and videos: no generated graphic.
             withMedia: imageChosenFor(idea, DEFAULT_FORMAT) ?? !linkedInIsCasual(ctx),
+            chosenMedia: mediaChosenFor(idea, DEFAULT_FORMAT),
             draftId
           })
         )
@@ -949,6 +969,7 @@ async function prepareFormats(
       asNewPost(draftId =>
         prepareFormatPost(ctx, idea, first!, recordStep, {
           withMedia: imageChosenFor(idea, first!),
+          chosenMedia: mediaChosenFor(idea, first!),
           draftId
         })
       )
@@ -963,6 +984,7 @@ async function prepareFormats(
             prepareFormatPost(ctx, idea, f, recordStep, {
               siblingOpenings: firstOpening,
               withMedia: imageChosenFor(idea, f),
+              chosenMedia: mediaChosenFor(idea, f),
               draftId
             })
           )

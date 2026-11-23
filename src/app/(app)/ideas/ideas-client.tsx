@@ -132,6 +132,7 @@ export function IdeasClient({
     reference: ReferencePost
     formats: FormatId[]
     imageFormats: FormatId[]
+    carouselFormats: FormatId[]
   } | null>(null)
   // Opened from the Posts page: the address drops ?similar=1, so a reload
   // or Back does not open it again.
@@ -147,6 +148,8 @@ export function IdeasClient({
   // The formats ticked "Add an image" in Create posts, sent with the formats
   // (runDrafting) and kept for Try again, as lastFormats is.
   const imageFormatsRef = useRef<FormatId[] | undefined>(undefined)
+  // Of those, the ones set to "Carousel"; the rest get a single image.
+  const carouselFormatsRef = useRef<FormatId[] | undefined>(undefined)
   const [ideas, setIdeas] = useState<ClientIdeaData[]>(initialIdeas)
   // The server sends a new page after every action here (each revalidates
   // /ideas) and on each page or filter change. It replaces the local copy,
@@ -399,7 +402,8 @@ export function IdeasClient({
       const res = await draftSelectedIdeas({
         ideaIds: targetIds,
         formats,
-        imageFormats: formats ? imageFormatsRef.current : undefined
+        imageFormats: formats ? imageFormatsRef.current : undefined,
+        carouselFormats: formats ? carouselFormatsRef.current : undefined
       })
       if (res.success) {
         setTicked((prev) => prev.filter((id) => !targetIds.includes(id)))
@@ -497,7 +501,8 @@ export function IdeasClient({
       const res = await createSimilarPostAction({
         reference: job.reference,
         formats: job.formats,
-        imageFormats: job.imageFormats
+        imageFormats: job.imageFormats,
+        carouselFormats: job.carouselFormats
       })
       if (res.success) {
         markDataChanged()
@@ -607,12 +612,18 @@ export function IdeasClient({
         ? selection
         : selectedApproved
   const dialogPosts = `${dialogTargetIds.length} post${dialogTargetIds.length === 1 ? '' : 's'}`
-  const confirmCreate = (formats: FormatId[], imageFormats: FormatId[]) => {
+  const confirmCreate = (
+    formats: FormatId[],
+    imageFormats: FormatId[],
+    carouselFormats: FormatId[]
+  ) => {
     const open = createDialog
     setCreateDialog(null)
     imageFormatsRef.current = imageFormats
+    carouselFormatsRef.current = carouselFormats
     // Not awaited: drafting shows its own progress.
-    if (open?.kind === 'similar') void startSimilar({ reference: open.reference, formats, imageFormats })
+    if (open?.kind === 'similar')
+      void startSimilar({ reference: open.reference, formats, imageFormats, carouselFormats })
     else if (open?.kind === 'single') void draftSingle(open.id, formats)
     else if (open?.kind === 'approve') void handleApproveSelectedAndDraft(formats)
     else void handleDraftSelected(formats)

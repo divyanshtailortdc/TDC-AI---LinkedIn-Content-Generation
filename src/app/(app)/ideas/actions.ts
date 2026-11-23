@@ -7,6 +7,7 @@ import {
   cleanFormats,
   FORMATS,
   isCreatableFormat,
+  supportsMediaFormat,
   type FormatId
 } from '@/lib/formats'
 import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
@@ -193,6 +194,11 @@ export async function draftSelectedIdeas(options: {
    * each format's default (imageChosenFor).
    */
   imageFormats?: string[]
+  /**
+   * Of those, the ones set to "Carousel"; the rest get a single image. Sent
+   * with imageFormats. Absent: drafting plans each (mediaChosenFor).
+   */
+  carouselFormats?: string[]
 }) {
   const user = await requireUser()
   try {
@@ -226,10 +232,22 @@ export async function draftSelectedIdeas(options: {
           : cleanFormats(options.imageFormats).filter(
               f => formats.includes(f) && canHaveImage(f)
             )
+      // Only image formats that take slides; an empty list is a choice too
+      // (every post a single image), so it is written.
+      const carouselFormats =
+        imageFormats && options.carouselFormats !== undefined
+          ? cleanFormats(options.carouselFormats).filter(
+              f => imageFormats.includes(f) && supportsMediaFormat(f, 'carousel')
+            )
+          : undefined
       // The videos asked for, always written (an empty list too), so a later
       // request without them does not draft an earlier one's video.
       const videoFormats = formats.filter(isVideoFormat)
-      const mediaChoice = { ...(imageFormats && { imageFormats }), videoFormats }
+      const mediaChoice = {
+        ...(imageFormats && { imageFormats }),
+        ...(carouselFormats && { carouselFormats }),
+        videoFormats
+      }
       // Set before the claim, so the drafting queue reads them. Ideas not yet
       // approved keep theirs: they are skipped below and not drafted. The
       // image and video choices go into the idea's media plan, merged with

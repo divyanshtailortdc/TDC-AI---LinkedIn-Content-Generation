@@ -1,7 +1,14 @@
 'use server'
 
 import { db } from '@/db'
-import { canHaveImage, cleanFormats, FORMATS, isCreatableFormat, type FormatId } from '@/lib/formats'
+import {
+  canHaveImage,
+  cleanFormats,
+  FORMATS,
+  isCreatableFormat,
+  supportsMediaFormat,
+  type FormatId
+} from '@/lib/formats'
 import { loadChannels } from '@/lib/channels'
 import { requireIdentityId } from '@/lib/identity'
 import { requireUser } from '@/lib/session'
@@ -125,6 +132,8 @@ export async function createSimilarPostAction(input: {
   reference: unknown
   formats: string[]
   imageFormats: string[]
+  /** Of those, the ones set to "Carousel"; the rest get a single image. */
+  carouselFormats?: string[]
 }): Promise<{ success: true; ideaId: string; title: string } | { success: false; error: string }> {
   const user = await requireUser()
   if (!SIMILAR_POST_ENABLED) return { success: false, error: NOT_AVAILABLE }
@@ -146,10 +155,20 @@ export async function createSimilarPostAction(input: {
     const imageFormats = cleanFormats(input?.imageFormats).filter(
       (f): f is FormatId => formats.includes(f) && canHaveImage(f)
     )
+    const carouselFormats = cleanFormats(input?.carouselFormats).filter(
+      f => imageFormats.includes(f) && supportsMediaFormat(f, 'carousel')
+    )
 
     const { ideaId, title } = await withAiSpend(
       { source: 'posts', accountId, userId: user.id },
-      () => createIdeaFromReference({ accountId, reference, formats, imageFormats })
+      () =>
+        createIdeaFromReference({
+          accountId,
+          reference,
+          formats,
+          imageFormats,
+          carouselFormats
+        })
     )
 
     const outcome = await claimDraftSelection(

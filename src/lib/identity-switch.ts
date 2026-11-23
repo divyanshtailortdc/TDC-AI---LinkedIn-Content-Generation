@@ -162,11 +162,15 @@ type Reader = IdentityDb | IdentityTx
 /**
  * What stops a switch: a run or drafting still working from the old
  * company's details would save ideas or posts for it after the switch.
+ * Deleting the identity is stopped the same way (`action`), since they would
+ * write for an identity that is gone.
  */
 export async function switchBlocker(
   database: Reader,
-  accountId: string
+  accountId: string,
+  action: 'switch' | 'delete' = 'switch'
 ): Promise<string | null> {
+  const then = action === 'delete' ? 'then delete it' : 'then switch'
   const [[run], [drafting]] = await Promise.all([
     database
       .select({ n: count() })
@@ -183,10 +187,10 @@ export async function switchBlocker(
       .where(and(eq(ideasTable.accountId, accountId), eq(ideasTable.status, 'drafting')))
   ])
   if ((run?.n ?? 0) > 0) {
-    return 'A run is still working for this identity. Wait for it to finish, or stop it, then switch.'
+    return `A run is still working for this identity. Wait for it to finish, or stop it, ${then}.`
   }
   if ((drafting?.n ?? 0) > 0) {
-    return 'Posts are still being written for this identity. Wait for them to finish, then switch.'
+    return `Posts are still being written for this identity. Wait for them to finish, ${then}.`
   }
   return null
 }

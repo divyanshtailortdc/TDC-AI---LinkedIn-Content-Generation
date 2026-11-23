@@ -6,7 +6,14 @@ import {
   platformConnectionsTable,
   preferencesTable
 } from '@/db/schema'
+import { ACTIVE_IDENTITY_COOKIE } from '@/lib/active-identity'
 import { IDENTITY_PATH, setActiveIdentity } from '@/lib/identity'
+import {
+  deleteIdentityData,
+  IdentityDeleteBlockedError
+} from '@/lib/identity-manage'
+import { deleteDraftImages } from '@/lib/media/image-store'
+import { isPublishingConfigured } from '@/lib/publishing/config'
 import {
   cleanChannelSettings,
   formatsForPlatforms,
@@ -53,6 +60,7 @@ import { requireUser } from '@/lib/session'
 import { AccountIdSchema } from '@/lib/setup-payloads'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
 import { after } from 'next/server'
 import { z } from 'zod'
 
@@ -406,4 +414,49 @@ export async function switchIdentity(rawAccountId: string) {
   await setActiveIdentity(account.id)
   revalidatePath('/', 'layout')
   return { success: true as const }
+}
+
+/** How many of a deleted identity's posts have their files removed at once. */
+const DELETE_IMAGES_CONCURRENCY = 8
+
+/**
+ * Deletes one of the user's identities for good, with everything in it
+ * (src/lib/identity-manage.ts). When it was the active one, the user's oldest
+ * identity left becomes active. Its posts' files in storage are removed after
+ * the response; a leftover file costs storage, not correctness.
+ */
+export async function deleteIdentity(rawAccountId: string) {
+  const user = await requireUser()
+  try {
+    const account = await findOwnedAccount(db, user.id, rawAccountId)
+    if (!account) return { success: false as const, error: 'Identity not found' }
+    const deleted = await deleteIdentityData(db, user.id, account.id, {
+      publishing: isPublishingConfigured()
+    })
+    if (!deleted) return { success: false as const, error: 'Identity not found' }
+
+    const jar = await cookies()
+    if (jar.get(ACTIVE_IDENTITY_COOKIE)?.value === account.id) {
+      jar.delete(ACTIVE_IDENTITY_COOKIE)
+    }
+    after(async () => {
+      const ids = deleted.draftIds
+      for (let i = 0; i < ids.length; i += DELETE_IMAGES_CONCURRENCY) {
+        await Promise.all(
+          ids.slice(i, i + DELETE_IMAGES_CONCURRENCY).map(deleteDraftImages)
+        )
+      }
+    })
+    revalidatePath('/', 'layout')
+    return { success: true as const, name: deleted.name }
+  } catch (err) {
+    if (err instanceof IdentityDeleteBlockedError) {
+      return { success: false as const, error: err.message }
+    }
+    console.error('Could not delete identity:', err)
+    return {
+      success: false as const,
+      error: 'Could not delete the identity. Try again.'
+    }
+  }
 }
