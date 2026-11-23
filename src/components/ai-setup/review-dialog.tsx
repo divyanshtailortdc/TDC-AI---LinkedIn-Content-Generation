@@ -25,6 +25,11 @@ import {
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
+import {
+  isDifferentIdentity,
+  unrelatedLinks,
+  type IdentitySnapshot
+} from '@/lib/identity-change'
 import { isPlatformId, PLATFORMS } from '@/lib/platforms'
 import { isEmptyValue } from '@/lib/settings-merge'
 import { normalizeUrlForCompare } from '@/lib/urls'
@@ -41,6 +46,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { updateDraftSuggestions, type IdentitySetupDraft } from './draft-store'
+import { SwitchIdentityReview } from './switch-review'
 
 type EntrySection = Exclude<SetupSection, 'knowledge'>
 /** Sections whose fields are applied one by one; a goal is all or nothing. */
@@ -173,10 +179,37 @@ function matchesSaved(
   )
 }
 
+/** Who an analysis describes, from its profile suggestions and the website typed for it. */
+export function describedIdentity(
+  suggestions: IdentitySetupSuggestions,
+  input?: { websiteUrl?: string }
+): IdentitySnapshot {
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+  return {
+    name: text(suggestions.profile.name?.value),
+    company: text(suggestions.profile.company?.value),
+    websiteUrl: text(suggestions.profile.websiteUrl?.value) || input?.websiteUrl || ''
+  }
+}
+
+/** Whether a fresh analysis describes someone else than the identity was set up for. */
+export function isSwitchAnalysis(
+  baseline: IdentitySetupBaseline,
+  draft: Pick<IdentitySetupDraft, 'analyzed' | 'suggestions' | 'input'>
+): boolean {
+  return isDifferentIdentity(
+    baseline.setUpFor,
+    describedIdentity(draft.analyzed ?? draft.suggestions, draft.input)
+  )
+}
+
 /**
  * Takes suggestions that match the saved settings out of the draft. They never
  * show in the review window, and left in the draft they kept the card on "View
  * AI suggestions" (and sections on "Needs more info") with nothing to review.
+ *
+ * Not for an analysis of another company: it is reviewed as a switch, where
+ * every value counts, and a draft emptied here would never get there.
  */
 function dropSuggestionsMatchingSaved(
   accountId: string,
@@ -184,6 +217,7 @@ function dropSuggestionsMatchingSaved(
 ) {
   const saved = new Set(baseline.knowledgeUrls.map(normalizeUrlForCompare))
   updateDraftSuggestions(accountId, s => {
+    if (isDifferentIdentity(baseline.setUpFor, describedIdentity(s))) return s
     let changed = false
     const next = { ...s }
     for (const section of FIELD_SECTIONS) {
@@ -768,7 +802,8 @@ export function ReviewActions({
   onCancel,
   onApply,
   applyDisabled,
-  applying = false
+  applying = false,
+  applyLabel = 'Apply Selected Changes'
 }: {
   status: string
   editing: boolean
@@ -778,6 +813,7 @@ export function ReviewActions({
   onApply: () => void
   applyDisabled: boolean
   applying?: boolean
+  applyLabel?: string
 }) {
   return (
     <>
@@ -814,7 +850,7 @@ export function ReviewActions({
           className="bg-accent hover:bg-accent-hover text-background order-first col-span-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:order-last"
         >
           {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {applying ? 'Applying…' : 'Apply Selected Changes'}
+          {applying ? 'Applying…' : applyLabel}
         </button>
       </div>
     </>
@@ -862,6 +898,12 @@ export function ReviewSuggestionsDialog({
   const [results, setResults] = useState<Partial<
     Record<SetupSection, SectionApplyResult>
   > | null>(null)
+  // Reviewed as a switch to another company: what the analysis suggests,
+  // until the user says otherwise.
+  const [switchChoice, setSwitchChoice] = useState<boolean | null>(null)
+  // The draft as the window opened: applying changes the stored one, and the
+  // switch's results stay on screen until closed.
+  const [opened] = useState(draft)
 
   useEffect(() => {
     let cancelled = false
@@ -1097,6 +1139,20 @@ export function ReviewSuggestionsDialog({
     }
   }
 
+  const detectedSwitch = baseline ? isSwitchAnalysis(baseline, opened) : false
+  const switching = Boolean(baseline) && (switchChoice ?? detectedSwitch)
+  const described = describedIdentity(opened.analyzed ?? opened.suggestions, opened.input)
+  // Saved links that look like another company's, though the names match:
+  // a profile renamed before switches existed kept the old company's links.
+  const leftoverLinks = baseline
+    ? unrelatedLinks(baseline.profileLinks, {
+        name: described.name || baseline.profile.name,
+        company: described.company || baseline.profile.company,
+        websiteUrl: described.websiteUrl || baseline.profile.websiteUrl
+      })
+    : []
+  const describedName = described.name || baseline?.profile.name || ''
+
   const fetched = draft.sources.filter(s => s.status === 'fetched').length
   const unread = draft.sources.length - fetched
 
@@ -1146,6 +1202,46 @@ export function ReviewSuggestionsDialog({
           {baselineError} Nothing is preselected; any field you check replaces
           what is saved.
         </p>
+      )}
+
+      {baseline && leftoverLinks.length > 0 ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+          <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
+          <div className="space-y-1">
+            <p>
+              {leftoverLinks.join(', ')}{' '}
+              {leftoverLinks.length === 1 ? 'does' : 'do'} not look like{' '}
+              {describedName}&apos;s. Updates here never remove links. If this
+              identity is now {describedName}, switch it, so the old links,
+              goals, knowledge and ideas are replaced.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSwitchChoice(true)}
+              disabled={applying}
+              className="font-semibold underline-offset-2 hover:underline"
+            >
+              Switch identity to {describedName}
+            </button>
+          </div>
+        </div>
+      ) : (
+        baseline &&
+        describedName && (
+          <p className="text-muted text-xs">
+            {detectedSwitch
+              ? `These suggestions describe ${describedName}, not ${baseline.setUpFor.name}.`
+              : 'Is this identity now a different company?'}{' '}
+            <button
+              type="button"
+              onClick={() => setSwitchChoice(true)}
+              disabled={applying}
+              className="text-brand-strong font-medium hover:underline"
+            >
+              Switch identity instead
+            </button>
+          </p>
+        )
       )}
 
       {FIELD_SECTIONS.map(section =>
@@ -1325,6 +1421,18 @@ export function ReviewSuggestionsDialog({
       )}
     </>
   )
+
+  if (switching && baseline && !results) {
+    return (
+      <SwitchIdentityReview
+        accountId={accountId}
+        draft={opened}
+        baseline={baseline}
+        onBack={() => setSwitchChoice(false)}
+        onClose={onClose}
+      />
+    )
+  }
 
   return (
     <ReviewShell

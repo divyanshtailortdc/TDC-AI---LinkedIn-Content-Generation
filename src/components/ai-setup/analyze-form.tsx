@@ -42,6 +42,7 @@ export function AnalyzeForm({
   defaultLinkedinUrl = '',
   defaultWebsiteUrl = '',
   urls,
+  savedLinks,
   accountType = 'personal',
   accountTypeLocked = false,
   accountTypeChosen = true,
@@ -60,6 +61,13 @@ export function AnalyzeForm({
    * URLs: they are read from there instead of being asked for a second time.
    */
   urls?: { linkedinUrl?: string | null; websiteUrl?: string | null }
+  /**
+   * An existing identity's saved links. The link fields start empty, so the
+   * analysis researches only links given for it (an identity being switched
+   * to another company read the old company's site when they were filled in
+   * for it); these fill them on request.
+   */
+  savedLinks?: { linkedinUrl?: string | null; websiteUrl?: string | null }
   accountType?: 'personal' | 'company'
   /** True for an existing identity, whose type is changed on the Profile step. */
   accountTypeLocked?: boolean
@@ -284,6 +292,11 @@ export function AnalyzeForm({
             websiteUrl={website}
             onWebsiteUrlChange={changeWebsite}
             errors={urlErrors}
+            savedLinks={savedLinks}
+            onUseSaved={() => {
+              changeLinkedin(savedLinks?.linkedinUrl ?? '')
+              changeWebsite(savedLinks?.websiteUrl ?? '')
+            }}
           />
         )}
 
@@ -466,7 +479,9 @@ function OnlinePresence({
   onLinkedinUrlChange,
   websiteUrl,
   onWebsiteUrlChange,
-  errors
+  errors,
+  savedLinks,
+  onUseSaved
 }: {
   disabled: boolean
   linkedinUrl: string
@@ -474,7 +489,17 @@ function OnlinePresence({
   websiteUrl: string
   onWebsiteUrlChange: (value: string) => void
   errors: { linkedinUrl?: string; websiteUrl?: string }
+  savedLinks?: { linkedinUrl?: string | null; websiteUrl?: string | null }
+  onUseSaved: () => void
 }) {
+  const saved = {
+    linkedinUrl: savedLinks?.linkedinUrl?.trim() ?? '',
+    websiteUrl: savedLinks?.websiteUrl?.trim() ?? ''
+  }
+  const canUseSaved =
+    Boolean(saved.linkedinUrl || saved.websiteUrl) &&
+    (linkedinUrl.trim() !== saved.linkedinUrl ||
+      websiteUrl.trim() !== saved.websiteUrl)
   const field = ({
     id,
     label,
@@ -549,6 +574,21 @@ function OnlinePresence({
         icon: <Globe className="h-3.5 w-3.5" />,
         error: errors.websiteUrl
       })}
+      {savedLinks && (
+        <p className="text-muted text-[11px] leading-snug">
+          Only the links you add here are read.{' '}
+          {canUseSaved && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onUseSaved}
+              className="text-accent font-medium hover:underline disabled:opacity-50"
+            >
+              Use saved links
+            </button>
+          )}
+        </p>
+      )}
     </fieldset>
   )
 }

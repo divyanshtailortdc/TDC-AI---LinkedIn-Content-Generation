@@ -62,6 +62,8 @@ const account: Account = {
   linkedinUrl: null,
   profileLinks: {},
   industry: 'Accounting',
+  contextSince: null,
+  contextIdentity: null,
   isActive: true,
   createdAt: now,
   updatedAt: now

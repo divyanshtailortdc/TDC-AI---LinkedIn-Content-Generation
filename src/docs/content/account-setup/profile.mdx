@@ -78,13 +78,40 @@ If no posts could be found (the account may be private or new), click **Describe
 The **AI Profile Assistant** sits beside the Profile step.
 
 1. Paste your social media bio, company description or website content, or click **Use an example** to see what works.
-2. Optionally add a **Main Profile Link** and **Website URL** for the analysis to use. Typing them here does not change the links on your profile.
+2. Optionally add a **Main Profile Link** and **Website URL** for the analysis to use. Both start empty, and only the links you add are read; **Use saved links** fills in the ones on your profile. Typing them here does not change the links on your profile.
 3. Click **Re-analyze**. It usually takes about a minute; **Cancel analysis** stops it. **Advanced analysis options** lets you set the identity type, voice, goal and topics for more accurate results.
 4. When it finishes, the panel lists which of Profile, Voice, Knowledge, Goals and Preferences have suggestions. Click **View AI suggestions** to open **Review AI suggestions**.
 5. Tick the changes you want. Anything you leave unchecked keeps its current value. **Edit Suggestions** lets you change a value first.
 6. Click **Apply Selected Changes**. Applying never starts a run.
 
 **Discard** throws the suggestions away without touching your saved settings. A dot on a step in the step bar means AI suggestions are waiting there.
+
+### Switch an identity to another company
+
+When the analysis describes a different company from the one the identity was set up for (say you rewrite a Zomato identity as TDCCommerce), the review opens as **Switch Zomato to TDCCommerce** instead. The same happens after you change the profile to another company by hand: the Profile page then says your voice, knowledge, goals and ideas were set up for the old company, and the next **Re-analyze** offers the switch.
+
+An identity renamed before switching existed may still hold the old company's links. When a brand's saved link looks like another account's (for example instagram.com/zomato on TDCCommerce), the Profile page says so, and the review offers **Switch identity to …**.
+
+A switch makes the identity the new company everywhere. Before you click **Switch to …**, the review lists what happens:
+
+| What                                     | What a switch does                                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Profile                                  | Every field takes the new value. A field the analysis left empty is cleared; a required one must be filled in first. |
+| Profile links                            | Only ticked links are kept. A saved link that does not look like the new company's starts unticked and is removed.   |
+| Voice, platform styles, guardrails       | Replaced. Settings not suggested go back to their defaults, and the style learned from the old posts is cleared.     |
+| Goals                                    | The old goals are paused and kept. The new goal becomes the active one.                                              |
+| Knowledge                                | The new company's pages are added. The old documents you tick are removed, with what was learned from them.          |
+| Open ideas                               | Moved to Rejected, so none becomes a post for the new company.                                                       |
+| Profile insights, newsletter suggestions | Cleared, except insights from a link that stays. Newsletters you saved or signed up to are kept.                     |
+| Brand theme                              | Reset if you tick it.                                                                                                |
+| Connected accounts                       | Stay connected, with auto-publish turned off until you check they belong to the new company.                         |
+| Posts, published history, past runs      | Kept as they are.                                                                                                    |
+
+From then on, new ideas and posts are written only from the new company's details: the old company's past posts, ideas and rejections no longer steer them.
+
+If the switch fails, nothing is changed. A knowledge page that cannot be added stays in your AI suggestions to add again. A switch waits while a run or post writing is still working for the identity.
+
+Click **Same company? Review as updates instead** if it is the same company under a new description. To switch when the review does not offer it, click **Switch identity instead**.
 
 <Tags type="note">
 

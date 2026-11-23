@@ -14,9 +14,14 @@ import {
 import {
   ACCOUNT_TYPES,
   deriveHeadline,
+  handleFrom,
   IdentityProfileSchema,
   parseAccountType
 } from '@/lib/identity-profile'
+import {
+  contextIdentityAfterSave,
+  headlineAfterSave
+} from '@/lib/identity-change'
 import { insertIdentity, updateIdentity } from '@/lib/identity-write'
 import { findOwnedAccount, ownedByUser } from '@/lib/ownership'
 import {
@@ -39,38 +44,6 @@ import { and, eq, gt, isNull } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { z } from 'zod'
-
-function extractAndSanitizeHandle(
-  rawInput: string | null | undefined,
-  nameFallback: string = ''
-): string {
-  let cleaned = (rawInput || '').trim()
-
-  // Extract handle if user pasted full LinkedIn URL (e.g. linkedin.com/in/aditya-kumar-376474235 or linkedin.com/company/acme)
-  const linkedinMatch = cleaned.match(
-    /(?:linkedin\.com\/(?:in|company)\/)([^/?#]+)/i
-  )
-  if (linkedinMatch && linkedinMatch[1]) {
-    cleaned = linkedinMatch[1]
-  }
-
-  // Remove URL scheme or slashes if user typed https://...
-  cleaned = cleaned.replace(/^https?:\/\//i, '').replace(/^www\./i, '')
-
-  // Fallback to name if empty
-  if (!cleaned) {
-    cleaned = nameFallback.trim()
-  }
-
-  // Convert to clean URL slug
-  const slug = cleaned
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-
-  return slug || 'identity'
-}
 
 function profileFromFormData(formData: FormData) {
   const field = (key: string) => (formData.get(key) as string) || ''
@@ -215,7 +188,7 @@ export async function createAccount(formData: FormData) {
       userId: user.id,
       name: data.name,
       accountType,
-      handle: extractAndSanitizeHandle(mainLink, data.name),
+      handle: handleFrom(mainLink, data.name),
       headline: deriveHeadline(data),
       bio: data.description,
       company: data.company || null,
@@ -309,7 +282,7 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     // The handle only follows the main link; renaming keeps the old handle.
     let handle = existing.handle
     if (mainLink && mainLink !== (existing.linkedinUrl || '')) {
-      handle = extractAndSanitizeHandle(mainLink, validated.name)
+      handle = handleFrom(mainLink, validated.name)
     }
 
     await updateIdentity(
@@ -321,14 +294,25 @@ export async function updateAccountAction(input: UpdateAccountInput) {
           ? { accountType: validated.accountType }
           : {}),
         handle,
-        // Keep a headline someone wrote; only fill it when there is none.
-        headline: existing.headline?.trim() || deriveHeadline(validated),
+        // It is made from the company and industry, so it follows them.
+        headline: headlineAfterSave(existing.headline, existing, validated),
         bio: validated.description,
         company: validated.company || null,
         industry: validated.industry,
         linkedinUrl: mainLink,
         profileLinks,
         websiteUrl: validated.websiteUrl || null,
+        // Changed to another company by hand: the voice, knowledge and goals
+        // still belong to the old one until Re-analyze switches them over.
+        contextIdentity: contextIdentityAfterSave(
+          existing.contextIdentity,
+          existing,
+          {
+            name: validated.name,
+            company: validated.company || null,
+            websiteUrl: validated.websiteUrl || null
+          }
+        ),
         updatedAt: new Date()
       },
       validated

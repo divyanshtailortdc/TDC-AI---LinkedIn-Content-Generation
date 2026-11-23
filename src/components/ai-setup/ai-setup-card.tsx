@@ -160,10 +160,16 @@ export function AiSetupCard({
           <AnalyzeForm
             variant={variant}
             accountId={account?.id}
-            // Re-analyze starts empty, not from what was analyzed last time;
-            // the links start from the ones saved on the profile.
-            defaultLinkedinUrl={account?.linkedinUrl || urls?.linkedinUrl || ''}
-            defaultWebsiteUrl={account?.websiteUrl || urls?.websiteUrl || ''}
+            // Re-analyze starts empty, not from what was analyzed last time,
+            // and so do its links: the saved ones are a click away, so an
+            // analysis of another company never reads the old one's site.
+            defaultLinkedinUrl={account ? '' : urls?.linkedinUrl || ''}
+            defaultWebsiteUrl={account ? '' : urls?.websiteUrl || ''}
+            savedLinks={
+              account
+                ? { linkedinUrl: account.linkedinUrl, websiteUrl: account.websiteUrl }
+                : undefined
+            }
             urls={formUrls}
             accountType={
               account

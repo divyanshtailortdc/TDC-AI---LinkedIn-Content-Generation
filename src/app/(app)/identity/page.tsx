@@ -11,9 +11,11 @@ import {
 } from '@/db/schema'
 import { resolveChannels } from '@/lib/formats'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
+import { unrelatedLinks } from '@/lib/identity-change'
 import { profileInsightViews } from '@/lib/profile-insights/analyze'
+import { profileLinksOf } from '@/lib/profile-links'
 import { asc, eq } from 'drizzle-orm'
-import { ArrowRight, Check, Play, Sparkles } from 'lucide-react'
+import { ArrowRight, ArrowRightLeft, Check, Play, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { CreateIdentity } from './create-identity'
 import { EditIdentityForm } from './edit-identity-form'
@@ -70,8 +72,55 @@ export default async function IdentityPage() {
 
   const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
 
+  // The profile was changed by hand to another company: everything else
+  // still belongs to the old one until a re-analysis switches it over.
+  const setUpFor = account.contextIdentity
+  // A brand's saved links that name another account: a profile renamed to
+  // another company before switches existed kept the old one's links. (A
+  // person's handle often differs from their name, so only brands are told.)
+  const otherLinks =
+    !setUpFor && account.accountType === 'company'
+      ? unrelatedLinks(profileLinksOf(account), account)
+      : []
+
   return (
     <SetupShell account={account} hasSavedData>
+      {setUpFor && (
+        <section
+          role="status"
+          className="mb-6 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-800 dark:text-amber-300"
+        >
+          <ArrowRightLeft className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="leading-relaxed">
+            <span className="font-semibold">
+              Your profile now describes {account.name}, but your voice,
+              knowledge, goals and ideas were set up for {setUpFor.name}.
+            </span>{' '}
+            Click Re-analyze in the AI Profile Assistant with {account.name}
+            &apos;s details: the review then offers to switch everything over.
+          </p>
+        </section>
+      )}
+
+      {otherLinks.length > 0 && (
+        <section
+          role="status"
+          className="mb-6 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-800 dark:text-amber-300"
+        >
+          <ArrowRightLeft className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="leading-relaxed">
+            <span className="font-semibold">
+              {otherLinks.join(', ')} {otherLinks.length === 1 ? 'does' : 'do'}{' '}
+              not look like {account.name}&apos;s.
+            </span>{' '}
+            If this identity was changed from another company, click Re-analyze
+            in the AI Profile Assistant with {account.name}&apos;s details and
+            switch it, so the old links, goals and knowledge are replaced. If
+            the link is right, you can ignore this.
+          </p>
+        </section>
+      )}
+
       {/* Setup Complete Banner */}
       {allDone && (
         <section className="border-border bg-surface relative mb-6 overflow-hidden rounded-xl border shadow-xs">

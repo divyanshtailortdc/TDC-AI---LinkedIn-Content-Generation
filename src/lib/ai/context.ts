@@ -21,6 +21,7 @@ import { DEFAULT_FORMAT, isPlatformId } from '@/lib/formats'
 import type { PlatformInsights } from '@/lib/profile-insights/render'
 import { cleanProfileInsights } from '@/lib/profile-insights/types'
 import { isOldNews } from '~/lib/intel/settings'
+import { loadReviewHistory } from './review-history'
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import {
   EMPTY_HISTORY,
@@ -60,90 +61,6 @@ export async function loadBrandTheme(accountId: string): Promise<ResolvedBrandTh
     .where(eq(brandThemesTable.accountId, accountId))
     .limit(1)
   return resolveBrandTheme(row)
-}
-
-/**
- * Enough to spot a repeat or a pattern in rejections without bloating prompts.
- * `otherDrafts` covers every non-LinkedIn format together; each format reads
- * its own from it (forFormat).
- */
-const HISTORY_LIMITS = { drafts: 30, otherDrafts: 90, ideas: 40, rejectionReasons: 8 }
-
-async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
-  const draftColumns = {
-    hook: postDraftsTable.hook,
-    originalHook: postDraftsTable.originalHook,
-    body: postDraftsTable.body,
-    cta: postDraftsTable.cta,
-    status: postDraftsTable.status
-  }
-  const [drafts, otherDrafts, ideas, feedback] = await Promise.all([
-    // LinkedIn posts only, exactly as before other formats existed.
-    db
-      .select(draftColumns)
-      .from(postDraftsTable)
-      .where(
-        and(
-          eq(postDraftsTable.accountId, accountId),
-          eq(postDraftsTable.formatId, DEFAULT_FORMAT)
-        )
-      )
-      .orderBy(desc(postDraftsTable.createdAt))
-      .limit(HISTORY_LIMITS.drafts),
-    db
-      .select({ ...draftColumns, formatId: postDraftsTable.formatId })
-      .from(postDraftsTable)
-      .where(
-        and(
-          eq(postDraftsTable.accountId, accountId),
-          ne(postDraftsTable.formatId, DEFAULT_FORMAT)
-        )
-      )
-      .orderBy(desc(postDraftsTable.createdAt))
-      .limit(HISTORY_LIMITS.otherDrafts),
-    db
-      .select({
-        title: ideasTable.title,
-        hook: ideasTable.hook,
-        hookConcept: ideasTable.hookConcept,
-        thesis: ideasTable.thesis,
-        coreArgument: ideasTable.coreArgument,
-        status: ideasTable.status,
-        runId: ideasTable.runId
-      })
-      .from(ideasTable)
-      .where(eq(ideasTable.accountId, accountId))
-      .orderBy(desc(ideasTable.createdAt))
-      .limit(HISTORY_LIMITS.ideas),
-    db
-      .select({ reasonText: feedbackTable.reasonText })
-      .from(feedbackTable)
-      .where(
-        and(
-          eq(feedbackTable.accountId, accountId),
-          eq(feedbackTable.verdict, 'rejected'),
-          isNotNull(feedbackTable.reasonText)
-        )
-      )
-      .orderBy(desc(feedbackTable.createdAt))
-      .limit(HISTORY_LIMITS.rejectionReasons)
-  ])
-
-  return {
-    drafts,
-    otherDrafts,
-    ideas: ideas.map(i => ({
-      title: i.title || i.hook,
-      hookConcept: i.hookConcept || i.hook,
-      thesis: i.thesis || '',
-      coreArgument: i.coreArgument || '',
-      status: i.status,
-      runId: i.runId
-    })),
-    rejectionReasons: feedback
-      .map(f => f.reasonText?.trim() || '')
-      .filter(Boolean)
-  }
 }
 
 /**
@@ -196,7 +113,7 @@ export async function loadGenerationContext(
     audiences,
     knowledgeDocs,
     samplePosts,
-    goals,
+    allGoals,
     preferences,
     history,
     brand,
@@ -228,7 +145,7 @@ export async function loadGenerationContext(
     db.query.preferencesTable.findFirst({
       where: eq(preferencesTable.accountId, accountId)
     }),
-    full ? loadReviewHistory(accountId) : EMPTY_HISTORY,
+    full ? loadReviewHistory(db, accountId) : EMPTY_HISTORY,
     full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined),
     full ? loadPlatformInsights(accountId) : {}
   ])
@@ -236,6 +153,14 @@ export async function loadGenerationContext(
   if (!account) {
     throw new Error(`Account ${accountId} not found`)
   }
+
+  // Paused goals from before the identity was switched to another company
+  // are the old company's: no prompt lists them, and no post may link where
+  // they pointed. Turning one back on makes it count again.
+  const since = account.contextSince
+  const goals = since
+    ? allGoals.filter(g => g.isActive || g.createdAt >= since)
+    : allGoals
 
   const selectedGoals = options?.goalIds
     ? options.goalIds

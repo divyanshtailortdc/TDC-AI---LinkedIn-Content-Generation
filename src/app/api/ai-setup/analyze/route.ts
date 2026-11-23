@@ -6,7 +6,12 @@ import {
 } from '@/lib/ai/pipeline/profile-setup-run'
 import { AnalyzeIdentityInputSchema } from '@/lib/ai/skills/profile-setup/schema'
 import { withAiSpend } from '@/lib/ai/spend'
-import { FORMAT_IDS, platformsOf, type FormatId } from '@/lib/formats'
+import {
+  FORMAT_IDS,
+  isCreatablePlatform,
+  platformsOf,
+  type FormatId
+} from '@/lib/formats'
 import { findOwnedAccount } from '@/lib/ownership'
 import { readTextCapped } from '@/lib/safe-url'
 import { getSessionUser } from '@/lib/session'
@@ -74,6 +79,21 @@ export async function POST(request: Request) {
     )
   }
 
+  // Re-analyzing asks about the platforms the identity posts on, as the
+  // create page does: how each should sound, and the identity's account on
+  // each. Without them, switching an identity to another company kept the
+  // old company's tone notes, and only ever found a LinkedIn link.
+  const input =
+    platforms?.length && !parsed.data.guidance?.platforms
+      ? {
+          ...parsed.data,
+          guidance: {
+            ...parsed.data.guidance,
+            platforms: platforms.filter(isCreatablePlatform)
+          }
+        }
+      : parsed.data
+
   try {
     // Charged to the user: a new identity has no row yet to charge.
     const data = await withAiSpend(
@@ -82,7 +102,7 @@ export async function POST(request: Request) {
         userId: user.id,
         accountId: parsed.data.accountId ?? null
       },
-      () => analyzeIdentitySetup(parsed.data, request.signal, { platforms })
+      () => analyzeIdentitySetup(input, request.signal, { platforms })
     )
     return Response.json({ success: true, data })
   } catch (error) {

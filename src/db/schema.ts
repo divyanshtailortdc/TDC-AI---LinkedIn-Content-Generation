@@ -56,6 +56,7 @@ import {
   type ProfileInsights
 } from '../lib/profile-insights/types'
 import type { IdeaScorecard } from '../lib/idea-scorecard'
+import type { IdentitySnapshot } from '../lib/identity-change'
 import type { ReferencePost } from '../lib/reference-post/types'
 import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
 import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
@@ -123,6 +124,16 @@ export const accountsTable = pgTable('accounts', {
     .default({})
     .notNull(),
   industry: text('industry'),
+  // When the identity was last switched to another company (Re-analyze →
+  // "Switch identity", src/lib/identity-switch.ts). Prompts read the posts,
+  // ideas and rejections made since then only, so the old company's history
+  // never steers the new one. Null: everything counts.
+  contextSince: commonFieldDefs.date('context_since'),
+  // The company the voice, knowledge, goals and ideas were set up for, when
+  // the profile has since been changed by hand to another company
+  // (src/lib/identity-change.ts). Re-analyze offers to switch them over. Null
+  // when they belong to the saved profile.
+  contextIdentity: jsonb('context_identity').$type<IdentitySnapshot | null>(),
   // No longer read or written: identities used to be deactivatable. The
   // migration that dropped the feature disabled the schedules of the ones
   // that were off.

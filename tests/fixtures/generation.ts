@@ -37,6 +37,8 @@ export function account(overrides: Partial<Account> = {}): Account {
     linkedinUrl: null,
     profileLinks: {},
     industry: null,
+    contextSince: null,
+    contextIdentity: null,
     isActive: true,
     createdAt: NOW,
     updatedAt: NOW,
