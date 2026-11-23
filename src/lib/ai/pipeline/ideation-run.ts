@@ -433,7 +433,7 @@ async function researchAndIdeate(
     researchTheWeb(ctx, style),
     runTrendScan(
       ctx,
-      { platforms: platformIds.map(p => PLATFORMS[p].label), style },
+      { platforms: platformIds.map(p => PLATFORMS[p].label), platformIds, style },
       q => trendQueries.push(q)
     ),
     retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx)),

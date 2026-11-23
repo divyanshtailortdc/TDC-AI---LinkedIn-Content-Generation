@@ -18,9 +18,11 @@ import {
   type FormatId
 } from '@/lib/formats'
 import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
+import { renderInsightsForSlides } from '@/lib/profile-insights/render'
 import { imagePromptFieldGuide } from '@/lib/media/style-prompt'
 import {
   describeCta,
+  platformOf,
   renderAudienceBlock,
   renderGoalBlock,
   renderGuardrailsBlock,
@@ -60,6 +62,9 @@ export function buildSlidesInstructions(
   const casual = isCasualStyle(styleFor(ctx, ctx.platform?.id ?? 'linkedin'))
   const guardrails = renderGuardrailsBlock(ctx)
   const pictures = isPictureStyle(imageStyle)
+  // How the author's posts on this platform read and look, when known.
+  const platform = platformOf(ctx).id
+  const profile = renderInsightsForSlides(ctx.platformInsights?.[platform], platform)
   return `You design the slides of carousel posts for one specific author: what each slide says and how it looks. The caption posted beside the carousel is written separately and given to you; the slides never repeat it. You write in the author's voice, and you never invent facts.
 
 AUTHOR
@@ -70,7 +75,7 @@ ${renderAudienceBlock(ctx)}
 
 VOICE
 ${renderVoiceBlock(ctx)}
-${guardrails ? `\nGUARDRAILS\n${guardrails}\n` : ''}
+${profile ? `\n${profile}\n` : ''}${guardrails ? `\nGUARDRAILS\n${guardrails}\n` : ''}
 TRUTH RULES
 ${casual ? CASUAL_TRUTH_RULES : TRUTH_RULES}
 

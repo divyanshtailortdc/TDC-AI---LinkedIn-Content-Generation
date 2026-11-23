@@ -13,6 +13,7 @@ import { resolveChannels } from '@/lib/formats'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
 import { unrelatedLinks } from '@/lib/identity-change'
 import { profileInsightViews } from '@/lib/profile-insights/analyze'
+import { usesLearnedLink } from '@/lib/profile-insights/in-use'
 import { profileLinksOf } from '@/lib/profile-links'
 import { asc, eq } from 'drizzle-orm'
 import { ArrowRight, ArrowRightLeft, Check, Play, Sparkles } from 'lucide-react'
@@ -75,6 +76,11 @@ export default async function IdentityPage() {
   // The profile was changed by hand to another company: everything else
   // still belongs to the old one until a re-analysis switches it over.
   const setUpFor = account.contextIdentity
+  // Meanwhile, what was learned from links that are not the new company's
+  // is left out of every prompt (src/lib/profile-insights/in-use.ts).
+  const heldBack = insights.filter(
+    v => v.insights && !usesLearnedLink(v.profileUrl, account)
+  )
   // A brand's saved links that name another account: a profile renamed to
   // another company before switches existed kept the old one's links. (A
   // person's handle often differs from their name, so only brands are told.)
@@ -98,6 +104,14 @@ export default async function IdentityPage() {
             </span>{' '}
             Click Re-analyze in the AI Profile Assistant with {account.name}
             &apos;s details: the review then offers to switch everything over.
+            {heldBack.length > 0 && (
+              <>
+                {' '}
+                Until then, what was learned from{' '}
+                {heldBack.map(v => v.profileUrl).join(', ')} is not used in
+                ideas or posts.
+              </>
+            )}
           </p>
         </section>
       )}

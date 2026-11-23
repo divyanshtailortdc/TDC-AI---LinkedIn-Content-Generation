@@ -1,6 +1,8 @@
 import { styleMixFor, type GenerationContext } from '~/lib/ai/context-blocks'
 import type { Region } from '~/lib/ai/region'
 import type { StyleMix } from '~/lib/formats/styles'
+import type { PlatformId } from '~/lib/platforms'
+import { learnedSubjects } from '~/lib/profile-insights/render'
 import type { SignalKind } from './source-credibility'
 
 /**
@@ -173,6 +175,9 @@ export const TREND_DAYS = 7
 /** Conversations move slower than news; a month of them. */
 export const CONVERSATION_DAYS = 31
 
+/** The account's own subjects (learned from its posts) searched in the news each run. */
+export const LEARNED_SUBJECT_SEARCHES = 2
+
 /**
  * The trend scan: what is happening now around this account, for ideas that
  * ride it. Run beside the research for the goals, whichever mode that is.
@@ -181,6 +186,8 @@ export const CONVERSATION_DAYS = 31
  * - its field's news this week, in the readers' market
  * - what is going viral on the run's casual platforms, and the memes of the week
  * - what people are saying about the field (Reddit threads)
+ * - the subjects the account posts most about on the run's platforms, when
+ *   its profiles there were analyzed (src/lib/profile-insights)
  *
  * Every query names the readers' market when there is one, and the news
  * search only returns indexed news sites, dated.
@@ -190,6 +197,8 @@ export function planTrendScan(
   options: {
     /** The run's platforms by name ("Instagram"); empty for LinkedIn alone. */
     platforms: string[]
+    /** The same platforms by id, for what the account posts about there. */
+    platformIds?: readonly PlatformId[]
     style: StyleMix
     region?: Region | null
   }
@@ -212,6 +221,18 @@ export function planTrendScan(
 
   if (brand) add(brand, 'news', 'news')
   if (field) add(`${field}${place}`, 'news', 'news')
+  // What the account already posts about, in this week's news: timely angles
+  // in its own world. A subject that is the brand or the field is searched above.
+  const known = [brand, field].map(k => k.toLowerCase())
+  for (const subject of learnedSubjects(
+    ctx.platformInsights,
+    options.platformIds ?? [],
+    LEARNED_SUBJECT_SEARCHES + known.length
+  )
+    .filter(subject => !known.includes(subject.toLowerCase()))
+    .slice(0, LEARNED_SUBJECT_SEARCHES)) {
+    add(`${subject}${place}`, 'news', 'news')
+  }
   if (brand && (casual || marketing)) add(`${brand} campaign`, 'news', 'trend', CONVERSATION_DAYS)
   if (casual) {
     for (const platform of options.platforms.slice(0, 2)) {

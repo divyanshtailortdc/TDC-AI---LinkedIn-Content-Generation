@@ -265,6 +265,43 @@ export function linkFitsIdentity(url: string, identity: IdentitySnapshot): boole
   })
 }
 
+/**
+ * How closely a profile link's account name matches an identity: the
+ * longest run of letters it shares with its name, company or website.
+ */
+function linkMatch(url: string, identity: IdentitySnapshot): number {
+  const handle = comparableName(profileHandle(url))
+  if (!handle) return 0
+  return Math.max(
+    0,
+    ...[
+      comparableName(identity.name),
+      comparableName(identity.company),
+      siteName(identity.websiteUrl)
+    ]
+      .filter(name => name.length >= 3)
+      .map(name => longestCommonRun(handle, name))
+  )
+}
+
+/**
+ * Whether a profile link belongs to an identity changed from `from` to
+ * `to`: it matches the new one more closely than the old one, or as closely
+ * when the name stayed (a person who moved to another company). Fitting the
+ * new one is not enough: linkedin.com/company/tdccommerce fits "Blink
+ * Commerce" by the word "commerce", but it is TDCCommerce's.
+ */
+export function linkStaysAfterChange(
+  url: string,
+  from: IdentitySnapshot,
+  to: IdentitySnapshot
+): boolean {
+  const now = linkMatch(url, to)
+  const before = linkMatch(url, from)
+  if (now !== before) return now > before
+  return comparableName(from.name) === comparableName(to.name)
+}
+
 /** The saved links that look like another account's (linkFitsIdentity). */
 export function unrelatedLinks(
   links: ProfileLinks,

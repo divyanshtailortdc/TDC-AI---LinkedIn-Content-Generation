@@ -17,9 +17,8 @@ import {
 } from '@/db/schema'
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform } from '@/lib/platforms'
-import { DEFAULT_FORMAT, isPlatformId } from '@/lib/formats'
-import type { PlatformInsights } from '@/lib/profile-insights/render'
-import { cleanProfileInsights } from '@/lib/profile-insights/types'
+import { DEFAULT_FORMAT } from '@/lib/formats'
+import { insightsInUse, type InsightRow } from '@/lib/profile-insights/in-use'
 import { isOldNews } from '~/lib/intel/settings'
 import { loadReviewHistory } from './review-history'
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm'
@@ -64,24 +63,18 @@ export async function loadBrandTheme(accountId: string): Promise<ResolvedBrandTh
 }
 
 /**
- * What each platform's public profile showed, for every platform with an
- * analysis that produced (or was given) insights. A failed refresh keeps
- * the insights from before, so those are read whatever the latest status.
+ * Every platform analysis of the identity's profile links; insightsInUse
+ * decides which of them prompts read.
  */
-async function loadPlatformInsights(accountId: string): Promise<PlatformInsights> {
-  const rows = await db
+async function loadPlatformInsightRows(accountId: string): Promise<InsightRow[]> {
+  return db
     .select({
       platform: platformInsightsTable.platform,
+      profileUrl: platformInsightsTable.profileUrl,
       insights: platformInsightsTable.insights
     })
     .from(platformInsightsTable)
     .where(eq(platformInsightsTable.accountId, accountId))
-  const out: PlatformInsights = {}
-  for (const row of rows) {
-    const insights = cleanProfileInsights(row.insights)
-    if (insights && isPlatformId(row.platform)) out[row.platform] = insights
-  }
-  return out
 }
 
 /**
@@ -117,7 +110,7 @@ export async function loadGenerationContext(
     preferences,
     history,
     brand,
-    platformInsights
+    insightRows
   ] = await Promise.all([
     db.query.accountsTable.findFirst({ where: eq(accountsTable.id, accountId) }),
     db.query.voiceConfigsTable.findFirst({
@@ -147,7 +140,7 @@ export async function loadGenerationContext(
     }),
     full ? loadReviewHistory(db, accountId) : EMPTY_HISTORY,
     full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined),
-    full ? loadPlatformInsights(accountId) : {}
+    full ? loadPlatformInsightRows(accountId) : []
   ])
 
   if (!account) {
@@ -187,7 +180,8 @@ export async function loadGenerationContext(
     history,
     brand,
     platform,
-    platformInsights
+    // What its profiles showed, while they are still this identity's.
+    platformInsights: insightsInUse(insightRows, account)
   }
 }
 

@@ -1,3 +1,4 @@
+import { renderInsightsForResearch } from '@/lib/profile-insights/render'
 import { buildSearchQueries } from '@/lib/research/findings'
 import {
   renderAudienceBlock,
@@ -28,6 +29,8 @@ export function buildPrompt(
 ): string {
   const region = inferRegion(ctx)
   const starters = buildSearchQueries(ctx, MAX_SEARCHES, region)
+  // What the account already posts about, when its profiles were analyzed.
+  const subjects = renderInsightsForResearch(ctx.platformInsights)
 
   return `<account>
 ${renderIdentityBlock(ctx)}
@@ -35,7 +38,7 @@ ${renderIdentityBlock(ctx)}
 ${renderAudienceBlock(ctx)}
 
 Goals this run serves:
-${renderGoalsBlock(ctx.selectedGoals)}
+${renderGoalsBlock(ctx.selectedGoals)}${subjects ? `\n\n${subjects}` : ''}
 </account>
 
 Readers are in: ${region ? `${region.name}. Prefer sources about this market.` : 'not stated.'}

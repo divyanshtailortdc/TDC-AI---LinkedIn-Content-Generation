@@ -15,6 +15,7 @@ import {
 import { isSearchRedirect } from './search-redirect'
 import type { SignalKind } from './source-credibility'
 import type { StyleMix } from '~/lib/formats/styles'
+import type { PlatformId } from '~/lib/platforms'
 
 /**
  * Web research over Serper (Google results). Plain code, no model: the fixed
@@ -295,7 +296,7 @@ const TREND_RESULTS_PER_QUERY = 6
  */
 export async function runTrendScan(
   ctx: GenerationContext,
-  options: { platforms: string[]; style: StyleMix },
+  options: { platforms: string[]; platformIds?: readonly PlatformId[]; style: StyleMix },
   onQuery: (q: ResearchQuery) => void
 ): Promise<Finding[]> {
   if (!ctx.prefs.research.use_web_search || !env.SERPER_API_KEY) return []
