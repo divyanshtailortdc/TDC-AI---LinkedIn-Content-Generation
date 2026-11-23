@@ -21,6 +21,7 @@ const HEARTBEAT_MS = 30_000
  * running code from before the heartbeat is not mistaken for a dead one.
  */
 const STALE_AFTER = sql`interval '10 minutes'`
+const STALE_AFTER_MS = 10 * 60_000
 
 /** Statuses a run only holds while a process is working on it; queued runs are waiting, not stuck. */
 const IN_PROGRESS = ACTIVE_RUN_STATUSES.filter(status => status !== 'queued')
@@ -166,6 +167,21 @@ export function keepRunAlive(runId: string): () => void {
   }, HEARTBEAT_MS)
   timer.unref()
   return () => clearInterval(timer)
+}
+
+/**
+ * Whether recoverInterruptedRuns might settle this run: in progress and quiet
+ * for nearly as long as it waits (a minute less, as the database's clock
+ * decides). Lets a page that polls skip that write on almost every poll.
+ */
+export function mayBeInterrupted(
+  run: { status: string; updatedAt: Date },
+  now = Date.now()
+) {
+  return (
+    IN_PROGRESS.includes(run.status) &&
+    now - run.updatedAt.getTime() > STALE_AFTER_MS - 60_000
+  )
 }
 
 /**

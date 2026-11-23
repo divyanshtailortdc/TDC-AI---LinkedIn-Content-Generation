@@ -1,24 +1,51 @@
 'use server'
 
 import { db } from '@/db'
-import { accountsTable, platformConnectionsTable } from '@/db/schema'
+import {
+  accountsTable,
+  platformConnectionsTable,
+  preferencesTable
+} from '@/db/schema'
+import { ACTIVE_IDENTITY_COOKIE } from '@/lib/active-identity'
 import { IDENTITY_PATH, setActiveIdentity } from '@/lib/identity'
 import {
+  deleteIdentityData,
+  IdentityDeleteBlockedError
+} from '@/lib/identity-manage'
+import { deleteDraftImages } from '@/lib/media/image-store'
+import { isPublishingConfigured } from '@/lib/publishing/config'
+import {
   cleanChannelSettings,
+  formatsForPlatforms,
   isCreatablePlatform,
   isPlatformId,
+  resolveChannels,
   STARTING_FORMATS,
   type ChannelSettings,
+  type FormatId,
   type PlatformId
 } from '@/lib/formats'
 import {
   ACCOUNT_TYPES,
   deriveHeadline,
+  handleFrom,
   IdentityProfileSchema,
   parseAccountType
 } from '@/lib/identity-profile'
-import { insertIdentity, updateIdentity } from '@/lib/identity-write'
+import {
+  contextIdentityAfterSave,
+  headlineAfterSave
+} from '@/lib/identity-change'
+import {
+  insertIdentity,
+  updateIdentity,
+  type IdentityDb
+} from '@/lib/identity-write'
 import { findOwnedAccount, ownedByUser } from '@/lib/ownership'
+import {
+  runProfileAnalysis,
+  syncProfileAnalyses
+} from '@/lib/profile-insights/analyze'
 import {
   cleanProfileLinks,
   mainProfileLink,
@@ -33,39 +60,9 @@ import { requireUser } from '@/lib/session'
 import { AccountIdSchema } from '@/lib/setup-payloads'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
+import { after } from 'next/server'
 import { z } from 'zod'
-
-function extractAndSanitizeHandle(
-  rawInput: string | null | undefined,
-  nameFallback: string = ''
-): string {
-  let cleaned = (rawInput || '').trim()
-
-  // Extract handle if user pasted full LinkedIn URL (e.g. linkedin.com/in/aditya-kumar-376474235 or linkedin.com/company/acme)
-  const linkedinMatch = cleaned.match(
-    /(?:linkedin\.com\/(?:in|company)\/)([^/?#]+)/i
-  )
-  if (linkedinMatch && linkedinMatch[1]) {
-    cleaned = linkedinMatch[1]
-  }
-
-  // Remove URL scheme or slashes if user typed https://...
-  cleaned = cleaned.replace(/^https?:\/\//i, '').replace(/^www\./i, '')
-
-  // Fallback to name if empty
-  if (!cleaned) {
-    cleaned = nameFallback.trim()
-  }
-
-  // Convert to clean URL slug
-  const slug = cleaned
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-
-  return slug || 'identity'
-}
 
 function profileFromFormData(formData: FormData) {
   const field = (key: string) => (formData.get(key) as string) || ''
@@ -146,6 +143,25 @@ function channelsFromFormData(formData: FormData): {
   }
 }
 
+/**
+ * Starts analyzing each profile link that was added or changed, and drops
+ * the analysis of each link removed (src/lib/profile-insights). The analyses
+ * run after the response; the Profile page follows them. Never fails the
+ * save it follows: the links are saved either way.
+ */
+async function analyzeChangedLinks(
+  accountId: string,
+  saved: ProfileLinks,
+  next: ProfileLinks
+) {
+  try {
+    const claims = await syncProfileAnalyses(accountId, saved, next)
+    if (claims.length > 0) after(() => Promise.all(claims.map(runProfileAnalysis)))
+  } catch (error) {
+    console.error('Could not start analyzing profile links:', error)
+  }
+}
+
 /** A create repeated within this long (a second click, a retried request) makes nothing. */
 const REPEAT_CREATE_MS = 60_000
 
@@ -191,7 +207,7 @@ export async function createAccount(formData: FormData) {
       userId: user.id,
       name: data.name,
       accountType,
-      handle: extractAndSanitizeHandle(mainLink, data.name),
+      handle: handleFrom(mainLink, data.name),
       headline: deriveHeadline(data),
       bio: data.description,
       company: data.company || null,
@@ -214,6 +230,8 @@ export async function createAccount(formData: FormData) {
         isNull(platformConnectionsTable.accountId)
       )
     )
+  // Each profile link given is read for how the identity posts there.
+  await analyzeChangedLinks(created.id, {}, profileLinks)
   // Every page from here on works on the new identity.
   await setActiveIdentity(created.id)
 
@@ -241,10 +259,43 @@ const updateAccountSchema = IdentityProfileSchema.extend({
    * removes that platform's link. Left out, `linkedinUrl` (one link, as the
    * AI setup suggests it) goes to the platform it is on.
    */
-  profileLinks: z.record(z.string(), z.string()).optional()
+  profileLinks: z.record(z.string(), z.string()).optional(),
+  /**
+   * Where the identity posts (the Profile step's Platforms); left out keeps
+   * them. Saved as the formats turned on (formatsForPlatforms).
+   */
+  platforms: z.array(z.string()).optional()
 })
 
 export type UpdateAccountInput = z.input<typeof updateAccountSchema>
+
+/**
+ * The formats to save for the platforms picked on the Profile step, or null
+ * when they are the ones it already posts on. Throws when none is left.
+ */
+async function changedPlatformFormats(
+  database: IdentityDb,
+  accountId: string,
+  picked: string[]
+): Promise<FormatId[] | null> {
+  const platforms = Array.from(new Set(picked.filter(isPlatformId))).filter(
+    isCreatablePlatform
+  )
+  if (platforms.length === 0) {
+    throw new Error('Keep at least one platform to post on.')
+  }
+  // Locked until the save commits, so a Preferences save in between is not
+  // overwritten with formats worked out from before it.
+  const [row] = await database
+    .select({ enabledFormats: preferencesTable.enabledFormats })
+    .from(preferencesTable)
+    .where(eq(preferencesTable.accountId, accountId))
+    .for('update')
+  const current = resolveChannels(row).platforms
+  const same =
+    current.length === platforms.length && platforms.every(p => current.includes(p))
+  return same ? null : formatsForPlatforms(row?.enabledFormats, platforms)
+}
 
 export async function updateAccountAction(input: UpdateAccountInput) {
   const user = await requireUser()
@@ -283,31 +334,62 @@ export async function updateAccountAction(input: UpdateAccountInput) {
     // The handle only follows the main link; renaming keeps the old handle.
     let handle = existing.handle
     if (mainLink && mainLink !== (existing.linkedinUrl || '')) {
-      handle = extractAndSanitizeHandle(mainLink, validated.name)
+      handle = handleFrom(mainLink, validated.name)
     }
 
-    await updateIdentity(
-      db,
-      validated.id,
-      {
-        name: validated.name,
-        ...(validated.accountType
-          ? { accountType: validated.accountType }
-          : {}),
-        handle,
-        // Keep a headline someone wrote; only fill it when there is none.
-        headline: existing.headline?.trim() || deriveHeadline(validated),
-        bio: validated.description,
-        company: validated.company || null,
-        industry: validated.industry,
-        linkedinUrl: mainLink,
-        profileLinks,
-        websiteUrl: validated.websiteUrl || null,
-        updatedAt: new Date()
-      },
-      validated
-    )
-    revalidatePath('/')
+    // The profile and where it posts are saved together, or neither is.
+    const enabledFormats = await db.transaction(async tx => {
+      const formats = validated.platforms
+        ? await changedPlatformFormats(tx, validated.id, validated.platforms)
+        : null
+      await updateIdentity(
+        tx,
+        validated.id,
+        {
+          name: validated.name,
+          ...(validated.accountType
+            ? { accountType: validated.accountType }
+            : {}),
+          handle,
+          // It is made from the company and industry, so it follows them.
+          headline: headlineAfterSave(existing.headline, existing, validated),
+          bio: validated.description,
+          company: validated.company || null,
+          industry: validated.industry,
+          linkedinUrl: mainLink,
+          profileLinks,
+          websiteUrl: validated.websiteUrl || null,
+          // Changed to another company by hand: the voice, knowledge and goals
+          // still belong to the old one until Re-analyze switches them over.
+          contextIdentity: contextIdentityAfterSave(
+            existing.contextIdentity,
+            existing,
+            {
+              name: validated.name,
+              company: validated.company || null,
+              websiteUrl: validated.websiteUrl || null
+            }
+          ),
+          updatedAt: new Date()
+        },
+        validated
+      )
+      if (formats) {
+        // Only the formats change: each platform's style and notes are kept,
+        // so a platform added back sounds as it did.
+        await tx
+          .insert(preferencesTable)
+          .values({ accountId: validated.id, enabledFormats: formats })
+          .onConflictDoUpdate({
+            target: preferencesTable.accountId,
+            set: { enabledFormats: formats, updatedAt: new Date() }
+          })
+      }
+      return formats
+    })
+    await analyzeChangedLinks(validated.id, saved, profileLinks)
+    // Where it posts shows on every page (ideas, posts, goals, schedule).
+    revalidatePath('/', enabledFormats ? 'layout' : undefined)
     revalidatePath(IDENTITY_PATH, 'layout')
 
     return { success: true }
@@ -332,4 +414,49 @@ export async function switchIdentity(rawAccountId: string) {
   await setActiveIdentity(account.id)
   revalidatePath('/', 'layout')
   return { success: true as const }
+}
+
+/** How many of a deleted identity's posts have their files removed at once. */
+const DELETE_IMAGES_CONCURRENCY = 8
+
+/**
+ * Deletes one of the user's identities for good, with everything in it
+ * (src/lib/identity-manage.ts). When it was the active one, the user's oldest
+ * identity left becomes active. Its posts' files in storage are removed after
+ * the response; a leftover file costs storage, not correctness.
+ */
+export async function deleteIdentity(rawAccountId: string) {
+  const user = await requireUser()
+  try {
+    const account = await findOwnedAccount(db, user.id, rawAccountId)
+    if (!account) return { success: false as const, error: 'Identity not found' }
+    const deleted = await deleteIdentityData(db, user.id, account.id, {
+      publishing: isPublishingConfigured()
+    })
+    if (!deleted) return { success: false as const, error: 'Identity not found' }
+
+    const jar = await cookies()
+    if (jar.get(ACTIVE_IDENTITY_COOKIE)?.value === account.id) {
+      jar.delete(ACTIVE_IDENTITY_COOKIE)
+    }
+    after(async () => {
+      const ids = deleted.draftIds
+      for (let i = 0; i < ids.length; i += DELETE_IMAGES_CONCURRENCY) {
+        await Promise.all(
+          ids.slice(i, i + DELETE_IMAGES_CONCURRENCY).map(deleteDraftImages)
+        )
+      }
+    })
+    revalidatePath('/', 'layout')
+    return { success: true as const, name: deleted.name }
+  } catch (err) {
+    if (err instanceof IdentityDeleteBlockedError) {
+      return { success: false as const, error: err.message }
+    }
+    console.error('Could not delete identity:', err)
+    return {
+      success: false as const,
+      error: 'Could not delete the identity. Try again.'
+    }
+  }
 }

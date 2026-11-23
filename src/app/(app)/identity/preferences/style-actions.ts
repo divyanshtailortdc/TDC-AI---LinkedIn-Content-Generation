@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { preferencesTable, samplePostsTable } from '@/db/schema'
 import { requireOwnedAccount } from '@/lib/account-guard'
 import { analyzeVoiceSamples } from '@/lib/ai/skills/voice-analysis'
+import { withAiSpend } from '@/lib/ai/spend'
 import {
   cleanChannelSettings,
   isPerformedWell,
@@ -102,9 +103,12 @@ export async function learnPlatformStyle(
       }
     }
 
-    const analysis = await analyzeVoiceSamples(
-      posts.map(p => p.content).join('\n---\n'),
-      { platform: label }
+    const analysis = await withAiSpend(
+      { source: 'identity', accountId, userId: user.id },
+      () =>
+        analyzeVoiceSamples(posts.map(p => p.content).join('\n---\n'), {
+          platform: label
+        })
     )
     // The offline analyzer only counts things; it cannot describe a style.
     if (analysis.provider !== 'claude') {

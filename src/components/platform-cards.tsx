@@ -86,21 +86,20 @@ function PlatformCard({
   const casual = style !== undefined && isCasualStyle(style)
   const defaultEmoji = casual ? EMOJI_LABELS.liberal : 'same as your Voice'
 
-  const summary = hasDetails
-    ? [
-        `Emoji: ${note.emoji ? EMOJI_LABELS[note.emoji] : `default (${defaultEmoji})`}`,
-        note.audience && `For: ${note.audience}`,
-        note.tone && `Sounds: ${note.tone}`
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    : 'Uses your profile and voice.'
+  // Only what was set; the defaults go unsaid.
+  const summary = [
+    note.emoji && `Emoji: ${EMOJI_LABELS[note.emoji]}`,
+    note.audience && `For: ${note.audience}`,
+    note.tone && `Sounds: ${note.tone}`
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <li className="border-border bg-surface rounded-lg border">
       <div className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-foreground flex min-w-0 items-center gap-2 text-sm font-medium">
-          <PlatformMark platform={platform} className="h-4 w-4 shrink-0" />
+          <PlatformMark platform={platform} colored className="h-4 w-4 shrink-0" />
           {label}
           {aiPicked && (
             <span className="bg-accent/10 text-accent rounded-full px-1.5 py-px text-[10px] font-semibold">
@@ -111,11 +110,11 @@ function PlatformCard({
         <StylePicker label={label} value={style} onChange={onStyleChange} />
       </div>
 
-      <div className="border-border flex items-start gap-3 border-t px-3 py-2">
-        <p className="text-muted min-w-0 flex-1 truncate text-xs leading-relaxed" title={summary}>
-          {summary}
-        </p>
-        {hasDetails && (
+      {hasDetails && (
+        <div className="border-border flex items-start gap-3 border-t px-3 py-2">
+          <p className="text-muted min-w-0 flex-1 truncate text-xs leading-relaxed" title={summary}>
+            {summary}
+          </p>
           <button
             type="button"
             aria-expanded={open}
@@ -123,13 +122,13 @@ function PlatformCard({
             onClick={() => setOpen(o => !o)}
             className="text-accent hover:text-accent-hover inline-flex shrink-0 items-center gap-1 text-xs font-medium"
           >
-            {open ? 'Done' : 'Edit'}
+            {open ? 'Done' : summary ? 'Edit' : 'Add details'}
             <ChevronDown
               className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
             />
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {hasDetails && open && (
         <div id={`${id}-details`} className="border-border space-y-3 border-t px-3 py-3">

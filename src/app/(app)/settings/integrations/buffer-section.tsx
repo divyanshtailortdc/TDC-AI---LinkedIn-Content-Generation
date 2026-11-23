@@ -880,8 +880,11 @@ function AutoPublishing({ networks }: { networks: ConnectionSummary[] }) {
       </p>
       <div className="mt-4 space-y-2">
         {live.map(n => (
+          // Keyed by channel too: switching channel turns auto-publishing
+          // off on the server, and the row's toggle, set from its props
+          // only when it mounts, would otherwise still show it on.
           <AutoPublishSection
-            key={n.platform}
+            key={`${n.platform}:${n.memberId}`}
             platform={getPlatform(n.platform)}
             connection={n}
             compact

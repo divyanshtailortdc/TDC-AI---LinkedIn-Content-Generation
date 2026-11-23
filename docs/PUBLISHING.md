@@ -1,6 +1,6 @@
 # Publishing
 
-How users connect their accounts for publishing, and how approved posts are published: now, at a scheduled time, or automatically. Five platforms publish, **all through each user's own Buffer account**: **LinkedIn**, **X**, **Threads**, **Facebook** and **Instagram**. Each user connects Buffer once (OAuth) and picks the account each network publishes to; how that works, and its setup, is in [BUFFER_OAUTH.md](BUFFER_OAUTH.md). Network specifics: [PUBLISHING_X.md](PUBLISHING_X.md), [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md). Until 2026-11-16 LinkedIn published through its own API; that code is gone. The pipeline, states, retries and security below apply to every network.
+How users connect their accounts for publishing, and how approved posts are published: now, at a scheduled time, or automatically. Six platforms publish, **all through each user's own Buffer account**: **LinkedIn**, **X**, **Threads**, **Facebook**, **Instagram** and **YouTube** (Shorts only). Each user connects Buffer once (OAuth) and picks the account each network publishes to; how that works, and its setup, is in [BUFFER_OAUTH.md](BUFFER_OAUTH.md). Network specifics: [PUBLISHING_X.md](PUBLISHING_X.md), [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md); Reels and Shorts, which go out with an AI video: [SHORT_VIDEOS.md](SHORT_VIDEOS.md#publishing). Until 2026-11-16 LinkedIn published through its own API; that code is gone. The pipeline, states, retries and security below apply to every network.
 
 - [Platforms and providers](#platforms-and-providers)
 - [Sign-in and publishing are separate](#sign-in-and-publishing-are-separate)
@@ -30,15 +30,15 @@ Two layers keep the app independent of any one platform:
 
 ## Sign-in and publishing are separate
 
-Signing in (Google, LinkedIn or a passkey, see [AUTHENTICATION.md](AUTHENTICATION.md)) only gives a person access to their TDC AI account. It never lets TDC AI post anywhere, **including LinkedIn sign-in**: that flow asks only for `openid profile email`, and its tokens in `auth_accounts` are never read by publishing.
+Signing in (Google or a passkey, see [AUTHENTICATION.md](AUTHENTICATION.md)) only gives a person access to their TDC AI account. It never lets TDC AI post anywhere: sign-in tokens in `auth_accounts` are never read by publishing.
 
 To publish, the signed-in user connects their **Buffer** account in **Settings → Integrations**, a second OAuth flow with its own app, routes, tables and tokens:
 
 | | Sign-in | Publishing |
 | --- | --- | --- |
 | Started from | `/login` | Settings → Integrations → Connect Buffer |
-| Handled by | Better Auth, `/api/auth/callback/{google,linkedin}` | `/api/integrations/buffer/connect` → `/api/integrations/buffer/callback` |
-| App | `GOOGLE_CLIENT_ID`, `LINKEDIN_CLIENT_ID` | the Buffer app client, `BUFFER_CLIENT_ID` |
+| Handled by | Better Auth, `/api/auth/callback/google` | `/api/integrations/buffer/connect` → `/api/integrations/buffer/callback` |
+| App | `GOOGLE_CLIENT_ID` | the Buffer app client, `BUFFER_CLIENT_ID` |
 | Scopes | `openid profile email` | `account:read posts:read posts:write offline_access` |
 | Stored in | `auth_accounts` | `buffer_connections` (encrypted), `buffer_channels`, `linkedin_connections` |
 | Affects the session | Yes | No |
@@ -85,7 +85,7 @@ requestPublication   checks: post is the user's (via accounts.user_id), approved
 claimPublication     UPDATE … SET status='publishing', attempts+1 WHERE status='scheduled' AND due
 executePublication   checks everything again, then:
                        Buffer token (refreshed under a row lock, or marked expired)
-                       image or slides → signed links to this app that Buffer downloads
+                       image, slides or video → signed links to this app that Buffer downloads
                        metadata.postRequestedAt = now        ← from here the post may exist
                        Buffer createPost (text, images, network metadata, first comment)
                        sent at once: status 'published', its link, publishedAt; post_drafts.posted_at set
@@ -110,7 +110,7 @@ Creating a LinkedIn post is not idempotent, and a member token cannot read posts
 
 1. **One live publication per post.** A partial unique index on `linkedin_publications(draft_id) WHERE status IN ('scheduled','publishing','published')` refuses a second one, from a double click, two tabs or a second worker. A published post can never be queued again, and Schedule will not undo its "posted".
 2. **One worker per row.** Claiming is a conditional `UPDATE … WHERE status = 'scheduled'`; only one claimer gets the row back.
-3. **Only certain failures are retried.** Up to 3 attempts, 1 then 5 minutes apart:
+3. **Only certain failures are retried.** Up to 3 attempts, 1 then 5 minutes apart. A rate limit waits as long as Buffer's `Retry-After` asks (plus a second), or 15 minutes then an hour when it gives none. If Buffer asks for more than 24 hours (its daily or 30-day limit), the publication fails at once rather than going out days late. The stored error ends with "It will be tried again." only when a retry is actually queued; once retries run out it says so and points to Try again.
 
    | Failure | Retried? | Why |
    | --- | --- | --- |
@@ -137,7 +137,7 @@ Creating a LinkedIn post is not idempotent, and a member token cannot read posts
 
 ### 1. The Buffer app client, and 2. Environment
 
-See [BUFFER_OAUTH.md → Setup](BUFFER_OAUTH.md#setup): one Buffer app client with the redirect URI `{BETTER_AUTH_URL}/api/integrations/buffer/callback`, `BUFFER_CLIENT_ID` (and `BUFFER_CLIENT_SECRET` for a confidential client), and `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`; changing it makes every stored token unreadable, and users reconnect). `BUFFER_TOKEN_ENCRYPTION_KEY` is optional. Each network is on by default; `LINKEDIN_PUBLISHING`, `X_PUBLISHING`, `THREADS_PUBLISHING`, `FACEBOOK_PUBLISHING` or `INSTAGRAM_PUBLISHING` set to `off` hides it. `BETTER_AUTH_URL` (or `PUBLISHING_MEDIA_URL`) must be reachable from the internet: Buffer downloads post images from it.
+See [BUFFER_OAUTH.md → Setup](BUFFER_OAUTH.md#setup): one Buffer app client with the redirect URI `{BETTER_AUTH_URL}/api/integrations/buffer/callback`, `BUFFER_CLIENT_ID` (and `BUFFER_CLIENT_SECRET` for a confidential client), and `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`; changing it makes every stored token unreadable, and users reconnect). `BUFFER_TOKEN_ENCRYPTION_KEY` is optional. Each network is on by default; `LINKEDIN_PUBLISHING`, `X_PUBLISHING`, `THREADS_PUBLISHING`, `FACEBOOK_PUBLISHING`, `INSTAGRAM_PUBLISHING` or `YOUTUBE_PUBLISHING` set to `off` hides it. `BETTER_AUTH_URL` (or `PUBLISHING_MEDIA_URL`) must be reachable from the internet: Buffer downloads post images and videos from it.
 
 ### 3. Database
 
@@ -147,16 +147,16 @@ Apply every migration, including `0049_buffer_oauth` (the Buffer connection and 
 npm run db:migrate
 ```
 
-**The Posts page reads `linkedin_publications`, so apply the migration before deploying this code**, or Posts fails with "relation does not exist".
+**The Posts page reads `linkedin_publications`, so apply the migration before deploying this code**, or Posts fails with "relation does not exist". The same goes for `0056_post_videos` (Reels and Shorts, [SHORT_VIDEOS.md](SHORT_VIDEOS.md#setup)) and `0057_ai_usage_draft` (per-post cost, [POST_COST.md](POST_COST.md)): without 0057, every AI call fails to record and the Posts page fails.
 
 ### 4. The worker
 
-- **Long-running server / `next dev`**: the scheduler runs a publishing pass every minute (`APP_ROLE` `all` or `worker`).
-- **Vercel**: timers do not run. `/api/cron/jobs` runs a pass each time it is called, so scheduled posts go out as late as the calls are apart. Vercel Hobby cron runs once a day, so point an external pinger at it every 1–5 minutes (`Authorization: Bearer $CRON_SECRET`).
+- **Long-running server / `next dev`**: the scheduler runs a publishing pass every minute (`APP_ROLE` `all` or `worker`), and beside it a pass that stores finished AI videos ([SHORT_VIDEOS.md](SHORT_VIDEOS.md#generation-start-then-check)).
+- **Vercel**: timers do not run. `/api/cron/jobs` runs both passes, side by side, each time it is called, so scheduled posts go out as late as the calls are apart. Vercel Hobby cron runs once a day, so point an external pinger at it every 1–5 minutes (`Authorization: Bearer $CRON_SECRET`).
 
 ## Local development
 
-Buffer requires an HTTPS redirect URI, even on localhost: run `npm run dev:https`, set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to `https://localhost:3000`, open the app there (the session and state cookies belong to that origin), and register `https://localhost:3000/api/integrations/buffer/callback` on the Buffer app client. Google and LinkedIn sign-in redirect to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/{google,linkedin}` to those apps, or sign in with a passkey. Buffer downloads post images from `PUBLISHING_MEDIA_URL`: point it at a tunnel (`cloudflared tunnel --url http://localhost:3000`). Restart `next dev` after changing `.env`. Once Buffer is connected, plain `npm run dev` over http publishes too (sign in again there); only connecting needs https.
+Buffer requires an HTTPS redirect URI, even on localhost: run `npm run dev:https`, set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to `https://localhost:3000`, open the app there (the session and state cookies belong to that origin), and register `https://localhost:3000/api/integrations/buffer/callback` on the Buffer app client. Google sign-in redirects to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/google` to the Google app, or sign in with a passkey. Buffer downloads post images from `PUBLISHING_MEDIA_URL`: point it at a tunnel (`cloudflared tunnel --url http://localhost:3000`). Restart `next dev` after changing `.env`. Once Buffer is connected, plain `npm run dev` over http publishes too (sign in again there); only connecting needs https.
 
 ### Trying it end to end
 

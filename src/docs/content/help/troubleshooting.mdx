@@ -1,0 +1,251 @@
+# Troubleshooting
+
+When something does not work as expected, the app usually says why in a notice, on the post or run itself, or in a short message at the corner of the screen. Find that message below for its cause and what to do. If nothing here helps, contact your administrator.
+
+## Signing in
+
+### The Google button is missing
+
+The Google button only appears when your administrator has set it up. Use a passkey if you have added one. If no option works for you, contact your administrator.
+
+### Sign-in was cancelled or failed
+
+"Sign-in was cancelled." means the provider's screen was closed or declined. Try again and allow access.
+
+"The provider did not share an email address for this account." means the app could not see your email, which it needs to know who you are. Allow it on the provider's screen, or sign in another way.
+
+### An account with this email already exists
+
+"An account with this email already exists, but this provider has not verified the address. Sign in another way." Your account was created with another sign-in, and this provider has not confirmed that the email is yours. Use the option you first signed in with, or your passkey.
+
+### Too many attempts
+
+"Too many attempts. Please wait a minute and try again." Sign-in is paused briefly after many tries. Wait a minute.
+
+### Passkey sign-in does not work
+
+- "That passkey is not registered here. Sign in another way, then add it again." The passkey was deleted from your account. Sign in with Google and add a new one on [Security](/settings/security). Remove the old one from your password manager.
+- "The passkey request expired. Please try again." The prompt was left open too long. Start again.
+- "Passkey sign-in was cancelled." The prompt was closed. Try again.
+
+A passkey only works on the web address where you added it.
+
+### You cannot add a passkey
+
+- **Add a passkey** is greyed out and shows **Already added**: you can have one passkey. Delete it on [Security](/settings/security) to add a different one.
+- "For your security, sign out and sign in again before adding a passkey." Adding a passkey needs a recent sign-in. Sign out, sign back in, and try again.
+
+### Your account has been suspended
+
+"This account has been suspended. Contact your administrator." Only your administrator can restore access.
+
+## Connecting Buffer
+
+### Connect Buffer is not available
+
+If there is no Buffer card on [Integrations](/settings/integrations), or the card says connecting Buffer is not set up on this server yet, your administrator has not set up publishing. You can still use **Copy post** and post by hand.
+
+### Buffer was not connected
+
+After coming back from Buffer, the card may say:
+
+- "Buffer was not connected: authorization was cancelled." You declined on Buffer's screen. Click **Connect Buffer** again.
+- "Buffer was not connected: permission to read your channels and create posts was not granted. Connect again and allow it." Allow both permissions on Buffer's screen.
+- "Buffer was not connected: the request could not be verified. Please try again." Click **Connect Buffer** again and finish on Buffer's screen without leaving it open for long.
+- "Buffer could not be connected. The authorization may have expired or Buffer may be unavailable; please try again."
+
+### An account is missing from the list
+
+Add the account in Buffer, then click **Sync now** on the Buffer card. If you see "That X account is not in your Buffer account. Sync, then pick again.", the account was removed from Buffer: sync, then choose another.
+
+### An account shows Locked in Buffer or Reconnect it in Buffer
+
+- **Locked in Buffer**: the account is over your Buffer plan's channel limit. Unlock it in Buffer, then **Sync now**.
+- **Reconnect it in Buffer**: Buffer has lost access to that social account. Reconnect it inside Buffer, then **Sync now**.
+
+## Publishing
+
+### The connection has expired
+
+You see **Needs reconnecting** on the Buffer card, a **Reconnect** button on posts, or a failed post with a message such as:
+
+- "Your X connection has expired. Reconnect X in Settings."
+- "Your Buffer connection has expired or was revoked. Reconnect Buffer in Settings."
+- "Buffer no longer accepts this connection. Reconnect Buffer in Settings to keep publishing to X."
+
+Buffer stopped accepting the connection, often because the app was removed from your Buffer account. Click **Reconnect Buffer** on [Integrations](/settings/integrations), then use **Try again** on any post that failed. Scheduled posts are kept while the connection is broken, but any that fall due before you reconnect fail.
+
+### The network is not connected
+
+"Connect X in Settings to publish." (or LinkedIn, Facebook and so on) means this identity has no account chosen for that network. Pick one with **Publish here** on [Integrations](/settings/integrations). Each identity chooses its own accounts.
+
+"LinkedIn now publishes through Buffer. Choose your LinkedIn account on the Buffer card in Settings." means your LinkedIn connection is from before LinkedIn moved to Buffer. Choose a LinkedIn account under **Your accounts**.
+
+### Buffer is limiting requests
+
+"Buffer is limiting requests for about 15 min." Buffer has a limit on how often posts can be sent. The app waits as long as Buffer asks before trying again:
+
+- If the message ends "It will be tried again.", do nothing: the post shows **Retrying** with the new time.
+- If it says the wait "is too long to hold the post for", the post is not retried by itself. Use **Try again** once the wait has passed.
+
+### Buffer is unavailable or could not be reached
+
+"Buffer is unavailable right now." or "Buffer could not be reached." These are usually brief. Nothing was posted, so the app tries again by itself, up to three attempts in all. If they all fail, the message ends "use Try again later": wait, then click **Try again**.
+
+### The post may already be on the platform
+
+Messages such as "The connection to Buffer was lost and the post may still have gone through: check your X profile before trying again." or "Publishing stopped after the post was sent to X." mean the app cannot tell whether the post went out. To avoid posting twice, it is never retried automatically.
+
+1. Open your profile on that platform and look for the post.
+2. If it is not there, click **Try again** on the post.
+3. In the **Is it already on X?** dialog, click **It's not there, publish**.
+
+If the post is there, do not publish again.
+
+### The post was rejected
+
+"Buffer rejected the request: …", "Buffer refused the post: …" or "X did not take the post: …" The text after the colon is the reason Buffer or the network gave. Fix what it describes, then **Try again**.
+
+### The post is too long
+
+"The post is longer than X's 280 characters (a link counts as 23, an emoji as 2). Shorten it and try again." The same check applies to each post of a thread and to the reply. Shorten the text with **Edit Post Text**, save it, and publish again.
+
+### The image cannot be used
+
+- "The post's image is larger than the 5 MB X allows. Replace it with a smaller one."
+- "The post's image is not a JPEG, PNG, GIF or WebP image."
+- "The post's image could not be read."
+
+Replace the image from **Change media**, or set the post to **Text only (keep image)** where the network allows it.
+
+### Instagram posts need an image
+
+"Instagram posts need an image. Add one to this post, then publish it." Instagram refuses posts without an image. Generate or add one, or make the post a carousel.
+
+### A Reel or a Short has no video yet
+
+"This Instagram Reel has no video yet. Generate its video on the post, then publish it." The video is still being made, or it couldn't be made. Open the post: wait for **Generating your video…** to finish, or click **Try again** or **Generate video**. Then publish.
+
+### The video could not be made
+
+The video card says "The last video was not generated." with the reason:
+
+- "The video took too long to make. Try again." or "The video could not be started. Try again.": click **Try again**.
+- A spending limit: see [AI Usage & Limits](/docs/help/ai-usage). A video that couldn't start during drafting can be generated later from the post.
+- "The estimated cost changed to …": the cost of a video changed since the page loaded. Check the new figure and click **Generate** again.
+- "Videos cannot be made right now" (in **Create posts**), or a note on the card that videos aren't set up: your administrator hasn't set up video generation. The scripts are still written.
+- "Write the script first: the video is made from its spoken words.": the post has no spoken words. Edit the post text and save, then generate.
+
+### A carousel will not publish
+
+- "This carousel has no slides yet. Make them, or switch the post to a single image."
+- "Slide 3 could not be drawn. Redraw it, then publish." Redraw the slides named, then publish.
+- "This carousel has 12 slides; Instagram takes 2 to 10." Remove slides until it fits.
+
+### Only an approved post can be published
+
+Approve the post first. If its text was regenerated or restored, approve it again: a new text needs a new approval.
+
+### A scheduled post did not go out
+
+A scheduled post is cancelled when you reject it, mark it as posted on the Schedule, regenerate or restore its text, stop or switch its network's account, or disconnect Buffer. Schedule it again once it is ready.
+
+For auto-publishing, only approved posts planned for that day are published, and a post approved or planned after that day's time is not published automatically. Publish it yourself. Auto-publishing also pauses while the connection needs reconnecting.
+
+### The time cannot be scheduled
+
+"Pick a time at least a minute from now." or "Pick a time within the next year." Choose a time in that range.
+
+## Runs and ideas
+
+### A run failed
+
+A failed run shows **This run failed** with the reason. Common ones:
+
+| Message                                                                                                         | What to do                                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| "AI spending limit reached: …" or "Daily AI spending limit reached: …"                                          | Wait for older spending to leave the window, or ask your administrator. See [AI Usage & Limits](/docs/help/ai-usage).             |
+| "No idea survived grounding and novelty checks. …"                                                              | Every idea was dropped for weak evidence or for repeating earlier ones. Add sources to your knowledge base, then start a new run. |
+| "None of the goals picked for this run exist any more. Start a new run and pick at least one goal."             | A goal was deleted after the run started. Start a new run.                                                                        |
+| "None of the goals picked for this run are for X. Start a new run with a goal set for X or for every platform." | Pick a goal meant for that platform.                                                                                              |
+| "The server stopped while this run was in progress. Start a new run."                                           | Use **Re-analyze**, or start a new run.                                                                                           |
+| "The run took longer than … minutes and was stopped. Start a new run."                                          | Start a new run.                                                                                                                  |
+
+**Re-analyze** on a finished run starts a new run for the same goals; the old run and its ideas stay as they are.
+
+### You cannot start a run
+
+If the run dialog says "A run writes toward goals you set. Add one first.", create a goal on [Goals](/goals). If it says **Every goal is paused**, resume a goal first.
+
+## AI spending limits
+
+### A spending limit was reached
+
+"AI spending limit reached" or "Daily AI spending limit reached" means your spending over the last 30 days or 24 hours has hit the limit your administrator set. New AI work is refused until older spending leaves that window. Editing, approving, scheduling and publishing still work. See [AI Usage & Limits](/docs/help/ai-usage).
+
+### The AI budget has been reached
+
+"The AI budget has been reached. Please try again later." or "The AI provider budget is used up, so the image could not be designed." This is the AI service's overall budget, not your own limit. Try again later, and let your administrator know if it continues.
+
+## Newsletter inbox
+
+### The inbox is not set up yet
+
+If the Inbox page says **The inbox is not set up yet**, your administrator has to set up email receiving first.
+
+### Emails are not arriving
+
+1. Check you subscribed with the exact address under **Your address** on the Inbox page. Use the copy button rather than typing it.
+2. Many newsletters send a confirmation email first. Look for it in the inbox and confirm.
+3. Click **Refresh** to check for new mail now.
+4. If you changed your address, the old one still delivers, so that is not the cause.
+
+If a red notice such as "Could not reach the mail server. Syncing will retry automatically." appears above the list, the problem is on the mail side: wait, or contact your administrator if it stays.
+
+### Could not read this email
+
+"Could not read this email." followed by "The AI model was busy or timed out." or "Something went wrong while reading this email." Click **Try again**. While a busy model is retried, the email says "Trying again automatically." and needs nothing from you.
+
+### No stories were taken from an email
+
+- "This looks like a promotional email, so no stories were taken from it." Only newsletters have stories taken from them.
+- "No stories with links were found in this email."
+- "Not read for stories: you unsubscribed from this sender." Click **Undo** next to the sender if you want its emails read again.
+
+### Emails are read without AI summaries
+
+When the inbox's daily AI limit, or 80% of one of your own limits, is used, emails are still read but without AI summaries. See [AI Usage & Limits](/docs/help/ai-usage).
+
+### You cannot change the address
+
+- "That address is taken. Please choose another."
+- "That address is reserved."
+- "Use letters and numbers, with single dots, hyphens or underscores between them."
+- "A workspace can have at most 5 addresses. Choose one of your earlier ones."
+
+## Images
+
+### The image could not be made during drafting
+
+The post says "The image for this post could not be made during drafting:" with the reason. Click **Generate image** to try again, or use **Change media** to find a stock image or use your own.
+
+If the reason is "Designing the image took too long. Try again.", simply try again. If it is a spending limit, see [AI Usage & Limits](/docs/help/ai-usage).
+
+### The picture was replaced with cards or an icon
+
+If a picture for an image cannot be made, the app draws the post's key points as cards, or shows an icon in the picture's place, and says why. Click **Regenerate image** for another attempt.
+
+### The image may be cropped
+
+"This image is … not LinkedIn's landscape 1.91:1 shape, so it may be cropped there." The image was made for another shape. Click **Regenerate image** to get one sized for the platform.
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Integrations', href: '/docs/settings/integrations' },
+    { title: 'AI Usage & Limits', href: '/docs/help/ai-usage' },
+    { title: 'Security', href: '/docs/settings/security' },
+    { title: 'FAQ', href: '/docs/help/faq' }
+  ]}
+/>

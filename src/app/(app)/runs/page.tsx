@@ -3,6 +3,7 @@ import { loadRunPicker } from '@/lib/run-picker'
 import { getRunSpendSummary } from '@/lib/run-spend'
 import { RunsClient } from './runs-client'
 import { loadRunsPage } from './runs-data'
+import { parseRunFilter } from './run-display'
 import { getIdentity } from '@/lib/identity'
 import { NoIdentity } from '@/components/no-identity'
 
@@ -16,12 +17,15 @@ export default async function RunsPage({
   const identity = await getIdentity()
 
   if (!identity) {
-    return <NoIdentity title="Run History  " />
+    return <NoIdentity title="Run Details" />
   }
 
-  const page = parsePage((await searchParams).page)
-  const [{ rows, pageInfo }, spend, picker] = await Promise.all([
-    loadRunsPage(identity.id, page),
+  const params = await searchParams
+  const page = parsePage(params.page)
+  // ?status= picks which runs the list shows; see RUN_FILTERS.
+  const filter = parseRunFilter(params.status)
+  const [{ rows, pageInfo, counts, latestRunId }, spend, picker] = await Promise.all([
+    loadRunsPage(identity.id, page, filter),
     getRunSpendSummary(identity.id),
     loadRunPicker(identity.id)
   ])
@@ -36,6 +40,9 @@ export default async function RunsPage({
     <RunsClient
       initialRuns={formattedRuns}
       pageInfo={pageInfo}
+      filter={filter}
+      counts={counts}
+      latestRunId={latestRunId}
       picker={picker}
       spend={spend}
     />

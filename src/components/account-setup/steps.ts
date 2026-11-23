@@ -46,8 +46,7 @@ export const SETUP_STEPS: SetupStep[] = [
     path: '/knowledge',
     icon: BookOpen,
     title: 'Knowledge',
-    description:
-      'Your own sources, and what your newsletters bring in, so posts are grounded in facts you can stand behind.'
+    description: 'Sources your posts can take facts from.'
   },
   {
     key: 'preferences',
@@ -55,7 +54,7 @@ export const SETUP_STEPS: SetupStep[] = [
     path: '/preferences',
     icon: SlidersHorizontal,
     title: 'Preferences',
-    description: 'How many ideas a run proposes, and what to stay away from.'
+    description: 'What gets written, how it sounds, and what to avoid.'
   },
   {
     key: 'runs',

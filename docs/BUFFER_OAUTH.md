@@ -6,7 +6,7 @@ Source of truth for every endpoint, parameter and field below: [developers.buffe
 
 ## LinkedIn through Buffer (2026-11-16)
 
-LinkedIn publishing moved from LinkedIn's own API to Buffer, so all five networks connect the same way: one Buffer connection, one channel picked per network. The LinkedIn developer app (`LINKEDIN_CLIENT_ID`) is used **only for signing in**. The direct LinkedIn publishing code (`src/lib/publishing/linkedin/`, `LINKEDIN_PUBLISH_*`, `LINKEDIN_API_VERSION`) and the per-platform `/api/integrations/[platform]` routes were removed.
+LinkedIn publishing moved from LinkedIn's own API to Buffer, so all five networks connect the same way: one Buffer connection, one channel picked per network. The direct LinkedIn publishing code (`src/lib/publishing/linkedin/`, `LINKEDIN_PUBLISH_*`, `LINKEDIN_API_VERSION`) and the per-platform `/api/integrations/[platform]` routes were removed.
 
 - **Text:** plain, as written. No LinkedIn "little text" escaping.
 - **First comment:** not sent. Buffer refuses `metadata.linkedin.firstComment` without a paid Buffer plan ("LinkedIn first comment requires a paid plan"), so LinkedIn posts go out without one; the post's first comment stays in the app to add by hand.
@@ -124,7 +124,7 @@ The publishing engine, the post workspace, scheduling and auto-publishing were n
 | Several users connect the same Buffer account | Allowed: separate grants, separate rows. They share that Buffer account's rate limits. |
 | Channel locked (over the plan's limit) or disconnected in Buffer | Listed with the reason, and cannot be picked. A network already on it shows a warning; publishing fails with Buffer's error. |
 | Channel removed in Buffer | **Sync now** marks it `removed_at` and the network's card says it is gone. Syncing never disconnects a network on its own (that would cancel scheduled posts). |
-| Rate limit (HTTP 429, `RATE_LIMIT_EXCEEDED`) | Retryable. The message gives Buffer's `Retry-After` in minutes. Sync now is throttled to once per 30 s per user. |
+| Rate limit (HTTP 429, `RATE_LIMIT_EXCEEDED`) | Retryable. The message gives Buffer's `Retry-After` (seconds or an HTTP date) in minutes, hours or days, and the error carries it as `retryAfterMs`; publishing waits that long before the next attempt (see PUBLISHING.md). Sync now is throttled to once per 30 s per user. |
 | Buffer down (5xx, network) | Reads and refreshes are retried and nothing is marked expired. A post create that may have gone through is `unknown_outcome` and never retried automatically (unchanged). |
 | Access revoked in Buffer | The next request gets a 401, and the connection and its networks are marked expired: "Reconnect Buffer". |
 | Disconnect Buffer | Tokens and channels are deleted. Every Buffer network of every identity of the user is disconnected, with scheduled posts cancelled and auto-publishing off. The row stays, as `disconnected`. |

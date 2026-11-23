@@ -358,6 +358,69 @@
       "when": 1794813789443,
       "tag": "0050_linkedin_via_buffer",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794827723019,
+      "tag": "0051_platform_insights",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794830924039,
+      "tag": "0052_idea_scorecard",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794916199008,
+      "tag": "0053_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794976411922,
+      "tag": "0054_ai_usage_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794986378786,
+      "tag": "0055_ai_usage_help",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795086895040,
+      "tag": "0056_post_videos",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1795143168145,
+      "tag": "0057_ai_usage_draft",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1795156045859,
+      "tag": "0058_idea_reference",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1795238795300,
+      "tag": "0059_identity_switch",
+      "breakpoints": true
     }
   ]
 }

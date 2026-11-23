@@ -57,7 +57,13 @@ export function PlatformTabs({
   allLabel?: string
 }) {
   return (
-    <div role="group" aria-label={label} className="flex flex-wrap gap-2">
+    // One row that scrolls sideways on a narrow screen rather than wrapping
+    // into several; the padding keeps the focus ring inside the scroll box.
+    <div
+      role="group"
+      aria-label={label}
+      className="-m-1 flex gap-2 overflow-x-auto p-1"
+    >
       {[null, ...options].map(option => {
         const active = value === option
         const tint = option ? (PLATFORM_TINTS[option] ?? NEUTRAL_TINT) : NEUTRAL_TINT
@@ -72,7 +78,7 @@ export function PlatformTabs({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(option)}
-            className={`flex h-8 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors ${
+            className={`focus-visible:ring-foreground/30 flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:outline-none ${
               active
                 ? `${tint.tab} text-foreground font-semibold`
                 : 'border-border bg-surface text-muted hover:text-foreground hover:bg-surface-hover'

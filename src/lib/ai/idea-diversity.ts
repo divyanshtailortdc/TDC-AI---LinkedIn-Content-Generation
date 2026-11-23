@@ -1,3 +1,4 @@
+import { WEAK_SOURCES } from '@/lib/idea-scorecard'
 import {
   PERSPECTIVE_ANGLES,
   type GeneratedIdeaItem,
@@ -125,16 +126,88 @@ export interface DiversityCheckResult {
  * 2. Enforces angle diversity (avoids stacking multiple ideas on the same perspective angle)
  * 3. Ranks by combined strength, groundingScore, and originalityScore
  */
-/** How ideas are ranked: grounding first, then originality and strength. */
+/**
+ * How much each reviewed score counts in an idea's rank. The goal comes
+ * first; reach (engagement) and originality next, since an idea nobody
+ * stops for serves no goal; then brand fit; trend relevance least, so an
+ * evergreen idea is never pushed out just for riding nothing.
+ */
+export const RANK_WEIGHTS = {
+  goalFit: 0.3,
+  engagement: 0.25,
+  originality: 0.2,
+  brandFit: 0.15,
+  trendRelevance: 0.1
+} as const
+
+/**
+ * How ideas are ranked. Reviewed ideas by their scores (RANK_WEIGHTS), less
+ * a penalty when the facts they state rest on weak sources; an idea that
+ * states no facts loses nothing, and sources never add to a rank. Ideas the
+ * review did not score keep the old craft score: grounding, originality and
+ * the writer's own estimate, with goal fit when there is one.
+ */
 export function ideaQuality(idea: GeneratedIdeaItem): number {
+  const card = idea.scorecard
+  if (
+    typeof idea.goalFitScore === 'number' &&
+    (card?.engagement || card?.originality || card?.brandFit || card?.trendRelevance)
+  ) {
+    const parts: Array<[number | undefined, number]> = [
+      [idea.goalFitScore, RANK_WEIGHTS.goalFit],
+      [card.engagement?.score, RANK_WEIGHTS.engagement],
+      [card.originality?.score, RANK_WEIGHTS.originality],
+      [card.brandFit?.score, RANK_WEIGHTS.brandFit],
+      [card.trendRelevance?.score, RANK_WEIGHTS.trendRelevance]
+    ]
+    const given = parts.filter((p): p is [number, number] => typeof p[0] === 'number')
+    const weight = given.reduce((sum, [, w]) => sum + w, 0)
+    const score = given.reduce((sum, [s, w]) => sum + s * w, 0) / weight
+    const sources = card.sources
+    const penalty =
+      sources?.status === 'weak' && typeof sources.score === 'number'
+        ? (WEAK_SOURCES - sources.score) * 0.5
+        : 0
+    return score - penalty
+  }
+  // Scored by this pipeline but not by the review (it failed, or skipped the
+  // idea): needing no sources is neutral here, not a perfect grounding, and
+  // an idea nobody judged ranks below one judged as good.
+  const unjudged = !!card?.sources
+  const grounding = unjudged ? (card!.sources!.score ?? 80) : idea.groundingScore
   // ?? not ||: a grounding score of 0 is a score, not a missing one.
-  const craft = (idea.groundingScore ?? 80) * 0.4 + (idea.originalityScore ?? 80) * 0.3 + (idea.estimatedStrength ?? 80) * 0.3
+  const craft = (grounding ?? 80) * 0.4 + (idea.originalityScore ?? 80) * 0.3 + (idea.estimatedStrength ?? 80) * 0.3
   // An idea is for its goal: once reviewed, how well it achieves it counts
   // for 40% of its rank.
-  return typeof idea.goalFitScore === 'number'
-    ? craft * 0.6 + idea.goalFitScore * 0.4
-    : craft
+  const rank =
+    typeof idea.goalFitScore === 'number'
+      ? craft * 0.6 + idea.goalFitScore * 0.4
+      : craft
+  return unjudged ? rank * UNJUDGED_DISCOUNT : rank
 }
+
+/**
+ * The score an idea card shows: the review's overall score (its rank, from
+ * goal fit, engagement, originality, brand fit and trend), or the writer's
+ * own estimate when the review did not score it. The writer often leaves its
+ * estimate out, which then reads 85 on every idea.
+ */
+export function shownScore(idea: GeneratedIdeaItem): number {
+  const reviewed =
+    typeof idea.goalFitScore === 'number' &&
+    !!(
+      idea.scorecard?.engagement ||
+      idea.scorecard?.originality ||
+      idea.scorecard?.brandFit ||
+      idea.scorecard?.trendRelevance
+    )
+  return reviewed
+    ? Math.max(0, Math.min(100, Math.round(ideaQuality(idea))))
+    : idea.estimatedStrength
+}
+
+/** What an idea the review never scored keeps of its rank. */
+const UNJUDGED_DISCOUNT = 0.8
 
 export function filterDiverseIdeas(
   candidates: GeneratedIdeaItem[],

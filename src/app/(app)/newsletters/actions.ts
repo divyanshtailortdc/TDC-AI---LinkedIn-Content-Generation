@@ -3,6 +3,7 @@
 import { db } from '@/db'
 import { newslettersTable } from '@/db/schema'
 import { SkillError } from '@/lib/ai/run-skill'
+import { withAiSpend } from '@/lib/ai/spend'
 import { getIdentity, requireIdentityId } from '@/lib/identity'
 import { idSchema } from '@/lib/ids'
 import { NEWSLETTERS_PATH } from '@/lib/newsletters-path'
@@ -26,8 +27,14 @@ import { z } from 'zod'
 const NOT_FOUND = 'Newsletter not found'
 const DISCOVERY_FAILED = 'Discovery could not finish. Please try again.'
 
-/** What the user is told when a model call of discovery fails, by reason. */
-const SKILL_ERROR_MESSAGES: Record<SkillError['reason'], string> = {
+/**
+ * What the user is told when a model call of discovery fails, by reason. The
+ * spending limit's own message says how much was spent, so it is shown as is.
+ */
+const SKILL_ERROR_MESSAGES: Record<
+  Exclude<SkillError['reason'], 'spend_limit'>,
+  string
+> = {
   not_configured:
     'AI is not configured. Set ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY to discover newsletters.',
   quota_exceeded: 'The AI budget has been reached. Please try again later.',
@@ -54,10 +61,10 @@ export async function discoverNewslettersAction(): Promise<
     if (!identity) {
       return { success: false, error: 'Set up your identity first.' }
     }
-    const summary = await discoverNewsletters({
-      accountId: identity.id,
-      userId: user.id
-    })
+    const summary = await withAiSpend(
+      { source: 'newsletters', accountId: identity.id, userId: user.id },
+      () => discoverNewsletters({ accountId: identity.id, userId: user.id })
+    )
     revalidatePath(NEWSLETTERS_PATH)
     return { success: true, summary }
   } catch (error) {
@@ -65,6 +72,9 @@ export async function discoverNewslettersAction(): Promise<
       return { success: false, error: error.message }
     }
     if (error instanceof SkillError) {
+      if (error.reason === 'spend_limit') {
+        return { success: false, error: error.message }
+      }
       if (error.reason !== 'not_configured') {
         console.error('Newsletter discovery failed:', error)
       }

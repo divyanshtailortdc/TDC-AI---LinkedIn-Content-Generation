@@ -14,6 +14,7 @@ import {
 import { showToast } from '@/components/toast-notification'
 import type { PlatformId } from '@/lib/formats'
 import { parseAccountType, profileFromRecords } from '@/lib/identity-profile'
+import type { ProfileInsightView } from '@/lib/profile-insights/types'
 import { IDENTITY_PATH } from '@/lib/identity-path'
 import {
   linkPlatforms,
@@ -25,6 +26,8 @@ import { AlertCircle, X } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 import { updateAccountAction } from './actions'
+import { IdentityPlatforms } from './identity-platforms'
+import { ProfileInsightRow, useProfileInsights } from './profile-insights'
 
 interface EditIdentityFormProps {
   account: {
@@ -44,6 +47,8 @@ interface EditIdentityFormProps {
   initialOfferings: Array<{ name: string; description?: string | null }>
   /** Oldest first; the first row backs the profile's Target Audience field. */
   initialAudiences: Array<{ name: string }>
+  /** What each profile link's analysis says (src/lib/profile-insights). */
+  insights: ProfileInsightView[]
 }
 
 /**
@@ -62,12 +67,18 @@ const sameLinks = (a: ProfileLinks, b: ProfileLinks) =>
     p => (a[p as PlatformId] ?? '').trim() === (b[p as PlatformId] ?? '').trim()
   )
 
+/** Two lists of platforms name the same ones, in any order. */
+const samePlatforms = (a: readonly PlatformId[], b: readonly PlatformId[]) =>
+  a.length === b.length && a.every(p => b.includes(p))
+
 export function EditIdentityForm({
   account,
   platforms,
   initialOfferings,
-  initialAudiences
+  initialAudiences,
+  insights
 }: EditIdentityFormProps) {
+  const insightsApi = useProfileInsights(account.id, insights)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<IdentityFieldErrors>({})
   const [accountType, setAccountType] = useState<AccountType>(
@@ -78,8 +89,25 @@ export function EditIdentityForm({
   )
   const [links, setLinks] = useState<ProfileLinks>(() => profileLinksOf(account))
   const [linkErrors, setLinkErrors] = useState<Partial<Record<PlatformId, string>>>({})
-  // Fixed while the form is open, so a field emptied while editing stays.
-  const [shownPlatforms] = useState(() => linkPlatforms(platforms, profileLinksOf(account)))
+  // Where it posts, as edited under Platforms; saved with the profile.
+  const [included, setIncluded] = useState<PlatformId[]>(platforms)
+  // Fixed while the form is open, so a field emptied while editing stays;
+  // a platform added gets its link field at once.
+  const [linkBase] = useState(() => linkPlatforms(platforms, profileLinksOf(account)))
+  const shownPlatforms = linkPlatforms([...linkBase, ...included], {})
+  const changePlatforms = (next: PlatformId[]) => {
+    setIncluded(next)
+    // A link typed for a platform added and removed again goes with its
+    // field, so nothing hidden is checked or counted as a change.
+    const gone = shownPlatforms.filter(p => !next.includes(p) && !linkBase.includes(p))
+    if (gone.length === 0) return
+    const without = <T,>(prev: Partial<Record<PlatformId, T>>) =>
+      Object.fromEntries(
+        Object.entries(prev).filter(([p]) => !gone.includes(p as PlatformId))
+      ) as Partial<Record<PlatformId, T>>
+    setLinks(without)
+    setLinkErrors(without)
+  }
 
   const values = fields
 
@@ -90,14 +118,18 @@ export function EditIdentityForm({
     values: IdentityValues
     links: ProfileLinks
     accountType: AccountType
+    platforms: PlatformId[]
   }>(() => ({
     values: formValues(account, initialOfferings[0], initialAudiences[0]),
     links: profileLinksOf(account),
-    accountType: parseAccountType(account.accountType)
+    accountType: parseAccountType(account.accountType),
+    platforms
   }))
+  const platformsChanged = !samePlatforms(included, saved.platforms)
   const dirty =
     accountType !== saved.accountType ||
     !sameLinks(links, saved.links) ||
+    platformsChanged ||
     (Object.keys(values) as Array<keyof IdentityValues>).some(
       key => values[key] !== saved.values[key]
     )
@@ -114,6 +146,7 @@ export function EditIdentityForm({
     setFields(saved.values)
     setLinks(saved.links)
     setAccountType(saved.accountType)
+    setIncluded(saved.platforms)
     setFieldErrors({})
     setLinkErrors({})
     setError(null)
@@ -162,7 +195,9 @@ export function EditIdentityForm({
       accountType,
       profileLinks: Object.fromEntries(
         shownPlatforms.map(p => [p, links[p]?.trim() ?? ''])
-      )
+      ),
+      // Only sent when changed, so a profile edit never rewrites them.
+      ...(platformsChanged ? { platforms: included } : {})
     })
     if (!res.success) {
       setError(res.error || 'Failed to update identity')
@@ -179,7 +214,7 @@ export function EditIdentityForm({
       message: `Identity "${values.name.trim()}" has been saved.`
     })
     // What was just saved is the new baseline, shown as plain text again.
-    setSaved({ values, links, accountType })
+    setSaved({ values, links, accountType, platforms: included })
     return true
   }
   useStepSave(save)
@@ -216,6 +251,13 @@ export function EditIdentityForm({
           accountType={accountType}
           onAccountTypeChange={setAccountType}
           readOnly={!editing}
+          platforms={
+            <IdentityPlatforms
+              value={included}
+              editing={editing}
+              onChange={changePlatforms}
+            />
+          }
           links={{
             platforms: shownPlatforms,
             values: links,
@@ -225,7 +267,17 @@ export function EditIdentityForm({
               if (linkErrors[platform]) {
                 setLinkErrors(prev => ({ ...prev, [platform]: undefined }))
               }
-            }
+            },
+            // What each saved link's public posts show about how you post there.
+            footer: platform => (
+              <ProfileInsightRow
+                platform={platform}
+                savedLink={saved.links[platform] ?? ''}
+                typedLink={links[platform] ?? ''}
+                editing={editing}
+                api={insightsApi}
+              />
+            )
           }}
           onChange={(field, value) => {
             // The two links live in the store shared with the assistant.
@@ -236,8 +288,8 @@ export function EditIdentityForm({
           }}
         />
         <p className="text-muted mt-3 text-xs">
-          Where you post, and whether each platform sounds professional,
-          casual or fun, is set in{' '}
+          The kinds of post written for each platform, and whether each
+          sounds professional, casual or fun, are set in{' '}
           <Link
             href={`${IDENTITY_PATH}/preferences`}
             className="text-accent hover:text-accent-hover font-medium"

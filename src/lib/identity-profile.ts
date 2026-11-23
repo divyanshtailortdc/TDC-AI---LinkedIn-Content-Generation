@@ -148,7 +148,7 @@ export const IDENTITY_FIELDS: IdentityFieldDefinition[] = [
     label: 'What You Promote',
     type: 'textarea',
     placeholder:
-      'e.g. Weekend dance classes, a course, your product or services. Leave empty if nothing.',
+      'e.g. Weekend dance classes, a course, your product or services',
     hint: '(optional)'
   },
   {
@@ -230,4 +230,40 @@ export function deriveHeadline(profile: {
     [profile.company, profile.industry].filter(Boolean).join(' · ') ||
     profile.name
   )
+}
+
+/**
+ * The account handle: the slug of the main profile link (a LinkedIn link gives
+ * its profile name), else of the name.
+ */
+export function handleFrom(
+  rawInput: string | null | undefined,
+  nameFallback: string = ''
+): string {
+  let cleaned = (rawInput || '').trim()
+
+  // Extract handle if user pasted full LinkedIn URL (e.g. linkedin.com/in/aditya-kumar-376474235 or linkedin.com/company/acme)
+  const linkedinMatch = cleaned.match(
+    /(?:linkedin\.com\/(?:in|company)\/)([^/?#]+)/i
+  )
+  if (linkedinMatch && linkedinMatch[1]) {
+    cleaned = linkedinMatch[1]
+  }
+
+  // Remove URL scheme or slashes if user typed https://...
+  cleaned = cleaned.replace(/^https?:\/\//i, '').replace(/^www\./i, '')
+
+  // Fallback to name if empty
+  if (!cleaned) {
+    cleaned = nameFallback.trim()
+  }
+
+  // Convert to clean URL slug
+  const slug = cleaned
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return slug || 'identity'
 }

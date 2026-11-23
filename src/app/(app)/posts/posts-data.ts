@@ -10,7 +10,8 @@ import {
   postRevisionsTable,
   postSlidesTable,
   publicationsTable,
-  ideasTable
+  ideasTable,
+  aiUsageTable
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
 import { inKnownFormat } from '@/lib/known-formats'
@@ -22,7 +23,9 @@ import {
 import { isImageStyle } from '@/lib/brand/theme'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
-import { and, count, desc, eq, inArray, isNotNull, max, type SQL } from 'drizzle-orm'
+import { summarizePostUsage } from '@/lib/post-usage'
+import type { PlatformId } from '@/lib/platforms'
+import { and, count, desc, eq, inArray, isNotNull, isNull, max, ne, sql, sum, type SQL } from 'drizzle-orm'
 import type { PostDetail } from './posts-client'
 
 /** A run makes a handful of posts; this only bounds a pathological one. */
@@ -120,7 +123,8 @@ export async function loadPostsPage(
     ideaFormatRows,
     revisionCounts,
     slideCounts,
-    deletions
+    deletions,
+    usageRows
   ] = await Promise.all([
     draftIds.length > 0
       ? db
@@ -225,8 +229,34 @@ export async function loadPostsPage(
             )
           )
           .groupBy(publicationsTable.draftId)
+      : Promise.resolve([]),
+    // What each post cost in AI, by kind of work (src/lib/post-usage.ts).
+    // Only this identity's calls: a post's id says nothing about its owner.
+    draftIds.length > 0
+      ? db
+          .select({
+            draftId: aiUsageTable.draftId,
+            stage: aiUsageTable.stage,
+            calls: sum(aiUsageTable.calls).mapWith(Number),
+            inputTokens: sum(aiUsageTable.inputTokens).mapWith(Number),
+            outputTokens: sum(aiUsageTable.outputTokens).mapWith(Number),
+            totalTokens: sum(aiUsageTable.totalTokens).mapWith(Number),
+            costUsd: sum(aiUsageTable.costUsd).mapWith(Number),
+            estimated: sql<boolean>`bool_or(${aiUsageTable.costEstimated})`
+          })
+          .from(aiUsageTable)
+          .where(
+            and(
+              inArray(aiUsageTable.draftId, draftIds),
+              eq(aiUsageTable.accountId, accountId)
+            )
+          )
+          .groupBy(aiUsageTable.draftId, aiUsageTable.stage)
       : Promise.resolve([])
   ])
+  const usageByDraft = summarizePostUsage(
+    usageRows.flatMap(row => (row.draftId ? [{ ...row, draftId: row.draftId }] : []))
+  )
   const deletedByDraft = new Map(
     deletions.flatMap(r =>
       r.draftId && r.deletedAt ? [[r.draftId, new Date(r.deletedAt).toISOString()] as const] : []
@@ -327,7 +357,8 @@ export async function loadPostsPage(
       postedAt: draft.postedAt?.toISOString() ?? null,
       hiddenAt: draft.hiddenAt?.toISOString() ?? null,
       publication: publications.get(draft.id) ?? null,
-      deletedFromPlatformAt: deletedByDraft.get(draft.id) ?? null
+      deletedFromPlatformAt: deletedByDraft.get(draft.id) ?? null,
+      usage: usageByDraft.get(draft.id) ?? null
     }
   })
 
@@ -368,6 +399,46 @@ export async function loadPostWithVersions(
   const { posts } = await loadPostsPage(accountId, { ids })
   const post = posts.find(p => p.id === postId)
   return post ? { post, versions: posts } : null
+}
+
+/**
+ * The post to review after this one: the account's newest other post awaiting
+ * review that is not hidden or already posted, as the list shows it first.
+ * Kept to the list's platform and run when it was narrowed to one, so the
+ * reviewer stays in the queue they were working through. Null when there is
+ * none.
+ */
+export async function loadNextToReview(
+  accountId: string,
+  exceptId: string,
+  scope: { platform?: PlatformId | null; runId?: string | null } = {}
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: postDraftsTable.id })
+    .from(postDraftsTable)
+    .where(
+      and(
+        eq(postDraftsTable.accountId, accountId),
+        eq(postDraftsTable.status, 'awaiting_review'),
+        isNull(postDraftsTable.hiddenAt),
+        isNull(postDraftsTable.postedAt),
+        ne(postDraftsTable.id, exceptId),
+        inKnownFormat(),
+        scope.platform ? eq(postDraftsTable.platform, scope.platform) : undefined,
+        scope.runId
+          ? inArray(
+              postDraftsTable.ideaId,
+              db
+                .select({ id: ideasTable.id })
+                .from(ideasTable)
+                .where(eq(ideasTable.runId, scope.runId))
+            )
+          : undefined
+      )
+    )
+    .orderBy(desc(postDraftsTable.createdAt), desc(postDraftsTable.id))
+    .limit(1)
+  return row?.id ?? null
 }
 
 export async function countPosts(accountId: string) {

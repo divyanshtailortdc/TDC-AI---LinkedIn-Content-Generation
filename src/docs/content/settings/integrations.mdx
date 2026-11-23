@@ -1,0 +1,159 @@
+# Integrations
+
+Integrations is where you connect the social accounts your approved posts are published to, choose which account each network uses, and turn on auto-publishing.
+
+<Eyebrow href="/settings/integrations">Integrations</Eyebrow>
+
+## Connect publishing in context
+
+### Link your Buffer account
+
+Click **Connect Buffer** to link your own Buffer account. Approved posts are published through it.
+
+<Screenshot
+  name="integrations"
+  alt="The Connect Buffer button, boxed in red"
+/>
+
+## How publishing connections work
+
+The Content Engine publishes to **LinkedIn, X, Threads, Facebook, Instagram and YouTube** (Shorts) through your own [Buffer](https://buffer.com) account. You add your social accounts to Buffer, connect Buffer here once, and then pick which of those accounts each network publishes to.
+
+- **Buffer is connected once per user** and serves all your identities.
+- **Each identity chooses its own accounts**, one per network. The line at the top of the page names the identity you are working on; switch identity in the sidebar to manage another's.
+- **Your passwords stay with Buffer.** The app never asks for your social media passwords, and your Buffer password and tokens are never shown.
+
+If there is no Buffer card on the page, publishing has not been set up on this server. You can still use **Copy post** on a post and paste it into the platform yourself.
+
+<Tags type="note" label="Signing in is separate">
+
+Signing in does not connect anything for publishing. LinkedIn posts are published through Buffer like the other networks.
+
+</Tags>
+
+## Connect Buffer
+
+1. In Buffer, add each social account you want to publish to, such as your LinkedIn profile or page, X account or Facebook page. Buffer calls them channels.
+2. On the **Buffer** card, click **Connect Buffer**.
+3. On Buffer's screen, allow TDC AI to read your channels and create posts. Both are needed.
+4. You come back with the message: "Buffer is connected and your channels are synced. Each network below publishes to the channel shown; change it any time."
+
+Connecting sets up each network that has no account yet, for the identity you are working on, with the first available account of that network in Buffer. Check the list and change any that are wrong.
+
+Nothing is posted just because Buffer is connected: only posts you approve and then publish, schedule or auto-publish go out.
+
+## Choose the account each network publishes to
+
+Under **Your accounts**, the card lists every account in your Buffer account and where it stands for the identity you are working on:
+
+| What the row shows                                         | What it means                                                                                       |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Publishing LinkedIn** (or another network) with **Stop** | This identity's posts for that network go to this account.                                          |
+| **Publish here**                                           | Click it to publish this network's approved posts to this account.                                  |
+| **Reconnect Buffer**                                       | Buffer no longer accepts the connection. See below.                                                 |
+| **Reconnect it in Buffer**                                 | Buffer has lost access to this social account. Reconnect it inside Buffer, then click **Sync now**. |
+| **Locked in Buffer**                                       | The account is over your Buffer plan's channel limit. Unlock it in Buffer, then sync.               |
+| **Not used here**                                          | A network the Content Engine does not publish to, listed for reference.                             |
+| **Available**                                              | It can be chosen once Buffer is connected and an identity is selected.                              |
+
+If a network already publishes to another account, **Publish here** asks before switching, because switching cancels that network's scheduled posts for this identity and turns its auto-publishing off. Confirm with **Yes, switch**.
+
+After adding or removing an account in Buffer, click **Sync now** so the list catches up. If you see **Channels are up to date**, you synced moments ago: wait a little and try again.
+
+**Other connections**, when shown, lists older connections the list above does not cover, marked **Connected**, **Expired** or **Unavailable**. Use **Stop** to remove one you no longer need.
+
+## What each network publishes
+
+Connecting is the same for every network. What goes out differs:
+
+<Tabs>
+<TabItem value="linkedin" label="LinkedIn">
+
+- Text only, with its image (up to 10 MB), or a carousel of up to 20 images in one post.
+- The post's **First comment** is not published. It stays in the app so you can add it on LinkedIn yourself.
+- A LinkedIn connection from before LinkedIn moved to Buffer shows under **Other connections** as "connected directly, which no longer publishes". Choose a LinkedIn account under **Your accounts** instead.
+
+</TabItem>
+<TabItem value="x" label="X">
+
+- An X post, or an X thread, which goes out as one: each post a reply to the one before.
+- The post's **Reply** is published under it.
+- Text only, or with an image (up to 5 MB). A link counts as 23 characters and an emoji as 2.
+
+</TabItem>
+<TabItem value="threads" label="Threads">
+
+- Text only, or with an image (up to 8 MB).
+- The post's **Reply** is published with it.
+
+</TabItem>
+<TabItem value="facebook" label="Facebook">
+
+- Text only, with an image (up to 10 MB), or several photos (up to 10), which Facebook shows as a grid.
+- A **Facebook Reel**: the caption with its AI video, once the video is ready.
+- The post's **First comment** goes out with it.
+
+</TabItem>
+<TabItem value="instagram" label="Instagram">
+
+- A feed post: the caption with its image, or a carousel of up to 10 slides.
+- An **Instagram Reel**: the caption with its AI video, once the video is ready, also shared to the feed and marked as AI-generated.
+- An image (or, for a Reel, its video) is required. Without one the post is refused, and auto-publishing skips it.
+- The **Link-in-bio note** is for you only and is never posted.
+
+</TabItem>
+<TabItem value="youtube" label="YouTube">
+
+- A **YouTube Short**: the AI video with its title and description, once the video is ready, marked as AI-generated and not made for kids.
+- Only Shorts are published. Add your YouTube channel to Buffer as a channel, then pick it here.
+
+</TabItem>
+</Tabs>
+
+## Auto-publishing
+
+Each network with a working account gets a row under **Auto-publishing**. When it is on, approved posts planned on the [Schedule](/docs/publishing/schedule) go out on their day at the time you set.
+
+1. Tick **Publish automatically** and set the time next to **at**. The time zone in brackets is your browser's.
+2. Click **Save**, then confirm with **Yes, turn it on**.
+
+It is off until you turn it on and only publishes approved posts. A post approved, or planned for today, after that day's time is not published automatically: publish it yourself. Turning it on never publishes anything from a time already past. To turn it off, untick the box and click **Save**.
+
+## When a connection breaks
+
+A connection breaks when Buffer stops accepting it, for example after TDC AI is removed from your Buffer account's connected apps. Then:
+
+- The Buffer card shows **Needs reconnecting** (instead of **Connected**) with the reason, and each network shows **Reconnect Buffer**.
+- **Scheduled posts are not cancelled.** A reconnect button appears next to each one's time. Any post that falls due while the connection is broken fails with a message such as "Your X connection has expired. Reconnect X in Settings." After reconnecting, use **Try again** on it.
+- **Auto-publishing pauses** until the connection works again.
+
+To fix it, click **Reconnect Buffer** and allow access again. Reconnecting the same Buffer account brings every network back on the account it used before.
+
+<Tags type="warning" label="Connecting a different Buffer account">
+
+If you reconnect with a different Buffer account, any network whose account is not in it is disconnected, and its scheduled posts are cancelled.
+
+</Tags>
+
+## Stop publishing to one network
+
+Click **Stop** on the network's account and confirm with **Yes, stop**. That network's scheduled posts for this identity are cancelled and its auto-publishing turns off. Buffer stays connected for everything else.
+
+Connecting or syncing Buffer later sets up again any network that has no account for the identity you are working on, so check the list after **Sync now** or **Reconnect**.
+
+## Disconnect Buffer
+
+Click **Disconnect** on the Buffer account row and confirm with **Yes, disconnect**. TDC AI stops publishing through that Buffer account **for all your identities**: their scheduled posts are cancelled and auto-publishing turns off. Posts already published are not affected.
+
+This does not remove the app from Buffer. To revoke its access there too, remove TDC AI from your Buffer account's connected apps.
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Schedule', href: '/docs/publishing/schedule' },
+    { title: 'Post Types & Images', href: '/docs/publishing/posts/post-types' },
+    { title: 'Identities', href: '/docs/getting-started/identities' },
+    { title: 'Troubleshooting', href: '/docs/help/troubleshooting' }
+  ]}
+/>

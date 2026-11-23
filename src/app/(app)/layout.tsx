@@ -1,10 +1,11 @@
-import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { MobileNavProvider } from '@/components/mobile-nav'
+import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { RefreshOnBack } from '@/components/refresh-on-back'
 import { Sidebar } from '@/components/sidebar'
 import { ToastContainer } from '@/components/toast-notification'
 import { db } from '@/db'
 import { ideasTable } from '@/db/schema'
+import { HelpButton } from '@/docs/components/help-button'
 import { getIdentity, listIdentities } from '@/lib/identity'
 import { publishConfigs } from '@/lib/publishing/config'
 import { getCurrentConnections } from '@/lib/publishing/current-connection'
@@ -14,8 +15,15 @@ import { requireUser } from '@/lib/session'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import { and, count, eq } from 'drizzle-orm'
 import { cookies } from 'next/headers'
+import { Fragment } from 'react'
 
 export const dynamic = 'force-dynamic'
+/**
+ * Every page's server actions, and the runs and drafts they start with
+ * `after()`, get Vercel's most (FUNCTION_MAX_DURATION_S in
+ * src/lib/function-limit.ts); a literal, as segment config must be.
+ */
+export const maxDuration = 300
 
 export default async function AppLayout({
   children
@@ -90,9 +98,19 @@ export default async function AppLayout({
             user={{ name: user.name, email: user.email }}
           />
           <main className="bg-background relative flex min-w-0 flex-1 flex-col overflow-y-auto">
-            <RefreshOnBack>{children}</RefreshOnBack>
+            <RefreshOnBack>
+              {/* Switching identity reloads the page with router.refresh(),
+                  which keeps client state: a form would still hold the
+                  previous identity's values, and its Save would write them
+                  into the new one. Keyed by identity, the page starts afresh
+                  from the new identity's data. The key sits inside
+                  RefreshOnBack so a Back-after-change reload it started
+                  survives the switch. */}
+              <Fragment key={identity?.id ?? 'none'}>{children}</Fragment>
+            </RefreshOnBack>
           </main>
           <ToastContainer />
+          <HelpButton />
         </div>
       </PublishingStatusProvider>
     </MobileNavProvider>

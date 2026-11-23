@@ -19,11 +19,14 @@ import {
   type GenerationContext
 } from '../../context-blocks'
 import { isCasualStyle } from '@/lib/formats'
+import { renderInsightsForDrafting } from '@/lib/profile-insights/render'
 import {
   CASUAL_TRUTH_RULES,
   casualPersona,
   casualStyleRules
 } from '../shared/casual-rules'
+import { renderIdeaEvidence } from '../shared/evidence'
+import { renderReferenceForDrafting } from '@/lib/reference-post/render'
 import { TRUTH_RULES } from '../shared/truth-rules'
 import type { DraftGenerationResult } from './schema'
 
@@ -61,6 +64,12 @@ export function buildInstructions(ctx: GenerationContext): string {
   // the prompt it always had.
   const style = styleFor(ctx, platformOf(ctx).id)
   const casual = isCasualStyle(style) ? style : null
+  // How the author's public posts here already read; only when known, so
+  // the prompt is otherwise the one it always was.
+  const profile = renderInsightsForDrafting(
+    ctx.platformInsights?.[platformOf(ctx).id],
+    platformOf(ctx).id
+  )
 
   return `${
     casual
@@ -98,7 +107,7 @@ ${
 - Do not summarise at the end. The last line before the call to action adds something new.
 - Write the way this author would say it to one reader across a table, not the way a report is written.`
 }
-${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
+${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own corrections; apply them\n${feedback}\n` : ''}${profile ? `\n${profile}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — match the rhythm, structure and idiom of these real posts:\n\n${exemplars}` : ''}`
 }
 
 /** The approved idea, its evidence, and exactly what to produce. */
@@ -135,6 +144,8 @@ export function buildPrompt(
     overused.length > 0
       ? `\nThis author's recent ideas and posts keep using the same specifics: ${motifList(overused)}. Use other examples, objects, places and situations in this post, unless the idea is about one of them.\n`
       : ''
+  // Only for an idea made from a shared post, so every other prompt stays as it was.
+  const reference = renderReferenceForDrafting(idea.reference)
 
   return `Write the post for this approved idea.
 ${recent}${habits}
@@ -147,17 +158,8 @@ Core argument: ${idea.coreArgument || ''}
 Reader takeaway: ${idea.audienceTakeaway || ''}
 
 EVIDENCE YOU MAY USE (nothing outside this):
-${
-  (idea.supportingEvidence || []).length > 0
-    ? (idea.supportingEvidence || [])
-        .map(
-          (e, i) =>
-            `[${i + 1}] ${e.claim}${e.quote ? `\n    Quote: "${e.quote}"` : ''}${e.sourceTitle ? `\n    Source: ${e.sourceTitle}` : ''}${e.sourceUrl ? `\n    URL: ${e.sourceUrl}` : ''}`
-        )
-        .join('\n')
-    : 'No external evidence was gathered. Write from reasoning alone and state no statistics.'
-}
-
+${renderIdeaEvidence(idea.supportingEvidence)}
+${reference ? `\n${reference}\n` : ''}
 Produce:
 1. hook — at most ${constraints.hook_max_chars} characters, a complete thought that survives the fold
 2. body — the rest of the post after the hook; do not repeat the hook. Plain text; hook and body together about ${constraints.target_chars} characters${

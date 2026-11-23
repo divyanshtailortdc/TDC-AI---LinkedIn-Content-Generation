@@ -22,6 +22,20 @@ export const env = createEnv({
     // 'agent' lets the research agent choose searches and read pages.
     RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
+    // The AI Gateway video model short videos are made with
+    // (src/lib/video/models.ts); unset is Veo 3.1 Lite.
+    VIDEO_MODEL: z.string().optional(),
+    // What one user may spend on AI over any 30 days, in US dollars, across
+    // every identity they own and everything that calls a model (runs,
+    // newsletters, setup, post editing). Past it, new model calls are
+    // refused until older spend leaves the window (src/lib/ai/spend.ts).
+    AI_SPEND_LIMIT_USD: z.coerce.number().positive().default(100),
+    // The same over any 24 hours, so a burst cannot use up the 30 days.
+    AI_DAILY_SPEND_LIMIT_USD: z.coerce.number().positive().default(20),
+    // What one identity's inbox may spend on AI over any 24 hours: reading
+    // received email and the articles it links to, which anyone who knows
+    // the address can start. Past it, email is read without AI summaries.
+    AI_INBOX_DAILY_LIMIT_USD: z.coerce.number().positive().default(2),
     CRON_SECRET: z.string().optional(),
 
     // Authentication (see docs/AUTHENTICATION.md). Better Auth refuses to
@@ -36,8 +50,6 @@ export const env = createEnv({
     // both its id and secret are set.
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    LINKEDIN_CLIENT_ID: z.string().optional(),
-    LINKEDIN_CLIENT_SECRET: z.string().optional(),
     /** 32 bytes, base64: encrypts publishing tokens at rest. openssl rand -base64 32 */
     TOKEN_ENCRYPTION_KEY: z
       .string()
@@ -51,7 +63,7 @@ export const env = createEnv({
     // app. On whenever TOKEN_ENCRYPTION_KEY is set; "off" hides it.
     X_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     // LinkedIn publishes through Buffer too (docs/BUFFER_OAUTH.md); "off"
-    // hides it. The LinkedIn developer apps are for signing in only.
+    // hides it.
     LINKEDIN_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     // Threads, Facebook Pages and Instagram (professional accounts) through
     // Buffer too (docs/PUBLISHING_FACEBOOK_INSTAGRAM.md), with the same Buffer
@@ -59,6 +71,7 @@ export const env = createEnv({
     THREADS_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     FACEBOOK_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     INSTAGRAM_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
+    YOUTUBE_PUBLISHING: z.enum(['buffer', 'off']).default('buffer'),
     /** Buffer's GraphQL endpoint; only a test stub needs another. */
     BUFFER_API_URL: z.url().default('https://api.buffer.com'),
     /**
@@ -149,18 +162,21 @@ export const env = createEnv({
     SERPER_API_KEY: process.env.SERPER_API_KEY,
     RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+    VIDEO_MODEL: process.env.VIDEO_MODEL,
+    AI_SPEND_LIMIT_USD: process.env.AI_SPEND_LIMIT_USD,
+    AI_DAILY_SPEND_LIMIT_USD: process.env.AI_DAILY_SPEND_LIMIT_USD,
+    AI_INBOX_DAILY_LIMIT_USD: process.env.AI_INBOX_DAILY_LIMIT_USD,
     CRON_SECRET: process.env.CRON_SECRET,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-    LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
-    LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
     X_PUBLISHING: process.env.X_PUBLISHING,
     LINKEDIN_PUBLISHING: process.env.LINKEDIN_PUBLISHING,
     THREADS_PUBLISHING: process.env.THREADS_PUBLISHING,
     FACEBOOK_PUBLISHING: process.env.FACEBOOK_PUBLISHING,
     INSTAGRAM_PUBLISHING: process.env.INSTAGRAM_PUBLISHING,
+    YOUTUBE_PUBLISHING: process.env.YOUTUBE_PUBLISHING,
     BUFFER_API_URL: process.env.BUFFER_API_URL,
     PUBLISHING_MEDIA_URL: process.env.PUBLISHING_MEDIA_URL,
     BUFFER_CLIENT_ID: process.env.BUFFER_CLIENT_ID,

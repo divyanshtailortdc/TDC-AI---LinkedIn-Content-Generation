@@ -11,6 +11,7 @@ import {
   type FormatSpec,
   type MediaFormat
 } from '@/lib/formats'
+import { renderInsightsForDrafting } from '@/lib/profile-insights/render'
 import { channelNote, forFormat } from '../../channel-context'
 import {
   describeCta,
@@ -28,6 +29,8 @@ import {
   type GenerationContext
 } from '../../context-blocks'
 import { CASUAL_TRUTH_RULES, casualStyleRules } from '../shared/casual-rules'
+import { renderIdeaEvidence } from '../shared/evidence'
+import { renderReferenceForDrafting } from '@/lib/reference-post/render'
 import { TRUTH_RULES } from '../shared/truth-rules'
 import type { VariantDraft } from './schema'
 
@@ -134,7 +137,8 @@ ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER POSTS — the author's own correcti
 }
 
 export function buildIdeaBlock(idea: Idea): string {
-  const evidence = idea.supportingEvidence || []
+  // Only for an idea made from a shared post, so every other prompt stays as it was.
+  const reference = renderReferenceForDrafting(idea.reference)
   return `THE APPROVED IDEA
 Title: ${idea.title}
 Thesis: ${idea.thesis || ''}
@@ -145,16 +149,7 @@ Core argument: ${idea.coreArgument || ''}
 Reader takeaway: ${idea.audienceTakeaway || ''}
 
 EVIDENCE YOU MAY USE (nothing outside this):
-${
-  evidence.length > 0
-    ? evidence
-        .map(
-          (e, i) =>
-            `[${i + 1}] ${e.claim}${e.quote ? `\n    Quote: "${e.quote}"` : ''}${e.sourceTitle ? `\n    Source: ${e.sourceTitle}` : ''}${e.sourceUrl ? `\n    URL: ${e.sourceUrl}` : ''}`
-        )
-        .join('\n')
-    : 'No external evidence was gathered. Write from reasoning alone and state no statistics.'
-}`
+${renderIdeaEvidence(idea.supportingEvidence)}${reference ? `\n\n${reference}` : ''}`
 }
 
 function describeRange(range: { min: number; max: number }): string {
@@ -220,7 +215,9 @@ function renderExemplars(ctx: GenerationContext, spec: FormatSpec): string {
 function renderProduceList(
   ctx: GenerationContext,
   spec: FormatSpec,
-  media?: MediaPlan
+  media?: MediaPlan,
+  /** Their posts on this platform were analyzed (WHAT THEIR … ALREADY LOOKS LIKE). */
+  analyzed = false
 ): string {
   const hashtags =
     spec.hashtags === 'voice'
@@ -231,8 +228,13 @@ function renderProduceList(
   if (spec.structure === 'script') {
     const seconds = spec.limits.seconds!
     const words = Math.round(seconds.target * WORDS_PER_SECOND)
+    const shots = spec.limits.shots ?? { min: 4, max: 8 }
+    // A clip the AI makes (shots set) carries no overlay text.
+    const overlay = spec.limits.shots
+      ? 'Leave onScreenText empty: the clip has no overlays.'
+      : 'when it helps, onScreenText (a few words of overlay).'
     return `Produce:
-1. shots — the video in order, usually 4 to 8 shots. Each has: say (the words spoken, written to be said aloud), show (what is on screen) and, when it helps, onScreenText (a few words of overlay). The first shot is the hook. All the spoken words together take about ${seconds.target} seconds (about ${words} words), never over ${seconds.max} seconds. The last shot carries the call to action: ${cta}
+1. shots — the video in order, usually ${shots.min} to ${shots.max} shots. Each has: say (the words spoken, written to be said aloud), show (what is on screen, described so a video model can show it) and ${overlay} The first shot is the hook. All the spoken words together take about ${seconds.target} seconds (about ${words} words), never over ${seconds.max} seconds. The last shot carries the call to action: ${cta}
 2. caption — the text posted with the video, about ${spec.limits.targetChars} characters, never over ${spec.limits.maxChars}${spec.limits.foldChars ? `; its first ${spec.limits.foldChars} characters show before "more"` : ''}
 ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly what the viewer gets, in the words they would search' : '3. title — leave empty'}
 4. hashtags — ${hashtags}, without the # symbol; they go after the caption
@@ -257,7 +259,7 @@ ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly wh
   const fold = spec.limits.foldChars
   return `Produce:
 1. hook — the opening line${fold ? `, a complete thought within ${fold} characters` : ''}
-2. body — the rest of the post; do not repeat the hook. Hook, body, call to action and hashtags together about ${spec.limits.targetChars} characters, never over ${spec.limits.maxChars}
+2. body — the rest of the post; do not repeat the hook. Hook, body, call to action and hashtags together about ${spec.limits.targetChars} characters${analyzed ? `, and no longer than their own ${PLATFORMS[spec.platform].label} captions run (see what their ${PLATFORMS[spec.platform].label} already looks like): an account that posts one-liners gets a short caption` : ''}, never over ${spec.limits.maxChars}
 3. cta — ${cta}
 4. linkComment — as the link rule above says
 5. hashtags — ${hashtags}, without the # symbol
@@ -315,6 +317,8 @@ export function buildFormatPrompt(
   // The specifics this account keeps reusing (a food, a setting, a joke).
   const overused = recentMotifs(ctx, { drafts: 'own' })
   const exemplars = renderExemplars(ctx, spec)
+  // How the author's public posts on this platform already read, when known.
+  const profile = renderInsightsForDrafting(ctx.platformInsights?.[spec.platform], spec.platform)
 
   const lines = [
     `Write the ${spec.label} for this idea.`,
@@ -329,7 +333,9 @@ export function buildFormatPrompt(
       ? [`Who follows this author on ${platform.label}: ${note.audience}. Write for them.`]
       : []),
     ...(note?.tone
-      ? [`How this author sounds on ${platform.label}, beyond the core voice: ${note.tone}`]
+      ? [
+          `How this author sounds on ${platform.label}, beyond the core voice: ${note.tone}. These are traits of the feed as a whole: a recurring bit, shout-out or sign-off belongs in the posts it fits, not in every one.`
+        ]
       : []),
     ...(note?.rubric
       ? [
@@ -337,6 +343,7 @@ export function buildFormatPrompt(
           note.rubric
         ]
       : []),
+    ...(profile ? ['', profile] : []),
     '',
     'FORMAT RULES',
     ...spec.rules.map(r => `- ${r}`),
@@ -365,7 +372,7 @@ export function buildFormatPrompt(
       : []),
     ...(exemplars ? ['', exemplars] : []),
     '',
-    renderProduceList(ctx, spec, media)
+    renderProduceList(ctx, spec, media, Boolean(profile))
   ]
   return lines.join('\n')
 }

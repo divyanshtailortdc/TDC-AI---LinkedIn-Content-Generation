@@ -3,7 +3,9 @@ import {
   captionOnSlides,
   clampWords,
   cleanSlideText,
-  figureIsSourced
+  figureIsSourced,
+  quoteIsSourced,
+  slideFactIssues
 } from '@/lib/carousel/checks'
 import {
   cleanDesign,
@@ -26,7 +28,10 @@ export interface GuardOptions {
   maxSlides: number
   /** Whether the image style draws pictures at all (not minimal graphic design). */
   pictures: boolean
-  /** Where a stat slide's figure must come from: the evidence and the author's details. */
+  /**
+   * What the slides may state: the evidence and the author's details. A stat
+   * or a quote not in it is not drawn as one; figures in the rest are reported.
+   */
   figureSources: string
 }
 
@@ -48,6 +53,10 @@ export function toSlide(
     layout === 'stat' &&
     !(stat && figureIsSourced(stat, options.figureSources))
   ) {
+    layout = 'statement'
+  }
+  // Nor is a quote no source says: it would put words in someone's mouth.
+  if (layout === 'quote' && !quoteIsSourced(body, options.figureSources)) {
     layout = 'statement'
   }
   if (layout === 'list') {
@@ -127,6 +136,17 @@ export function toCarousel(
     if (slide.design.picture) pictures++
   }
   return slides
+}
+
+/**
+ * For each slide, what it states that the sources do not (see
+ * slideFactIssues): kept on the slide, so the reviewer sees it there.
+ */
+export function carouselFactIssues(
+  slides: SlideContent[],
+  figureSources: string
+): string[][] {
+  return slides.map(slide => slideFactIssues(slide, figureSources))
 }
 
 /** What is wrong with a carousel that the reviewer should know. */

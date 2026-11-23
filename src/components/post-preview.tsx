@@ -274,6 +274,9 @@ export function PostPreview({
                 height={630}
                 className="mx-auto h-full w-full object-contain"
                 unoptimized
+                // The post page's largest element, above the fold.
+                loading="eager"
+                fetchPriority="high"
               />
               <span className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
                 <ZoomIn className="h-3 w-3" />
@@ -288,6 +291,8 @@ export function PostPreview({
               height={630}
               className="relative mx-auto h-full w-full object-contain"
               unoptimized
+              loading="eager"
+              fetchPriority="high"
             />
           )}
         </div>

@@ -11,6 +11,7 @@ import {
   Edit3,
   ExternalLink,
   Flame,
+  Link2,
   Loader2,
   Sparkles,
   Target,
@@ -18,13 +19,34 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
+import {
+  DIMENSION_LABELS,
+  hasWeakSources,
+  type IdeaScorecard
+} from '@/lib/idea-scorecard'
+import { rateSource, type SourceRating } from '@/lib/research/source-credibility'
+import { describeReference } from '@/lib/reference-post/render'
+import type { SharedPostRef } from '@/lib/reference-post/types'
 
 interface EvidenceItem {
   claim?: string
   sourceTitle?: string
   sourceUrl?: string
   factType?: string
+  credibility?: SourceRating
+  publisher?: string
+  kind?: string
 }
+
+/** What a trend-scan source was for, as the evidence list says it. */
+const KIND_LABEL: Record<string, string> = {
+  news: 'in the news',
+  trend: 'trend',
+  conversation: 'what people say'
+}
+
+/** At or above this trend relevance the card face says the idea is on trend. */
+const ON_TREND = 75
 
 export interface RunIdeaCardData {
   id: string
@@ -50,6 +72,12 @@ export interface RunIdeaCardData {
   goalFitNote?: string | null
   /** The formats ideation judged it suits, when its run offered several. */
   formatFit?: string[] | null
+  /** Every other score with its reason (src/lib/idea-scorecard); null for older ideas. */
+  scorecard?: IdeaScorecard | null
+  /** Claims dropped for lack of a source. */
+  unsupportedClaims?: string[] | null
+  /** The public post it was made from ("From a link"); null for ideas from a run. */
+  reference?: SharedPostRef | null
   status: string
 }
 
@@ -130,9 +158,6 @@ export const IDEA_STATUS_LABEL: Record<string, string> = {
   drafted: 'Drafted'
 }
 
-/** Below this grounding score the card warns that the idea is thinly sourced. */
-const WEAK_GROUNDING = 60
-
 function isWebUrl(url?: string): url is string {
   return !!url && /^https?:\/\//i.test(url)
 }
@@ -194,16 +219,13 @@ export function RunIdeaCard({
     ? (idea.supportingEvidence as EvidenceItem[]).filter(e => e?.claim)
     : []
   const risks = (idea.risks || []).filter(Boolean)
-  const grounding =
-    typeof idea.groundingScore === 'number' ? idea.groundingScore : null
-  const weakSources = isOpen && grounding !== null && grounding < WEAK_GROUNDING
-  const scores = [
-    typeof idea.goalFitScore === 'number' && `Goal fit ${idea.goalFitScore}/100`,
-    grounding !== null && `Sources ${grounding}%`,
-    typeof idea.score === 'number' && `Strength ${idea.score}/100`,
-    typeof idea.originalityScore === 'number' &&
-      `Originality ${idea.originalityScore}/100`
-  ].filter(Boolean)
+  // Only an idea whose facts rest on weak sources is warned about; one that
+  // states no facts needs no sources (src/lib/idea-scorecard).
+  const weakSources = isOpen && hasWeakSources(idea)
+  const sourcesReason = idea.scorecard?.sources?.reason
+  const trend = idea.scorecard?.trendRelevance
+  const onTrend = isOpen && !!trend && trend.score >= ON_TREND
+  const scoreRows = scoreRowsFor(idea, evidence.length)
 
   const hasDetails =
     !!idea.hookConcept ||
@@ -216,7 +238,7 @@ export function RunIdeaCard({
     !!idea.noveltyNote ||
     !!idea.goalFitNote ||
     evidence.length > 0 ||
-    scores.length > 0 ||
+    scoreRows.length > 0 ||
     canEdit
 
   const handleSaveEdit = async () => {
@@ -234,19 +256,26 @@ export function RunIdeaCard({
   }
 
   return (
-    // A collapsed card has one fixed size (room for a two-line title and a
-    // three-line summary) so every tab lines up; opening Details or the editor
-    // lets just that card grow.
+    // A collapsed card is at least as tall as a two-line title and a
+    // three-line summary need (both are clamped), so every tab lines up;
+    // opening Details or the editor lets just that card grow. A fixed h-64
+    // was 16px short: a wrapped title lost its descenders and the summary its
+    // last line.
     <article
       className={cn(
         'bg-surface flex min-w-0 flex-col rounded-2xl border p-5 shadow-xs transition-colors',
         selected && showCheckbox
           ? 'border-brand/60 ring-brand/20 ring-2'
           : 'border-border hover:border-foreground/15',
-        collapsed ? 'h-64' : 'min-h-64'
+        collapsed ? 'min-h-[17rem]' : 'min-h-64'
       )}
     >
-      {(showCheckbox || goals.length > 0 || weakSources || showStatus) && (
+      {(showCheckbox ||
+        goals.length > 0 ||
+        !!idea.reference ||
+        weakSources ||
+        onTrend ||
+        showStatus) && (
         <div className="mb-2 flex min-w-0 items-center gap-2 text-xs">
           {showCheckbox && (
             <input
@@ -282,10 +311,41 @@ export function RunIdeaCard({
               ))}
             </span>
           )}
+          {idea.reference && (
+            // What it was made from, one click away.
+            <a
+              href={idea.reference.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`A post like this ${describeReference({
+                ...idea.reference,
+                author: idea.reference.author ?? undefined
+              })}`}
+              className="text-muted hover:text-foreground flex min-w-0 items-center gap-1"
+            >
+              <Link2 className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">
+                Like: {describeReference({ source: idea.reference.source, kind: idea.reference.kind })}
+              </span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          )}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {onTrend && !weakSources && (
+              <span
+                title={trend!.reason}
+                className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-700 dark:text-amber-400"
+              >
+                <Flame className="h-3 w-3" />
+                On trend
+              </span>
+            )}
             {weakSources && (
               <span
-                title={`Only ${grounding}% of this idea is backed by your knowledge base and research`}
+                title={
+                  sourcesReason ??
+                  'Some of the facts this idea states could not be backed by your knowledge base or research'
+                }
                 className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 font-semibold text-rose-700 dark:text-rose-400"
               >
                 <AlertTriangle className="h-3 w-3" />
@@ -396,9 +456,6 @@ export function RunIdeaCard({
 
           {showDetails && (
             <div className="border-border mt-4 space-y-3 border-t pt-4 text-sm">
-              {idea.goalFitNote && (
-                <DetailRow label="For its goal">{idea.goalFitNote}</DetailRow>
-              )}
               {goals.length > 1 && (
                 <DetailRow label="Goals">
                   {goals[0]} (main goal; sets the call to action), also{' '}
@@ -437,6 +494,7 @@ export function RunIdeaCard({
                   {idea.noveltyNote}
                 </DetailRow>
               )}
+              {scoreRows.length > 0 && <ScoreList rows={scoreRows} />}
 
               {evidence.length > 0 && (
                 <div>
@@ -451,25 +509,35 @@ export function RunIdeaCard({
                       >
                         <span className="text-foreground">{ev.claim}</span>
                         {(ev.sourceTitle || isWebUrl(ev.sourceUrl)) && (
-                          <span className="text-muted mt-1 flex items-center gap-1">
+                          <span className="text-muted mt-1 flex flex-wrap items-center gap-x-1">
                             {isWebUrl(ev.sourceUrl) ? (
                               <a
                                 href={ev.sourceUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-accent inline-flex items-center gap-1 hover:underline"
+                                className="text-accent inline-flex min-w-0 items-center gap-1 hover:underline"
                               >
-                                {ev.sourceTitle || 'Source'}
-                                <ExternalLink className="h-3 w-3" />
+                                <span className="min-w-0 truncate">
+                                  {ev.sourceTitle || ev.publisher || 'Source'}
+                                </span>
+                                <ExternalLink className="h-3 w-3 shrink-0" />
                               </a>
                             ) : (
                               ev.sourceTitle
                             )}
+                            {ev.publisher && ev.sourceTitle && (
+                              <span>· {ev.publisher}</span>
+                            )}
+                            {evidenceRating(ev) && (
+                              <span title={evidenceRating(ev)!.note}>
+                                · {evidenceRating(ev)!.label}
+                              </span>
+                            )}
+                            {ev.kind && KIND_LABEL[ev.kind] && (
+                              <span>· {KIND_LABEL[ev.kind]}</span>
+                            )}
                             {ev.factType === 'inferred' && (
                               <span>· inferred</span>
-                            )}
-                            {ev.factType === 'sourced' && (
-                              <span>· from the web</span>
                             )}
                           </span>
                         )}
@@ -479,24 +547,17 @@ export function RunIdeaCard({
                 </div>
               )}
 
-              {(scores.length > 0 || canEdit) && (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {scores.length > 0 && (
-                    <p className="text-muted text-xs tabular-nums">
-                      {scores.join(' · ')}
-                    </p>
-                  )}
-                  {canEdit && (
-                    <button
-                      type="button"
-                      disabled={actionsDisabled}
-                      onClick={() => setMode('edit')}
-                      className="border-border text-foreground hover:bg-surface-hover ml-auto inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
-                    >
-                      <Edit3 className="h-3.5 w-3.5" />
-                      Edit hook &amp; angle
-                    </button>
-                  )}
+              {canEdit && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={actionsDisabled}
+                    onClick={() => setMode('edit')}
+                    className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-60"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Edit hook &amp; angle
+                  </button>
                 </div>
               )}
             </div>
@@ -604,6 +665,152 @@ export function RunIdeaCard({
         </>
       )}
     </article>
+  )
+}
+
+/**
+ * How far an evidence item's source can be trusted, for the evidence list:
+ * as the validator rated it, or, for ideas saved before ratings, from its
+ * address. Nothing for the account's own material, which needs no label.
+ */
+function evidenceRating(ev: EvidenceItem): SourceRating | null {
+  if (ev.credibility) {
+    return ev.credibility.tier === 'own' || ev.credibility.tier === 'knowledge'
+      ? null
+      : ev.credibility
+  }
+  if (ev.factType !== 'sourced' || !isWebUrl(ev.sourceUrl)) return null
+  return rateSource({ url: ev.sourceUrl, origin: 'web' })
+}
+
+type ScoreRow = {
+  key: string
+  label: string
+  /** 0-100; null shows `value` in its place with no bar. */
+  score: number | null
+  value?: string
+  reason?: string
+  /** Trend relevance is not a verdict: an evergreen idea is not a weak one. */
+  neutral?: boolean
+}
+
+/**
+ * The scores to show, each with its reason: goal fit, the judged ones, and
+ * source quality. Ideas saved before the scorecard show what they have.
+ */
+function scoreRowsFor(idea: RunIdeaCardData, evidenceCount: number): ScoreRow[] {
+  const card = idea.scorecard
+  const rows: ScoreRow[] = []
+  if (typeof idea.goalFitScore === 'number') {
+    rows.push({
+      key: 'goalFit',
+      label: DIMENSION_LABELS.goalFit,
+      score: idea.goalFitScore,
+      reason: idea.goalFitNote ?? undefined
+    })
+  }
+  for (const key of ['engagement', 'originality', 'trendRelevance', 'brandFit'] as const) {
+    const judged = card?.[key]
+    if (judged) {
+      rows.push({
+        key,
+        label: DIMENSION_LABELS[key],
+        score: judged.score,
+        reason: judged.reason,
+        neutral: key === 'trendRelevance'
+      })
+    }
+  }
+  if (!card?.originality && typeof idea.originalityScore === 'number') {
+    rows.push({ key: 'originality', label: DIMENSION_LABELS.originality, score: idea.originalityScore })
+  }
+  const sources = card?.sources
+  if (sources) {
+    rows.push({
+      key: 'sources',
+      label: DIMENSION_LABELS.sources,
+      score: sources.score,
+      value: sources.score === null ? 'Not needed' : undefined,
+      reason: sources.reason
+    })
+  } else if (typeof idea.groundingScore === 'number') {
+    // Older ideas: their grounding score counted the idea's own reasoning,
+    // so one with no claims at all is shown as needing no sources.
+    const claims = evidenceCount + (idea.unsupportedClaims?.length ?? 0)
+    rows.push(
+      claims === 0
+        ? {
+            key: 'sources',
+            label: DIMENSION_LABELS.sources,
+            score: null,
+            value: 'Not needed',
+            reason: 'It states no facts that need a source.'
+          }
+        : {
+            key: 'sources',
+            label: DIMENSION_LABELS.sources,
+            score: idea.groundingScore,
+            reason: `${claims} factual ${claims === 1 ? 'claim' : 'claims'}${
+              idea.unsupportedClaims?.length
+                ? `; ${idea.unsupportedClaims.length} could not be verified and ${idea.unsupportedClaims.length === 1 ? 'was' : 'were'} dropped`
+                : ''
+            }.`
+          }
+    )
+  }
+  return rows
+}
+
+function scoreTone(row: ScoreRow): { text: string; bar: string } {
+  if (row.neutral || row.score === null) {
+    return { text: 'text-foreground/80', bar: 'bg-foreground/30' }
+  }
+  if (row.score >= 75) {
+    return { text: 'text-emerald-700 dark:text-emerald-400', bar: 'bg-emerald-500' }
+  }
+  if (row.score >= 55) {
+    return { text: 'text-amber-700 dark:text-amber-400', bar: 'bg-amber-500' }
+  }
+  return { text: 'text-rose-700 dark:text-rose-400', bar: 'bg-rose-500' }
+}
+
+function ScoreList({ rows }: { rows: ScoreRow[] }) {
+  return (
+    <div>
+      <p className="text-muted mb-1.5 text-xs font-semibold">How it scores</p>
+      <ul className="space-y-2.5">
+        {rows.map(row => {
+          const tone = scoreTone(row)
+          return (
+            <li key={row.key}>
+              <div className="flex items-baseline justify-between gap-3 text-xs">
+                <span className="text-foreground font-medium">{row.label}</span>
+                <span className={cn('font-semibold tabular-nums', tone.text)}>
+                  {row.score === null ? row.value : row.score}
+                </span>
+              </div>
+              {row.score !== null && (
+                <div
+                  className="bg-surface-hover mt-1 h-1 overflow-hidden rounded-full"
+                  role="presentation"
+                >
+                  <div
+                    className={cn('h-full rounded-full', tone.bar)}
+                    style={{ width: `${row.score}%` }}
+                  />
+                </div>
+              )}
+              {row.reason && (
+                <p className="text-muted mt-1 text-xs leading-relaxed">{row.reason}</p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      <p className="text-muted mt-2 text-[11px] leading-relaxed">
+        Scores estimate potential; none can promise reach.
+      </p>
+    </div>
   )
 }
 

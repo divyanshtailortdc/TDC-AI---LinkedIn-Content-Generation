@@ -8,7 +8,11 @@ import {
   runsTable
 } from '@/db/schema'
 import { goalIdsOfRun } from '@/lib/ai/pipeline/ideation-run'
-import { recoverInterruptedRuns, stopActiveRun } from '@/lib/ai/run-lifecycle'
+import {
+  mayBeInterrupted,
+  recoverInterruptedRuns,
+  stopActiveRun
+} from '@/lib/ai/run-lifecycle'
 import { IDENTITY_PATH, requireIdentityId } from '@/lib/identity'
 import { isPlatformId } from '@/lib/formats'
 import { isUuid } from '@/lib/ids'
@@ -200,8 +204,9 @@ export async function pollRuns(runIds: string[]) {
  * What a run's page polls while the run is moving: the run row and its steps.
  * Research findings are saved in one batch, so they are sent only while the
  * page has none (`needFindings`); ideas come from fetchRunStatus once the run
- * stops. Interrupted runs are settled by the worker's recovery timer, not
- * here, so a poll never writes.
+ * stops. A run whose process ended without cleanup (Vercel's time limit, a
+ * crash) is settled here once its heartbeat is stale: on Vercel no worker
+ * timer would, and the page would poll it forever. Only then does a poll write.
  */
 export async function pollRunProgress(runId: string, needFindings: boolean) {
   const user = await requireUser()
@@ -238,6 +243,16 @@ export async function pollRunProgress(runId: string, needFindings: boolean) {
         : Promise.resolve(null)
     ])
     if (!owned) return { success: false as const, error: 'Run not found' }
+    if (mayBeInterrupted(owned.run)) {
+      const recovered = await recoverInterruptedRuns(owned.run.id)
+      // Settled: the page sees it stopped and loads the rest (fetchRunStatus).
+      if (recovered.length > 0) {
+        const run = await db.query.runsTable.findFirst({
+          where: eq(runsTable.id, owned.run.id)
+        })
+        if (run) return { success: true as const, run, steps, findings }
+      }
+    }
     return { success: true as const, run: owned.run, steps, findings }
   } catch (err: any) {
     return {

@@ -5,8 +5,9 @@ import {
   styleFor,
   type GenerationContext
 } from '../context-blocks'
-import { collectFigureSources } from '../skills/post-drafting/guard'
+import { collectFigureSources, collectLinkSources } from '../skills/post-drafting/guard'
 import { forFormat } from '../channel-context'
+import { isFreshSource, productLinesOf } from './grounding-corpus'
 import { writingSettingsForVoice } from '~/lib/lint/writing-rules'
 import type { LintOptions } from '~/lib/lint/run-linter'
 import type { Idea } from '@/db/schema'
@@ -71,6 +72,15 @@ export function buildPostLintOptions(
     citationsCount: citationsCount ?? idea?.supportingEvidence?.length ?? 0,
     minCitations: ctx.prefs.research.min_citations_per_post,
     figureSources: idea ? collectFigureSources(ctx, idea) : null,
+    // A post written without an idea is the author's own; its links too.
+    linkSources: idea ? collectLinkSources(ctx, idea) : null,
+    // The checks ideas get for invented products and news, on the post too.
+    productLines: productLinesOf(ctx),
+    citesRecentSource: idea
+      ? (idea.supportingEvidence || []).some(e =>
+          isFreshSource(ctx, e.sourceUrl, e.publishedAt)
+        )
+      : null,
     // Only third-party wording: a web source's own text. The model's restated
     // claims and the author's own pages are theirs to repeat.
     evidenceTexts: (idea?.supportingEvidence || [])

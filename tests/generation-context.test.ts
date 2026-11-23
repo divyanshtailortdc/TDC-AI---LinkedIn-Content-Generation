@@ -55,6 +55,8 @@ function account(overrides: Partial<Account>): Account {
     linkedinUrl: null,
     profileLinks: {},
     industry: null,
+    contextSince: null,
+    contextIdentity: null,
     isActive: true,
     createdAt: now,
     updatedAt: now,
@@ -337,6 +339,8 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
     originalityScore: 80,
     goalFitScore: null,
     goalFitNote: null,
+    scorecard: null,
+    reference: null,
     unsupportedClaims: [],
     sourceIds: [],
     risks: [],
@@ -591,6 +595,7 @@ describe('buildGroundingCorpus', () => {
       knowledgePassages: 1,
       newsletterItems: 0,
       webFindings: 1,
+      trendSignals: 0,
       documentSummaries: 2,
       knowledgeClaims: 60
     })

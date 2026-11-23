@@ -14,10 +14,40 @@ import {
   fieldLabel,
   IdentitySetupSuggestionsSchema,
   KnowledgeUrlsSchema,
+  type KnowledgeSuggestions,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
-import { profileFromRecords } from '@/lib/identity-profile'
+import {
+  cleanChannelSettings,
+  cleanGoalPlatforms,
+  resolveChannels,
+  type PlatformId
+} from '@/lib/formats'
+import { IDENTITY_PATH } from '@/lib/identity'
+import { snapshotOf, type IdentitySnapshot } from '@/lib/identity-change'
+import {
+  IdentityProfileSchema,
+  profileFromRecords
+} from '@/lib/identity-profile'
+import {
+  IdentitySwitchBlockedError,
+  switchIdentityData,
+  switchPreview,
+  type SwitchPreview,
+  type SwitchSummary
+} from '@/lib/identity-switch'
+import { idSchema } from '@/lib/ids'
 import { findOwnedAccount } from '@/lib/ownership'
+import {
+  runProfileAnalysis,
+  syncProfileAnalyses
+} from '@/lib/profile-insights/analyze'
+import {
+  cleanProfileLinks,
+  profileLinkErrors,
+  profileLinksOf,
+  type ProfileLinks
+} from '@/lib/profile-links'
 import { requireUser } from '@/lib/session'
 import {
   buildGoalPayload,
@@ -34,9 +64,15 @@ import {
   type ProfileValues,
   type VoiceValues
 } from '@/lib/settings-merge'
-import { AccountIdSchema } from '@/lib/setup-payloads'
+import {
+  AccountIdSchema,
+  GoalPayloadSchema,
+  PreferencesPayloadSchema
+} from '@/lib/setup-payloads'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import { asc, eq } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { z } from 'zod'
 import { updateAccountAction } from './actions'
 import { createGoal } from '../goals/actions'
@@ -76,6 +112,23 @@ export type IdentitySetupBaseline = {
   /** The goal new runs use today; an AI goal is added paused beside it. */
   activeGoalTitle: string | null
   knowledgeUrls: string[]
+  /**
+   * Who the voice, knowledge, goals and ideas were set up for: the saved
+   * profile, or the company it was changed from by hand. A new analysis that
+   * describes someone else is offered as a switch (src/lib/identity-switch.ts).
+   */
+  setUpFor: IdentitySnapshot
+  /**
+   * The profile was changed by hand to another company than setUpFor, so its
+   * saved links and website are already the new company's.
+   */
+  changedByHand: boolean
+  /** The saved profile link on each platform. */
+  profileLinks: ProfileLinks
+  /** Where the identity posts. */
+  platforms: PlatformId[]
+  /** What a switch would retire. */
+  switchPreview: SwitchPreview
 }
 
 export async function getIdentitySetupBaselineAction(
@@ -92,8 +145,14 @@ export async function getIdentitySetupBaselineAction(
   const account = await findOwnedAccount(db, user.id, id.data)
   if (!account) return { success: false, error: 'Identity not found' }
 
-  const [{ offering, audience }, voiceConfig, preferences, goals, docs] =
-    await Promise.all([
+  const [
+    { offering, audience },
+    voiceConfig,
+    preferences,
+    goals,
+    docs,
+    preview
+  ] = await Promise.all([
       loadPrimaryRows(id.data),
       db.query.voiceConfigsTable.findFirst({
         where: eq(voiceConfigsTable.accountId, id.data)
@@ -112,7 +171,8 @@ export async function getIdentitySetupBaselineAction(
       db
         .select({ sourceUrl: knowledgeDocumentsTable.sourceUrl })
         .from(knowledgeDocumentsTable)
-        .where(eq(knowledgeDocumentsTable.accountId, id.data))
+        .where(eq(knowledgeDocumentsTable.accountId, id.data)),
+      switchPreview(db, id.data)
     ])
 
   return {
@@ -127,7 +187,12 @@ export async function getIdentitySetupBaselineAction(
       activeGoalTitle: planNewGoal(goals, '').activeGoalTitle,
       knowledgeUrls: docs
         .map(d => d.sourceUrl)
-        .filter((u): u is string => Boolean(u))
+        .filter((u): u is string => Boolean(u)),
+      setUpFor: account.contextIdentity ?? snapshotOf(account),
+      changedByHand: Boolean(account.contextIdentity),
+      profileLinks: profileLinksOf(account),
+      platforms: resolveChannels(preferences).platforms,
+      switchPreview: preview
     }
   }
 }
@@ -353,9 +418,10 @@ export async function applyIdentitySetupAction(
                 message: `A goal named "${plan.duplicate}" already exists, so no new goal was created.`
               }
             } else {
-              await createGoal(accountId, built.payload, {
+              const created = await createGoal(accountId, built.payload, {
                 active: plan.activate
               })
+              if (!created.success) throw new Error(created.error)
               results.goals = {
                 status: 'applied',
                 message: plan.activeGoalTitle
@@ -396,7 +462,7 @@ export async function applyIdentitySetupAction(
           } else {
             // Ideas per run and the CTA setting keep what runs use today.
             const current = resolvePreferences(row)
-            await savePreferences(
+            const saved = await savePreferences(
               accountId,
               buildPreferencesPayload(
                 {
@@ -409,6 +475,7 @@ export async function applyIdentitySetupAction(
                 merged.values
               )
             )
+            if (!saved.success) throw new Error(saved.error)
             results.preferences = {
               status: 'applied',
               message: `${describeMerge('preferences', merged.filled, merged.kept)} Schedule settings were not changed.`,
@@ -427,96 +494,278 @@ export async function applyIdentitySetupAction(
   }
 
   if (sections.knowledgeUrls?.length) {
+    const urls = sections.knowledgeUrls
     tasks.push(
       (async () => {
-        // Keeps the review honest: only URLs the analysis listed are added.
-        // The list arrives with the request, so this is not a security
-        // boundary — anyone can add any public URL from the Knowledge step,
-        // and every fetch still goes through the SSRF guard in safe-url.
-        const offered = new Map(
-          suggestions.knowledge.sources
-            .filter(s => s.url)
-            .map(s => [normalizeUrlForCompare(s.url!), s.url!])
+        results.knowledge = await addSuggestedKnowledge(
+          accountId,
+          suggestions.knowledge,
+          urls
         )
-        const existingDocs = await db
-          .select({ sourceUrl: knowledgeDocumentsTable.sourceUrl })
-          .from(knowledgeDocumentsTable)
-          .where(eq(knowledgeDocumentsTable.accountId, accountId))
-        const saved = new Set(
-          existingDocs
-            .map(d => d.sourceUrl)
-            .filter((u): u is string => Boolean(u))
-            .map(normalizeUrlForCompare)
-        )
-
-        const added: string[] = []
-        const problems: string[] = []
-        const savedUrls: string[] = []
-        const requested = [...new Set(sections.knowledgeUrls)]
-        const addOne = async (requestedUrl: string) => {
-          const key = normalizeUrlForCompare(requestedUrl)
-          const url = offered.get(key)
-          if (!url) {
-            problems.push(
-              `${requestedUrl} was not one of the suggested sources`
-            )
-            return
-          }
-          if (saved.has(key)) {
-            problems.push(`${url} is already in your knowledge base`)
-            savedUrls.push(requestedUrl)
-            return
-          }
-          saved.add(key)
-          // Usually served from the scraper's cache: analysis just read it.
-          const preview = await fetchUrlPreview(url)
-          if (!preview.success || !preview.title || !preview.content) {
-            problems.push(
-              `${url}: ${preview.error || 'could not be fetched'}`
-            )
-            return
-          }
-          try {
-            await saveKnowledgeDocument({
-              accountId,
-              title: preview.title,
-              sourceType: 'url',
-              sourceUrl: url,
-              content: preview.content
-            })
-            added.push(preview.title)
-            savedUrls.push(requestedUrl)
-          } catch (error: any) {
-            problems.push(`${url}: ${error?.message || 'could not be saved'}`)
-          }
-        }
-        for (let i = 0; i < requested.length; i += KNOWLEDGE_BATCH) {
-          await Promise.all(requested.slice(i, i + KNOWLEDGE_BATCH).map(addOne))
-        }
-
-        results.knowledge = {
-          status:
-            added.length > 0
-              ? problems.length > 0
-                ? 'partial'
-                : 'applied'
-              : problems.length > 0
-                ? 'failed'
-                : 'skipped',
-          savedUrls,
-          message: [
-            added.length > 0
-              ? `Added ${added.map(t => `"${t}"`).join(', ')}.`
-              : '',
-            problems.length > 0 ? `Not added: ${problems.join('; ')}.` : ''
-          ]
-            .filter(Boolean)
-            .join(' ')
-        }
       })()
     )
   }
 
   await Promise.all(tasks)
   return { success: true, results }
+}
+
+// ---------------------------------------------------------------------------
+// Switch: the analysis describes another company than the one the identity
+// was set up for. Everything is replaced in one transaction
+// (src/lib/identity-switch.ts); the new knowledge pages are read after it.
+// ---------------------------------------------------------------------------
+
+const SwitchInputSchema = z.object({
+  accountId: AccountIdSchema,
+  /** The analysis as reviewed (edits included): every field is the new value. */
+  suggestions: IdentitySetupSuggestionsSchema,
+  /** Exactly the links the identity keeps, by platform. */
+  profileLinks: z.record(z.string(), z.string().max(600)),
+  otherLink: z.string().trim().max(600).optional(),
+  /** How each platform sounds; cleaned by cleanChannelSettings. */
+  channels: z.record(z.string(), z.unknown()),
+  includeGoal: z.boolean(),
+  removeKnowledgeIds: z.array(idSchema('Invalid document identifier')).max(1000),
+  resetBrandTheme: z.boolean(),
+  knowledgeUrls: KnowledgeUrlsSchema.optional()
+})
+
+export type SwitchIdentityInput = z.input<typeof SwitchInputSchema>
+
+export type SwitchIdentityResult =
+  | {
+      success: true
+      summary: SwitchSummary
+      /** The new knowledge pages, when any were picked. */
+      knowledge?: SectionApplyResult
+    }
+  | { success: false; error: string }
+
+const issues = (error: z.ZodError) =>
+  error.issues
+    .slice(0, 3)
+    .map(i => i.message)
+    .join(' ')
+
+export async function switchIdentityAction(
+  input: SwitchIdentityInput
+): Promise<SwitchIdentityResult> {
+  const user = await requireUser()
+  const parsed = SwitchInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: `The switch could not be validated: ${issues(parsed.error)}`
+    }
+  }
+  const data = parsed.data
+  const account = await findOwnedAccount(db, user.id, data.accountId)
+  if (!account) return { success: false, error: 'Identity not found' }
+  const { suggestions } = data
+
+  // The new profile, field by field; what the analysis left out is empty,
+  // never the old company's value.
+  const suggested = profileSuggestionValues(suggestions.profile)
+  const profile = IdentityProfileSchema.safeParse({
+    name: suggested.name ?? '',
+    company: suggested.company ?? '',
+    description: suggested.description ?? '',
+    targetAudience: suggested.targetAudience ?? '',
+    offerings: suggested.offerings ?? '',
+    industry: suggested.industry ?? '',
+    websiteUrl: suggested.websiteUrl ?? ''
+  })
+  if (!profile.success) {
+    return {
+      success: false,
+      error: `The new profile is not complete: ${issues(profile.error)}`
+    }
+  }
+  const badLinks = Object.values(profileLinkErrors(data.profileLinks))
+  if (badLinks.length > 0) return { success: false, error: badLinks.join(' ') }
+
+  const prefs = preferencesSuggestionValues(suggestions.preferences)
+  const guardrails = PreferencesPayloadSchema.shape.guardrails.safeParse({
+    banned_topics: prefs.bannedTopics ?? [],
+    compliance_notes: prefs.complianceNotes ?? ''
+  })
+  if (!guardrails.success) {
+    return { success: false, error: issues(guardrails.error) }
+  }
+
+  let goal = null
+  if (data.includeGoal) {
+    const built = buildGoalPayload(suggestions.goals)
+    if ('missing' in built) {
+      return {
+        success: false,
+        error: `The new goal still needs: ${labels('goals', built.missing).join(', ')}.`
+      }
+    }
+    const payload = GoalPayloadSchema.safeParse(built.payload)
+    if (!payload.success) return { success: false, error: issues(payload.error) }
+    goal = {
+      title: payload.data.title.trim(),
+      objective: payload.data.objectiveType,
+      keyMessage: payload.data.keyMessage.trim(),
+      desiredAction: payload.data.desiredAction?.trim() || null,
+      targetUrl: payload.data.targetUrl?.trim() || null,
+      linkStrategy: payload.data.linkStrategy,
+      platforms: cleanGoalPlatforms(payload.data.platforms ?? [])
+    }
+  }
+
+  const values = profile.data
+  const profileLinks = cleanProfileLinks(data.profileLinks)
+  let summary: SwitchSummary
+  try {
+    summary = await switchIdentityData(db, account.id, {
+      profile: {
+        name: values.name,
+        company: values.company ?? '',
+        description: values.description,
+        targetAudience: values.targetAudience,
+        offerings: values.offerings,
+        industry: values.industry,
+        websiteUrl: values.websiteUrl ?? ''
+      },
+      profileLinks,
+      otherLink: data.otherLink || null,
+      voice: voiceSuggestionValues(suggestions.voice),
+      guardrails: guardrails.data,
+      channels: cleanChannelSettings(data.channels),
+      goal,
+      removeKnowledgeIds: data.removeKnowledgeIds,
+      resetBrandTheme: data.resetBrandTheme
+    })
+  } catch (error) {
+    if (error instanceof IdentitySwitchBlockedError) {
+      return { success: false, error: error.message }
+    }
+    console.error('Identity switch failed:', error)
+    return {
+      success: false,
+      error: 'The identity could not be switched, so nothing was changed. Please try again.'
+    }
+  }
+
+  // The new company's profiles are read for how it posts, except those
+  // already analyzed (a link saved by hand before the switch).
+  try {
+    const analyzed = Object.fromEntries(
+      summary.insightsKept.map(p => [p, profileLinks[p]])
+    ) as ProfileLinks
+    const claims = await syncProfileAnalyses(account.id, analyzed, profileLinks)
+    if (claims.length > 0) after(() => Promise.all(claims.map(runProfileAnalysis)))
+  } catch (error) {
+    console.error('Could not start analyzing the new profile links:', error)
+  }
+
+  // Read after the switch: a page that fails can be added again, and the
+  // switch itself stands either way.
+  const knowledge = data.knowledgeUrls?.length
+    ? await addSuggestedKnowledge(account.id, suggestions.knowledge, data.knowledgeUrls)
+    : undefined
+
+  revalidatePath('/', 'layout')
+  revalidatePath(IDENTITY_PATH, 'layout')
+  return { success: true, summary, knowledge }
+}
+
+/**
+ * Adds the knowledge pages picked in a review, five at a time. Each is read
+ * and summarised by the AI, so some can fail while others are added; the
+ * result says which are in the knowledge base now (savedUrls).
+ */
+async function addSuggestedKnowledge(
+  accountId: string,
+  knowledge: KnowledgeSuggestions,
+  urls: string[]
+): Promise<SectionApplyResult> {
+  // Keeps the review honest: only URLs the analysis listed are added.
+  // The list arrives with the request, so this is not a security
+  // boundary — anyone can add any public URL from the Knowledge step,
+  // and every fetch still goes through the SSRF guard in safe-url.
+  const offered = new Map(
+    knowledge.sources
+      .filter(s => s.url)
+      .map(s => [normalizeUrlForCompare(s.url!), s.url!])
+  )
+  const existingDocs = await db
+    .select({ sourceUrl: knowledgeDocumentsTable.sourceUrl })
+    .from(knowledgeDocumentsTable)
+    .where(eq(knowledgeDocumentsTable.accountId, accountId))
+  const saved = new Set(
+    existingDocs
+      .map(d => d.sourceUrl)
+      .filter((u): u is string => Boolean(u))
+      .map(normalizeUrlForCompare)
+  )
+
+  const added: string[] = []
+  const problems: string[] = []
+  const savedUrls: string[] = []
+  const requested = [...new Set(urls)]
+  const addOne = async (requestedUrl: string) => {
+    const key = normalizeUrlForCompare(requestedUrl)
+    const url = offered.get(key)
+    if (!url) {
+      problems.push(
+        `${requestedUrl} was not one of the suggested sources`
+      )
+      return
+    }
+    if (saved.has(key)) {
+      problems.push(`${url} is already in your knowledge base`)
+      savedUrls.push(requestedUrl)
+      return
+    }
+    saved.add(key)
+    // Usually served from the scraper's cache: analysis just read it.
+    const preview = await fetchUrlPreview(url)
+    if (!preview.success || !preview.title || !preview.content) {
+      problems.push(
+        `${url}: ${preview.error || 'could not be fetched'}`
+      )
+      return
+    }
+    try {
+      const saved = await saveKnowledgeDocument({
+        accountId,
+        title: preview.title,
+        sourceType: 'url',
+        sourceUrl: url,
+        content: preview.content
+      })
+      if (!saved.success) throw new Error(saved.error)
+      added.push(preview.title)
+      savedUrls.push(requestedUrl)
+    } catch (error: any) {
+      problems.push(`${url}: ${error?.message || 'could not be saved'}`)
+    }
+  }
+  for (let i = 0; i < requested.length; i += KNOWLEDGE_BATCH) {
+    await Promise.all(requested.slice(i, i + KNOWLEDGE_BATCH).map(addOne))
+  }
+
+  return {
+    status:
+      added.length > 0
+        ? problems.length > 0
+          ? 'partial'
+          : 'applied'
+        : problems.length > 0
+          ? 'failed'
+          : 'skipped',
+    savedUrls,
+    message: [
+      added.length > 0
+        ? `Added ${added.map(t => `"${t}"`).join(', ')}.`
+        : '',
+      problems.length > 0 ? `Not added: ${problems.join('; ')}.` : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
 }

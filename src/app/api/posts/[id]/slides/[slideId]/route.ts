@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withAiSpend } from '~/lib/ai/spend'
 import {
   errorResponse,
   fail,
@@ -108,18 +109,26 @@ export async function POST(request: Request, { params }: Params) {
       case 'rewrite':
         return Response.json({
           success: true,
-          slide: await rewriteSlideForPost(who.accountId, id, slideId, {
-            instruction: body.instruction?.trim() || null,
-            abortSignal: request.signal
-          })
+          slide: await withAiSpend(
+            { source: 'posts', accountId: who.accountId, draftId: id },
+            () =>
+              rewriteSlideForPost(who.accountId, id, slideId, {
+                instruction: body.instruction?.trim() || null,
+                abortSignal: request.signal
+              })
+          )
         })
       case 'picture':
         return Response.json({
           success: true,
-          slide: await setSlidePicture(who.accountId, id, slideId, {
-            prompt: body.prompt,
-            abortSignal: request.signal
-          })
+          slide: await withAiSpend(
+            { source: 'posts', accountId: who.accountId, draftId: id },
+            () =>
+              setSlidePicture(who.accountId, id, slideId, {
+                prompt: body.prompt,
+                abortSignal: request.signal
+              })
+          )
         })
       case 'remove_picture':
         return Response.json({

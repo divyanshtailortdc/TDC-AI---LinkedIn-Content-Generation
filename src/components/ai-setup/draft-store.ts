@@ -43,6 +43,13 @@ export type IdentitySetupDraft = Omit<IdentitySetupAnalysis, 'accountType'> & {
   id: string
   createdAt: string
   input?: AnalysisInput
+  /**
+   * The suggestions as the analysis returned them. `suggestions` loses the
+   * ones that match what is saved, and the ones applied; switching the
+   * identity to another company needs every value the analysis gave.
+   * Missing from drafts saved before.
+   */
+  analyzed?: IdentitySetupSuggestions
 }
 
 function isAnalysisInput(value: unknown): value is AnalysisInput {
@@ -122,6 +129,11 @@ function readDraft(key: string): IdentitySetupDraft | null {
       const suggestions = strict.success
         ? strict.data
         : salvageSuggestions(parsed?.suggestions)
+      const analyzed = parsed?.analyzed
+        ? (IdentitySetupSuggestionsSchema.safeParse(parsed.analyzed).data ??
+          salvageSuggestions(parsed.analyzed) ??
+          undefined)
+        : undefined
       if (suggestions && typeof parsed.id === 'string') {
         draft = {
           ...parsed,
@@ -131,6 +143,7 @@ function readDraft(key: string): IdentitySetupDraft | null {
               ? parsed.accountType
               : undefined,
           suggestions,
+          analyzed,
           input: isAnalysisInput(parsed.input) ? parsed.input : undefined
         }
       }
@@ -163,6 +176,7 @@ export function saveDraft(
 ) {
   writeDraft(key, {
     ...analysis,
+    analyzed: analysis.suggestions,
     input,
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString()
@@ -171,6 +185,24 @@ export function saveDraft(
 
 export function clearDraft(key: string) {
   writeDraft(key, null)
+}
+
+/**
+ * After a switch to another company, what is left to do: the knowledge
+ * pages that could not be added, offered again as plain suggestions. The
+ * rest of the analysis is saved, so it leaves the draft.
+ */
+export function writeSwitchLeftovers(
+  key: string,
+  sources: IdentitySetupSuggestions['knowledge']['sources']
+) {
+  const draft = readDraft(key)
+  if (!draft) return
+  const suggestions: IdentitySetupSuggestions = {
+    ...EMPTY_SUGGESTIONS,
+    knowledge: { ...EMPTY_SUGGESTIONS.knowledge, sources }
+  }
+  writeDraft(key, { ...draft, suggestions, analyzed: suggestions })
 }
 
 /**

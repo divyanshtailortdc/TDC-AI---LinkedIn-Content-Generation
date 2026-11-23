@@ -1,14 +1,9 @@
 import 'server-only'
 
-import {
-  renderAudienceBlock,
-  renderIdentityBlock,
-  styleMixFor,
-  type GenerationContext
-} from '../../context'
+import { styleMixFor, type GenerationContext } from '../../context'
 import { runSkill } from '../../run-skill'
 import { collectAllowedUrls, keepValidSuggestions } from './guard'
-import { buildPrompt, INSTRUCTIONS } from './prompt'
+import { buildPrompt, goalProfile, INSTRUCTIONS, profileShowsPosts } from './prompt'
 import { objectivesFor } from '@/lib/goal-objectives'
 import { GoalSuggestionsModelSchema, type GoalSuggestion } from './schema'
 
@@ -57,11 +52,12 @@ export async function suggestGoals(
     stage: 'identity_setup',
     instructions: INSTRUCTIONS,
     prompt: buildPrompt({
-      profile: `${renderIdentityBlock(ctx)}\n\n${renderAudienceBlock(ctx)}`,
+      profile: goalProfile(ctx),
       existingGoals,
       allowedUrls: [...allowedUrls.values()],
       objectives,
-      style
+      style,
+      learned: profileShowsPosts(ctx)
     }),
     schema: GoalSuggestionsModelSchema,
     timeoutMs: MODEL_TIMEOUT_MS,

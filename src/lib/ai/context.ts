@@ -8,6 +8,7 @@ import {
   ideasTable,
   knowledgeDocumentsTable,
   offeringsTable,
+  platformInsightsTable,
   postDraftsTable,
   preferencesTable,
   samplePostsTable,
@@ -17,7 +18,9 @@ import {
 import { resolveBrandTheme, type ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform } from '@/lib/platforms'
 import { DEFAULT_FORMAT } from '@/lib/formats'
+import { insightsInUse, type InsightRow } from '@/lib/profile-insights/in-use'
 import { isOldNews } from '~/lib/intel/settings'
+import { loadReviewHistory } from './review-history'
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import {
   EMPTY_HISTORY,
@@ -60,87 +63,18 @@ export async function loadBrandTheme(accountId: string): Promise<ResolvedBrandTh
 }
 
 /**
- * Enough to spot a repeat or a pattern in rejections without bloating prompts.
- * `otherDrafts` covers every non-LinkedIn format together; each format reads
- * its own from it (forFormat).
+ * Every platform analysis of the identity's profile links; insightsInUse
+ * decides which of them prompts read.
  */
-const HISTORY_LIMITS = { drafts: 30, otherDrafts: 90, ideas: 40, rejectionReasons: 8 }
-
-async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
-  const draftColumns = {
-    hook: postDraftsTable.hook,
-    originalHook: postDraftsTable.originalHook,
-    body: postDraftsTable.body,
-    cta: postDraftsTable.cta,
-    status: postDraftsTable.status
-  }
-  const [drafts, otherDrafts, ideas, feedback] = await Promise.all([
-    // LinkedIn posts only, exactly as before other formats existed.
-    db
-      .select(draftColumns)
-      .from(postDraftsTable)
-      .where(
-        and(
-          eq(postDraftsTable.accountId, accountId),
-          eq(postDraftsTable.formatId, DEFAULT_FORMAT)
-        )
-      )
-      .orderBy(desc(postDraftsTable.createdAt))
-      .limit(HISTORY_LIMITS.drafts),
-    db
-      .select({ ...draftColumns, formatId: postDraftsTable.formatId })
-      .from(postDraftsTable)
-      .where(
-        and(
-          eq(postDraftsTable.accountId, accountId),
-          ne(postDraftsTable.formatId, DEFAULT_FORMAT)
-        )
-      )
-      .orderBy(desc(postDraftsTable.createdAt))
-      .limit(HISTORY_LIMITS.otherDrafts),
-    db
-      .select({
-        title: ideasTable.title,
-        hook: ideasTable.hook,
-        hookConcept: ideasTable.hookConcept,
-        thesis: ideasTable.thesis,
-        coreArgument: ideasTable.coreArgument,
-        status: ideasTable.status,
-        runId: ideasTable.runId
-      })
-      .from(ideasTable)
-      .where(eq(ideasTable.accountId, accountId))
-      .orderBy(desc(ideasTable.createdAt))
-      .limit(HISTORY_LIMITS.ideas),
-    db
-      .select({ reasonText: feedbackTable.reasonText })
-      .from(feedbackTable)
-      .where(
-        and(
-          eq(feedbackTable.accountId, accountId),
-          eq(feedbackTable.verdict, 'rejected'),
-          isNotNull(feedbackTable.reasonText)
-        )
-      )
-      .orderBy(desc(feedbackTable.createdAt))
-      .limit(HISTORY_LIMITS.rejectionReasons)
-  ])
-
-  return {
-    drafts,
-    otherDrafts,
-    ideas: ideas.map(i => ({
-      title: i.title || i.hook,
-      hookConcept: i.hookConcept || i.hook,
-      thesis: i.thesis || '',
-      coreArgument: i.coreArgument || '',
-      status: i.status,
-      runId: i.runId
-    })),
-    rejectionReasons: feedback
-      .map(f => f.reasonText?.trim() || '')
-      .filter(Boolean)
-  }
+async function loadPlatformInsightRows(accountId: string): Promise<InsightRow[]> {
+  return db
+    .select({
+      platform: platformInsightsTable.platform,
+      profileUrl: platformInsightsTable.profileUrl,
+      insights: platformInsightsTable.insights
+    })
+    .from(platformInsightsTable)
+    .where(eq(platformInsightsTable.accountId, accountId))
 }
 
 /**
@@ -149,7 +83,8 @@ async function loadReviewHistory(accountId: string): Promise<ReviewHistory> {
  * goals, newest first: what settings screens and goal suggestions read.
  *
  * `lintOnly` loads just what the quality checks read (buildPostLintOptions):
- * the voice, sample posts, preferences and goals. Offerings, audiences,
+ * the voice, sample posts, offerings (figures, links and the products a post
+ * may name, in the author's details), preferences and goals. Audiences,
  * knowledge, review history and brand are left empty, so a context loaded
  * this way must not be used to write a prompt.
  */
@@ -171,20 +106,19 @@ export async function loadGenerationContext(
     audiences,
     knowledgeDocs,
     samplePosts,
-    goals,
+    allGoals,
     preferences,
     history,
-    brand
+    brand,
+    insightRows
   ] = await Promise.all([
     db.query.accountsTable.findFirst({ where: eq(accountsTable.id, accountId) }),
     db.query.voiceConfigsTable.findFirst({
       where: eq(voiceConfigsTable.accountId, accountId)
     }),
-    full
-      ? db.query.offeringsTable.findMany({
-          where: eq(offeringsTable.accountId, accountId)
-        })
-      : [],
+    db.query.offeringsTable.findMany({
+      where: eq(offeringsTable.accountId, accountId)
+    }),
     full
       ? db.query.audiencesTable.findMany({
           where: eq(audiencesTable.accountId, accountId)
@@ -204,13 +138,22 @@ export async function loadGenerationContext(
     db.query.preferencesTable.findFirst({
       where: eq(preferencesTable.accountId, accountId)
     }),
-    full ? loadReviewHistory(accountId) : EMPTY_HISTORY,
-    full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined)
+    full ? loadReviewHistory(db, accountId) : EMPTY_HISTORY,
+    full ? loadBrandTheme(accountId) : resolveBrandTheme(undefined),
+    full ? loadPlatformInsightRows(accountId) : []
   ])
 
   if (!account) {
     throw new Error(`Account ${accountId} not found`)
   }
+
+  // Paused goals from before the identity was switched to another company
+  // are the old company's: no prompt lists them, and no post may link where
+  // they pointed. Turning one back on makes it count again.
+  const since = account.contextSince
+  const goals = since
+    ? allGoals.filter(g => g.isActive || g.createdAt >= since)
+    : allGoals
 
   const selectedGoals = options?.goalIds
     ? options.goalIds
@@ -236,7 +179,9 @@ export async function loadGenerationContext(
     prefs: resolvePreferences(preferences, voice, platform),
     history,
     brand,
-    platform
+    platform,
+    // What its profiles showed, while they are still this identity's.
+    platformInsights: insightsInUse(insightRows, account)
   }
 }
 

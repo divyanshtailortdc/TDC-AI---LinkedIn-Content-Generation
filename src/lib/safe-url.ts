@@ -169,3 +169,46 @@ export async function safeFetch(
 
   throw new UnsafeUrlError('Too many redirects')
 }
+
+/**
+ * Up to `maxBytes` of a response's (or a request's) body. Reading stops there
+ * and the rest is never downloaded, so a body that is huge, or never ends,
+ * cannot fill the server's memory. `truncated` when the body ran longer.
+ */
+export async function readBodyCapped(
+  response: { body: ReadableStream<Uint8Array> | null },
+  maxBytes: number
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  if (!response.body) return { bytes: new Uint8Array(), truncated: false }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return { bytes: Buffer.concat(chunks, length), truncated: false }
+    const room = maxBytes - length
+    if (value.byteLength > room) {
+      chunks.push(value.subarray(0, room))
+      await reader.cancel().catch(() => {})
+      return { bytes: Buffer.concat(chunks, maxBytes), truncated: true }
+    }
+    chunks.push(value)
+    length += value.byteLength
+  }
+}
+
+/**
+ * Up to `maxBytes` of a response's (or a request's) body as UTF-8 text, as
+ * response.text() reads it. A body cut mid-character drops the partial
+ * character.
+ */
+export async function readTextCapped(
+  response: { body: ReadableStream<Uint8Array> | null },
+  maxBytes: number
+): Promise<{ text: string; truncated: boolean }> {
+  const { bytes, truncated } = await readBodyCapped(response, maxBytes)
+  return {
+    text: new TextDecoder().decode(bytes, { stream: truncated }),
+    truncated
+  }
+}

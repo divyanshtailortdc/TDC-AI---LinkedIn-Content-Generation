@@ -5,8 +5,9 @@ import type { GenerationContext } from './context-blocks'
  * do not carry another market's launches, prices or rules to them.
  *
  * Read from what the account says about its readers (the audience, then the
- * goal), then from a regional website ("samsung.com/in/", "example.co.uk").
- * The bio is left out: it usually says where a company comes from, which is
+ * goal), then from a regional website ("samsung.com/in/", "example.co.uk"),
+ * then from where the bio says it operates ("across India"). The bio is
+ * otherwise left out: it usually says where a company comes from, which is
  * not where its readers are ("a South Korean multinational").
  */
 
@@ -95,10 +96,11 @@ export function countryOfUrl(url: string): string | undefined {
 export function inferRegion(
   ctx: Pick<GenerationContext, 'audiences' | 'selectedGoals' | 'account'>
 ): Region | null {
-  const audienceText = ctx.audiences
+  // Partial contexts (a corpus built for a test, say) may lack either list.
+  const audienceText = (ctx.audiences ?? [])
     .flatMap(a => [a.geography ?? '', a.name])
     .join('\n')
-  const goalText = ctx.selectedGoals
+  const goalText = (ctx.selectedGoals ?? [])
     .flatMap(g => [g.title, g.keyMessage])
     .filter(Boolean)
     .join('\n')
@@ -107,7 +109,25 @@ export function inferRegion(
   if (stated.length === 1) return stated[0]!
   if (stated.length > 1) return { name: stated.map(r => r.name).join(', ') }
 
-  const site = ctx.account.websiteUrl ? countryOfUrl(ctx.account.websiteUrl) : undefined
+  const site = ctx.account?.websiteUrl ? countryOfUrl(ctx.account.websiteUrl) : undefined
   const country = byCode(site)
-  return country ? { code: country.code, name: country.name } : null
+  if (country) return { code: country.code, name: country.name }
+  return servedRegionInBio(ctx.account?.bio)
+}
+
+/**
+ * The one country a bio says the account serves: "across India", "all over
+ * the UK", "customers in Kenya". Where it was founded or is headquartered
+ * does not count, and a bio naming several served markets gives none.
+ */
+export function servedRegionInBio(bio: string | null | undefined): Region | null {
+  if (!bio) return null
+  const served = new Map<string, Region>()
+  const phrase =
+    /\b(?:across|throughout|all over|nationwide in|(?:customers|users|people|readers|businesses|brands|restaurants|families|homes|cities|consumers)\s+(?:in|across|throughout))\s+(?:the\s+)?([A-Z][\w.]*(?:\s+[A-Z][\w.]*){0,2})/g
+  let match: RegExpExecArray | null
+  while ((match = phrase.exec(bio)) !== null) {
+    for (const c of countriesNamed(match[1]!)) served.set(c.code!, c)
+  }
+  return served.size === 1 ? [...served.values()][0]! : null
 }

@@ -99,11 +99,7 @@ export function NewsletterKnowledge({
   return (
     <div className="space-y-4">
       <p className="text-muted text-sm leading-relaxed">
-        Stories from the newsletters you receive, added automatically. Ideas use
-        a story while it is recent and relevant to a goal; nothing needs saving.{' '}
-        <span className="text-foreground font-medium">Keep</span> one to use it
-        for longer, or mark it{' '}
-        <span className="text-foreground font-medium">Don&apos;t use</span>.
+        Stories from your newsletters, added automatically.
       </p>
 
       <form

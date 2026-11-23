@@ -5,6 +5,8 @@ import {
   renderIdentityBlock,
   type GenerationContext
 } from '../../context'
+import { isCasualStyle, PLATFORMS, type PlatformId } from '@/lib/formats'
+import { styleFor } from '../../context-blocks'
 import { runSkill } from '../../run-skill'
 import {
   keepClassifiedNewsletters,
@@ -16,6 +18,7 @@ import {
   buildClassifyPrompt,
   buildQueryPrompt,
   CLASSIFY_INSTRUCTIONS,
+  postingStyleLine,
   QUERY_INSTRUCTIONS
 } from './prompt'
 import { ClassificationModelSchema, SearchQueriesModelSchema } from './schema'
@@ -26,9 +29,18 @@ export type { ClassifiedNewsletter, VerifiedCandidate } from './guard'
 const QUERY_TIMEOUT_MS = 45_000
 const CLASSIFY_TIMEOUT_MS = 90_000
 
-/** The identity and audience, as every model call in the app sees them. */
+/**
+ * The identity and audience, as every model call in the app sees them, and
+ * how it posts when some of its platforms are casual or fun.
+ */
 function renderProfile(ctx: GenerationContext): string {
-  return `${renderIdentityBlock(ctx)}\n\n${renderAudienceBlock(ctx)}`
+  const platforms = ctx.prefs.channels?.platforms ?? []
+  const label = (p: PlatformId) => PLATFORMS[p].label
+  const style = postingStyleLine({
+    casual: platforms.filter(p => isCasualStyle(styleFor(ctx, p))).map(label),
+    professional: platforms.filter(p => !isCasualStyle(styleFor(ctx, p))).map(label)
+  })
+  return `${renderIdentityBlock(ctx)}\n\n${renderAudienceBlock(ctx)}${style ? `\n\n${style}` : ''}`
 }
 
 /** Skill: the profile in, searches that find newsletters for it out. */

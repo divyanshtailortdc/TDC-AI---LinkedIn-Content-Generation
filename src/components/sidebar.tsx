@@ -10,7 +10,7 @@ import logoDark from '@/img/tdccommercelogo-dark.webp'
 import logoLight from '@/img/tdccommercelogo.webp'
 import { BRAND_THEME_PATH } from '@/lib/brand/theme-path'
 import { cn } from '@/lib/cn'
-import { IDENTITY_PATH } from '@/lib/identity-path'
+import { IDENTITIES_PATH, IDENTITY_PATH } from '@/lib/identity-path'
 import { useIdeasToReview } from '@/lib/ideas-badge'
 import { INBOX_PATH } from '@/lib/inbox-path'
 import { NEWSLETTERS_PATH } from '@/lib/newsletters-path'
@@ -32,6 +32,7 @@ import {
   Settings,
   Target,
   UserRound,
+  UsersRound,
   X
 } from 'lucide-react'
 import Image from 'next/image'
@@ -56,7 +57,9 @@ type SubNavItem = {
 }
 
 function isSubNavActive(pathname: string, { href, exact }: SubNavItem) {
-  return exact ? pathname === href : pathname.startsWith(href)
+  if (pathname === href) return true
+  // Whole segments only: /identities is not a page under /identity.
+  return !exact && pathname.startsWith(`${href}/`)
 }
 
 // In the order the work moves: find newsletters and subscribe, then read
@@ -391,8 +394,12 @@ export function Sidebar({
   const { open, setOpen } = useMobileNav()
   // The drawer always shows the full sidebar; only the desktop rail collapses.
   const collapsed = collapsedPref && isDesktop
-  // Brand Theme styles the identity's posts, so it waits for one.
+  // Brand Theme styles the identity's posts, so it waits for one; so does
+  // the list of identities, which has nothing to manage before.
   const accountSetupItems: SubNavItem[] = [
+    ...(hasIdentity
+      ? [{ href: IDENTITIES_PATH, label: 'Identities', icon: UsersRound }]
+      : []),
     {
       href: IDENTITY_PATH,
       label: hasIdentity ? 'Identity Setup' : 'Set up identity',
@@ -438,7 +445,7 @@ export function Sidebar({
             'border-sidebar-border relative flex items-center border-b py-4',
             collapsed
               ? 'justify-center px-2'
-              : 'flex-col justify-center gap-2 px-5'
+              : 'flex-col justify-center gap-2 px-14'
           )}
         >
           {collapsed ? (
@@ -453,15 +460,15 @@ export function Sidebar({
                 src={logoLight}
                 alt="TDC Commerce"
                 priority
-                className="h-8 w-auto self-start dark:hidden"
+                className="h-11 w-auto dark:hidden"
               />
               <Image
                 src={logoDark}
                 alt="TDC Commerce"
                 priority
-                className="hidden h-8 w-auto self-start dark:block"
+                className="hidden h-11 w-auto dark:block"
               />
-              <p className="text-muted pl-1 text-[11px] leading-none font-medium tracking-[0.14em] uppercase">
+              <p className="bg-brand/15 text-brand-strong rounded-full px-3 py-1 text-[11px] leading-none font-semibold tracking-[0.16em] uppercase">
                 Content Engine
               </p>
             </>
@@ -472,7 +479,7 @@ export function Sidebar({
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close navigation"
-            className="border-sidebar-border bg-surface text-muted hover:bg-surface-hover hover:text-foreground absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-lg border transition-colors lg:hidden"
+            className="border-sidebar-border bg-surface text-muted hover:bg-surface-hover hover:text-foreground absolute top-1/2 right-4 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg border shadow-xs transition-colors lg:hidden"
           >
             <X className="h-4 w-4" />
           </button>
@@ -486,13 +493,13 @@ export function Sidebar({
               'border-sidebar-border bg-surface text-muted hover:bg-surface-hover hover:text-foreground absolute hidden items-center justify-center border transition-colors lg:flex',
               collapsed
                 ? 'top-1/2 -right-3 h-6 w-6 -translate-y-1/2 rounded-full shadow-sm'
-                : 'top-4 right-4 h-8 w-8 rounded-lg'
+                : 'top-1/2 right-4 h-8 w-8 -translate-y-1/2 rounded-lg shadow-xs'
             )}
           >
             {collapsed ? (
               <ChevronRight className="h-3.5 w-3.5" />
             ) : (
-              <ChevronLeft className="h-3.5 w-3.5" />
+              <ChevronLeft className="h-4 w-4" />
             )}
           </button>
         </div>

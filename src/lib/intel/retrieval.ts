@@ -6,7 +6,6 @@ import {
   intelMentionsTable,
   mailMessagesTable
 } from '@/db/schema'
-import { embedMany } from 'ai'
 import {
   and,
   asc,
@@ -22,6 +21,7 @@ import {
 } from 'drizzle-orm'
 import { getEmbeddingModel } from '../ai'
 import type { GenerationContext } from '../ai/context-blocks'
+import { embedValues } from '../ai/embed'
 import {
   buildRetrievalQueries,
   interleave
@@ -88,9 +88,7 @@ async function byMeaning(
   queries: string[],
   handle: NonNullable<ReturnType<typeof getEmbeddingModel>>
 ): Promise<StoryRow[]> {
-  const { embeddings } = await embedMany({
-    model: handle.model,
-    values: queries,
+  const embeddings = await embedValues(handle, queries, {
     abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
   })
   const perGoal = await Promise.all(

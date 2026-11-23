@@ -14,7 +14,7 @@ How sign-in works, how each user's data is kept to that user, and how to set up,
 Authentication is [Better Auth](https://www.better-auth.com) 1.6.11 with three ways to sign in: **Google**, **LinkedIn** and **passkeys**, plus the Admin plugin. There are no passwords, no sign-up form and no emails.
 
 - **Google** and **LinkedIn** are the only ways to create an account: the first sign-in creates the user. Signing in with either one later, with the same email, reaches the same user.
-- **Passkeys** are added by a signed-in user ("Add a passkey" in the sidebar's account menu, or Settings → Security) and can then be used to sign in instead of Google or LinkedIn. Settings → Security (`/settings/security`) lists them, renames them, and deletes them after a confirmation. One passkey per account: both add buttons are disabled while the user has one (UI only; the server would accept a second). Adding one needs a sign-in from the last day (Better Auth's fresh-session rule). A passkey is bound to `BETTER_AUTH_URL`'s host name, so it only works on that host (`localhost` counts as secure in development; a plain-http LAN address does not).
+- **Passkeys** are added by a signed-in user ("Add a passkey" in the sidebar's account menu, or Settings → Security) and can then be used to sign in instead of Google. Settings → Security (`/settings/security`) lists them, renames them, and deletes them after a confirmation. One passkey per account: both add buttons are disabled while the user has one (UI only; the server would accept a second). Adding one needs a sign-in from the last day (Better Auth's fresh-session rule). A passkey is bound to `BETTER_AUTH_URL`'s host name, so it only works on that host (`localhost` counts as secure in development; a plain-http LAN address does not).
 
 | Piece | File |
 | --- | --- |
@@ -42,7 +42,7 @@ Authentication is [Better Auth](https://www.better-auth.com) 1.6.11 with three w
 **Security decisions**
 
 - **No passwords.** Email and password sign-in is off, so its endpoints (sign-up, sign-in, password reset) refuse every request.
-- **Google and LinkedIn link by email.** A sign-in whose email the provider reports as verified joins the existing user with that email, confirmed or not (users left from the old password sign-up, or made by an admin). That is safe only because nothing else can create a way in: there are no passwords, and passkeys need a session. Neither is a "trusted provider", so an email the provider has not verified never links; the user sees "…this provider has not verified the address" and can sign in another way.
+- **Google links by email.** A sign-in whose email the provider reports as verified joins the existing user with that email, confirmed or not (users left from the old password sign-up, or made by an admin). That is safe only because nothing else can create a way in: there are no passwords, and passkeys need a session. Neither is a "trusted provider", so an email the provider has not verified never links; the user sees "…this provider has not verified the address" and can sign in another way.
 - **Passkeys need a session to add.** Only a signed-in user can register a passkey, and only to their own account. Signing in with an unknown passkey fails.
 - **`?next=`** is only followed when it is a path inside the app (`src/lib/safe-redirect.ts`). Better Auth separately refuses callback URLs from other origins.
 - **Roles cannot be self-assigned.** `role`, `banned`, `banReason` and `banExpires` are not user-settable (Admin plugin `input: false`); update-user ignores or refuses them.
@@ -57,9 +57,8 @@ Add these to `.env` (documented in `.env.example`):
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Yes (production refuses to start without it) | At least 32 characters: `openssl rand -base64 32`. Changing it signs everyone out. |
-| `BETTER_AUTH_URL` | Yes | The URL people open the app at, e.g. `https://app.example.com`. Google and LinkedIn redirect back to it and passkeys are bound to its host name. Defaults to `NEXT_PUBLIC_APP_URL`. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | At least one provider | Each button shows only when both of its values are set. Google and LinkedIn are the only ways to create an account; with neither, only existing passkeys can sign in. |
-| `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | At least one provider | See above. |
+| `BETTER_AUTH_URL` | Yes | The URL people open the app at, e.g. `https://app.example.com`. Google redirects back to it and passkeys are bound to its host name. Defaults to `NEXT_PUBLIC_APP_URL`. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Yes | The button shows only when both values are set. Google is the only way to create an account; without it, only existing passkeys can sign in. LinkedIn sign-in was removed on 2026-11-19. |
 | `ADMIN_USER_IDS` | No | Comma-separated `auth_users.id` values that are always admins. See [Administrators](#administrators). |
 
 Requests are also accepted from `NEXT_PUBLIC_APP_URL` when it differs from `BETTER_AUTH_URL` (e.g. a LAN address in development).
@@ -85,15 +84,6 @@ It is safe on existing data: existing handles were globally unique, and every ex
 5. Put the client id and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
 Sign-in always shows Google's account picker (`prompt: 'select_account'`).
-
-### LinkedIn sign-in
-
-1. In the [LinkedIn Developer Portal](https://www.linkedin.com/developers/apps), create an app. It must be linked to a LinkedIn Page (a company page you administer).
-2. Under **Products**, add **Sign In with LinkedIn using OpenID Connect**. This grants the `openid`, `profile` and `email` scopes, which are all that is used.
-3. Under **Auth → OAuth 2.0 settings**, add the redirect URL `{BETTER_AUTH_URL}/api/auth/callback/linkedin` (e.g. `http://localhost:3000/api/auth/callback/linkedin` for development).
-4. Put the **Client ID** and **Primary Client Secret** in `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`.
-
-LinkedIn sign-in only identifies the user. It is unrelated to the content identities (`accounts`) the app writes posts for, and grants no access to post on LinkedIn. Publishing is a separate connection the user makes in Settings → Integrations, with its own app per platform and its own tables; it never reads `auth_accounts`. See [PUBLISHING.md](PUBLISHING.md).
 
 ## Rules for new code
 
@@ -130,7 +120,7 @@ export async function doSomething(rawAccountId: string, ...) {
 
 Identities created before sign-in existed have `user_id = NULL`: nobody can see them, and any data under them (runs, ideas, posts…) is hidden with them. Each must be assigned to its real owner. **Never assign them all to the first user who signs up.**
 
-1. Ask each owner to sign in once with Google or LinkedIn, which creates their user.
+1. Ask each owner to sign in once with Google, which creates their user.
 2. List the unowned identities and agree, with the team, who owns each:
 
    ```sql
@@ -214,7 +204,7 @@ After that, admins can grant roles to others through the Admin plugin (`setRole`
    | Task | Client method | Endpoint |
    | --- | --- | --- |
    | List and search users | `authClient.admin.listUsers({ query: { searchValue, limit, offset, sortBy } })` | `GET /api/auth/admin/list-users` |
-   | Create a user (they then sign in with Google or LinkedIn using that email) | `authClient.admin.createUser({ name, email, role })` | `POST /api/auth/admin/create-user` |
+   | Create a user (they then sign in with Google using that email) | `authClient.admin.createUser({ name, email, role })` | `POST /api/auth/admin/create-user` |
    | Change a role | `authClient.admin.setRole({ userId, role })` | `POST /api/auth/admin/set-role` |
    | Ban / unban | `authClient.admin.banUser({ userId, banReason, banExpiresIn })`, `unbanUser({ userId })` | `POST /api/auth/admin/ban-user`, `/unban-user` |
    | List / revoke sessions | `listUserSessions({ userId })`, `revokeUserSession({ sessionToken })`, `revokeUserSessions({ userId })` | `POST /api/auth/admin/…` |
@@ -232,7 +222,7 @@ After that, admins can grant roles to others through the Admin plugin (`setRole`
 | `tests/auth-units.test.ts` | nothing | safe redirects, admin rule, error messages |
 | `tests/auth-guards.test.ts` | nothing | every Server Action starts with `requireUser()`, every API route with `getSessionUser()` |
 | `tests/ownership.test.ts` | `DATABASE_URL` with migrations 0014 to 0044 | ownership lookups, legacy rows hidden, several identities per user, cascade on user delete |
-| `tests/auth-e2e.test.ts` | a running build, its database and `BETTER_AUTH_SECRET` | password endpoints refused, passkey options, Google and LinkedIn redirects (LinkedIn only when `LINKEDIN_CLIENT_ID` is set), sign-out, forged cookies, and one user calling another's pages, API routes and Server Actions directly. Test users and their sessions are written straight to the database, since Google, LinkedIn and passkeys cannot be driven from a test |
+| `tests/auth-e2e.test.ts` | a running build, its database and `BETTER_AUTH_SECRET` | password endpoints refused, passkey options, the Google redirect, LinkedIn sign-in refused, sign-out, forged cookies, and one user calling another's pages, API routes and Server Actions directly. Test users and their sessions are written straight to the database, since Google and passkeys cannot be driven from a test |
 
 The database tests only run when `DATABASE_URL` is set in the environment; they never fall back to `.env`. Point them at a local database, never the shared one:
 

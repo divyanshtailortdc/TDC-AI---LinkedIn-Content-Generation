@@ -14,7 +14,9 @@ import type { GenerationContext } from '../../context'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
 import { collectFigureSources } from '../post-drafting/guard'
+import { slideFactIssues } from '@/lib/carousel/checks'
 import {
+  carouselFactIssues,
   carouselIssues,
   IncompleteCarouselError,
   toCarousel,
@@ -34,6 +36,8 @@ export interface WrittenSlides {
   slides: SlideContent[]
   /** What the reviewer should know: slides that repeat the caption. */
   issues: string[]
+  /** Each slide's figures and quote that no source states, in slide order. */
+  factIssues: string[][]
   usage: CallUsage
   modelId: string
 }
@@ -80,14 +84,16 @@ export async function writeSlides(input: {
   })
 
   try {
+    const figureSources = collectFigureSources(ctx, input.idea)
     const slides = toCarousel(output?.slides ?? [], {
       maxSlides: spec.maxSlides,
       pictures: isPictureStyle(input.imageStyle),
-      figureSources: collectFigureSources(ctx, input.idea)
+      figureSources
     })
     return {
       slides,
       issues: carouselIssues(input.caption, slides),
+      factIssues: carouselFactIssues(slides, figureSources),
       usage,
       modelId
     }
@@ -114,7 +120,13 @@ export async function rewriteSlide(input: {
   index: number
   instruction: string | null
   imageStyle: ImageStyle
-}): Promise<{ slide: SlideContent; usage: CallUsage; modelId: string }> {
+}): Promise<{
+  slide: SlideContent
+  /** Its figures and quote that no source states. */
+  factIssues: string[]
+  usage: CallUsage
+  modelId: string
+}> {
   const ctx = forFormat(input.ctx, input.formatId)
   const current = input.slides[input.index]
   if (!current) throw new SkillError('That slide no longer exists.', 'failed')
@@ -135,11 +147,12 @@ export async function rewriteSlide(input: {
     timeoutMs: SLIDES_TIMEOUT_MS,
     maxRetries: 1
   })
+  const figureSources = collectFigureSources(ctx, input.idea)
   const slide = toSlide(output?.slide, current.role, {
     // A rewritten slide keeps the picture it had or did not have; the
     // reviewer adds or removes one separately.
     pictures: isPictureStyle(input.imageStyle),
-    figureSources: collectFigureSources(ctx, input.idea)
+    figureSources
   })
   if (!slide.headline) {
     throw new SkillError('The model returned an empty slide.', 'failed', {
@@ -151,5 +164,10 @@ export async function rewriteSlide(input: {
   slide.design.picture =
     current.design.picture === true &&
     PICTURE_LAYOUTS.includes(slide.design.layout)
-  return { slide, usage, modelId }
+  return {
+    slide,
+    factIssues: slideFactIssues(slide, figureSources),
+    usage,
+    modelId
+  }
 }

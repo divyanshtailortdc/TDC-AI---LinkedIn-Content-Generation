@@ -3,7 +3,12 @@ import 'server-only'
 import { db } from '@/db'
 import { runsTable } from '@/db/schema'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
-import { count, desc, eq, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
+import {
+  RUN_FILTER_STATUSES,
+  runFilterCounts,
+  type RunFilter
+} from './run-display'
 
 /**
  * The name the identity had when the run started. The identity can be renamed
@@ -32,37 +37,94 @@ export const runGoalTitlesSql = sql<string[]>`(
   join goals g on g.id = picked.id::uuid and g.account_id = runs.account_id
 )`
 
-/** One page of an account's runs, newest first, for the Runs lists. */
-export function loadRunsPage(accountId: string, page: number) {
+export type RunIdeaCounts = {
+  total: number
+  proposed: number
+  approved: number
+  drafting: number
+  drafted: number
+  rejected: number
+}
+
+/**
+ * How many ideas the run saved, by status, so the list can say "6 ideas · 4
+ * to review" without opening the run. Needs `runs` in the query's FROM clause.
+ */
+const runIdeaCountsSql = sql<RunIdeaCounts>`(
+  select jsonb_build_object(
+    'total', count(*),
+    'proposed', count(*) filter (where i.status = 'proposed'),
+    'approved', count(*) filter (where i.status = 'approved'),
+    'drafting', count(*) filter (where i.status = 'drafting'),
+    'drafted', count(*) filter (where i.status = 'drafted'),
+    'rejected', count(*) filter (where i.status = 'rejected')
+  )
+  from ideas i
+  where i.run_id = runs.id
+)`
+
+/**
+ * One page of an account's runs, newest first, for the Runs lists, showing
+ * the runs `filter` picks. Also how many runs each filter would show, and
+ * the account's newest run of any status, which the list polls against to
+ * notice a run started elsewhere.
+ */
+export async function loadRunsPage(
+  accountId: string,
+  page: number,
+  filter: RunFilter = 'all'
+) {
   const ofAccount = eq(runsTable.accountId, accountId)
-  return loadPage({
-    page,
-    pageSize: PAGE_SIZE,
-    count: async () => {
-      const [row] = await db.select({ n: count() }).from(runsTable).where(ofAccount)
-      return row?.n ?? 0
-    },
-    rows: (offset, limit) =>
-      db
-        .select({
-          id: runsTable.id,
-          accountId: runsTable.accountId,
-          workflow: runsTable.workflow,
-          trigger: runsTable.trigger,
-          status: runsTable.status,
-          currentStep: runsTable.currentStep,
-          totalSteps: runsTable.totalSteps,
-          costUsd: runsTable.costUsd,
-          tokenCounts: runsTable.tokenCounts,
-          error: runsTable.error,
-          createdAt: runsTable.createdAt,
-          accountNameAtRun: accountNameAtRunSql,
-          goalTitles: runGoalTitlesSql
-        })
-        .from(runsTable)
-        .where(ofAccount)
-        .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
-        .offset(offset)
-        .limit(limit)
-  })
+  const where =
+    filter === 'all'
+      ? ofAccount
+      : and(ofAccount, inArray(runsTable.status, RUN_FILTER_STATUSES[filter]))
+
+  // One group-by gives every filter's count, the page's total among them.
+  const counted = db
+    .select({ status: runsTable.status, n: count() })
+    .from(runsTable)
+    .where(ofAccount)
+    .groupBy(runsTable.status)
+    .then(runFilterCounts)
+
+  const [list, counts, [latest]] = await Promise.all([
+    loadPage({
+      page,
+      pageSize: PAGE_SIZE,
+      count: async () => (await counted)[filter],
+      rows: (offset, limit) =>
+        db
+          .select({
+            id: runsTable.id,
+            accountId: runsTable.accountId,
+            workflow: runsTable.workflow,
+            trigger: runsTable.trigger,
+            channel: runsTable.channel,
+            status: runsTable.status,
+            currentStep: runsTable.currentStep,
+            totalSteps: runsTable.totalSteps,
+            costUsd: runsTable.costUsd,
+            tokenCounts: runsTable.tokenCounts,
+            error: runsTable.error,
+            createdAt: runsTable.createdAt,
+            accountNameAtRun: accountNameAtRunSql,
+            goalTitles: runGoalTitlesSql,
+            ideaCounts: runIdeaCountsSql
+          })
+          .from(runsTable)
+          .where(where)
+          .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
+          .offset(offset)
+          .limit(limit)
+    }),
+    counted,
+    db
+      .select({ id: runsTable.id })
+      .from(runsTable)
+      .where(ofAccount)
+      .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
+      .limit(1)
+  ])
+  return { ...list, counts, latestRunId: latest?.id ?? null }
 }

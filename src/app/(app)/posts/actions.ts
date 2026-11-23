@@ -53,6 +53,7 @@ import {
 import { validateImageUrl } from '~/lib/media/image-input'
 import { deleteDraftImages, deleteStoredImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
+import { withAiSpend } from '~/lib/ai/spend'
 import { assertPostChangeable } from '@/lib/publishing/post-lock'
 import { loadPostsPage } from './posts-data'
 
@@ -206,12 +207,17 @@ export async function addPostVersion(
       )
     }
 
-    const { draftId: newId } = await draftAdditionalFormat(
-      accountId,
-      source.ideaId,
-      formatId,
-      // From the browser: only a real boolean counts.
-      typeof withImage === 'boolean' ? withImage : undefined
+    const { ideaId } = source
+    const { draftId: newId } = await withAiSpend(
+      { source: 'posts', accountId },
+      () =>
+        draftAdditionalFormat(
+          accountId,
+          ideaId,
+          formatId,
+          // From the browser: only a real boolean counts.
+          typeof withImage === 'boolean' ? withImage : undefined
+        )
     )
     const { posts } = await loadPostsPage(accountId, { ids: [newId] })
     revalidatePath('/posts')
@@ -243,7 +249,9 @@ export async function regeneratePost(draftId: string, instruction?: string | nul
       )
     }
     const accountId = await requireIdentityId()
-    await regenerateDraft(accountId, draftId, wanted || null)
+    await withAiSpend({ source: 'posts', accountId, draftId }, () =>
+      regenerateDraft(accountId, draftId, wanted || null)
+    )
     const { posts } = await loadPostsPage(accountId, { ids: [draftId] })
     revalidatePath('/posts')
     return { success: true as const, post: posts[0] ?? null }
@@ -554,6 +562,39 @@ export async function deleteDraft(
   }
 }
 
+/** The most posts one deleteDrafts call takes; the list sends them in chunks. */
+const DELETE_DRAFTS_MAX = 50
+/** How many of those are deleted at once. */
+const DELETE_DRAFTS_CONCURRENCY = 4
+
+/**
+ * Deletes several of the identity's posts (Select on the Posts list), each as
+ * deleteDraft does and never from its platform, a few at a time. Says which
+ * were deleted, and why any were not.
+ */
+export async function deleteDrafts(draftIds: string[]) {
+  await requireUser()
+  const parsed = z.array(z.string()).max(DELETE_DRAFTS_MAX).safeParse(draftIds)
+  if (!parsed.success) {
+    return { success: false as const, error: 'Too many posts at once.' }
+  }
+  const ids = [...new Set(parsed.data)]
+  const deleted: string[] = []
+  const failures: string[] = []
+  for (let i = 0; i < ids.length; i += DELETE_DRAFTS_CONCURRENCY) {
+    const results = await Promise.all(
+      ids
+        .slice(i, i + DELETE_DRAFTS_CONCURRENCY)
+        .map(async id => ({ id, res: await deleteDraft(id) }))
+    )
+    for (const { id, res } of results) {
+      if (res.success) deleted.push(id)
+      else failures.push(res.error)
+    }
+  }
+  return { success: true as const, deleted, failures }
+}
+
 /**
  * Removes a post's image (every version) and the files behind it. Only the
  * image rows' own files: a carousel's slides sit under the same storage
@@ -632,6 +673,11 @@ export async function updatePostMediaAction(
   }
 }
 
+/**
+ * Deletes a post's image, every version, for good: the review screen's Remove,
+ * after it asks. Posting without the image but keeping it is
+ * setPostMediaFormat(draftId, 'text').
+ */
 export async function removePostMediaAction(draftId: string) {
   await requireUser()
   try {
@@ -671,13 +717,16 @@ export async function regeneratePostMediaAction(
 ) {
   await requireUser()
   try {
-    const outcome = await createPostMedia({
-      draftId,
-      accountId: await requireIdentityId(),
-      mode: options?.mode,
-      customPrompt: options?.customPrompt,
-      rejectionReason: options?.rejectionReason
-    })
+    const accountId = await requireIdentityId()
+    const outcome = await withAiSpend({ source: 'posts', accountId, draftId }, () =>
+      createPostMedia({
+        draftId,
+        accountId,
+        mode: options?.mode,
+        customPrompt: options?.customPrompt,
+        rejectionReason: options?.rejectionReason
+      })
+    )
     if (outcome.status === 'created') {
       return { success: true as const, media: outcome.media }
     }

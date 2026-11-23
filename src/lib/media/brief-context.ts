@@ -1,8 +1,10 @@
 import type { Idea } from '@/db/schema'
 import {
+  platformOf,
   renderMediaContext,
   type GenerationContext
 } from '~/lib/ai/context-blocks'
+import { visualIdentityFor } from '~/lib/profile-insights/render'
 import type {
   DeriveMediaBriefInput,
   EvidenceSource
@@ -28,6 +30,7 @@ export type MediaBriefContext = Pick<
   | 'knowledge'
   | 'offerings'
   | 'brand'
+  | 'platformLook'
 > & {
   websiteUrl?: string | null
 }
@@ -79,6 +82,10 @@ export function buildMediaBriefContext(
   })
 
   const goal = ctx.primaryGoal
+  // How the account's posts on this post's platform look, when its profile
+  // there was analyzed.
+  const platform = platformOf(ctx)
+  const look = visualIdentityFor(ctx.platformInsights, platform.id)
   return {
     thesis: idea?.thesis || idea?.coreArgument || idea?.title || null,
     evidence,
@@ -104,6 +111,7 @@ export function buildMediaBriefContext(
     knowledge,
     offerings,
     brand: renderBrandForArtDirector(brand),
+    ...(look ? { platformLook: { platform: platform.name, description: look } } : {}),
     websiteUrl: (ctx.account as { websiteUrl?: string | null })?.websiteUrl || null
   }
 }

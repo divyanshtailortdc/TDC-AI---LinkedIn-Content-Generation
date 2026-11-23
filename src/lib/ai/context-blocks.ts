@@ -16,6 +16,7 @@ import type { ResolvedBrandTheme } from '@/lib/brand/theme'
 import { getPlatform, type PlatformId, type PlatformSpec } from '@/lib/platforms'
 import { parseAccountType } from '@/lib/identity-profile'
 import { otherProfileLink, profileLinksOf } from '@/lib/profile-links'
+import type { PlatformInsights } from '@/lib/profile-insights/render'
 import {
   goalServes,
   isCasualStyle,
@@ -205,6 +206,12 @@ export interface GenerationContext {
    * platformOf).
    */
   platform?: PlatformSpec
+  /**
+   * What the identity's public profile on each platform shows about how it
+   * posts there (src/lib/profile-insights). A platform missing, or all of
+   * them, means nothing was learned there: prompts read as they did before.
+   */
+  platformInsights?: PlatformInsights
 }
 
 /**

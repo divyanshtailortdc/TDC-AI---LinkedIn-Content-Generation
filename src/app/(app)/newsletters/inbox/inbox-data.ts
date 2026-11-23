@@ -10,13 +10,14 @@ import {
 } from '@/db/schema'
 import { MAX_INBOX_QUERY_LENGTH } from '@/lib/inbox-path'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm'
 import type {
   ArticleStatus,
   DigestKind,
   ExtractionStatus
 } from '~/lib/intel/status'
 import { inboxSearchQuery } from '~/lib/mail/search'
+import type { InboxFilter } from './inbox-status'
 
 export type InboxListItem = {
   id: string
@@ -26,6 +27,27 @@ export type InboxListItem = {
   snippet: string | null
   receivedAt: Date
   hasAttachments: boolean
+  // What extraction made of it, for the list's status chip.
+  extractionStatus: ExtractionStatus
+  extractionError: string | null
+  digestKind: DigestKind | null
+  /** The digest's one-line summary, shown instead of the snippet when there is one. */
+  digestSummary: string | null
+  /** A newer version of the issue carries its stories. */
+  superseded: boolean
+  storyCount: number
+}
+
+/** What the identity's inbox has collected so far, for the top of the page. */
+export type InboxStats = {
+  received: number
+  newsletters: number
+  stories: number
+  /** Waiting to be read (including retries later on), or being read. */
+  processing: number
+  /** Being read, or due to be now: the list refreshes while this is above 0. */
+  due: number
+  failed: number
 }
 
 export type InboxMessage = {
@@ -51,22 +73,42 @@ export function parseInboxQuery(value: string | string[] | undefined) {
   return (raw ?? '').trim().slice(0, MAX_INBOX_QUERY_LENGTH)
 }
 
+/** The emails a filter keeps; undefined for all of them. */
+function filterCondition(filter: InboxFilter | null) {
+  switch (filter) {
+    case 'newsletters':
+      return eq(messages.digestKind, 'newsletter')
+    case 'processing':
+      return inArray(messages.extractionStatus, ['pending', 'processing'])
+    case 'failed':
+      return eq(messages.extractionStatus, 'failed')
+    default:
+      return undefined
+  }
+}
+
 /**
  * One page of the identity's emails, newest first, optionally matching a
- * search. Callers pass the signed-in user's own identity (requireIdentityId),
- * so it can only ever list theirs.
+ * search and a filter. Callers pass the signed-in user's own identity
+ * (requireIdentityId), so it can only ever list theirs.
  */
 export function loadInboxPage(
   accountId: string,
-  { page, query }: { page: number; query: string }
+  {
+    page,
+    query,
+    filter = null
+  }: { page: number; query: string; filter?: InboxFilter | null }
 ) {
   const tsQuery = inboxSearchQuery(query)
   const where = and(
     eq(messages.accountId, accountId),
     tsQuery
       ? sql`${messages.searchVector} @@ to_tsquery('simple', ${tsQuery})`
-      : undefined
+      : undefined,
+    filterCondition(filter)
   )
+  const mentions = intelMentionsTable
   return loadPage<InboxListItem>({
     page,
     pageSize: PAGE_SIZE,
@@ -83,7 +125,18 @@ export function loadInboxPage(
           subject: messages.subject,
           snippet: messages.snippet,
           receivedAt: messages.receivedAt,
-          hasAttachments: sql<boolean>`jsonb_array_length(${messages.attachments}) > 0`
+          hasAttachments: sql<boolean>`jsonb_array_length(${messages.attachments}) > 0`,
+          extractionStatus: messages.extractionStatus,
+          extractionError: messages.extractionError,
+          digestKind: messages.digestKind,
+          digestSummary: messages.digestSummary,
+          superseded: sql<boolean>`${messages.supersededById} is not null`,
+          // A page is ten emails; each count is one probe of the
+          // (message_id, position) index.
+          storyCount:
+            sql<number>`(select count(*) from ${mentions} where ${mentions.messageId} = ${messages.id} and ${mentions.accountId} = ${messages.accountId})`.mapWith(
+              Number
+            )
         })
         .from(messages)
         .where(where)
@@ -91,6 +144,83 @@ export function loadInboxPage(
         .offset(offset)
         .limit(limit)
   })
+}
+
+/** Where an email's extraction stands, for the inbox's poll (pollInbox). */
+export type InboxProgress = {
+  id: string
+  extractionStatus: ExtractionStatus
+  digestKind: DigestKind | null
+  storyCount: number
+}
+
+/**
+ * Where the listed emails stand: a few ids from the page, only the
+ * identity's own (any other id is simply not found).
+ */
+export function loadInboxProgress(
+  accountId: string,
+  messageIds: string[]
+): Promise<InboxProgress[]> {
+  if (messageIds.length === 0) return Promise.resolve([])
+  const mentions = intelMentionsTable
+  return db
+    .select({
+      id: messages.id,
+      extractionStatus: messages.extractionStatus,
+      digestKind: messages.digestKind,
+      storyCount:
+        sql<number>`(select count(*) from ${mentions} where ${mentions.messageId} = ${messages.id} and ${mentions.accountId} = ${messages.accountId})`.mapWith(
+          Number
+        )
+    })
+    .from(messages)
+    .where(
+      and(eq(messages.accountId, accountId), inArray(messages.id, messageIds))
+    )
+}
+
+/**
+ * The figures at the top of the inbox, in one pass over the identity's
+ * emails, with its stories counted alongside.
+ */
+export async function loadInboxStats(accountId: string): Promise<InboxStats> {
+  const mentions = intelMentionsTable
+  const [row] = await db
+    .select({
+      received: count(),
+      newsletters:
+        sql<number>`count(*) filter (where ${messages.digestKind} = 'newsletter')`.mapWith(
+          Number
+        ),
+      processing:
+        sql<number>`count(*) filter (where ${messages.extractionStatus} in ('pending', 'processing'))`.mapWith(
+          Number
+        ),
+      due: sql<number>`count(*) filter (where ${messages.extractionStatus} = 'processing' or (${messages.extractionStatus} = 'pending' and ${messages.extractionNextAt} <= now()))`.mapWith(
+        Number
+      ),
+      failed:
+        sql<number>`count(*) filter (where ${messages.extractionStatus} = 'failed')`.mapWith(
+          Number
+        ),
+      stories:
+        sql<number>`(select count(*) from ${mentions} where ${mentions.accountId} = ${accountId})`.mapWith(
+          Number
+        )
+    })
+    .from(messages)
+    .where(eq(messages.accountId, accountId))
+  return (
+    row ?? {
+      received: 0,
+      newsletters: 0,
+      stories: 0,
+      processing: 0,
+      due: 0,
+      failed: 0
+    }
+  )
 }
 
 /** One of the identity's emails in full, or null for a missing or foreign id. */

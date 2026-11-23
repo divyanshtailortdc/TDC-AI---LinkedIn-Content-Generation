@@ -177,7 +177,7 @@ BUFFER_CLIENT_SECRET="…"
 npm run dev:https        # next dev --experimental-https: a self-signed certificate in ./certificates
 ```
 
-Open **https://localhost:3000** (accept the certificate warning once) and sign in there: the session and the OAuth state cookies belong to that address. Google and LinkedIn sign-in redirect to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/{google,linkedin}` to those apps, or sign in with a passkey.
+Open **https://localhost:3000** (accept the certificate warning once) and sign in there: the session and the OAuth state cookies belong to that address. Google sign-in redirects to `BETTER_AUTH_URL` too, so add `https://localhost:3000/api/auth/callback/google` to the Google app, or sign in with a passkey.
 
 Buffer downloads post images from the app itself, and it cannot reach localhost or a private network address. An image post would come back as Buffer's "Image could not be read from its URL", so the app refuses it first and says which setting to change. Text posts work without this. For image posts, give only the image links a public address with a tunnel, and keep signing in on localhost:
 

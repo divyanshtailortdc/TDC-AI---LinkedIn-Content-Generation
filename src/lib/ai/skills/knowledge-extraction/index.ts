@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { isBusyError, runSkill } from '../../run-skill'
+import { isBusyError, runSkill, SkillError } from '../../run-skill'
 import { extractHeuristically } from './fallback'
 import { keepVerifiableClaims } from './guard'
 import { buildPrompt, INSTRUCTIONS } from './prompt'
@@ -38,10 +38,13 @@ export async function extractKnowledgeClaims(
     }
   } catch (err) {
     if (options.throwWhenBusy && isBusyError(err)) throw err
-    console.warn(
-      'Knowledge extraction model call failed, using heuristic:',
-      err
-    )
+    // Past the spending limit the heuristic summary is expected, not news.
+    if (!(err instanceof SkillError && err.reason === 'spend_limit')) {
+      console.warn(
+        'Knowledge extraction model call failed, using heuristic:',
+        err
+      )
+    }
   }
 
   return extractHeuristically(title, content)

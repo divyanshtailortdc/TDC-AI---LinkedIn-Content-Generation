@@ -6,7 +6,9 @@ import {
   isPrivateOrigin,
   type MediaVariant,
   mediaUrl,
-  slideSubject
+  slideSubject,
+  videoMediaUrl,
+  videoSubject
 } from '../media-token'
 import {
   BUFFER_SERVICES,
@@ -17,6 +19,7 @@ import type {
   BufferConfig,
   CreatedPost,
   PostCheck,
+  PostVideo,
   ProviderContext,
   PublishingProvider
 } from '../provider'
@@ -46,7 +49,10 @@ import {
  *   threads    A Threads post; its reply goes out with it the same way.
  *   facebook   A Facebook Page post; its first comment goes out with it.
  *   instagram  A feed post: the caption with its image, which Instagram
- *              requires (sent as a JPEG within Instagram's aspect ratios).
+ *              requires (sent as a JPEG within Instagram's aspect ratios);
+ *              or a Reel: the caption with its AI video.
+ *   facebook   …and a Facebook Reel the same way.
+ *   youtube    A Short: the AI video with its title and description.
  *
  * Buffer answers createPost before the network has the post, so a post comes
  * back `pending` unless it is sent within the short wait below; the engine
@@ -76,8 +82,10 @@ type BufferNetwork = {
   threadKey?: 'twitter' | 'threads'
   commentInPost?: boolean
   requiresImage?: boolean
-  /** The network's own createPost metadata. */
-  metadata?: (post: { comment?: string }) => Record<string, unknown>
+  /** Publishes video posts (Reels, Shorts), at most this large. */
+  video?: { maxBytes: number }
+  /** The network's own createPost metadata; `video` for a Reel or a Short. */
+  metadata?: (post: { comment?: string; video?: PostVideo }) => Record<string, unknown>
   /** Most images in one post, when the network takes a carousel. */
   maxCarouselImages?: number
   /** A post's link from its id, for posts published before Buffer gave links. */
@@ -146,8 +154,13 @@ const NETWORKS = {
     commentInPost: true,
     // Several photos in one post, which Facebook shows as a grid.
     maxCarouselImages: FORMATS['facebook.post'].media.carousel!.maxSlides,
-    metadata: ({ comment }) => ({
-      facebook: { type: 'post', ...(comment && { firstComment: comment }) }
+    // A Reel: the caption with its video.
+    video: { maxBytes: 1024 * MB },
+    metadata: ({ comment, video }) => ({
+      facebook: {
+        type: video ? 'reel' : 'post',
+        ...(comment && { firstComment: comment })
+      }
     })
   },
   instagram: {
@@ -161,9 +174,36 @@ const NETWORKS = {
     requiresImage: true,
     // A carousel post: every slide in one post, swiped through.
     maxCarouselImages: FORMATS['instagram.caption'].media.carousel!.maxSlides,
-    // A feed post, not a story or Reel. The caption's comment field is a
-    // link-in-bio note for the author: never posted.
-    metadata: () => ({ instagram: { type: 'post', shouldShareToFeed: true } })
+    // A Reel: the caption with its video (the Graph API takes up to 300 MB).
+    video: { maxBytes: 300 * MB },
+    // A feed post, or a Reel shared to the feed too. The caption's comment
+    // field is a link-in-bio note for the author: never posted. A Reel is an
+    // AI video, and says so.
+    metadata: ({ video }) => ({
+      instagram: video
+        ? { type: 'reel', shouldShareToFeed: true, isAiGenerated: true }
+        : { type: 'post', shouldShareToFeed: true }
+    })
+  },
+  youtube: {
+    platform: PLATFORMS.youtube,
+    services: new Set(BUFFER_SERVICES.youtube),
+    formats: PUBLISHABLE_FORMATS.youtube,
+    // The description's limit.
+    maxPostLength: FORMATS['youtube.short'].limits.maxChars,
+    measure: text => countChars(text, 'utf16'),
+    maxImageBytes: null,
+    video: { maxBytes: 1024 * MB },
+    // A Short needs a title and a category: People & Blogs (22) suits a
+    // brand's short. Not for children, and disclosed as AI-made.
+    metadata: ({ video }) => ({
+      youtube: {
+        title: (video?.title || 'Short').slice(0, 100),
+        categoryId: '22',
+        madeForKids: false,
+        isAiGenerated: true
+      }
+    })
   }
 } satisfies Record<BufferPlatformId, BufferNetwork>
 
@@ -203,7 +243,7 @@ function bufferProvider(
   const assertReachable = (ctx: ProviderContext<BufferConfig>) => {
     if (isPrivateOrigin(ctx.config.appUrl)) {
       throw new PostImageError(
-        `Buffer cannot download this post's images from ${new URL(ctx.config.appUrl).origin}, which only this computer can reach. Set PUBLISHING_MEDIA_URL to a public address of the app (in local development, a tunnel), then try again.`
+        `Buffer cannot download this post's images or video from ${new URL(ctx.config.appUrl).origin}, which only this computer can reach. Set PUBLISHING_MEDIA_URL to a public address of the app (in local development, a tunnel), then try again.`
       )
     }
   }
@@ -217,6 +257,7 @@ function bufferProvider(
     threads: network.threads,
     commentInPost: network.commentInPost,
     requiresImage: network.requiresImage,
+    video: network.video,
     // For connections that hold their own Buffer token (made before Buffer
     // had one connection per user). Single-use refresh tokens: connection.ts
     // refreshes under a row lock.
@@ -282,6 +323,25 @@ function bufferProvider(
       : {}),
 
     createPost: async (ctx, post): Promise<CreatedPost> => {
+      // Buffer downloads the video from a signed link to this app (which
+      // answers HEAD, unlike the bucket's own GET-only signed link).
+      let videoUrl: string | null = null
+      if (post.video) {
+        assertReachable(ctx)
+        const max = network.video?.maxBytes
+        if (!max) {
+          throw new PostImageError(`${name} video posts cannot be published from here.`)
+        }
+        if (post.video.byteSize !== null && post.video.byteSize > max) {
+          throw new PostImageError(
+            `The video is larger than the ${max / MB} MB ${name} allows.`
+          )
+        }
+        videoUrl = videoMediaUrl(
+          ctx.config.appUrl,
+          createMediaToken(ctx.config.encryptionKey, videoSubject(post.video.id))
+        )
+      }
       let state = await createPost(buffer(ctx), {
         channelId: post.authorId,
         text: post.text,
@@ -292,7 +352,8 @@ function bufferProvider(
           url,
           altText: post.carousel?.altTexts[i] ?? null
         })),
-        metadata: network.metadata?.({ comment: post.comment })
+        video: videoUrl ? { url: videoUrl, title: post.video?.title } : undefined,
+        metadata: network.metadata?.({ comment: post.comment, video: post.video })
       })
       // Usually sent within seconds: wait a little so Publish now can say so.
       // A failed look changes nothing; the engine follows a pending post.
@@ -330,3 +391,4 @@ export const bufferXProvider = bufferProvider(NETWORKS.x)
 export const bufferThreadsProvider = bufferProvider(NETWORKS.threads)
 export const bufferFacebookProvider = bufferProvider(NETWORKS.facebook)
 export const bufferInstagramProvider = bufferProvider(NETWORKS.instagram)
+export const bufferYouTubeProvider = bufferProvider(NETWORKS.youtube)

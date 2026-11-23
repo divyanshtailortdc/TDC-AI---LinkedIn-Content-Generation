@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import type { IdeaScorecard } from '@/lib/idea-scorecard'
+import type { SignalKind, SourceRating } from '@/lib/research/source-credibility'
 
 /**
  * Analytical lenses, deliberately domain-neutral.
@@ -152,7 +154,13 @@ export const IdeaItemSchema = z.object({
           .string()
           .optional()
           .describe('When the source was published, YYYY-MM-DD'),
-        confidence: z.number().min(0).max(1).default(0.9)
+        confidence: z.number().min(0).max(1).default(0.9),
+        // Set by the validator from the corpus entry the claim matched: how
+        // far its source can be trusted, what it was researched for, and
+        // the outlet a news search named.
+        credibility: z.custom<SourceRating>().optional(),
+        kind: z.custom<SignalKind>().optional(),
+        publisher: z.string().optional()
       })
     )
     .default([]),
@@ -167,7 +175,9 @@ export const IdeaItemSchema = z.object({
     .default({ mode: 'none' }),
   noveltyNote: z
     .string()
-    .describe('What makes this angle fresh compared to common takes in the feed'),
+    .describe(
+      'The obvious take on this subject that you did not write, and what this idea does instead'
+    ),
   estimatedStrength: z.number().int().min(1).max(100).default(85),
   groundingScore: z.number().int().min(0).max(100).default(85),
   originalityScore: z.number().int().min(0).max(100).default(85),
@@ -175,6 +185,9 @@ export const IdeaItemSchema = z.object({
   // the idea: how well it achieves its goal, and why.
   goalFitScore: z.number().int().min(0).max(100).optional(),
   goalFitNote: z.string().optional(),
+  // Every other score with its reason (src/lib/idea-scorecard): source
+  // quality from the validator, the rest from the idea review.
+  scorecard: z.custom<IdeaScorecard>().optional(),
   unsupportedClaims: z.array(z.string()).default([]),
   sourceIds: z.array(z.string()).default([]),
   risks: z.array(z.string()).default([]),

@@ -2,6 +2,7 @@ import { requireIdentityId } from '@/lib/identity'
 import { getSessionUser } from '@/lib/session'
 import { isUuid } from '~/lib/ids'
 import { loadMediaImageUrl } from '~/lib/media/media-image'
+import { publicErrorMessage } from '@/lib/public-error'
 
 /**
  * A post image's link, for the review queue's open post. A GET rather than a
@@ -41,6 +42,6 @@ export async function GET(
     )
   } catch (err: any) {
     console.error('Error loading post media image:', err)
-    return fail(500, err?.message || 'Failed to load image')
+    return fail(500, publicErrorMessage(err, 'Failed to load image'))
   }
 }

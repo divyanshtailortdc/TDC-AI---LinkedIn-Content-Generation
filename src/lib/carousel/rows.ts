@@ -43,14 +43,25 @@ export function slideContentOf(row: PostSlide): SlideContent {
 }
 
 const metadataOf = (row: Pick<PostSlide, 'metadata'>) =>
-  (row.metadata ?? {}) as { issues?: unknown }
+  (row.metadata ?? {}) as { issues?: unknown; factIssues?: unknown }
+
+const strings = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((i): i is string => typeof i === 'string')
+    : []
 
 /** What the review screen says about a slide's picture. */
 export function slideIssues(row: Pick<PostSlide, 'metadata'>): string[] {
-  const issues = metadataOf(row).issues
-  return Array.isArray(issues)
-    ? issues.filter((i): i is string => typeof i === 'string')
-    : []
+  return strings(metadataOf(row).issues)
+}
+
+/**
+ * What the slide's words state that no source does (slideFactIssues), as of
+ * when they were last written. Kept apart from the picture's issues, as each
+ * changes on its own.
+ */
+export function slideFactIssuesOf(row: Pick<PostSlide, 'metadata'>): string[] {
+  return strings(metadataOf(row).factIssues)
 }
 
 /** A slide's row, ready to insert or update, from what was drawn and stored. */
@@ -63,6 +74,8 @@ export function slideRowValues(
     pictureUrl: string | null
     error: string | null
     issues: string[]
+    /** See slideFactIssuesOf. */
+    factIssues?: string[]
     picturePrompt?: string
   }
 ): NewPostSlide {
@@ -84,6 +97,7 @@ export function slideRowValues(
       : (stored.error ?? 'The slide could not be drawn.'),
     metadata: {
       issues: stored.issues,
+      ...(stored.factIssues?.length ? { factIssues: stored.factIssues } : {}),
       ...(stored.picturePrompt ? { picturePrompt: stored.picturePrompt } : {})
     }
   }

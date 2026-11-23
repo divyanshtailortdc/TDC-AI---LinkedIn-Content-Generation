@@ -15,6 +15,8 @@ type Layout =
   | 'list'
   | 'split'
   | 'stages'
+  // The runs list: spend tiles, the status chips, then the rows; full width.
+  | 'runs'
   | 'calendar'
   // The Posts list and a post's page: full width, 16px in (24px from sm).
   | 'posts'
@@ -37,13 +39,16 @@ function Card({ lines = 2 }: { lines?: number }) {
 
 export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
   const fullWidth = layout === 'posts' || layout === 'post'
+  // A run and the runs list fill the main area too, but keep the stacked-cards
+  // body below.
+  const fillsMain = fullWidth || layout === 'stages' || layout === 'runs'
   return (
     <div
       role="status"
       aria-label="Loading"
       // The full-width pages fill the app's main area, as they do loaded.
       className={
-        fullWidth
+        fillsMain
           ? 'flex min-h-0 flex-1 flex-col'
           : 'flex h-[calc(100vh-4rem)] flex-col'
       }
@@ -128,7 +133,7 @@ export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
         </div>
       ) : (
         <div className="flex-1 overflow-hidden p-4 sm:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
+          <div className={fillsMain ? 'space-y-6' : 'mx-auto max-w-7xl space-y-6'}>
             {layout === 'calendar' ? (
               <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">
@@ -159,6 +164,32 @@ export function PageSkeleton({ layout = 'list' }: { layout?: Layout }) {
                 {Array.from({ length: 3 }, (_, i) => (
                   <Card key={i} lines={3} />
                 ))}
+              </>
+            ) : layout === 'runs' ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {Array.from({ length: 4 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="border-border bg-surface space-y-2 rounded-2xl border p-3 shadow-xs sm:p-4"
+                    >
+                      <Bar className="h-3 w-1/2" />
+                      <Bar className="h-6 w-1/3" />
+                      <Bar className="h-3 w-1/4" />
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  <Bar className="h-9 w-xl max-w-full rounded-xl" />
+                  <div className="border-border bg-surface divide-border divide-y rounded-2xl border shadow-xs">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <div key={i} className="space-y-2 px-4 py-3.5 sm:px-5">
+                        <Bar className="h-3.5 w-2/5" />
+                        <Bar className="h-3 w-1/6" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </>
             ) : (
               Array.from({ length: 4 }, (_, i) => <Card key={i} />)

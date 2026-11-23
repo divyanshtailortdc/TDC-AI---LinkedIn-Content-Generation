@@ -18,15 +18,17 @@ import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
  * can be run against any connection.
  */
 export type IdentityDb = PgDatabase<PostgresJsQueryResultHKT, any, any>
-type Tx = Parameters<Parameters<IdentityDb['transaction']>[0]>[0]
+export type IdentityTx = Parameters<Parameters<IdentityDb['transaction']>[0]>[0]
+type Tx = IdentityTx
 type AccountInsert = typeof accountsTable.$inferInsert
 type ProfileRows = Pick<IdentityProfile, 'offerings' | 'targetAudience'>
 
 /**
  * Writes the profile's free-text offerings and audience into the account's
  * primary (oldest) rows, inserting them when missing. Later rows are kept.
+ * Runs inside the caller's transaction.
  */
-async function upsertPrimaryOfferingAndAudience(
+export async function upsertPrimaryOfferingAndAudience(
   tx: Tx,
   accountId: string,
   profile: ProfileRows

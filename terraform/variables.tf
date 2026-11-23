@@ -51,6 +51,24 @@ variable "research_mode" {
   default     = "fixed"
 }
 
+variable "ai_spend_limit_usd" {
+  description = "What one user may spend on AI over any 30 days, in US dollars, across all their identities."
+  type        = number
+  default     = 100
+}
+
+variable "ai_daily_spend_limit_usd" {
+  description = "What one user may spend on AI over any 24 hours, in US dollars, across all their identities."
+  type        = number
+  default     = 20
+}
+
+variable "ai_inbox_daily_limit_usd" {
+  description = "What one identity's inbox may spend on AI over any 24 hours, in US dollars (reading received email, which anyone can send)."
+  type        = number
+  default     = 2
+}
+
 # Secrets. Each one that is set is stored in Secret Manager and passed to the
 # app; leave the ones you don't use empty.
 
@@ -84,14 +102,3 @@ variable "google_client_secret" {
   sensitive = true
 }
 
-variable "linkedin_client_id" {
-  type      = string
-  default   = ""
-  sensitive = true
-}
-
-variable "linkedin_client_secret" {
-  type      = string
-  default   = ""
-  sensitive = true
-}

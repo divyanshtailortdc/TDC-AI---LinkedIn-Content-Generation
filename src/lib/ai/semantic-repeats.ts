@@ -1,4 +1,4 @@
-import { cosineSimilarity, embedMany } from 'ai'
+import { cosineSimilarity } from 'ai'
 
 /**
  * Ideas that repeat an earlier one in other words. A model asked for fresh
@@ -64,9 +64,25 @@ export function findRepeats(
   })
 }
 
+/** For each candidate, its closest earlier idea by meaning; null when there are none. */
+export function closestEarlier(
+  candidates: number[][],
+  earlier: number[][]
+): Array<{ index: number; similarity: number } | null> {
+  return candidates.map(vector => {
+    let best: { index: number; similarity: number } | null = null
+    for (let index = 0; index < earlier.length; index++) {
+      const similarity = cosineSimilarity(vector, earlier[index]!)
+      if (best === null || similarity > best.similarity) best = { index, similarity }
+    }
+    return best
+  })
+}
+
 /**
  * Drops the ideas that repeat an earlier idea, or a better idea of the same
- * batch, in other words. `priority` orders the batch (higher kept first).
+ * batch, in other words. Each idea kept comes with the earlier idea closest
+ * to it in meaning, so its originality can say how close. `priority` orders the batch (higher kept first).
  * Without an embedding model, or when the call fails, nothing is dropped:
  * the check is a backstop and never costs a run its ideas.
  */
@@ -79,11 +95,14 @@ export async function dropSemanticRepeats<
 ): Promise<{
   kept: T[]
   dropped: Array<{ title: string; reason: string; goalId?: string }>
+  /** Per kept idea, in the same order: the closest earlier idea; null when unknown. */
+  closest: Array<{ title: string; similarity: number } | null>
 }> {
-  if (ideas.length === 0) return { kept: ideas, dropped: [] }
+  const none = () => ideas.map(() => null)
+  if (ideas.length === 0) return { kept: ideas, dropped: [], closest: [] }
   const { getEmbeddingModel } = await import('~/lib/ai')
   const handle = getEmbeddingModel()
-  if (!handle) return { kept: ideas, dropped: [] }
+  if (!handle) return { kept: ideas, dropped: [], closest: none() }
 
   const priority = options.priority ?? (() => 0)
   const order = ideas
@@ -91,20 +110,37 @@ export async function dropSemanticRepeats<
     .sort((a, b) => priority(ideas[b]!) - priority(ideas[a]!))
   try {
     const timeout = AbortSignal.timeout(EMBED_TIMEOUT_MS)
-    const { embeddings } = await embedMany({
-      model: handle.model,
-      values: [
+    const { embedValues } = await import('./embed')
+    const embeddings = await embedValues(
+      handle,
+      [
         ...order.map(i => ideaMeaningText(ideas[i]!)),
         ...earlier.map(ideaMeaningText)
       ],
-      abortSignal: options.abortSignal
-        ? AbortSignal.any([timeout, options.abortSignal])
-        : timeout
-    })
+      {
+        abortSignal: options.abortSignal
+          ? AbortSignal.any([timeout, options.abortSignal])
+          : timeout
+      }
+    )
     const repeats = findRepeats(
       embeddings.slice(0, order.length),
       embeddings.slice(order.length)
     )
+    const nearest = closestEarlier(
+      embeddings.slice(0, order.length),
+      embeddings.slice(order.length)
+    )
+    // By the idea's own index, not its rank.
+    const closestOf = new Map<number, { title: string; similarity: number }>()
+    nearest.forEach((near, rank) => {
+      if (near) {
+        closestOf.set(order[rank]!, {
+          title: earlier[near.index]!.title,
+          similarity: near.similarity
+        })
+      }
+    })
 
     const dropped = new Map<number, string>()
     repeats.forEach((repeat, rank) => {
@@ -118,8 +154,10 @@ export async function dropSemanticRepeats<
         `Repeats ${of} in other words (${Math.round(repeat.similarity * 100)}% alike in meaning).`
       )
     })
+    const keptIndexes = ideas.map((_, i) => i).filter(i => !dropped.has(i))
     return {
-      kept: ideas.filter((_, i) => !dropped.has(i)),
+      kept: keptIndexes.map(i => ideas[i]!),
+      closest: keptIndexes.map(i => closestOf.get(i) ?? null),
       dropped: [...dropped.entries()].map(([i, reason]) => ({
         title: ideas[i]!.title,
         reason,
@@ -132,6 +170,6 @@ export async function dropSemanticRepeats<
       'The repeat check by meaning could not run; no idea was dropped by it:',
       err
     )
-    return { kept: ideas, dropped: [] }
+    return { kept: ideas, dropped: [], closest: none() }
   }
 }

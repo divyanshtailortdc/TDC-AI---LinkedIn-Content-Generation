@@ -211,6 +211,33 @@ describe('drafting by style', () => {
     assert.notStrictEqual(casual, variantPrompt.buildSharedInstructions(mixedCtx, 'fun'))
   })
 
+  it('keeps each casual post to its one point, with no tacked-on tribute or meta line', () => {
+    // Zomato, 2026-11-20: every draft ended by thanking delivery partners,
+    // one with "Staying on brand: ...".
+    for (const style of ['casual', 'fun'] as const) {
+      const rules = casualStyleRules(style)
+      assert.match(rules, /Do not tack on a line/)
+      assert.match(rules, /Never talk about the post itself or the brand's own tone/)
+    }
+    // "(Screenshot is fiction, the ritual is not.)" closed a mock-chat post.
+    assert.match(CASUAL_TRUTH_RULES, /Obvious fiction needs no disclaimer/)
+  })
+
+  it('reads a tone note as the feed\'s traits, not a checklist for every post', () => {
+    // Zomato, 2026-11-20: the note "shout-outs to delivery partners" put a
+    // thank-you at the end of every Instagram draft.
+    const withTone = context({
+      account: dancer,
+      goal: goal(),
+      enabledFormats: ['instagram.caption'],
+      channelSettings: { instagram: { style: 'fun', tone: 'Witty, meme-first, shout-outs to delivery partners' } }
+    })
+    const prompt = variantPrompt.buildFormatPrompt(withTone, 'instagram.caption')
+    assert.match(prompt, /beyond the core voice: Witty, meme-first, shout-outs to delivery partners/)
+    assert.match(prompt, /traits of the feed as a whole/)
+    assert.doesNotMatch(variantPrompt.buildFormatPrompt(funCtx, 'instagram.caption'), /traits of the feed/)
+  })
+
   it("follows each format's platform", () => {
     assert.strictEqual(variantPrompt.styleOfFormat(mixedCtx, 'instagram.caption'), 'fun')
     assert.strictEqual(variantPrompt.styleOfFormat(mixedCtx, 'linkedin.post'), 'professional')
@@ -278,6 +305,40 @@ describe('ideas by style', () => {
     assert.match(prompt, /- pov_skit: /)
     assert.ok(!prompt.includes('- contrarian_take:'))
     assert.match(prompt, /mediaBrief: what the author should photograph or film/)
+  })
+
+  it('plans still posts, not videos, when every format is an image or a carousel', () => {
+    // Zomato, 2026-11-20: 4 of 5 ideas for Instagram posts (pictures and
+    // carousels; Reels are not made) were skits to film.
+    const channels = ideationPrompt.ideationChannels(['instagram.caption'], null)
+    const brand = context({
+      account: account({ name: 'Zomato', accountType: 'company', industry: 'Food delivery' }),
+      audiences: [audience('Late-night snackers')],
+      goal: goal({ title: 'Late-night cravings club' }),
+      enabledFormats: ['instagram.caption'],
+      channelSettings: { instagram: { style: 'fun' } }
+    })
+    const instructions = ideationPrompt.buildInstructions(brand, channels)
+    assert.match(instructions, /THESE ARE STILL POSTS/)
+    assert.match(instructions, /becomes a single frame or a carousel of panels/)
+    assert.match(instructions, /its designers make the visual/)
+    assert.match(instructions, /something the brand's own team can design or photograph\./)
+    assert.ok(!instructions.includes('film or photograph themselves'))
+    // A person's still posts: no designers, but still no filming.
+    const person = ideationPrompt.buildInstructions(funCtx, channels)
+    assert.match(person, /THESE ARE STILL POSTS/)
+    assert.ok(!person.includes('its designers make the visual'))
+    const prompt = ideationPrompt.buildPrompt({
+      corpus: { verifiedClaims: [] },
+      history: '',
+      candidateCount: 3,
+      assignedGoals: ['G1', 'G1', 'G1'],
+      hookMaxChars: 200,
+      style: 'casual',
+      channels
+    })
+    assert.match(prompt, /mediaBrief: what the image shows/)
+    assert.ok(!prompt.includes('photograph or film'))
   })
 
   it('offers both kinds of idea across professional and fun platforms', () => {

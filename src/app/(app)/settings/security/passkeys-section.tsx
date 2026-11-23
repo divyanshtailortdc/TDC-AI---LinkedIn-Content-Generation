@@ -8,6 +8,7 @@ import { showToast } from '@/components/toast-notification'
 import { authClient } from '@/lib/auth-client'
 import { authErrorMessage } from '@/lib/auth-errors'
 import { cn } from '@/lib/cn'
+import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type ComponentProps, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -267,6 +268,10 @@ export function PasskeysSection() {
     refetch
   } = authClient.useListPasskeys()
   const { pending: adding, hasPasskey, addPasskey } = useAddPasskey()
+  // The passkey list's store starts loading on the server but settled on the
+  // client, so the first client render showed something else and hydration
+  // failed: both show the loading state until mounted.
+  const mounted = useHasMounted()
 
   return (
     <section
@@ -287,14 +292,15 @@ export function PasskeysSection() {
           <p className="text-muted mt-1 text-xs leading-relaxed">
             Sign in with your fingerprint, face or screen lock instead of a
             social account.
-            {hasPasskey &&
+            {mounted &&
+              hasPasskey &&
               ' You can have one passkey; delete it to add a different one.'}
           </p>
         </div>
         <Button
           size="sm"
           loading={adding}
-          disabled={hasPasskey}
+          disabled={!mounted || hasPasskey}
           onClick={addPasskey}
         >
           {!adding && <Plus aria-hidden className="h-4 w-4" />}
@@ -303,7 +309,7 @@ export function PasskeysSection() {
       </div>
 
       <div className="mt-5">
-        {isPending ? (
+        {!mounted || isPending ? (
           <div
             aria-busy
             aria-label="Loading passkeys"

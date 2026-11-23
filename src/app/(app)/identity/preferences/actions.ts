@@ -9,6 +9,7 @@ import {
 import { requireOwnedAccount } from '@/lib/account-guard'
 import { IDENTITY_PATH } from '@/lib/identity'
 import { requireUser } from '@/lib/session'
+import { setupAction } from '@/lib/setup-action'
 import {
   cleanChannelSettings,
   cleanFormats,
@@ -21,7 +22,8 @@ import {
 import {
   AccountIdSchema,
   parseSetupPayload,
-  PreferencesPayloadSchema
+  PreferencesPayloadSchema,
+  SetupInputError
 } from '@/lib/setup-payloads'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
@@ -53,7 +55,7 @@ function validate(payload: PreferencesPayload) {
     ideas < MIN_IDEAS_PER_RUN ||
     ideas > MAX_IDEAS_PER_RUN
   ) {
-    throw new Error(
+    throw new SetupInputError(
       `Ideas per run must be between ${MIN_IDEAS_PER_RUN} and ${MAX_IDEAS_PER_RUN}.`
     )
   }
@@ -63,7 +65,7 @@ function validate(payload: PreferencesPayload) {
 function checkedFormats(values: string[]): FormatId[] {
   const formats = cleanFormats(values).filter(isCreatableFormat)
   if (formats.length === 0) {
-    throw new Error('Turn on at least one platform to write posts for.')
+    throw new SetupInputError('Turn on at least one platform to write posts for.')
   }
   return formats
 }
@@ -90,6 +92,14 @@ export async function savePreferences(
   rawPayload: PreferencesPayload
 ) {
   const user = await requireUser()
+  return setupAction(() => writePreferences(user, rawAccountId, rawPayload))
+}
+
+async function writePreferences(
+  user: { id: string },
+  rawAccountId: string,
+  rawPayload: PreferencesPayload
+) {
   const accountId = parseSetupPayload(AccountIdSchema, rawAccountId)
   await requireOwnedAccount(user.id, accountId)
   const payload = parseSetupPayload(PreferencesPayloadSchema, rawPayload)
@@ -143,5 +153,5 @@ export async function savePreferences(
   revalidatePath(`${IDENTITY_PATH}/preferences`)
   revalidatePath(IDENTITY_PATH)
   revalidatePath('/')
-  return { success: true }
+  return {}
 }

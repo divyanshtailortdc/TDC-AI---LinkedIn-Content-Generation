@@ -59,7 +59,8 @@ function ConnectButton({
   const className = `${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`
   const content = (
     <>
-      <PlatformMark platform={platform.id} className="h-3.5 w-3.5" />
+      {/* White on the platform's own colour, as its brand shows it. */}
+      <PlatformMark platform={platform.id} colored={false} className="h-3.5 w-3.5" />
       {expired ? `Reconnect ${platform.name}` : `Connect ${platform.name}`}
     </>
   )
@@ -86,8 +87,12 @@ const POLL_MS = 15_000
  */
 const CONNECTION_LOST = new Set(['reauth_required', 'not_connected'])
 
+/** On Publish now and Schedule while Regenerate or Restore runs. */
+const NEW_TEXT_ON_ITS_WAY =
+  'A new version of the text is on its way; read and approve it first'
+
 const SMALL_BUTTON =
-  'flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+  'focus-visible:ring-foreground/30 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50'
 
 /**
  * Publish now, Schedule, and the state of the post's publication, for an
@@ -116,8 +121,22 @@ function PublishControlsInner({
   publication,
   onChange,
   media = 'image',
-  slideCount = 0
+  slideCount = 0,
+  unsavedEdits = false,
+  textReplacing = false
 }: {
+  /**
+   * Set while the page's editor holds edits not saved yet. Publish now and
+   * Schedule send the saved text, so they wait until the edits are saved or
+   * cancelled, as Approve does.
+   */
+  unsavedEdits?: boolean
+  /**
+   * Set while Regenerate or Restore writes a new text. Server Actions run one
+   * at a time, so a publish sent now would reach the server after it, for
+   * text nobody has read. Publish now and Schedule are off until it lands.
+   */
+  textReplacing?: boolean
   /** What goes out with the text: the confirmation names it. */
   media?: MediaFormat
   /** A carousel's slides. */
@@ -235,8 +254,35 @@ function PublishControlsInner({
     }
   }
 
-  const publishNow = (confirmedNotPublished = false) =>
-    run(
+  // The text on screen is not the text that would go out (edits not saved, or
+  // a new version on its way): say so instead. Checked on each button and
+  // again when the publish or schedule is sent, since the schedule form and
+  // the "it's not there" dialog stay open while the text can still change.
+  const blockedByTextOnScreen = () => {
+    if (textReplacing) {
+      showToast({
+        type: 'error',
+        title: 'A new version is on its way',
+        message: 'Read it once it is in, and approve it, before publishing.'
+      })
+      return true
+    }
+    if (!unsavedEdits) return false
+    showToast({
+      type: 'error',
+      title: 'Unsaved changes',
+      message:
+        'Save or cancel your edits before publishing this post. Use Edit text to reopen them.'
+    })
+    return true
+  }
+
+  const publishNow = (confirmedNotPublished = false) => {
+    if (blockedByTextOnScreen()) {
+      setDialog(null)
+      return
+    }
+    return run(
       () =>
         publishPostNow(postId, {
           confirmedNotPublished,
@@ -250,7 +296,8 @@ function PublishControlsInner({
             }
           : p.status === 'scheduled'
             ? {
-                title: 'Will retry shortly',
+                // A rate limit can put it hours off.
+                title: `Retrying ${formatDateTime(p.nextAttemptAt)}`,
                 message: p.error ?? `${name} was busy; it will be tried again.`
               }
             : {
@@ -259,8 +306,13 @@ function PublishControlsInner({
               },
       'unknown-publish'
     )
+  }
 
   const schedule = (confirmedNotPublished = false) => {
+    if (blockedByTextOnScreen()) {
+      setDialog(null)
+      return
+    }
     const at = new Date(scheduleAt)
     if (Number.isNaN(at.getTime())) return
     void run(
@@ -447,7 +499,7 @@ function PublishControlsInner({
       <span className="inline-flex flex-wrap items-center gap-2">
         {lastFailed && (
           <span
-            className="inline-flex max-w-40 items-center gap-1 text-[11px] text-rose-600 dark:text-rose-400"
+            className="inline-flex max-w-40 items-center gap-1 text-xs text-rose-600 dark:text-rose-400"
             title={publication.error ?? undefined}
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -485,7 +537,8 @@ function PublishControlsInner({
             />
             <button
               type="submit"
-              disabled={busy || !scheduleAt}
+              disabled={busy || !scheduleAt || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
               className={`${SMALL_BUTTON} border-border text-foreground hover:bg-surface-hover border`}
             >
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -503,27 +556,31 @@ function PublishControlsInner({
           <>
             <button
               type="button"
-              disabled={busy}
-              onClick={() =>
+              disabled={busy || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
+              onClick={() => {
+                if (blockedByTextOnScreen()) return
                 setDialog(
                   lastFailed && publication.errorCode === 'unknown_outcome'
                     ? 'unknown-publish'
                     : 'publish'
                 )
-              }
+              }}
               className={`${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`}
             >
               {busy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <PlatformMark platform={platform.id} className="h-3.5 w-3.5" />
+                <PlatformMark platform={platform.id} colored={false} className="h-3.5 w-3.5" />
               )}
               {lastFailed ? 'Try again' : 'Publish now'}
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
               onClick={() => {
+                if (blockedByTextOnScreen()) return
                 setScheduleAt(inAnHour())
                 setScheduling(true)
               }}
@@ -546,7 +603,9 @@ function PublishControlsInner({
                 ? `, with its ${slideCount} slides`
                 : media === 'text'
                   ? ' (text only)'
-                  : ', with its image'}
+                  : media === 'video'
+                    ? ', with its video'
+                    : ', with its image'}
               {SENDS_FIRST_COMMENT.has(platform.id)
                 ? ` and ${FORMATS[formatId].commentLabel.toLowerCase()}`
                 : ''}, is published

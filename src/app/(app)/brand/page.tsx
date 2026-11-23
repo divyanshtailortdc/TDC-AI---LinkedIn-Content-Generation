@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 export default async function BrandThemePage() {
   const identity = await getIdentity()
   if (!identity) return <NoIdentity title="Brand Theme" />
-
+  
   const [row] = await db
     .select({
       primaryColor: brandThemesTable.primaryColor,

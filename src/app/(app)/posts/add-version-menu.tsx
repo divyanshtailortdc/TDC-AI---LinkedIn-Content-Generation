@@ -2,6 +2,7 @@
 
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
+import { ToneDot } from '@/components/ui/status-chip'
 import { cn } from '@/lib/cn'
 import {
   canHaveImage,
@@ -15,7 +16,6 @@ import {
   type FormatId
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
-import { isOnPlatform } from '@/lib/publishing/status'
 import {
   Check,
   ChevronDown,
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { addPostVersion } from './actions'
+import { postStage } from './post-status'
 import type { PostDetail } from './posts-client'
 
 /** The enabled formats the post's idea has no post in yet, that can be created. */
@@ -34,22 +35,6 @@ function missingFormats(post: PostDetail, enabledFormats: FormatId[]): FormatId[
       .filter(isFormatId)
   )
   return enabledFormats.filter(f => !have.has(f) && isCreatableFormat(f))
-}
-
-/** Where a version stands, in a word. */
-function versionStatus(post: PostDetail): string {
-  const published = post.publication?.status
-  // Deleted from its platform: not posted any more (it reads approved again).
-  if (post.postedAt || isOnPlatform(post.publication)) return 'Posted'
-  if (published === 'publishing') return 'Publishing'
-  if (published === 'scheduled') return 'Scheduled'
-  const labels: Record<string, string> = {
-    awaiting_review: 'In review',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    draft: 'Draft'
-  }
-  return labels[post.status] ?? post.status
 }
 
 /**
@@ -96,11 +81,14 @@ export function IdeaVersions({
         className
       )}
     >
-      <span className="text-muted mr-1 text-[11px] font-semibold tracking-wider uppercase">
+      <span className="text-muted mr-1 text-xs font-semibold tracking-wider uppercase">
         Versions
       </span>
       {versions.map(version => {
         const active = version.id === post.id
+        // The open post's stage is in the status strip above; the others'
+        // is a dot in its tone, named for screen readers and on hover.
+        const stage = postStage(version)
         return (
           <button
             key={version.id}
@@ -108,19 +96,22 @@ export function IdeaVersions({
             aria-current={active ? 'true' : undefined}
             disabled={disabled && !active}
             onClick={() => onOpen(version.id)}
-            title={`Open the ${FORMATS[formatOf(version.formatId)].label}`}
+            title={`Open the ${FORMATS[formatOf(version.formatId)].label}${active ? '' : ` (${stage.label})`}`}
             className={cn(
-              'flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+              'focus-visible:ring-foreground/30 flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
               active
-                ? 'border-accent bg-accent/10 text-foreground'
+                ? 'border-foreground/25 bg-surface-hover text-foreground'
                 : 'border-border text-muted hover:bg-surface-hover hover:text-foreground'
             )}
           >
             <PlatformMark platform={version.platform} className="h-3.5 w-3.5 shrink-0" />
             {FORMATS[formatOf(version.formatId)].label}
-            <span className="text-muted text-[11px] font-medium">
-              · {versionStatus(version)}
-            </span>
+            {!active && (
+              <>
+                <ToneDot tone={stage.tone} className="h-1.5 w-1.5" />
+                <span className="sr-only">, {stage.label}</span>
+              </>
+            )}
           </button>
         )
       })}

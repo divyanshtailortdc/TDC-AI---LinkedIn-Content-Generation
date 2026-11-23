@@ -4,6 +4,7 @@ import {
   sanitizeIdentitySetup,
   type SanitizeContext
 } from '../src/lib/ai/skills/profile-setup/guard'
+import { withoutOffPlatformMainLink } from '../src/lib/ai/skills/profile-setup/links'
 import { INSTRUCTIONS } from '../src/lib/ai/skills/profile-setup/prompt'
 import {
   IdentitySetupSuggestionsSchema,
@@ -194,6 +195,19 @@ describe('the Website URL is whatever the AI judged, checked and labelled', () =
       assert.strictEqual(suggestions.profile.websiteUrl?.value, typed)
       assert.strictEqual(suggestions.profile.websiteUrl?.kind, 'fact')
       assert.strictEqual(suggestions.profile.websiteUrl?.source, 'provided')
+    }
+  })
+
+  it('raises no warning when the AI proposes the website the user typed', () => {
+    // Zomato, 2026-11-20: typed https://www.zomato.com, the AI proposed the
+    // same site, and the review still said a URL had been dropped.
+    for (const proposed of ['https://www.shopify.com', 'https://www.shopify.com/', 'www.shopify.com']) {
+      const { suggestions, warnings } = analyze(
+        [...named, entry('websiteUrl', proposed)],
+        { description: 'Shopify is a commerce platform.', providedUrls: ['https://www.shopify.com'] }
+      )
+      assert.strictEqual(suggestions.profile.websiteUrl?.value, 'https://www.shopify.com', proposed)
+      assert.deepStrictEqual(warnings, [], proposed)
     }
   })
 
@@ -408,5 +422,31 @@ describe('a suggestion keeps its note through review', () => {
       assert.ok(parsed.success)
       assert.strictEqual(parsed.data.websiteUrl?.note, item.note)
     }
+  })
+})
+
+describe('the main profile link suggestion', () => {
+  const linkedinPage = {
+    value: 'https://www.linkedin.com/company/zomato',
+    kind: 'fact' as const,
+    source: 'https://www.linkedin.com/company/zomato',
+    confidence: 'high' as const
+  }
+  const withLink = (value = linkedinPage) => ({ profile: { name: { value: 'Zomato', kind: 'fact' as const, confidence: 'high' as const }, linkedinUrl: value } })
+
+  it('is dropped when it is on a platform the identity does not post on', () => {
+    // Zomato, 2026-11-20: re-analyzing an Instagram-only identity offered its
+    // LinkedIn company page as the main profile link, "replacing" Instagram.
+    const kept = withoutOffPlatformMainLink(withLink(), ['instagram'])
+    assert.strictEqual(kept.profile.linkedinUrl, undefined)
+    assert.strictEqual(kept.profile.name?.value, 'Zomato')
+  })
+
+  it('stays when the identity posts there, when its platforms are unknown, or when it is no platform page', () => {
+    assert.deepStrictEqual(withoutOffPlatformMainLink(withLink(), ['instagram', 'linkedin']).profile.linkedinUrl, linkedinPage)
+    assert.deepStrictEqual(withoutOffPlatformMainLink(withLink(), undefined).profile.linkedinUrl, linkedinPage)
+    assert.deepStrictEqual(withoutOffPlatformMainLink(withLink(), []).profile.linkedinUrl, linkedinPage)
+    const linkInBio = { ...linkedinPage, value: 'https://linktr.ee/zomato' }
+    assert.deepStrictEqual(withoutOffPlatformMainLink(withLink(linkInBio), ['instagram']).profile.linkedinUrl, linkInBio)
   })
 })

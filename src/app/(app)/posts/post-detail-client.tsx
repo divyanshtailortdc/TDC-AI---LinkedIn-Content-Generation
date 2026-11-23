@@ -1,7 +1,14 @@
 'use client'
 
+import { buttonClassName } from '@/components/button'
+import { StatusChip } from '@/components/ui/status-chip'
+import { FOCUS_RING } from '@/components/ui/tone'
+import { cn } from '@/lib/cn'
 import { CarouselViewer } from '@/components/carousel/carousel-viewer'
 import { SlidesPanel } from '@/components/carousel/slides-panel'
+import { VideoPanel } from '@/components/video/video-panel'
+import { PostCostCard } from '@/components/post-cost'
+import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PostTypePicker } from '@/components/post-type-picker'
 import { PublishChecks } from '@/components/publish-checks'
@@ -68,6 +75,7 @@ import { isOnPlatform } from '@/lib/publishing/status'
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -93,6 +101,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  Type,
   Workflow,
   X,
   ZoomIn
@@ -104,6 +113,7 @@ import { useRouter } from 'next/navigation'
 import {
   useEffect,
   useEffectEvent,
+  useId,
   useImperativeHandle,
   useRef,
   useState,
@@ -133,7 +143,7 @@ import {
 import {
   DeletedFromPlatformTag,
   deletedFromPlatformAt,
-  PostStatusPill
+  PostProgress
 } from './post-status'
 import { RegenerateControl, VersionHistory } from './post-versions'
 import type { BrandSummary, PostDetail } from './posts-client'
@@ -170,6 +180,20 @@ const DIAGRAM_TYPE_OPTIONS = [
   }))
 ]
 
+/** Shown on Approve, Reject and Publish while Regenerate or Restore runs. */
+const NEW_TEXT_ON_ITS_WAY =
+  'A new version of the text is on its way; read it once it is in'
+
+/** What a reference image can be. */
+const REFERENCE_IMAGE_TYPES = 'image/png,image/jpeg,image/webp'
+
+/** The preview column's Copy, Regenerate and Edit: small outlined buttons. */
+const TOOL_BUTTON = buttonClassName({
+  variant: 'secondary',
+  size: 'sm',
+  className: `px-3 ${FOCUS_RING}`
+})
+
 /**
  * One post on its own page (/posts/[id]): its preview, text editing, image,
  * and the review and publishing steps, in that order of reading. The list of
@@ -180,6 +204,7 @@ export function PostDetailClient({
   initialVersions,
   backHref,
   listQuery,
+  nextReviewId = null,
   brand,
   enabledFormats = ['linkedin.post']
 }: {
@@ -190,6 +215,8 @@ export function PostDetailClient({
   backHref: string
   /** Those filters as a query string, carried to another version's page. */
   listQuery: string
+  /** The next post awaiting review, offered once this one is decided. */
+  nextReviewId?: string | null
   brand: BrandSummary
   /** The formats the identity has turned on, for "Add a version". */
   enabledFormats?: FormatId[]
@@ -222,6 +249,13 @@ export function PostDetailClient({
   // reaches in through the ref for the hook swap and the copy notice.
   const editorRef = useRef<PostTextEditorHandle>(null)
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
+  // Part of the editor's key: Regenerate and Restore replace the whole text,
+  // so once they land the editor starts afresh from it. A save or hook swap
+  // keeps the buffer, and so whatever else in it is not saved yet.
+  const [editorResets, setEditorResets] = useState(0)
+  // Regenerate or Restore is writing a new text. The editor stays shut until
+  // it lands, since it then starts afresh: anything typed meanwhile would go.
+  const [textReplacing, setTextReplacing] = useState(false)
 
   // Copy feedback
   const [copiedPost, setCopiedPost] = useState(false)
@@ -255,10 +289,15 @@ export function PostDetailClient({
   const [customImageUrl, setCustomImageUrl] = useState('')
   const [showPostRejection, setShowPostRejection] = useState(false)
   const [postRejectionReason, setPostRejectionReason] = useState('')
+  // Approved or rejected on this page: the status strip then offers the next
+  // post awaiting review.
+  const [decidedHere, setDecidedHere] = useState(false)
   // The Delete dialog, and its "also delete it from the platform" choice.
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [alsoDeleteFromPlatform, setAlsoDeleteFromPlatform] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  // Remove deletes the image and every earlier version of it, so it asks first.
+  const [showRemoveMediaDialog, setShowRemoveMediaDialog] = useState(false)
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false)
   const [isImageZoomOpen, setIsImageZoomOpen] = useState(false)
   // A post's image bytes are loaded on demand; see the loader below.
@@ -901,12 +940,17 @@ export function PostDetailClient({
     }
   }
 
+  /**
+   * Deletes the post's image, every version of it, for good. Only from the
+   * Remove dialog: "Text only" sets the image aside instead (see
+   * handleMediaFormatChange).
+   */
   const handleRemoveMedia = async () => {
     if (!activePost) return
     const postId = activePost.id
     setIsMediaLoading(true)
     setMediaPostId(postId)
-    setMediaLoadingText('Switching to text-only mode...')
+    setMediaLoadingText('Removing image...')
     setMediaError(null)
     setMediaMenuOpen(false)
 
@@ -926,16 +970,28 @@ export function PostDetailClient({
       setIsMediaLoading(false)
       setMediaPostId(null)
       setMediaLoadingText('')
+      setShowRemoveMediaDialog(false)
     }
   }
 
   const handleSwapHook = async (newHook: string) => {
+    if (!activePost) return
     // The buffer takes the swap too, so it does not read as an unsaved edit.
     // This post's editor: if another post opens meanwhile, it has its own.
     const editor = editorRef.current
     const previousHook = editor?.draft.hook ?? ''
+    // Unsaved edits to the body and comment stay in the editor; only an
+    // unsaved edit to the hook itself is replaced, so that one is asked about.
+    if (
+      editor &&
+      previousHook !== (activePost.hook || '') &&
+      !window.confirm(
+        'You have an unsaved edit to the hook. Swapping in this one will discard it. Continue?'
+      )
+    ) {
+      return
+    }
     editor?.setHook(newHook)
-    if (!activePost) return
     setIsSaving(true)
     try {
       markDataChanged()
@@ -969,8 +1025,9 @@ export function PostDetailClient({
   }
 
   // A new version of a post's text (regenerate, restore). Its image is
-  // unchanged, so the one already loaded is kept.
-  const replacePostText = (updated: PostDetail) =>
+  // unchanged, so the one already loaded is kept. The editor starts afresh
+  // from it: any unsaved edits were agreed to be discarded before it began.
+  const replacePostText = (updated: PostDetail) => {
     setPosts(prev =>
       prev.map(p =>
         p.id === updated.id
@@ -978,6 +1035,8 @@ export function PostDetailClient({
           : p
       )
     )
+    setEditorResets(n => n + 1)
+  }
 
   const handleSaveEdits = async (draft: PostDraft) => {
     if (!activePost) return
@@ -1254,14 +1313,28 @@ export function PostDetailClient({
     )
   }
 
+  // Regenerate or Restore is writing a new text. Server Actions run one at a
+  // time, so an Approve or Reject sent now would land after it, on text the
+  // reviewer has not seen. The buttons are disabled; this covers the A key.
+  const blockedByTextReplacing = (what: 'approving' | 'rejecting') => {
+    if (!textReplacing) return false
+    showToast({
+      type: 'error',
+      title: 'A new version is on its way',
+      message: `Read it once it is in before ${what} this post.`
+    })
+    return true
+  }
+
   const handleApprove = async () => {
     if (!activePost || activePost.status === 'approved') return
+    if (blockedByTextReplacing('approving')) return
     if (hasUnsavedEdits) {
       showToast({
         type: 'error',
         title: 'Unsaved changes',
         message:
-          'Save or cancel your edits before approving this post. Use Edit Post Text to reopen them.'
+          'Save or cancel your edits before approving this post. Use Edit text to reopen them.'
       })
       return
     }
@@ -1272,6 +1345,7 @@ export function PostDetailClient({
       const res = await approveDraft(approvedId)
       if (!res.success) throw new Error(res.error)
       refreshAfterStatusChange(approvedId, 'approved')
+      setDecidedHere(true)
       showToast({
         type: 'success',
         title: 'Post approved'
@@ -1295,6 +1369,7 @@ export function PostDetailClient({
   const handleReject = async (reason?: string) => {
     if (!activePost || activePublished || activePost.status === 'rejected')
       return
+    if (blockedByTextReplacing('rejecting')) return
     if (!confirmDiscardEdits('Rejecting this post')) return
     const rejectedId = activePost.id
 
@@ -1304,6 +1379,7 @@ export function PostDetailClient({
       const res = await rejectDraft(rejectedId, reason?.trim() || undefined)
       if (!res.success) throw new Error(res.error)
       refreshAfterStatusChange(rejectedId, 'rejected')
+      setDecidedHere(true)
       // Closed only once it worked: a failure keeps the reason to try again.
       cancelPostRejection()
       showToast({
@@ -1434,6 +1510,7 @@ export function PostDetailClient({
       // store a second feedback row.
       if (activePost.status === 'rejected' || activePublished) return
       event.preventDefault()
+      if (blockedByTextReplacing('rejecting')) return
       setShowPostRejection(true)
     } else if (key === 'c') {
       event.preventDefault()
@@ -1537,6 +1614,8 @@ export function PostDetailClient({
   const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
   // Set aside by "Text only": the image is kept but does not go out.
   const imageSetAside = activePost.mediaFormat === 'text'
+  // Instagram takes no text-only post, so it is not offered there.
+  const canGoTextOnly = supportsMediaFormat(activeFormat, 'text')
   // Published (and still there) or marked posted: what went out stays as it
   // is. Deleted from its platform, it can change again.
   const mediaLocked =
@@ -1686,25 +1765,26 @@ export function PostDetailClient({
   // Deleted from its platform, not out again since: the red tag, and a hint.
   const deletedAt = deletedFromPlatformAt(activePost)
 
-  // What to do next, in one sentence, for where the post stands (shown when
-  // hovering the status in the top bar).
+  // What to do next, in one sentence, for where the post stands (shown in
+  // the status strip under the top bar).
   const nextStep = showPostRejection
-    ? 'Say why if you like: the reason shapes future drafts.'
+    ? 'A reason shapes future drafts.'
     : activePost.status === 'rejected'
-      ? 'This post was rejected. Approve it if you change your mind.'
+      ? 'Approve it if you change your mind.'
       : !isApproved
-        ? 'Check the preview and the image, edit anything you want, then approve the post.'
+        ? 'Check the preview and image, then approve.'
         : isLive
-          ? `This post is on ${activePlatform.name}.`
+          ? `Live on ${activePlatform.name}.`
           : deletedAt
-            ? `Deleted from ${activePlatform.name}. Edit it if you like, then publish it again, schedule it, or copy it.`
+            ? 'Edit if needed, then publish again.'
             : canPublish && publishing
-            ? `Approved. Publish it to ${activePlatform.name} now, schedule it, or copy it and post it yourself.`
-            : `Approved. Copy it and post it on ${activePlatform.name} yourself.`
+            ? 'Publish now, schedule it, or copy it.'
+            : `Copy it and post it on ${activePlatform.name}.`
 
   // Review, then publish, in the top bar: Approve or Reject until the post is
   // approved, then Publish now and Schedule. A format the app does not publish
-  // (or publishing not set up here) gets Copy post instead.
+  // (or publishing not set up here) gets Copy post instead. Where the post
+  // stands is the status strip's, right under the bar.
   const publishBar = showPostRejection ? (
     <form
       onSubmit={e => {
@@ -1727,30 +1807,27 @@ export function PostDetailClient({
         onChange={e => setPostRejectionReason(e.target.value)}
         placeholder="Why reject? Optional"
         aria-label="Why reject this post (optional)"
-        className="border-border bg-surface text-foreground placeholder:text-muted h-8 w-48 max-w-full min-w-0 rounded-lg border px-3 text-xs outline-none focus:border-rose-500 sm:w-60"
+        className="border-border bg-surface text-foreground placeholder:text-muted h-8 w-48 max-w-full min-w-0 rounded-lg border px-3 text-xs outline-none focus:border-rose-500 focus-visible:ring-2 focus-visible:ring-rose-500/30 sm:w-60"
       />
       <button
         type="button"
         onClick={cancelPostRejection}
-        className="text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-2.5 text-[13px] font-medium"
+        className={`text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-2.5 text-[13px] font-medium ${FOCUS_RING}`}
       >
         Cancel
       </button>
       <button
         type="submit"
-        disabled={isSaving}
-        className="h-8 cursor-pointer rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 disabled:opacity-50"
+        disabled={isSaving || textReplacing}
+        title={textReplacing ? NEW_TEXT_ON_ITS_WAY : undefined}
+        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white shadow-xs transition-colors hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500/50 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-50 dark:focus-visible:ring-offset-[#1b1b1f]"
       >
+        {isSaving && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
         {isSaving ? 'Rejecting…' : 'Reject post'}
       </button>
     </form>
   ) : (
     <>
-      <span title={nextStep} className="flex">
-        <PostStatusPill post={activePost} />
-      </span>
-      {/* Deleted from its platform: a red tag beside its status. */}
-      <DeletedFromPlatformTag post={activePost} />
       {isApproved ? (
         <>
           {canPublish && (
@@ -1763,6 +1840,8 @@ export function PostDetailClient({
               publication={activePost.publication}
               media={activeMediaFormat}
               slideCount={slides?.length ?? activePost.slideCount ?? 0}
+              unsavedEdits={hasUnsavedEdits}
+              textReplacing={textReplacing}
               onChange={publication => {
                 const id = activePost.id
                 // Deleted from its platform: deletePublishedPost cleared its
@@ -1791,12 +1870,16 @@ export function PostDetailClient({
             <button
               type="button"
               onClick={handleCopyPost}
-              className="bg-accent text-background hover:bg-accent-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-colors"
+              title="Copy (C)"
+              className={buttonClassName({
+                size: 'sm',
+                className: `font-semibold shadow-xs ${FOCUS_RING}`
+              })}
             >
               {copiedPost ? (
-                <Check className="h-3.5 w-3.5" />
+                <Check aria-hidden className="h-3.5 w-3.5" />
               ) : (
-                <Copy className="h-3.5 w-3.5" />
+                <Copy aria-hidden className="h-3.5 w-3.5" />
               )}
               {copiedPost ? 'Post copied' : 'Copy post'}
             </button>
@@ -1805,7 +1888,9 @@ export function PostDetailClient({
             <button
               type="button"
               onClick={() => setShowPostRejection(true)}
-              className="text-muted h-8 cursor-pointer px-1 text-[12px] hover:text-rose-600 dark:hover:text-rose-400"
+              disabled={textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : 'Reject (R)'}
+              className={`text-muted h-8 cursor-pointer rounded-lg px-1.5 text-[12px] hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400 ${FOCUS_RING}`}
             >
               Reject instead
             </button>
@@ -1817,19 +1902,31 @@ export function PostDetailClient({
             <button
               type="button"
               onClick={() => setShowPostRejection(true)}
-              disabled={isSaving}
-              className="border-border text-muted flex h-8 cursor-pointer items-center rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
+              disabled={isSaving || textReplacing}
+              title={textReplacing ? NEW_TEXT_ON_ITS_WAY : 'Reject (R)'}
+              className={`border-border bg-surface text-foreground flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[13px] font-semibold transition-colors hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-300 ${FOCUS_RING}`}
             >
+              <X aria-hidden className="h-3.5 w-3.5" />
               Reject
             </button>
           )}
           <button
             type="button"
             onClick={handleApprove}
-            disabled={isSaving}
-            className="bg-accent text-background hover:bg-accent-hover flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-colors disabled:opacity-60"
+            // Not while Regenerate or Restore writes a new text: the approval
+            // would land after it, on text nobody has read.
+            disabled={isSaving || textReplacing}
+            title={textReplacing ? NEW_TEXT_ON_ITS_WAY : 'Approve (A)'}
+            className={buttonClassName({
+              size: 'sm',
+              className: `font-semibold shadow-xs ${FOCUS_RING}`
+            })}
           >
-            <CheckCircle2 className="h-3.5 w-3.5" />
+            {isSaving ? (
+              <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
+            )}
             {isSaving
               ? 'Saving…'
               : activePost.status === 'rejected'
@@ -1839,6 +1936,54 @@ export function PostDetailClient({
         </>
       )}
     </>
+  )
+
+  // What every new image takes from the Brand Theme, for its link's tooltip.
+  const brandTitle =
+    brand.hasLogo && brand.colors.length > 0
+      ? 'Your logo and brand colours go on every image'
+      : brand.hasLogo
+        ? 'Your logo goes on every image'
+        : brand.colors.length > 0
+          ? 'Your brand colours go into every image'
+          : 'No logo or brand colours yet'
+
+  // Regenerate and Restore replace the text, so they ask about unsaved edits.
+  const confirmRegenerate = () => confirmDiscardEdits('Writing a new version')
+  const confirmRestoreVersion = (n: number) =>
+    confirmDiscardEdits(`Restoring version ${n}`)
+
+  // Under the top bar, one slim row: how far the post has come, what to do
+  // next, and once it is decided here, the next post waiting for review. The
+  // shortcuts (A, R, C) are in the buttons' tooltips.
+  const statusStrip = (
+    <div className="border-border bg-surface flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border px-4 py-2.5 shadow-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <PostProgress
+          post={activePost}
+          canSchedule={canPublish && Boolean(publishing)}
+        />
+        {/* Deleted from its platform: a red tag beside its status. */}
+        <DeletedFromPlatformTag post={activePost} />
+      </div>
+      <span aria-hidden className="bg-border hidden h-5 w-px shrink-0 @2xl:block" />
+      {/* A minimum width, so on a narrow screen it takes a line of its own
+          instead of being squeezed beside the steps a word per line. */}
+      <p className="text-muted min-w-48 flex-1 text-[13px]">{nextStep}</p>
+      {decidedHere && nextReviewId && (
+        <Link
+          href={postHref(nextReviewId)}
+          className={buttonClassName({
+            variant: 'secondary',
+            size: 'sm',
+            className: `shrink-0 font-semibold ${FOCUS_RING}`
+          })}
+        >
+          Review next
+          <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+        </Link>
+      )}
+    </div>
   )
 
   return (
@@ -1851,9 +1996,10 @@ export function PostDetailClient({
           <Link
             href={backHref}
             title="Back to all posts"
-            className="border-border text-muted hover:bg-surface-hover hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors"
+            aria-label="All posts"
+            className={`border-border text-muted hover:bg-surface-hover hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${FOCUS_RING}`}
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">All posts</span>
           </Link>
         }
@@ -1871,7 +2017,7 @@ export function PostDetailClient({
               <h1 className="text-foreground flex min-w-0 items-center gap-2 text-lg leading-tight font-bold tracking-tight">
                 <span className="truncate">{FORMATS[activeFormat].label}</span>
                 {activePost.hiddenAt && (
-                  <span className="border-border bg-surface-hover text-muted shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold">
+                  <span className="border-border bg-surface-hover text-muted shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold">
                     Hidden
                   </span>
                 )}
@@ -1905,9 +2051,9 @@ export function PostDetailClient({
                   ? `It is being published to ${activePlatform.name} right now`
                   : 'Delete post'
               }
-              className="border-border text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors hover:border-rose-500/40 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-rose-400"
+              className={`border-border text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-rose-400 ${FOCUS_RING}`}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 aria-hidden className="h-4 w-4" />
             </button>
           </>
         }
@@ -1918,10 +2064,9 @@ export function PostDetailClient({
           title="Delete this post?"
           description={
             <>
-              It is removed from the app for good, with its image and
-              alternates. This cannot be undone.
+              This can’t be undone.
               {activePost.publication?.status === 'scheduled' &&
-                ` Its scheduled ${activePlatform.name} publishing is cancelled.`}
+                ' Scheduled publishing stops.'}
               {canDeleteFromPlatform && (
                 <label className="text-foreground mt-3 flex cursor-pointer items-start gap-2">
                   <input
@@ -1931,11 +2076,7 @@ export function PostDetailClient({
                     onChange={e => setAlsoDeleteFromPlatform(e.target.checked)}
                     className="mt-1 accent-rose-600"
                   />
-                  <span>
-                    Also delete it from {activePlatform.name}, with its
-                    reactions and comments. Otherwise it stays on{' '}
-                    {activePlatform.name}.
-                  </span>
+                  <span>Also delete it from {activePlatform.name}</span>
                 </label>
               )}
             </>
@@ -1948,6 +2089,23 @@ export function PostDetailClient({
         />
       )}
 
+      {showRemoveMediaDialog && activePost.media && (
+        <ConfirmDialog
+          title="Remove this image?"
+          description={
+            <>
+              {(activePost.media.version ?? 1) > 1 && 'Earlier versions go too. '}
+              This can’t be undone.
+            </>
+          }
+          confirmLabel="Remove image"
+          pendingLabel="Removing…"
+          pending={mediaBusyHere}
+          onCancel={() => setShowRemoveMediaDialog(false)}
+          onConfirm={() => void handleRemoveMedia()}
+        />
+      )}
+
       {/* Full width, 16px in from each side (24px from sm), lined up with
           the top bar's title. Sized by its own width (the
           sidebar takes part of the screen), so the columns use @-variants.
@@ -1955,6 +2113,7 @@ export function PostDetailClient({
           height, so no card runs past the bottom of the screen. */}
       <div className="bg-surface-hover/30 @container flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 sm:px-6 @3xl:overflow-hidden">
+          {statusStrip}
           {/* The idea's versions (LinkedIn, X…), and Add a version */}
           <IdeaVersions
             post={activePost}
@@ -1972,22 +2131,24 @@ export function PostDetailClient({
           <div className="grid grid-cols-1 gap-x-6 gap-y-3 @3xl:min-h-0 @3xl:flex-1 @3xl:grid-cols-[minmax(0,1fr)_clamp(18rem,32%,32rem)] @3xl:grid-rows-[auto_minmax(0,1fr)] @6xl:gap-x-8">
             {/* LEFT COLUMN: the post as it will appear, and its text */}
             <div className="flex min-w-0 flex-col gap-3 @3xl:row-span-2 @3xl:grid @3xl:grid-rows-subgrid">
-              <div className="relative flex min-h-8 flex-wrap items-center justify-between gap-x-6 gap-y-1 px-1">
-                <span className="text-muted text-xs font-semibold tracking-wider uppercase">
+              <div className="relative flex min-h-8 flex-wrap items-center justify-between gap-x-6 gap-y-2 px-1">
+                <span className="text-muted inline-flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase">
+                  <Eye aria-hidden className="h-3.5 w-3.5" />
                   {formatOf(activePost.formatId) === 'linkedin.post'
                     ? `${activePlatform.name} preview`
                     : previewTitle(activePost.formatId)}
                 </span>
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 whitespace-nowrap">
+                <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">
                   <button
                     type="button"
                     onClick={handleCopyPost}
-                    className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium"
+                    title="Copy (C)"
+                    className={TOOL_BUTTON}
                   >
                     {copiedPost ? (
-                      <Check className="h-4 w-4" />
+                      <Check aria-hidden className="h-3.5 w-3.5" />
                     ) : (
-                      <Copy className="h-4 w-4" />
+                      <Copy aria-hidden className="h-3.5 w-3.5" />
                     )}
                     <span>{copiedPost ? 'Copied' : 'Copy text'}</span>
                   </button>
@@ -1997,12 +2158,12 @@ export function PostDetailClient({
                       <button
                         type="button"
                         onClick={handleCopyComment}
-                        className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium"
+                        className={TOOL_BUTTON}
                       >
                         {copiedComment ? (
-                          <Check className="h-4 w-4" />
+                          <Check aria-hidden className="h-3.5 w-3.5" />
                         ) : (
-                          <MessageSquare className="h-4 w-4" />
+                          <MessageSquare aria-hidden className="h-3.5 w-3.5" />
                         )}
                         <span>
                           {copiedComment
@@ -2017,28 +2178,42 @@ export function PostDetailClient({
                     <RegenerateControl
                       key={activePost.id}
                       post={activePost}
-                      disabled={isEditing || isSaving}
+                      // One new text at a time: Restore's too.
+                      disabled={isEditing || isSaving || textReplacing}
+                      confirmStart={confirmRegenerate}
+                      onBusyChange={setTextReplacing}
                       onDone={replacePostText}
+                      buttonClassName={TOOL_BUTTON}
                     />
                   )}
                   <button
                     type="button"
                     onClick={() => setIsEditing(!isEditing)}
                     // Published or marked posted: its text stays as it went
-                    // out (updateDraft refuses it too). An open editor can
-                    // still be closed.
-                    disabled={mediaLocked && !isEditing}
+                    // out (updateDraft refuses it too). Shut too while a new
+                    // version is written. An open editor can still be closed.
+                    disabled={(mediaLocked || textReplacing) && !isEditing}
                     title={
-                      mediaLocked && !isEditing
-                        ? `${lockedReason}, so its text can no longer change`
-                        : undefined
+                      isEditing
+                        ? undefined
+                        : mediaLocked
+                          ? `${lockedReason}, so its text can no longer change`
+                          : textReplacing
+                            ? 'A new version of the text is on its way; edit it once it is in'
+                            : undefined
                     }
-                    className="text-accent inline-flex cursor-pointer items-center gap-2 text-sm font-medium hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
+                    className={
+                      isEditing
+                        ? cn(TOOL_BUTTON, 'border-foreground/25 bg-surface-hover')
+                        : TOOL_BUTTON
+                    }
                   >
-                    <Edit2 className="h-4 w-4" />
-                    <span>
-                      {isEditing ? 'View Feed Preview' : 'Edit Post Text'}
-                    </span>
+                    {isEditing ? (
+                      <Eye aria-hidden className="h-3.5 w-3.5" />
+                    ) : (
+                      <Edit2 aria-hidden className="text-accent h-3.5 w-3.5" />
+                    )}
+                    <span>{isEditing ? 'Preview' : 'Edit text'}</span>
                   </button>
                 </div>
               </div>
@@ -2049,8 +2224,10 @@ export function PostDetailClient({
                 <div className="mx-auto w-full max-w-4xl space-y-3">
                   {/* IN-PLACE TEXT EDITOR OR REALISTIC FEED PREVIEW */}
                   <PostTextEditor
-                    // A new version (regenerate, restore) starts the editor afresh.
-                    key={`${activePost.id}-${activePost.versionCount ?? 0}`}
+                    // Regenerate and Restore start the editor afresh. Not
+                    // versionCount: a save or hook swap raises it too, and
+                    // remounting then threw away the other unsaved edits.
+                    key={`${activePost.id}-${editorResets}`}
                     ref={editorRef}
                     post={activePost}
                     open={isEditing}
@@ -2114,7 +2291,7 @@ export function PostDetailClient({
                               : []
                           }
                           onSelectHook={handleSwapHook}
-                          hookSwapDisabled={isSaving}
+                          hookSwapDisabled={isSaving || textReplacing}
                           firstComment={activePost.firstComment || ''}
                           onCopyFirstComment={handleCopyComment}
                           firstCommentCopied={copiedComment}
@@ -2133,10 +2310,14 @@ export function PostDetailClient({
                       key={activePost.id}
                       post={activePost}
                       // Earlier versions can be read, not restored, once it went out.
-                      disabled={isSaving || mediaLocked}
+                      // Nor while Regenerate writes one.
+                      disabled={isSaving || mediaLocked || textReplacing}
+                      confirmRestore={confirmRestoreVersion}
+                      onBusyChange={setTextReplacing}
                       onRestored={replacePostText}
                     />
                   )}
+                  {!isEditing && <PostCostCard usage={activePost.usage} />}
                 </div>
               </div>
             </div>
@@ -2153,26 +2334,16 @@ export function PostDetailClient({
                   disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
                   pending={pendingMediaFormat}
                 />
-                {shownMedia === 'carousel' ? (
-                  <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                    {slides?.length ?? activePost.slideCount ?? 0} slides
-                  </span>
-                ) : imageSetAside ? null : activePost.media?.imageUrl && isUserPromptedMedia ? (
-                  <span className="border-accent/20 bg-accent/10 text-accent inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold">
-                    <Sparkles className="h-3 w-3" />
-                    {reviewerMediaLabel}
-                  </span>
-                ) : activePost.media?.imageUrl ? null : activePost.media ? (
-                  <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                    {activeImageLoadError
-                      ? 'Image not loaded'
-                      : 'Loading image'}
-                  </span>
-                ) : (
-                  <span className="text-muted bg-surface-hover rounded-full px-2 py-0.5 text-[10px] font-medium">
-                    Text Only
-                  </span>
-                )}
+                {/* Who chose the image: nothing else here says so. The type
+                    is the picker's, loading and errors the card's. */}
+                {shownMedia === 'image' &&
+                  !imageSetAside &&
+                  activePost.media?.imageUrl &&
+                  isUserPromptedMedia && (
+                    <StatusChip tone="brand" icon={Sparkles} size="xs">
+                      {reviewerMediaLabel}
+                    </StatusChip>
+                  )}
               </div>
 
               <div className="min-h-0 @3xl:overflow-y-auto">
@@ -2200,26 +2371,43 @@ export function PostDetailClient({
                   />
                 )}
                 {carouselSuggested && (
-                  <div className="border-accent/30 bg-accent/5 mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border p-3 text-xs">
-                    <span className="text-foreground min-w-0 flex-1 leading-relaxed">
-                      <Layers className="text-accent mr-1.5 inline h-3.5 w-3.5 align-[-2px]" />
-                      The AI planned this post as a carousel
-                      {captionSaysSwipe
-                        ? `, and its caption says “${captionSaysSwipe}”. Make the slides so the post has what it promises.`
-                        : '.'}
+                  <div className="bg-accent/5 mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl px-4 py-3 text-[13px]">
+                    <span
+                      className="text-foreground inline-flex min-w-0 flex-1 items-center gap-2"
+                      title={
+                        captionSaysSwipe
+                          ? `Its caption says “${captionSaysSwipe}”: make the slides it promises`
+                          : undefined
+                      }
+                    >
+                      <Layers aria-hidden className="text-accent h-4 w-4 shrink-0" />
+                      Planned as a carousel
                     </span>
                     <button
                       type="button"
                       onClick={() => setWantsCarousel(true)}
                       disabled={pendingMediaFormat !== null || mediaBusyHere}
-                      className="bg-accent text-background hover:bg-accent-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold disabled:opacity-50"
+                      className={buttonClassName({
+                        variant: 'secondary',
+                        size: 'sm',
+                        className: FOCUS_RING
+                      })}
                     >
-                      <Layers className="h-3.5 w-3.5" />
-                      Make it a carousel
+                      Make carousel
                     </button>
                   </div>
                 )}
-                {shownMedia === 'carousel' ? (
+                {shownMedia === 'video' && isVideoFormat(activeFormat) ? (
+                  // VIDEO CARD: a Reel's or Short's AI video, apart from the image tools.
+                  VIDEO_GENERATION_ENABLED ? (
+                    <VideoPanel
+                      key={activePost.id}
+                      postId={activePost.id}
+                      formatId={activeFormat}
+                      locked={mediaLocked ? lockedReason : null}
+                    />
+                  ) : null
+                ) : shownMedia === 'carousel' ? (
                   // SLIDES CARD: a carousel's slides, each edited on its own.
                   <div className="border-border bg-surface rounded-2xl border p-4 shadow-sm">
                     <SlidesPanel
@@ -2262,53 +2450,58 @@ export function PostDetailClient({
                     />
                   </div>
                 ) : imageSetAside ? (
-                  <div className="border-border bg-surface space-y-2 rounded-2xl border p-4 text-xs shadow-sm">
-                    <p className="text-foreground font-semibold">Text only</p>
-                    <p className="text-muted leading-relaxed">
-                      This post goes out without media.
-                      {mediaLocked
-                        ? ` ${lockedReason}, so that can no longer change.`
-                        : activePost.media
-                          ? ' Its image is kept: pick Single image to use it again.'
-                          : ' Pick Single image or Carousel to add visuals.'}
-                    </p>
+                  <div className="border-border bg-surface space-y-1 rounded-2xl border p-4 shadow-xs">
+                    <p className="text-foreground text-sm font-semibold">Text only</p>
+                    {(mediaLocked || activePost.media) && (
+                      <p className="text-muted text-[13px]">
+                        {mediaLocked ? `${lockedReason}.` : 'Its image is kept.'}
+                      </p>
+                    )}
                   </div>
                 ) : (
-                <div className="border-border bg-surface space-y-4 rounded-2xl border p-4 shadow-sm">
+                <div className="border-border bg-surface space-y-4 rounded-2xl border p-4 shadow-xs">
                   {isMediaLoading && !mediaBusyHere && (
-                    <p className="text-muted text-[11px]">
-                      An image for another post is still being processed. Media
-                      actions here unlock when it finishes.
+                    <p
+                      className="text-muted inline-flex items-center gap-1.5 text-xs"
+                      title="Media actions here unlock when it finishes"
+                    >
+                      <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                      Busy with another post’s image
                     </p>
                   )}
 
                   {/* ERROR BANNER */}
                   {mediaError && (
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400">
+                    <div
+                      role="alert"
+                      className="flex items-center justify-between gap-2 rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-400"
+                    >
                       <span>{mediaError}</span>
                       <button
                         type="button"
                         onClick={() => setMediaError(null)}
-                        className="cursor-pointer p-1 hover:text-rose-700 dark:hover:text-rose-300"
+                        aria-label="Dismiss"
+                        className={`cursor-pointer rounded-md p-1 hover:text-rose-800 dark:hover:text-rose-300 ${FOCUS_RING}`}
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <X aria-hidden className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
 
                   {/* NEUTRAL NOTICE (e.g. generation stopped) */}
                   {mediaNotice && (
-                    <div className="border-border bg-surface-hover text-muted flex items-center justify-between gap-2 rounded-xl border p-3 text-xs">
+                    <div className="bg-surface-hover text-muted flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs">
                       <span className="flex items-center gap-1.5">
-                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        <Info aria-hidden className="h-3.5 w-3.5 shrink-0" />
                         {mediaNotice}
                       </span>
                       <button
                         type="button"
                         onClick={() => setMediaNotice(null)}
-                        className="hover:text-foreground cursor-pointer p-1"
+                        aria-label="Dismiss"
+                        className={`hover:text-foreground cursor-pointer rounded-md p-1 ${FOCUS_RING}`}
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <X aria-hidden className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
@@ -2319,33 +2512,45 @@ export function PostDetailClient({
                     (isUserPromptedMedia
                       ? Boolean(activePost.media.issues?.length)
                       : !relevanceInfo.isPass) && (
-                      <div className="space-y-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
-                        <div className="flex items-start gap-2 font-medium text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                          <div>
-                            <p className="font-semibold">
-                              {activePost.media.issues?.length
-                                ? 'Check this image before posting'
-                                : 'Media may not match this post'}
-                            </p>
-                            {/* Every problem the checks found, not just the first: a
-                                misspelt label and a covered headline need different fixes. */}
-                            {activePost.media.issues?.length ? (
-                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                                {activePost.media.issues.map(issue => (
-                                  <li key={issue}>{issue}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300/80">
-                                {relevanceInfo.warningMessage ||
-                                  'Generated media appears to introduce a different topic.'}
-                              </p>
-                            )}
-                          </div>
-                        </div>
+                      <div className="space-y-2 rounded-lg bg-amber-500/10 p-3 text-xs">
+                        <p
+                          className="flex items-center gap-2 font-semibold text-amber-800 dark:text-amber-400"
+                          title={
+                            activePost.media.issues?.length
+                              ? undefined
+                              : (relevanceInfo.warningMessage ?? undefined)
+                          }
+                        >
+                          <AlertTriangle aria-hidden className="h-4 w-4 shrink-0 text-amber-500" />
+                          {activePost.media.issues?.length
+                            ? 'Check this image'
+                            : 'May not match the post'}
+                        </p>
+                        {/* Every problem the checks found, not just the first (a
+                            misspelt label and a covered headline need different
+                            fixes), folded so the warning stays one line. */}
+                        {activePost.media.issues?.length ? (
+                          <details className="group">
+                            <summary
+                              className={`inline-flex cursor-pointer list-none items-center gap-1 rounded text-amber-800 dark:text-amber-300/80 [&::-webkit-details-marker]:hidden ${FOCUS_RING}`}
+                            >
+                              {activePost.media.issues.length === 1
+                                ? '1 issue'
+                                : `${activePost.media.issues.length} issues`}
+                              <ChevronDown
+                                aria-hidden
+                                className="h-3.5 w-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                              />
+                            </summary>
+                            <ul className="mt-1.5 list-disc space-y-0.5 pl-4 leading-relaxed text-amber-800 dark:text-amber-300/80">
+                              {activePost.media.issues.map(issue => (
+                                <li key={issue}>{issue}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                         {!mediaLocked && (
-                        <div className="flex items-center gap-2 pt-1">
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
                             disabled={isMediaLoading}
@@ -2357,24 +2562,28 @@ export function PostDetailClient({
                           >
                             Change media
                           </button>
-                          <button
-                            type="button"
-                            disabled={isMediaLoading}
-                            onClick={handleRemoveMedia}
-                            className="h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
-                          >
-                            Use text only
-                          </button>
+                          {/* Sets the image aside, as the post type
+                              picker's Text only does: nothing is deleted. */}
+                          {canGoTextOnly && (
+                            <button
+                              type="button"
+                              disabled={isMediaLoading || pendingMediaFormat !== null}
+                              onClick={() => void handleMediaFormatChange('text')}
+                              className="text-muted hover:text-foreground hover:bg-surface-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Use text only
+                            </button>
+                          )}
                         </div>
                         )}
                       </div>
                     )}
 
                   {mediaBusyHere ? (
-                    <div className="border-border bg-surface-hover/50 text-muted flex animate-pulse flex-col items-center justify-center space-y-2 rounded-xl border py-6 text-xs">
-                      <Loader2 className="text-accent h-5 w-5 animate-spin" />
+                    <div className="bg-surface-hover/60 text-muted flex flex-col items-center justify-center gap-2 rounded-xl py-8 text-[13px]">
+                      <Loader2 aria-hidden className="text-accent h-5 w-5 animate-spin" />
                       <p className="text-foreground font-medium">
-                        {mediaLoadingText || 'Processing media asset...'}
+                        {mediaLoadingText || 'Processing…'}
                       </p>
                     </div>
                   ) : activePost.media?.imageUrl ? (
@@ -2392,22 +2601,25 @@ export function PostDetailClient({
                           height={activePost.media.height || 1072}
                           className="h-auto max-h-72 w-full object-contain"
                           unoptimized
+                          // Above the fold, and often the page's largest paint.
+                          loading="eager"
                         />
-                        <span className="pointer-events-none absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                          <ZoomIn className="h-3 w-3" />
-                          Zoom
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute top-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                        >
+                          <ZoomIn className="h-3.5 w-3.5" />
                         </span>
                       </button>
                       {/* Which image this is, and what to do with it */}
-                      <div className="border-border text-muted flex flex-wrap items-center gap-x-2 gap-y-1 border-b pb-4 text-[13px]">
+                      <div className="border-border text-muted flex flex-wrap items-center gap-x-2 gap-y-1 border-b pb-4 text-xs tabular-nums">
                         <span className="text-foreground font-medium">
-                          Media v{activePost.media.version || 1}
+                          v{activePost.media.version || 1}
                         </span>
-                        <span>·</span>
+                        <span aria-hidden>·</span>
                         {activePost.media.width && activePost.media.height ? (
-                          <span className="font-mono text-xs">
-                            {activePost.media.width} × {activePost.media.height}{' '}
-                            HD
+                          <span>
+                            {activePost.media.width} × {activePost.media.height}
                           </span>
                         ) : (
                           <span className="capitalize">
@@ -2426,14 +2638,14 @@ export function PostDetailClient({
                             onClick={handleDownloadMedia}
                             className="text-foreground hover:text-accent inline-flex cursor-pointer items-center gap-1.5 font-medium hover:underline"
                           >
-                            <Download className="h-3.5 w-3.5" />
-                            Download image
+                            <Download aria-hidden className="h-3.5 w-3.5" />
+                            Download
                           </button>
                           {!mediaLocked && (
                             <button
                               type="button"
                               disabled={isMediaLoading}
-                              onClick={handleRemoveMedia}
+                              onClick={() => setShowRemoveMediaDialog(true)}
                               className="text-muted inline-flex cursor-pointer items-center gap-1.5 font-medium hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -2444,35 +2656,51 @@ export function PostDetailClient({
                       </div>
                     </div>
                   ) : isActiveImageLoading ? (
-                    <div className="border-border bg-surface-hover/50 text-muted flex items-center justify-center gap-2 rounded-xl border py-6 text-xs">
-                      <Loader2 className="text-accent h-4 w-4 animate-spin" />
-                      <span>Loading image...</span>
+                    <div className="bg-surface-hover/60 text-muted flex items-center justify-center gap-2 rounded-xl py-8 text-[13px]">
+                      <Loader2 aria-hidden className="text-accent h-4 w-4 animate-spin" />
+                      <span>Loading…</span>
                     </div>
                   ) : activeImageLoadError ? (
                     // The image is still attached; only this load failed.
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                      <span className="flex items-center gap-1.5">
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        Couldn&apos;t load this post&apos;s image:{' '}
-                        {activeImageLoadError}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={retryImageLoad}
-                        className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-400">
+                      <span
+                        className="flex items-center gap-1.5"
+                        title={activeImageLoadError}
                       >
-                        Retry
-                      </button>
+                        <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                        Image didn’t load
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={retryImageLoad}
+                          className="border-border bg-surface hover:bg-surface-hover text-foreground h-7 shrink-0 cursor-pointer rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                        >
+                          Retry
+                        </button>
+                        {/* An image that will not load can still be deleted,
+                            after the same question as under a loaded one. */}
+                        {!mediaLocked && (
+                          <button
+                            type="button"
+                            disabled={isMediaLoading}
+                            onClick={() => setShowRemoveMediaDialog(true)}
+                            className="text-muted inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Remove
+                          </button>
+                        )}
+                      </span>
                     </div>
                   ) : activePost.mediaFailure ? (
                     // Drafting tried to make an image for this post and could not.
-                    <div className="flex items-start gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      <span>
-                        The image for this post could not be made during
-                        drafting: {activePost.mediaFailure}
-                        {!mediaLocked && ' Generate one below.'}
-                      </span>
+                    <div
+                      className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-400"
+                      title={activePost.mediaFailure}
+                    >
+                      <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                      <span>Drafting couldn’t make an image</span>
                     </div>
                   ) : null}
 
@@ -2482,17 +2710,13 @@ export function PostDetailClient({
                     imageOffShape &&
                     !mediaLocked &&
                     !mediaBusyHere && (
-                      <div className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-700 dark:text-sky-300">
-                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>
-                          This image is {mediaWidth} × {mediaHeight}, not{' '}
-                          {activePlatform.name}&apos;s{' '}
-                          {platformShape === '4:5' ? 'portrait' : 'landscape'}{' '}
-                          {platformShape} shape, so it may be cropped there.
-                          Regenerate it to get one sized for{' '}
-                          {activePlatform.name}.
-                        </span>
-                      </div>
+                      <p
+                        className="text-muted flex items-center gap-1.5 text-xs"
+                        title={`Not ${activePlatform.name}’s ${platformShape} shape. Regenerate it for one sized to fit.`}
+                      >
+                        <Info aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                        May be cropped on {activePlatform.name}
+                      </p>
                     )}
 
                   {/* Published or marked posted: the image that went out stays,
@@ -2500,9 +2724,9 @@ export function PostDetailClient({
                       route and actions refuse them too). */}
                   {mediaLocked ? (
                     <div className="space-y-2.5">
-                      <p className="border-border bg-surface-hover/50 text-muted flex items-start gap-2 rounded-xl border p-3 text-xs leading-relaxed">
-                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>{lockedReason}, so its image can no longer change.</span>
+                      <p className="text-muted flex items-center gap-1.5 text-xs">
+                        <Info aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                        <span>{lockedReason}.</span>
                       </p>
                       {/* A generation still running when the post went out:
                           it would not be saved, so it can be stopped. */}
@@ -2526,7 +2750,7 @@ export function PostDetailClient({
                       <div className="flex items-baseline justify-between gap-2">
                         <span
                           id="image-style-label"
-                          className="text-foreground text-[11px] font-semibold"
+                          className="text-foreground text-xs font-semibold"
                         >
                           Style
                         </span>
@@ -2534,16 +2758,24 @@ export function PostDetailClient({
                           <button
                             type="button"
                             onClick={() => setImageStyle(brand.style)}
-                            className="text-muted hover:text-foreground cursor-pointer text-[10px]"
+                            title={`Back to the Brand Theme’s ${imageStyleLabel(brand.style)}`}
+                            className={`text-muted hover:text-foreground cursor-pointer rounded-md text-xs ${FOCUS_RING}`}
                           >
-                            Back to the Brand Theme&apos;s{' '}
-                            {imageStyleLabel(brand.style)}
+                            Reset
                           </button>
                         )}
                       </div>
                       <div
                         role="radiogroup"
                         aria-labelledby="image-style-label"
+                        // Each style says what it is in its own tooltip.
+                        title={
+                          referenceMediaId
+                            ? 'An edit keeps the current image’s look unless you ask for another'
+                            : referenceImage
+                              ? 'A reference image brings its own look'
+                              : undefined
+                        }
                         className="flex flex-wrap gap-1.5"
                       >
                         {IMAGE_STYLES.map(option => {
@@ -2572,14 +2804,6 @@ export function PostDetailClient({
                           )
                         })}
                       </div>
-                      <p className="text-muted text-[10px]">
-                        {referenceMediaId
-                          ? 'An edit keeps the current image’s look unless you ask for another.'
-                          : referenceImage
-                            ? 'A reference image brings its own look.'
-                            : IMAGE_STYLES.find(o => o.value === imageStyle)
-                                ?.description}
-                      </p>
                     </div>
                   )}
 
@@ -2611,7 +2835,8 @@ export function PostDetailClient({
                             ? 'Save your edits first so the image matches the post'
                             : undefined
                         }
-                        className="bg-accent hover:bg-accent-hover text-background flex h-9 flex-[999_1_auto] cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold whitespace-nowrap shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        // Secondary: the page's one accent button is Approve.
+                        className={`border-border bg-surface text-foreground hover:bg-surface-hover flex h-9 flex-[999_1_auto] cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
                       >
                         {mediaBusyHere ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -2661,19 +2886,22 @@ export function PostDetailClient({
                             className="hover:bg-surface-hover text-foreground flex w-full cursor-pointer items-center gap-2 px-3.5 py-2 text-left"
                           >
                             <ExternalLink className="h-3.5 w-3.5 text-emerald-500" />
-                            <span>Use custom image URL</span>
+                            <span>Image from URL</span>
                           </button>
-                          {activePost.media && (
+                          {/* Sets the image aside; deleting it is Remove,
+                              under the image, which asks first. */}
+                          {activePost.media && canGoTextOnly && (
                             <button
                               type="button"
+                              disabled={pendingMediaFormat !== null}
                               onClick={() => {
                                 setMediaMenuOpen(false)
-                                handleRemoveMedia()
+                                void handleMediaFormatChange('text')
                               }}
-                              className="border-border mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+                              className="border-border hover:bg-surface-hover text-foreground mt-1 flex w-full cursor-pointer items-center gap-2 border-t px-3.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              <span>Text only (remove media)</span>
+                              <Type className="text-muted h-3.5 w-3.5" />
+                              <span title="The image is kept for later">Text only</span>
                             </button>
                           )}
                         </div>
@@ -2683,9 +2911,9 @@ export function PostDetailClient({
 
                   {/* Stock search input */}
                   {showStockInput && !mediaBusyHere && (
-                    <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
-                      <label className="text-foreground block text-[11px] font-semibold">
-                        Search Stock Imagery
+                    <div className="border-border space-y-2 border-t pt-4">
+                      <label className="text-foreground block text-xs font-semibold">
+                        Stock image
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -2708,14 +2936,14 @@ export function PostDetailClient({
                           type="button"
                           disabled={isMediaLoading || stockQueryError !== null}
                           onClick={handleSearchStockMedia}
-                          className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                          className={`border-border bg-surface text-foreground hover:bg-surface-hover cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
                         >
                           Search
                         </button>
                       </div>
                       {stockSearchQuery.trim().length > 0 &&
                         stockQueryError && (
-                          <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                          <p className="text-xs text-rose-600 dark:text-rose-400">
                             {stockQueryError}
                           </p>
                         )}
@@ -2724,9 +2952,9 @@ export function PostDetailClient({
 
                   {/* Custom URL input */}
                   {showCustomUrlInput && !mediaBusyHere && (
-                    <div className="border-border bg-surface-hover space-y-2 rounded-xl border p-3">
-                      <label className="text-foreground block text-[11px] font-semibold">
-                        Direct Image URL
+                    <div className="border-border space-y-2 border-t pt-4">
+                      <label className="text-foreground block text-xs font-semibold">
+                        Image URL
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -2749,13 +2977,13 @@ export function PostDetailClient({
                           type="button"
                           disabled={isMediaLoading || customUrlError !== null}
                           onClick={handleApplyCustomUrl}
-                          className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                          className={`border-border bg-surface text-foreground hover:bg-surface-hover cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
                         >
                           Apply
                         </button>
                       </div>
                       {customImageUrl.trim().length > 0 && customUrlError && (
-                        <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                        <p className="text-xs text-rose-600 dark:text-rose-400">
                           {customUrlError}
                         </p>
                       )}
@@ -2764,24 +2992,24 @@ export function PostDetailClient({
 
                   {/* Prompt-driven generation */}
                   {!mediaBusyHere && (
-                    <div className="border-border bg-surface-hover/50 space-y-3 rounded-xl border p-3.5">
+                    <div className="border-border space-y-3 border-t pt-4">
                       <div className="flex items-start justify-between gap-2">
                         <label
                           htmlFor="image-prompt"
                           className="text-foreground block text-sm font-medium"
                         >
-                          {referenceMediaId
-                            ? 'Describe the change you want'
-                            : referenceImage
-                              ? 'Add direction (optional)'
-                              : 'Describe the image you want'}
-                          {!referenceImage && (
+                          {referenceMediaId ? 'Describe the change' : 'Describe the image'}
+                          {!referenceMediaId && (
                             <span
-                              title="With nothing typed, a new image is designed from the post"
+                              title={
+                                referenceImage
+                                  ? 'The reference is enough on its own'
+                                  : 'With nothing typed, a new image is designed from the post'
+                              }
                               className="text-muted text-[13px] font-normal"
                             >
                               {' '}
-                              · or leave empty
+                              · Optional
                             </span>
                           )}
                         </label>
@@ -2844,7 +3072,7 @@ export function PostDetailClient({
                       )}
 
                       {referenceImage && (
-                        <div className="border-border bg-surface flex items-center gap-2.5 rounded-lg border p-2">
+                        <div className="bg-surface-hover flex items-center gap-2.5 rounded-lg p-2">
                           <Image
                             src={referenceImage}
                             alt="Reference"
@@ -2862,9 +3090,10 @@ export function PostDetailClient({
                             type="button"
                             onClick={clearReferenceImage}
                             title="Remove reference image"
-                            className="text-muted hover:text-foreground cursor-pointer p-1"
+                            aria-label="Remove reference image"
+                            className={`text-muted hover:text-foreground cursor-pointer rounded-md p-1 ${FOCUS_RING}`}
                           >
-                            <X className="h-3.5 w-3.5" />
+                            <X aria-hidden className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       )}
@@ -2891,7 +3120,7 @@ export function PostDetailClient({
                               className="text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 font-medium"
                             >
                               <Paperclip className="h-3.5 w-3.5" />
-                              Attach reference
+                              Attach image
                             </button>
                             {activePost.media?.imageUrl && (
                               <button
@@ -2911,7 +3140,7 @@ export function PostDetailClient({
                       <input
                         ref={referenceInputRef}
                         type="file"
-                        accept="image/png,image/jpeg,image/webp"
+                        accept={REFERENCE_IMAGE_TYPES}
                         className="hidden"
                         onChange={e => {
                           const file = e.target.files?.[0]
@@ -2937,18 +3166,13 @@ export function PostDetailClient({
                           title={
                             isEditing
                               ? 'Save your edits first so the image matches the post'
-                              : undefined
+                              : 'Design an image from the post text instead'
                           }
-                          className="border-accent/40 text-accent hover:bg-accent/10 flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          className={`border-border text-foreground hover:bg-surface-hover flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
                         >
                           <FileText className="h-4 w-4" />
-                          <span>Design from the post text instead</span>
+                          <span>Use post text</span>
                         </button>
-                        <p className="text-muted text-[10px]">
-                          {isEditing
-                            ? 'Save your edits first so the image matches the post.'
-                            : null}
-                        </p>
                       </div>
                     )}
 
@@ -2963,16 +3187,7 @@ export function PostDetailClient({
                     >
                       <span className="inline-flex min-w-0 items-center gap-2">
                         <SlidersHorizontal className="h-4 w-4 shrink-0" />
-                        <span className="truncate">
-                          Image options
-                          <span className="text-muted font-normal">
-                            {' '}
-                            ·{' '}
-                            {imageStyle === 'minimal_graphic'
-                              ? 'diagram, background, website'
-                              : 'background, website'}
-                          </span>
-                        </span>
+                        <span className="truncate">Image options</span>
                       </span>
                       <ChevronDown
                         className={`text-muted h-4 w-4 shrink-0 transition-transform ${showAdvancedMedia ? 'rotate-180' : ''}`}
@@ -2985,19 +3200,17 @@ export function PostDetailClient({
                         minimal graphic design an optional diagram type; an
                         edit of the current image keeps its own. */}
                       {!mediaBusyHere && !referenceMediaId && (
-                        <div className="border-border bg-surface-hover/50 space-y-2 rounded-xl border p-3">
+                        <div className="space-y-3">
                           {imageStyle === 'minimal_graphic' && (
                             <>
                               <div className="flex items-baseline justify-between">
                                 <span
                                   id="diagram-type-label"
-                                  className="text-foreground text-[11px] font-semibold"
+                                  className="text-foreground text-xs font-semibold"
                                 >
                                   Diagram type
                                 </span>
-                                <span className="text-muted text-[10px]">
-                                  Optional
-                                </span>
+                                <span className="text-muted text-xs">Optional</span>
                               </div>
                               <div
                                 role="radiogroup"
@@ -3017,7 +3230,7 @@ export function PostDetailClient({
                                       // A reference image sets the structure itself.
                                       disabled={Boolean(referenceImage)}
                                       onClick={() => setDiagramType(option.value)}
-                                      className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                      className={`inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border px-2.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                                         active
                                           ? 'border-accent bg-accent/10 text-foreground font-semibold'
                                           : 'border-border bg-surface text-muted hover:text-foreground'
@@ -3031,29 +3244,20 @@ export function PostDetailClient({
                                   )
                                 })}
                               </div>
-                              <p className="text-muted text-[10px]">
-                                {referenceImage
-                                  ? null
-                                  : imagePrompt.trim()
-                                    ? 'Generate image follows your description below. The diagram type is used by "Design from the post text".'
-                                    : DIAGRAM_TYPE_OPTIONS.find(
-                                        o => o.value === diagramType
-                                      )?.description}
-                              </p>
                             </>
                           )}
 
                           <div
                             className={
                               imageStyle === 'minimal_graphic'
-                                ? 'border-border space-y-2 border-t pt-2'
-                                : 'space-y-2'
+                                ? 'border-border space-y-3 border-t pt-3'
+                                : 'space-y-3'
                             }
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span
                                 id="image-background-label"
-                                className="text-foreground text-[11px] font-semibold"
+                                className="text-foreground text-xs font-semibold"
                               >
                                 Background
                               </span>
@@ -3079,7 +3283,7 @@ export function PostDetailClient({
                                           footer: savedFooter
                                         })
                                       }
-                                      className={`inline-flex h-6 cursor-pointer items-center rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                      className={`inline-flex h-7 cursor-pointer items-center rounded-full border px-2.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                                         active
                                           ? 'border-accent bg-accent/10 text-foreground font-semibold'
                                           : 'border-border bg-surface text-muted hover:text-foreground'
@@ -3094,7 +3298,7 @@ export function PostDetailClient({
                             <div className="flex items-center justify-between gap-2">
                               <label
                                 htmlFor="image-footer"
-                                className="text-foreground shrink-0 text-[11px] font-semibold"
+                                className="text-foreground shrink-0 text-xs font-semibold"
                               >
                                 Website
                               </label>
@@ -3116,7 +3320,7 @@ export function PostDetailClient({
                                 onKeyDown={e =>
                                   e.key === 'Enter' && e.currentTarget.blur()
                                 }
-                                className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-[11px] outline-none"
+                                className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-xs outline-none"
                               />
                             </div>
                           </div>
@@ -3125,33 +3329,21 @@ export function PostDetailClient({
 
                       {/* Every generated image gets these; set on the Brand Theme page */}
                       {!mediaBusyHere && (
-                        <div className="flex items-center justify-between gap-2 text-[11px]">
-                          {brand.hasLogo || brand.colors.length > 0 ? (
-                            <span className="text-muted inline-flex min-w-0 items-center gap-1.5">
-                              {brand.colors.map((color, i) => (
-                                <span
-                                  key={`${i}-${color}`}
-                                  aria-hidden
-                                  className="border-border h-3 w-3 shrink-0 rounded-full border"
-                                  style={{ background: color }}
-                                />
-                              ))}
-                              <span className="truncate">
-                                {brand.hasLogo && brand.colors.length > 0
-                                  ? 'Your logo and brand colours go on every image.'
-                                  : brand.hasLogo
-                                    ? 'Your logo goes on every image.'
-                                    : 'Your brand colours go into every image.'}
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="text-muted">
-                              No logo or brand colours yet.
-                            </span>
-                          )}
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            {brand.colors.map((color, i) => (
+                              <span
+                                key={`${i}-${color}`}
+                                aria-hidden
+                                className="border-border h-3 w-3 shrink-0 rounded-full border"
+                                style={{ background: color }}
+                              />
+                            ))}
+                          </span>
                           <Link
                             href={BRAND_THEME_PATH}
-                            className="text-accent inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
+                            title={brandTitle}
+                            className={`text-accent inline-flex shrink-0 items-center gap-1 rounded-md font-medium hover:underline ${FOCUS_RING}`}
                           >
                             <Palette className="h-3 w-3" />
                             Brand Theme
@@ -3193,9 +3385,10 @@ interface PostTextEditorHandle {
  * The hook, body and first comment textareas, with the edit buffer they type
  * into. The buffer is kept here so a keystroke re-renders this, not the page.
  *
- * Keyed by post, so opening another post starts a fresh buffer. It stays
- * mounted while closed: closing it to look at the preview keeps the edits,
- * and they still count as unsaved.
+ * Keyed by post and by Regenerate/Restore, so another post or a whole new
+ * text starts a fresh buffer; a save or hook swap keeps it. It stays mounted
+ * while closed: closing it to look at the preview keeps the edits, and they
+ * still count as unsaved.
  */
 function PostTextEditor({
   ref,
@@ -3229,6 +3422,8 @@ function PostTextEditor({
     typeof post.payload?.caption === 'string' ? post.payload.caption : ''
   const savedTitle =
     typeof post.payload?.title === 'string' ? post.payload.title : ''
+  // Ties each label to its field.
+  const fieldId = useId()
   const [hook, setHook] = useState(savedHook)
   const [body, setBody] = useState(savedBody)
   const [firstComment, setFirstComment] = useState(savedComment)
@@ -3287,20 +3482,29 @@ function PostTextEditor({
   return (
     <div className="border-border bg-surface space-y-4 rounded-2xl border p-6 shadow-xs">
       <div className="flex items-center justify-between">
-        <span className="text-foreground text-xs font-semibold">
-          Edit Draft Copy
-        </span>
-        <span className="text-muted font-mono text-xs">
+        <span className="text-foreground text-sm font-semibold">Edit text</span>
+        <span
+          className="text-muted text-xs tabular-nums"
+          title={
+            spec.limits.foldChars
+              ? `Hook length; the feed folds at about ${spec.limits.foldChars}`
+              : 'Hook length'
+          }
+        >
           {spec.limits.foldChars
-            ? `Hook: ${hook.length} chars (fold ~${spec.limits.foldChars})`
-            : `Hook: ${hook.length} chars`}
+            ? `${hook.length} / ${spec.limits.foldChars}`
+            : hook.length}
         </span>
       </div>
       <div>
-        <label className="text-muted mb-1 block text-xs font-medium">
+        <label
+          htmlFor={`${fieldId}-hook`}
+          className="text-muted mb-1 block text-xs font-medium"
+        >
           {labels.hook}
         </label>
         <textarea
+          id={`${fieldId}-hook`}
           value={hook}
           onChange={e => setHook(e.target.value)}
           rows={3}
@@ -3308,10 +3512,14 @@ function PostTextEditor({
         />
       </div>
       <div>
-        <label className="text-muted mb-1 block text-xs font-medium">
+        <label
+          htmlFor={`${fieldId}-body`}
+          className="text-muted mb-1 block text-xs font-medium"
+        >
           {labels.body}
         </label>
         <textarea
+          id={`${fieldId}-body`}
           value={body}
           onChange={e => setBody(e.target.value)}
           rows={8}
@@ -3319,10 +3527,14 @@ function PostTextEditor({
         />
       </div>
       <div>
-        <label className="text-muted mb-1 block text-xs font-medium">
+        <label
+          htmlFor={`${fieldId}-comment`}
+          className="text-muted mb-1 block text-xs font-medium"
+        >
           {spec.commentLabel}
         </label>
         <textarea
+          id={`${fieldId}-comment`}
           value={firstComment}
           onChange={e => setFirstComment(e.target.value)}
           rows={2}
@@ -3331,10 +3543,14 @@ function PostTextEditor({
       </div>
       {hasTitle && (
         <div>
-          <label className="text-muted mb-1 block text-xs font-medium">
+          <label
+            htmlFor={`${fieldId}-title`}
+            className="text-muted mb-1 block text-xs font-medium"
+          >
             Title ({title.length}/100)
           </label>
           <input
+            id={`${fieldId}-title`}
             type="text"
             value={title}
             onChange={e => setTitle(e.target.value)}
@@ -3344,10 +3560,14 @@ function PostTextEditor({
       )}
       {isVideo && (
         <div>
-          <label className="text-muted mb-1 block text-xs font-medium">
-            Caption posted with the video
+          <label
+            htmlFor={`${fieldId}-caption`}
+            className="text-muted mb-1 block text-xs font-medium"
+          >
+            Caption
           </label>
           <textarea
+            id={`${fieldId}-caption`}
             value={caption}
             onChange={e => setCaption(e.target.value)}
             rows={3}
@@ -3358,14 +3578,12 @@ function PostTextEditor({
       <div className="flex items-center justify-end gap-2">
         {/* Went out while open: the edits can no longer be saved. */}
         {lockedReason && (
-          <span className="text-muted mr-auto text-xs">
-            {lockedReason}, so these edits can no longer be saved.
-          </span>
+          <span className="text-muted mr-auto text-xs">{lockedReason}.</span>
         )}
         <button
           type="button"
           onClick={discard}
-          className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
+          className={`text-muted hover:text-foreground h-8 cursor-pointer rounded-lg px-3 text-[13px] font-medium ${FOCUS_RING}`}
         >
           Cancel
         </button>
@@ -3373,9 +3591,15 @@ function PostTextEditor({
           type="button"
           onClick={() => onSave(current)}
           disabled={saving || Boolean(lockedReason)}
-          className="bg-accent text-background hover:bg-accent-hover h-7 cursor-pointer rounded-lg px-2.5 text-xs font-semibold disabled:opacity-50"
+          title={lockedReason ? `${lockedReason}, so edits can’t be saved` : undefined}
+          className={buttonClassName({
+            variant: 'secondary',
+            size: 'sm',
+            className: `font-semibold ${FOCUS_RING}`
+          })}
         >
-          Save Changes
+          {saving && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+          Save
         </button>
       </div>
     </div>

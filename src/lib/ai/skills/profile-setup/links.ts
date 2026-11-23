@@ -1,3 +1,5 @@
+import type { PlatformId } from '@/lib/formats'
+import { platformOfLink } from '@/lib/profile-links'
 import {
   isSiteRoot,
   normalizeUrlForCompare,
@@ -71,9 +73,13 @@ export function chooseWebsite(input: {
   const warnings: string[] = []
   const { verified } = input
   const proposed = input.proposed ? toWebUrl(input.proposed) : null
+  const typed = input.typed ? toWebUrl(input.typed) : null
 
   let choice: LinkSuggestion | undefined
-  if (input.proposed && !proposed) {
+  if (proposed && typed && sameHost(proposed, typed)) {
+    // The AI agreed with the site the user typed: grounded, and the typed
+    // spelling is kept below.
+  } else if (input.proposed && !proposed) {
     warnings.push(`${WEBSITE}: dropped a value that is not a web address.`)
   } else if (proposed) {
     const written = input.mentioned.find(link => sameUrl(link.url, proposed))
@@ -114,4 +120,23 @@ export function chooseWebsite(input: {
   if (choice) return { website: choice, warnings }
   if (verified) return { website: verifiedFact(verified), warnings }
   return { warnings }
+}
+
+/**
+ * The suggestions without a main profile link on a platform the identity does
+ * not post on: research looks up a LinkedIn page for every identity, and an
+ * Instagram-only brand was offered it as the main link "replacing" its
+ * Instagram one. Unchanged when its platforms are unknown, or the link is on
+ * no platform (a link-in-bio page).
+ */
+export function withoutOffPlatformMainLink<
+  T extends { profile: { linkedinUrl?: { value: string } } }
+>(suggestions: T, platforms: readonly PlatformId[] | undefined): T {
+  const link = suggestions.profile.linkedinUrl?.value
+  if (!link || !platforms?.length) return suggestions
+  const on = platformOfLink(link)
+  if (!on || platforms.includes(on)) return suggestions
+  const profile = { ...suggestions.profile }
+  delete profile.linkedinUrl
+  return { ...suggestions, profile }
 }

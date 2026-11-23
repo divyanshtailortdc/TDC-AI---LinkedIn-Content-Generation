@@ -43,8 +43,35 @@ const NOT_SENT_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'])
 const error = (
   message: string,
   code: PublicationErrorCode,
-  status?: number
-) => new PlatformApiError(message, code, status)
+  status?: number,
+  retryAfterMs?: number
+) => new PlatformApiError(message, code, status, retryAfterMs)
+
+/**
+ * A Retry-After header in ms: delay-seconds or an HTTP date (RFC 9110).
+ * Undefined when there is none or it cannot be read.
+ */
+export function parseRetryAfter(
+  value: string | null | undefined,
+  now = Date.now()
+): number | undefined {
+  const text = value?.trim()
+  if (!text) return undefined
+  if (/^\d+$/.test(text)) return Number(text) * 1000
+  // Only a date in HTTP's form ("Wed, 18 Nov 2026 12:00:00 GMT"): Date.parse
+  // alone takes "-5" or "1.5" for dates.
+  if (!/^[A-Za-z]{3,9}, .+ GMT$/.test(text)) return undefined
+  const at = Date.parse(text)
+  return Number.isFinite(at) ? Math.max(0, at - now) : undefined
+}
+
+/** A wait, roughly, for messages: "about 13 min", "about 5 hours", "about 3 days". */
+function aboutHowLong(ms: number): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 120) return `about ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `about ${hours} hours` : `about ${Math.round(hours / 24)} days`
+}
 
 const nameOf = (ctx: Pick<BufferContext, 'platformName'>) =>
   ctx.platformName ?? 'X'
@@ -59,10 +86,7 @@ function networkError(
 ): PlatformApiError {
   const code = (err as { cause?: { code?: string } })?.cause?.code
   if (what === 'read' || (code !== undefined && NOT_SENT_CODES.has(code))) {
-    return error(
-      'Buffer could not be reached. It will be tried again.',
-      'platform_unavailable'
-    )
+    return error('Buffer could not be reached.', 'platform_unavailable')
   }
   return error(
     `The connection to Buffer was lost ${mayHavePosted(name)}`,
@@ -78,9 +102,10 @@ function requestError(
   errors: GraphQLError[],
   what: Sending,
   name: string,
-  /** Buffer's Retry-After on a 429: seconds until the window resets. */
+  /** Buffer's Retry-After header (on a 429: until the window resets). */
   retryAfter?: string | null
 ): PlatformApiError {
+  const retryAfterMs = parseRetryAfter(retryAfter)
   const codes = new Set(errors.map(e => e.extensions?.code).filter(Boolean))
   const detail = errors
     .map(e => e.message)
@@ -103,33 +128,27 @@ function requestError(
   }
   // Buffer documents that a 429 consumes nothing.
   if (status === 429 || codes.has('RATE_LIMIT_EXCEEDED')) {
-    const seconds = Number(retryAfter)
-    const wait =
-      Number.isFinite(seconds) && seconds > 0
-        ? ` for about ${Math.ceil(seconds / 60)} min`
-        : ' right now'
+    const wait = retryAfterMs ? ` for ${aboutHowLong(retryAfterMs)}` : ' right now'
     return error(
-      `Buffer is limiting requests${wait}. It will be tried again.`,
+      `Buffer is limiting requests${wait}.`,
       'rate_limited',
-      status
+      status,
+      retryAfterMs
     )
   }
   if (status === 503) {
     return error(
-      'Buffer is unavailable right now. It will be tried again.',
+      'Buffer is unavailable right now.',
       'platform_unavailable',
-      status
+      status,
+      retryAfterMs
     )
   }
   const serverSide =
     status >= 500 || codes.has('UNEXPECTED') || codes.has('INTERNAL_SERVER_ERROR')
   if (serverSide) {
     return what === 'read'
-      ? error(
-          'Buffer is unavailable right now. It will be tried again.',
-          'platform_unavailable',
-          status
-        )
+      ? error('Buffer is unavailable right now.', 'platform_unavailable', status)
       : error(
           `Buffer answered with an error ${mayHavePosted(name)}`,
           'unknown_outcome',
@@ -148,7 +167,9 @@ async function graphql<T>(
   ctx: BufferContext,
   query: string,
   variables: Record<string, unknown>,
-  what: Sending
+  what: Sending,
+  /** For a post: whether the answer holds the post Buffer made. */
+  made?: (data: T) => boolean
 ): Promise<T> {
   let res: Response
   try {
@@ -169,16 +190,29 @@ async function graphql<T>(
     errors?: GraphQLError[]
   } | null
   const errors = Array.isArray(body?.errors) ? body.errors : []
-  if (!res.ok || errors.length > 0 || !body?.data) {
-    throw requestError(
-      res.status,
-      errors,
-      what,
-      nameOf(ctx),
-      res.headers.get('retry-after')
-    )
+  const data = body?.data ?? null
+  if (res.ok && errors.length === 0 && data) return data
+  if (what === 'post' && res.ok) {
+    // The post was made even with errors beside it: keep it, so it is
+    // followed rather than made again.
+    if (data && made?.(data)) return data
+    // A 2xx with nothing readable: Buffer took the request and may have
+    // made the post.
+    if (errors.length === 0) {
+      throw error(
+        `Buffer's answer could not be read ${mayHavePosted(nameOf(ctx))}`,
+        'unknown_outcome',
+        res.status
+      )
+    }
   }
-  return body.data
+  throw requestError(
+    res.status,
+    errors,
+    what,
+    nameOf(ctx),
+    res.headers.get('retry-after')
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +383,10 @@ function toState(post: PostNode, name: string): BufferPostState {
  * every post, the first included) in order, each a reply to the one before,
  * and the top-level text and image must be the first post's. `metadata` is
  * the network's own (`facebook`: the post type and first comment;
- * `instagram`: the post type).
+ * `instagram`: the post type; `youtube`: the title and category).
+ *
+ * With `video`, the post is that video (a Reel, a Short): one video asset,
+ * which Buffer downloads from the link, in place of any image.
  */
 export async function createPost(
   ctx: BufferContext,
@@ -362,18 +399,31 @@ export async function createPost(
     image?: { url: string; altText?: string | null }
     /** A carousel: several images in one post, in order (instead of `image`). */
     images?: Array<{ url: string; altText?: string | null }>
+    /** A video post: the video, instead of any image. */
+    video?: { url: string; title?: string | null }
     metadata?: Record<string, unknown>
   }
 ): Promise<BufferPostState> {
   const images = post.images?.length ? post.images : post.image ? [post.image] : []
-  const assets = images.map(image => ({
-    image: {
-      url: image.url,
-      ...(image.altText && {
-        metadata: { altText: image.altText.slice(0, 1000) }
-      })
-    }
-  }))
+  const assets: Array<Record<string, unknown>> = post.video
+    ? [
+        {
+          video: {
+            url: post.video.url,
+            ...(post.video.title && {
+              metadata: { title: post.video.title.slice(0, 100) }
+            })
+          }
+        }
+      ]
+    : images.map(image => ({
+        image: {
+          url: image.url,
+          ...(image.altText && {
+            metadata: { altText: image.altText.slice(0, 1000) }
+          })
+        }
+      }))
   const replies = post.replies?.filter(text => text.trim()) ?? []
   const metadata = {
     ...post.metadata,
@@ -409,7 +459,8 @@ export async function createPost(
         ...(Object.keys(metadata).length > 0 && { metadata })
       }
     },
-    'post'
+    'post',
+    made => Boolean(made?.createPost?.post?.id)
   )
   const result = data.createPost
   if (result?.post?.id) return toState(result.post, nameOf(ctx))
@@ -439,4 +490,74 @@ export async function getPost(
     'read'
   )
   return toState(data.post, nameOf(ctx))
+}
+
+// ---------------------------------------------------------------------------
+// Sent posts, for learning how the account posts (src/lib/profile-insights)
+// ---------------------------------------------------------------------------
+
+/** A post Buffer sent on a channel. */
+export type SentPost = {
+  id: string
+  text: string
+  sentAt: Date | null
+  /** The post on the network, when Buffer has its link. */
+  url: string | null
+  /** Buffer's thumbnails of its images. */
+  imageUrls: string[]
+}
+
+type SentPostNode = {
+  id: string
+  text?: string | null
+  sentAt?: string | null
+  externalLink?: string | null
+  assets?: Array<{ thumbnail?: string | null; mimeType?: string | null }> | null
+}
+
+/**
+ * The newest posts Buffer sent on a channel (only what went out through
+ * Buffer: Buffer does not hold posts made on the network itself), newest
+ * first. Reads need the posts:read scope the app already asks for.
+ */
+export async function listSentPosts(
+  ctx: BufferContext,
+  channelId: string,
+  limit = 30
+): Promise<SentPost[]> {
+  const { channel } = await graphql<{ channel: { organizationId: string } }>(
+    ctx,
+    'query Channel($input: ChannelInput!) { channel(input: $input) { organizationId } }',
+    { input: { id: channelId } },
+    'read'
+  )
+  const data = await graphql<{ posts: { edges?: Array<{ node: SentPostNode }> } }>(
+    ctx,
+    `query SentPosts($first: Int, $input: PostsInput!) {
+      posts(first: $first, input: $input) {
+        edges { node { id text sentAt externalLink assets { thumbnail mimeType } } }
+      }
+    }`,
+    {
+      first: limit,
+      input: {
+        organizationId: channel.organizationId,
+        filter: { status: ['sent'], channelIds: [channelId] }
+      }
+    },
+    'read'
+  )
+  const posts = (data.posts?.edges ?? []).map(({ node }): SentPost => {
+    const sentAt = node.sentAt ? new Date(node.sentAt) : null
+    return {
+      id: node.id,
+      text: (node.text ?? '').trim(),
+      sentAt: sentAt && !Number.isNaN(sentAt.getTime()) ? sentAt : null,
+      url: node.externalLink?.startsWith('https://') ? node.externalLink : null,
+      imageUrls: (node.assets ?? [])
+        .filter(a => a.mimeType?.startsWith('image/') && a.thumbnail?.startsWith('https://'))
+        .map(a => a.thumbnail!)
+    }
+  })
+  return posts.sort((a, b) => (b.sentAt?.getTime() ?? 0) - (a.sentAt?.getTime() ?? 0))
 }

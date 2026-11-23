@@ -1,5 +1,9 @@
 import { styleMixFor, type GenerationContext } from '~/lib/ai/context-blocks'
 import type { Region } from '~/lib/ai/region'
+import type { StyleMix } from '~/lib/formats/styles'
+import type { PlatformId } from '~/lib/platforms'
+import { learnedSubjects } from '~/lib/profile-insights/render'
+import type { SignalKind } from './source-credibility'
 
 /**
  * The pure half of web research: what to search for and how old a result is.
@@ -130,13 +134,117 @@ function trendSearchQueries(
   const a = ctx.account
   const niche = (a.industry || a.headline || a.name).split(/[,;/|\n]/)[0]!.trim()
   const place = region?.code ? ` ${region.name}` : ''
+  // Not "viral video ideas": that found listicles of the most generic ideas
+  // there are, which then came back as this account's ideas.
   const queries = [
     `${niche} trend this week`,
     `${niche} challenge trending`,
-    `${niche} viral video ideas`,
-    ...ctx.selectedGoals.map(g => `${niche} ${g.title}`)
+    `${niche} viral this week`,
+    ...ctx.selectedGoals.map(g => `${niche} ${goalSubject(g) ?? g.title}`)
   ].map(q => `${q}${place}`.replace(/\s+/g, ' ').trim())
   return Array.from(new Set(queries)).slice(0, limit)
+}
+
+/** Goals about reach and reactions rather than a subject. */
+const SOCIAL_OBJECTIVES = new Set(['engagement', 'entertain', 'community', 'grow_audience'])
+
+/**
+ * What to search for a goal. "Promote Zomato Gold" searches "Zomato Gold".
+ * A goal about reactions ("Make people smile and share food moments") names
+ * no subject a search can find; it searches for what of the brand's is going
+ * viral instead. Other titles are searched as written.
+ */
+function goalSubject(goal: GenerationContext['selectedGoals'][number]): string | null {
+  const title = goal.title.trim()
+  const promoted = /^(?:promote|showcase|highlight|announce|launch|introduce)\s+(.{3,})$/i.exec(title)
+  if (promoted) return promoted[1]!
+  if (SOCIAL_OBJECTIVES.has(goal.objective)) return 'viral'
+  return null
+}
+
+/** A query against Serper's web search or its news search. */
+export type ResearchQuery = {
+  query: string
+  endpoint: 'search' | 'news'
+  freshnessDays: number
+  kind: SignalKind
+}
+
+/** How far back the trend scan looks: a trend is this week's. */
+export const TREND_DAYS = 7
+/** Conversations move slower than news; a month of them. */
+export const CONVERSATION_DAYS = 31
+
+/** The account's own subjects (learned from its posts) searched in the news each run. */
+export const LEARNED_SUBJECT_SEARCHES = 2
+
+/**
+ * The trend scan: what is happening now around this account, for ideas that
+ * ride it. Run beside the research for the goals, whichever mode that is.
+ *
+ * - the brand in the news this week (companies), and what its campaigns are doing
+ * - its field's news this week, in the readers' market
+ * - what is going viral on the run's casual platforms, and the memes of the week
+ * - what people are saying about the field (Reddit threads)
+ * - the subjects the account posts most about on the run's platforms, when
+ *   its profiles there were analyzed (src/lib/profile-insights)
+ *
+ * Every query names the readers' market when there is one, and the news
+ * search only returns indexed news sites, dated.
+ */
+export function planTrendScan(
+  ctx: GenerationContext,
+  options: {
+    /** The run's platforms by name ("Instagram"); empty for LinkedIn alone. */
+    platforms: string[]
+    /** The same platforms by id, for what the account posts about there. */
+    platformIds?: readonly PlatformId[]
+    style: StyleMix
+    region?: Region | null
+  }
+): ResearchQuery[] {
+  const a = ctx.account
+  const brand = a.accountType === 'company' ? (a.name || a.company || '').trim() : ''
+  const field = (a.industry || a.headline || '').split(/[,;/|\n·]/)[0]!.trim()
+  const place = options.region?.code ? ` ${options.region.name}` : ''
+  const casual = options.style !== 'professional'
+  const marketing = ctx.selectedGoals.some(
+    g => SOCIAL_OBJECTIVES.has(g.objective) || g.objective === 'promote'
+  )
+  const plan: ResearchQuery[] = []
+  const add = (query: string, endpoint: ResearchQuery['endpoint'], kind: SignalKind, days = TREND_DAYS) => {
+    const q = query.replace(/\s+/g, ' ').trim()
+    if (q && !plan.some(p => p.query === q && p.endpoint === endpoint)) {
+      plan.push({ query: q, endpoint, freshnessDays: days, kind })
+    }
+  }
+
+  if (brand) add(brand, 'news', 'news')
+  if (field) add(`${field}${place}`, 'news', 'news')
+  // What the account already posts about, in this week's news: timely angles
+  // in its own world. A subject that is the brand or the field is searched above.
+  const known = [brand, field].map(k => k.toLowerCase())
+  for (const subject of learnedSubjects(
+    ctx.platformInsights,
+    options.platformIds ?? [],
+    LEARNED_SUBJECT_SEARCHES + known.length
+  )
+    .filter(subject => !known.includes(subject.toLowerCase()))
+    .slice(0, LEARNED_SUBJECT_SEARCHES)) {
+    add(`${subject}${place}`, 'news', 'news')
+  }
+  if (brand && (casual || marketing)) add(`${brand} campaign`, 'news', 'trend', CONVERSATION_DAYS)
+  if (casual) {
+    for (const platform of options.platforms.slice(0, 2)) {
+      add(`viral ${platform} trend${place}`, 'news', 'trend')
+    }
+    if (options.platforms.length === 0) add(`viral trend${place}`, 'news', 'trend')
+    add(`viral meme${place}`, 'news', 'trend')
+  } else if (field) {
+    add(`${field} trend${place}`, 'news', 'trend')
+  }
+  if (field) add(`site:reddit.com ${field}${place}`, 'search', 'conversation', CONVERSATION_DAYS)
+  return plan
 }
 
 /**
@@ -161,17 +269,23 @@ export function buildSearchQueries(
   // searches in turn, so both kinds of idea have something to work from.
   const style = styleMixFor(ctx)
   if (style === 'casual') return trendSearchQueries(ctx, limit, region)
-  // A person's name finds little; their field is the useful anchor.
-  const brand = a.accountType === 'company' ? (a.company || a.name).trim() : ''
+  // A person's name finds little; their field is the useful anchor. A
+  // company is searched by the name people know it by ("Zomato"), not its
+  // legal parent ("Eternal Limited").
+  const brand = a.accountType === 'company' ? (a.name || a.company || '').trim() : ''
   // "Consumer electronics, semiconductors and appliances" searches as its first part.
   const field = (a.industry || '').split(/[,;/|]/)[0]!.trim()
   const anchors = [brand, field].filter(Boolean)
   if (anchors.length === 0) anchors.push((a.headline || a.name).trim())
 
   const goals = ctx.selectedGoals
+  // A goal about reactions has no subject of its own to search, and its
+  // message is a sentence about feelings; the trend scan covers it.
   const subjects = [
-    ...goals.map(g => g.title.trim()),
-    ...goals.map(g => (g.keyMessage ? asSubject(g.keyMessage) : ''))
+    ...goals.map(g => goalSubject(g) ?? g.title.trim()),
+    ...goals.map(g =>
+      g.keyMessage && !SOCIAL_OBJECTIVES.has(g.objective) ? asSubject(g.keyMessage) : ''
+    )
   ].filter(Boolean)
   for (const audience of ctx.audiences) {
     const pain = (audience.painPoints || [])[0]
@@ -185,7 +299,8 @@ export function buildSearchQueries(
 
   const queries = subjects.map((subject, i) => {
     const anchor = anchors[i % anchors.length]!
-    let query = includes(subject, anchor) ? subject : `${anchor} ${subject}`
+    // "Zomato Gold" already names the brand; "Food delivery Zomato Gold" would not help.
+    let query = anchors.some(known => includes(subject, known)) ? subject : `${anchor} ${subject}`
     if (place && !includes(query, place)) query = `${query} ${place}`
     return query.replace(/\s+/g, ' ').trim()
   })

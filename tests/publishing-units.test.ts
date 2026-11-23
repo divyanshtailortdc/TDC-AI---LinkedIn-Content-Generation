@@ -182,6 +182,39 @@ describe('X through Buffer', () => {
     assert.strictEqual(verifyMediaToken(key, 'garbage', 1000), null)
   })
 
+  it("reads Buffer's Retry-After as seconds or a date, and says the wait in words", async () => {
+    const { createPost, parseRetryAfter } = await import('../src/lib/publishing/buffer/api')
+    const now = Date.parse('2026-11-18T10:00:00Z')
+    assert.strictEqual(parseRetryAfter('753', now), 753_000)
+    assert.strictEqual(parseRetryAfter(' 0 ', now), 0)
+    assert.strictEqual(parseRetryAfter('Wed, 18 Nov 2026 12:00:00 GMT', now), 7_200_000)
+    // A date already past: no wait left.
+    assert.strictEqual(parseRetryAfter('Wed, 18 Nov 2026 09:00:00 GMT', now), 0)
+    for (const unreadable of [null, undefined, '', 'soon', '-5', '1.5']) {
+      assert.strictEqual(parseRetryAfter(unreadable, now), undefined, String(unreadable))
+    }
+
+    const limitedFor = async (retryAfter: string | null) => {
+      const headers: Record<string, string> = retryAfter ? { 'Retry-After': retryAfter } : {}
+      return createPost(
+        {
+          apiKey: 'KEY',
+          apiUrl: 'https://buffer.example/graphql',
+          fetchFn: (async () => new Response('', { status: 429, headers })) as typeof fetch
+        },
+        { channelId: 'C', text: 'Hi' }
+      ).catch(e => e)
+    }
+    const hours = await limitedFor('10800')
+    assert.strictEqual(hours.message, 'Buffer is limiting requests for about 3 hours.')
+    assert.strictEqual(hours.retryAfterMs, 10_800_000)
+    const days = await limitedFor(String(30 * 24 * 3600))
+    assert.strictEqual(days.message, 'Buffer is limiting requests for about 30 days.')
+    const none = await limitedFor(null)
+    assert.strictEqual(none.message, 'Buffer is limiting requests right now.')
+    assert.strictEqual(none.retryAfterMs, undefined)
+  })
+
   it("classifies Buffer's answers: what may be retried, and what may have posted", async () => {
     const { createPost } = await import('../src/lib/publishing/buffer/api')
     const ctx = (answer: () => Response | Promise<Response>) => ({
@@ -209,6 +242,21 @@ describe('X through Buffer', () => {
       ),
       ['rejected_by_platform', false]
     )
+    // A 2xx Buffer gave nothing readable for may have made the post.
+    assert.deepStrictEqual(await codeOf(() => new Response('not json')), ['unknown_outcome', false])
+    assert.deepStrictEqual(await codeOf(() => Response.json({})), ['unknown_outcome', false])
+    assert.deepStrictEqual(await codeOf(() => Response.json({ data: null })), ['unknown_outcome', false])
+    // A post made with errors beside it is kept, so it is followed, not made again.
+    const kept = await createPost(
+      ctx(() =>
+        Response.json({
+          data: { createPost: { __typename: 'PostActionSuccess', post: { id: 'P1', status: 'sending' } } },
+          errors: [{ message: 'field failed', extensions: { code: 'NOT_FOUND' } }]
+        })
+      ),
+      post
+    )
+    assert.deepStrictEqual([kept.id, kept.state], ['P1', 'pending'])
     // A refused connection never reached Buffer; a dropped one may have.
     const refused = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
     assert.deepStrictEqual(await codeOf(() => Promise.reject(refused)), ['platform_unavailable', true])
@@ -331,7 +379,83 @@ describe('Facebook and Instagram through Buffer', () => {
     })
     assert.strictEqual(bufferFacebookProvider.commentInPost, true)
     assert.strictEqual(bufferInstagramProvider.requiresImage, true)
-    assert.deepStrictEqual(bufferInstagramProvider.formats, ['instagram.caption'])
+    assert.deepStrictEqual(bufferInstagramProvider.formats, ['instagram.caption', 'instagram.reel'])
+  })
+
+  it('a Reel or a Short goes out as its video, with the network\'s own video metadata', async () => {
+    const { bufferFacebookProvider, bufferYouTubeProvider } = await import(
+      '../src/lib/publishing/buffer/provider'
+    )
+    const { verifyMediaToken } = await import('../src/lib/publishing/media-token')
+    const inputs: any[] = []
+    const fetchFn = (async (_url: string | URL, init: RequestInit = {}) => {
+      inputs.push(JSON.parse(String(init.body)).variables.input)
+      return Response.json({
+        data: {
+          createPost: {
+            __typename: 'PostActionSuccess',
+            post: { id: 'P1', status: 'sent', externalLink: 'https://youtube.com/shorts/1', sentAt: null }
+          }
+        }
+      })
+    }) as typeof fetch
+    const ctx = {
+      accessToken: 'KEY',
+      fetchFn,
+      config: {
+        oauth: null,
+        apiUrl: 'https://buffer.example/graphql',
+        appUrl: 'https://app.example.com',
+        encryptionKey: key,
+        inlineWaitMs: 0
+      }
+    }
+    const video = {
+      id: '0b9d7c1e-2f4a-4c6b-9e1d-3a5f7b9c1d2e',
+      mediaType: 'video/mp4',
+      byteSize: 7_000_000,
+      title: 'Define your month-end close in 5 checks'
+    }
+    await bufferYouTubeProvider.createPost(ctx, { authorId: 'Y1', text: 'Description', video })
+    await bufferFacebookProvider.createPost(ctx, {
+      authorId: 'F1',
+      text: 'Caption',
+      comment: 'Link: https://e.com',
+      video: { ...video, title: null }
+    })
+    // A signed link to this app's video route, ending in .mp4, for that video.
+    const link = new URL(inputs[0].assets[0].video.url)
+    assert.strictEqual(link.origin, 'https://app.example.com')
+    assert.match(link.pathname, /^\/api\/publishing-media\/video\/.+\.mp4$/)
+    const token = decodeURIComponent(link.pathname.split('/').pop()!).replace(/\.mp4$/, '')
+    assert.strictEqual(verifyMediaToken(key, token), `video_${video.id}`)
+    assert.deepStrictEqual(inputs[0].assets[0].video.metadata, {
+      title: 'Define your month-end close in 5 checks'
+    })
+    assert.deepStrictEqual(inputs[0].metadata, {
+      youtube: {
+        title: 'Define your month-end close in 5 checks',
+        categoryId: '22',
+        madeForKids: false,
+        isAiGenerated: true
+      }
+    })
+    assert.deepStrictEqual(Object.keys(inputs[1].assets[0].video), ['url'])
+    assert.deepStrictEqual(inputs[1].metadata, {
+      facebook: { type: 'reel', firstComment: 'Link: https://e.com' }
+    })
+    assert.deepStrictEqual(bufferYouTubeProvider.formats, ['youtube.short'])
+    assert.ok(bufferYouTubeProvider.video)
+
+    // An app only this computer can reach is refused before Buffer is called.
+    const local = await bufferYouTubeProvider
+      .createPost(
+        { ...ctx, config: { ...ctx.config, appUrl: 'https://localhost:3000' } },
+        { authorId: 'Y1', text: 'D', video }
+      )
+      .catch(e => e)
+    assert.match(local.message, /only this computer can reach/)
+    assert.strictEqual(inputs.length, 2)
   })
 
   it("Threads sends its reply as a thread under Threads' own key; X keeps twitter", async () => {

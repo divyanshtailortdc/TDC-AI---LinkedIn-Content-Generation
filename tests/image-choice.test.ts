@@ -1,6 +1,6 @@
 import assert from 'node:assert'
 import { describe, it } from 'node:test'
-import { canHaveImage, imageChosenFor, needsImage } from '../src/lib/formats'
+import { canHaveImage, imageChosenFor, mediaChosenFor, needsImage } from '../src/lib/formats'
 
 // "Add an image" in Create posts: kept in the idea's suggestedMedia.imageFormats
 // and read per format by drafting.
@@ -39,5 +39,45 @@ describe("drafting reads the idea's image choice", () => {
     assert.equal(imageChosenFor({ suggestedMedia: { mode: 'none' } }, 'x.post'), undefined)
     assert.equal(imageChosenFor({ suggestedMedia: null }, 'linkedin.post'), undefined)
     assert.equal(imageChosenFor({}, 'facebook.post'), undefined)
+  })
+})
+
+// "Single image / Carousel" in Create posts: kept in the idea's
+// suggestedMedia.carouselFormats; drafting makes exactly that.
+describe("drafting reads the idea's carousel choice", () => {
+  const chosen = {
+    suggestedMedia: {
+      mode: 'none',
+      imageFormats: ['linkedin.post', 'facebook.post', 'instagram.caption', 'x.post'],
+      carouselFormats: ['facebook.post']
+    }
+  }
+
+  it('makes slides only where Carousel was picked, and one image elsewhere', () => {
+    assert.equal(mediaChosenFor(chosen, 'facebook.post'), 'carousel')
+    assert.equal(mediaChosenFor(chosen, 'linkedin.post'), 'image')
+    assert.equal(mediaChosenFor(chosen, 'instagram.caption'), 'image')
+    assert.equal(mediaChosenFor(chosen, 'x.post'), 'image')
+  })
+
+  it('keeps an unticked post to its text, and never slides a format without them', () => {
+    const noImage = { suggestedMedia: { imageFormats: [], carouselFormats: ['linkedin.post', 'x.post'] } }
+    assert.equal(mediaChosenFor(noImage, 'linkedin.post'), 'text')
+    assert.equal(
+      mediaChosenFor({ suggestedMedia: { imageFormats: ['x.post'], carouselFormats: ['x.post'] } }, 'x.post'),
+      'image'
+    )
+  })
+
+  it('gives an Instagram post an image even unticked, and a video script nothing chosen', () => {
+    const none = { suggestedMedia: { imageFormats: [], carouselFormats: [] } }
+    assert.equal(mediaChosenFor(none, 'instagram.caption'), 'image')
+    assert.equal(mediaChosenFor(none, 'youtube.short'), undefined)
+  })
+
+  it('leaves an idea from before the choice to drafting', () => {
+    assert.equal(mediaChosenFor({ suggestedMedia: { imageFormats: ['linkedin.post'] } }, 'linkedin.post'), undefined)
+    assert.equal(mediaChosenFor({ suggestedMedia: null }, 'facebook.post'), undefined)
+    assert.equal(mediaChosenFor({}, 'linkedin.post'), undefined)
   })
 })

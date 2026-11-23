@@ -22,11 +22,13 @@ import {
 } from 'drizzle-orm'
 import { RESEARCH_SETTINGS } from '../ai/context-blocks'
 import { digestEmail } from '../ai/skills/newsletter-digest'
+import { withAiSpend } from '../ai/spend'
 import { mapConcurrently } from '../research/web-search'
 import { readEmailContent } from './email-content'
 import { canonicalArticleUrl, isArticleUrl } from './links'
 import { resolveLink } from './resolve-link'
 import { EXTRACTION_SETTINGS, retryAt, RetryLaterError } from './settings'
+import { compareStories, pairStories } from './story-versions'
 
 /**
  * Extraction, step 1: one received email → what kind it is, a summary, and
@@ -36,7 +38,8 @@ import { EXTRACTION_SETTINGS, retryAt, RetryLaterError } from './settings'
  * The email row is the queue item. A pass claims it with a conditional
  * update (`extraction_locked_at` is the claim's token), so two processes
  * never extract the same email; a claim older than claimTtlMs belongs to a
- * process that died and is taken over. Everything is stored in one
+ * process that died and is taken over, or, when that was the email's last
+ * attempt, the email is failed (claimNextEmail). Everything is stored in one
  * transaction that still holds the claim, replacing what an earlier attempt
  * stored, so a retry never duplicates stories.
  *
@@ -63,10 +66,34 @@ type ClaimedEmail = {
   claimedAt: Date
 }
 
+/** Why an email failed when its last attempt never finished. */
+const INTERRUPTED_EMAIL =
+  'Reading this email was interrupted, and its attempts ran out.'
+
 /** The newest due email, claimed for this pass, or null when none is due. */
 async function claimNextEmail(): Promise<ClaimedEmail | null> {
   const now = new Date()
   const stale = new Date(now.getTime() - EXTRACTION_SETTINGS.claimTtlMs)
+  const abandoned = and(
+    eq(messages.extractionStatus, 'processing'),
+    lt(messages.extractionLockedAt, stale)
+  )
+  // An attempt that never finished counts like one that failed: the email
+  // may be what brought the process down, so past maxAttempts it is failed,
+  // not taken over every claimTtlMs forever.
+  await db
+    .update(messages)
+    .set({
+      extractionStatus: 'failed',
+      extractionLockedAt: null,
+      extractionError: INTERRUPTED_EMAIL
+    })
+    .where(
+      and(
+        abandoned,
+        gte(messages.extractionAttempts, EXTRACTION_SETTINGS.maxAttempts)
+      )
+    )
   const due = db
     .select({ id: messages.id })
     .from(messages)
@@ -77,8 +104,8 @@ async function claimNextEmail(): Promise<ClaimedEmail | null> {
           lte(messages.extractionNextAt, now)
         ),
         and(
-          eq(messages.extractionStatus, 'processing'),
-          lt(messages.extractionLockedAt, stale)
+          abandoned,
+          lt(messages.extractionAttempts, EXTRACTION_SETTINGS.maxAttempts)
         )
       )
     )
@@ -153,53 +180,16 @@ async function articleIdsFor(tx: Tx, urls: string[]) {
   )
 }
 
-/** A story as versions of an issue are compared: stored, or about to be. */
-type ComparedStory = {
-  articleId: string | null
-  url: string | null
+/** One of the email's stories, as it is stored. */
+type NewStory = {
+  messageId: string
+  accountId: string
+  position: number
   headline: string
+  blurb: string | null
+  url: string | null
+  articleId: string | null
   isSponsored: boolean
-}
-
-/**
- * What identifies a story in another email: its article (or its link, when
- * it leads to no article) and its headline's words, so a story whose link a
- * correction fixed still matches. Short headlines ("Read more") do not
- * count, and a sponsored story never matches.
- */
-function storyKeys(story: ComparedStory): string[] {
-  if (story.isSponsored) return []
-  const keys: string[] = []
-  if (story.articleId) keys.push(`article:${story.articleId}`)
-  else if (story.url) keys.push(`url:${story.url}`)
-  const words = story.headline
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean)
-  if (words.length >= 3) keys.push(`headline:${words.join(' ')}`)
-  return keys
-}
-
-/**
- * How alike two emails' stories are: the stories they share over all the
- * stories of both (0 to 1), and which of each side's stories the other has.
- */
-export function compareStories(a: ComparedStory[], b: ComparedStory[]) {
-  const aKeys = a.map(storyKeys)
-  const bKeys = b.map(storyKeys)
-  const inA = new Set(aKeys.flat())
-  const inB = new Set(bKeys.flat())
-  const aShared = aKeys.flatMap((keys, i) =>
-    keys.some(key => inB.has(key)) ? [i] : []
-  )
-  const bShared = bKeys.flatMap((keys, i) =>
-    keys.some(key => inA.has(key)) ? [i] : []
-  )
-  const aCount = aKeys.filter(keys => keys.length > 0).length
-  const bCount = bKeys.filter(keys => keys.length > 0).length
-  const shared = Math.min(aShared.length, bShared.length)
-  const all = aCount + bCount - shared
-  return { overlap: all > 0 ? shared / all : 0, aShared, bShared }
 }
 
 /**
@@ -212,23 +202,29 @@ export function compareStories(a: ComparedStory[], b: ComparedStory[]) {
  * version never loses one. Different issues share far fewer stories (only
  * recurring sections), so they are left alone.
  *
+ * A story the newer version repeats keeps its row: it moves to the newer
+ * email and takes its words, so its id and the user's Keep or Don't use stay.
+ * Its embedding stays too, unless the words or the article changed.
+ *
  * Emails are extracted newest first, so a newer version can be stored before
  * an older one: both directions are checked. A newsletter's emails are
  * reconciled one at a time (an advisory lock), so two passes storing two
  * versions at once cannot miss each other.
  *
- * Returns the newer version this email is an older version of, if any, and
- * which of its stories that newer version already carries.
+ * Returns the newer version this email is an older version of, if any; which
+ * of its stories that newer version already carries; and which of them an
+ * older version's row now carries. Neither kind is inserted.
  */
 async function reconcileVersions(
   tx: Tx,
   email: ClaimedEmail,
-  stories: ComparedStory[]
+  stories: NewStory[]
 ) {
   const repeated = new Set<number>()
+  const moved = new Set<number>()
   let newest: { id: string; receivedAt: Date } | null = null
   const sender = email.fromAddress?.toLowerCase()
-  if (!sender) return { supersededById: null, repeated }
+  if (!sender) return { supersededById: null, repeated, moved }
 
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`versions:${email.accountId}:${sender}`}, 0))`
@@ -255,7 +251,7 @@ async function reconcileVersions(
         )
       )
     )
-  if (others.length === 0) return { supersededById: null, repeated }
+  if (others.length === 0) return { supersededById: null, repeated, moved }
 
   const theirStories = await tx
     .select({
@@ -264,7 +260,9 @@ async function reconcileVersions(
       articleId: mentions.articleId,
       url: mentions.url,
       headline: mentions.headline,
-      isSponsored: mentions.isSponsored
+      blurb: mentions.blurb,
+      isSponsored: mentions.isSponsored,
+      useInIdeas: mentions.useInIdeas
     })
     .from(mentions)
     .where(
@@ -274,6 +272,8 @@ async function reconcileVersions(
       )
     )
 
+  // Stories of older versions that this email repeats.
+  const replaced: typeof theirStories = []
   for (const other of others) {
     const theirs = theirStories.filter(story => story.messageId === other.id)
     const { overlap, aShared, bShared } = compareStories(stories, theirs)
@@ -291,13 +291,43 @@ async function reconcileVersions(
         .update(messages)
         .set({ supersededById: email.id })
         .where(eq(messages.id, other.id))
-      const moved = bShared.map(i => theirs[i]!.id)
-      if (moved.length > 0) {
-        await tx.delete(mentions).where(inArray(mentions.id, moved))
-      }
+      for (const i of bShared) replaced.push(theirs[i]!)
     }
   }
-  return { supersededById: newest?.id ?? null, repeated }
+
+  // Paired once every version is compared: a story a newer version already
+  // carries takes no row from an older one.
+  const carried = new Set<string>()
+  for (const [i, j] of pairStories(stories, replaced, repeated)) {
+    const story = stories[i]!
+    const row = replaced[j]!
+    const reworded =
+      row.headline !== story.headline ||
+      row.blurb !== story.blurb ||
+      row.articleId !== story.articleId
+    await tx
+      .update(mentions)
+      .set({
+        messageId: story.messageId,
+        position: story.position,
+        headline: story.headline,
+        blurb: story.blurb,
+        url: story.url,
+        articleId: story.articleId,
+        isSponsored: story.isSponsored,
+        // Embedded again with the new words (index-stories.ts).
+        ...(reworded ? { embedding: null, embeddingModel: null } : {})
+      })
+      .where(eq(mentions.id, row.id))
+    moved.add(i)
+    carried.add(row.id)
+  }
+  // The rest repeat a story that is kept once already.
+  const dropped = replaced.flatMap(row => (carried.has(row.id) ? [] : [row.id]))
+  if (dropped.length > 0) {
+    await tx.delete(mentions).where(inArray(mentions.id, dropped))
+  }
+  return { supersededById: newest?.id ?? null, repeated, moved }
 }
 
 /** Why an email from a sender the user unsubscribed from has no stories. */
@@ -353,19 +383,27 @@ async function extract(email: ClaimedEmail) {
     html: email.htmlBody,
     text: email.textBody
   })
-  const digest = await digestEmail(
-    {
-      from:
-        [email.fromName, email.fromAddress && `<${email.fromAddress}>`]
-          .filter(Boolean)
-          .join(' ') || 'unknown sender',
-      subject: email.subject ?? '(no subject)',
-      content
-    },
-    // After about a week of a busy model, the heuristic digest, not nothing.
-    {
-      lastChance: email.attempts >= EXTRACTION_SETTINGS.maxTransientAttempts
-    }
+  // Charged to the inbox of the identity the email was sent to. Past one of
+  // its limits (the inbox's own, or its share of its owner's; see
+  // INBOX_SHARE_OF_USER_LIMITS) the digest falls back to the email's links,
+  // at once: anyone can send mail, so its AI spend stays bounded.
+  const digest = await withAiSpend(
+    { source: 'inbox', accountId: email.accountId },
+    () =>
+      digestEmail(
+        {
+          from:
+            [email.fromName, email.fromAddress && `<${email.fromAddress}>`]
+              .filter(Boolean)
+              .join(' ') || 'unknown sender',
+          subject: email.subject ?? '(no subject)',
+          content
+        },
+        // After about a week of a busy model, the heuristic digest, not nothing.
+        {
+          lastChance: email.attempts >= EXTRACTION_SETTINGS.maxTransientAttempts
+        }
+      )
   )
 
   const linkUrls = new Map(content.links.map(link => [link.n, link.url]))
@@ -420,7 +458,7 @@ async function extract(email: ClaimedEmail) {
     })
 
     // Only a newsletter has stories, so only a newsletter has versions.
-    const { supersededById, repeated } = await reconcileVersions(
+    const { supersededById, repeated, moved } = await reconcileVersions(
       tx,
       email,
       stories
@@ -431,7 +469,7 @@ async function extract(email: ClaimedEmail) {
         .set({ supersededById })
         .where(eq(messages.id, email.id))
     }
-    const kept = stories.filter((_, i) => !repeated.has(i))
+    const kept = stories.filter((_, i) => !repeated.has(i) && !moved.has(i))
     if (kept.length > 0) await tx.insert(mentions).values(kept)
   })
 }

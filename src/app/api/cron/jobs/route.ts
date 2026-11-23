@@ -3,12 +3,16 @@ import { after } from 'next/server'
 import { env } from '~/env'
 import { recoverAbandonedDrafting } from '~/jobs/drafting-queue'
 import { runPublishing } from '~/jobs/publishing'
+import { runVideoFinishing } from '~/jobs/videos'
 import { runMailExtraction } from '~/jobs/mail-extraction'
 import { runInboxSync } from '~/jobs/mail-sync'
 import { runsJobsHere } from '~/jobs/role'
 import { runDueSchedules } from '~/jobs/scheduler'
 import { processQueuedRuns } from '~/jobs/worker'     
 import { recoverInterruptedRuns } from '~/lib/ai/run-lifecycle'
+
+/** The runs and drafts it starts with `after()` get Vercel's most; see src/lib/function-limit.ts. */
+export const maxDuration = 300
 
 /**
  * One pass of the job timers, for hosts where they do not run (Vercel; see
@@ -34,8 +38,13 @@ export async function GET(request: Request) {
   // A separate worker service (APP_ROLE=web here) does all of this itself.
   if (!runsJobsHere()) return Response.json({ success: true, skipped: true })
 
-  const recovered = await recoverInterruptedRuns()
-  await runDueSchedules()
+  // Each step on its own: a failing schedules query must not stop the
+  // publishing below, which on Vercel nothing else drives.
+  const recovered = await recoverInterruptedRuns().catch(err => {
+    console.error('Cron run recovery error:', err)
+    return []
+  })
+  await runDueSchedules().catch(err => console.error('Cron schedules error:', err))
 
   // The runs and drafts take minutes: they continue after the response, and
   // `after` keeps the function alive until they finish.
@@ -45,8 +54,13 @@ export async function GET(request: Request) {
       recoverAbandonedDrafting().catch(err =>
         console.error('Drafting recovery error:', err)
       ),
-      runInboxSync().then(runMailExtraction),
-      runPublishing()
+      runInboxSync()
+        .then(runMailExtraction)
+        .catch(err => console.error('Cron inbox error:', err)),
+      // Side by side, so a slow or stuck video never holds up publishing; a
+      // Reel stored now is auto-published on the next pass.
+      runPublishing().catch(err => console.error('Cron publishing error:', err)),
+      runVideoFinishing().catch(err => console.error('Cron video error:', err))
     ])
   )
 

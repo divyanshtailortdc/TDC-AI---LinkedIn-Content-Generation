@@ -8,6 +8,7 @@ import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { accountNameAtRunSql, runGoalTitlesSql } from '../runs/runs-data'
 import { statusFilterCounts, type StatusFilter } from './status-filter'
+import type { SharedPostRef } from '@/lib/reference-post/types'
 
 /** Ideas aimed at `platform`: one of its formats is among their target formats. */
 function onPlatform(platform: PlatformId) {
@@ -94,11 +95,15 @@ export async function loadIdeasPage(
             originalityScore: ideasTable.originalityScore,
             goalFitScore: ideasTable.goalFitScore,
             goalFitNote: ideasTable.goalFitNote,
+            scorecard: ideasTable.scorecard,
             unsupportedClaims: ideasTable.unsupportedClaims,
             sourceIds: ideasTable.sourceIds,
             risks: ideasTable.risks,
             status: ideasTable.status,
             formatFit: ideasTable.formatFit,
+            // The post an idea from "From a link" was made from; only where
+            // it is and what it is reach the page, not its text.
+            reference: sql<SharedPostRef | null>`case when ${ideasTable.reference} is null then null else jsonb_build_object('url', ${ideasTable.reference}->>'url', 'source', ${ideasTable.reference}->>'source', 'kind', ${ideasTable.reference}->>'kind', 'author', ${ideasTable.reference}->>'author') end`,
             createdAt: ideasTable.createdAt,
             // Which run made the idea, so ideas from different runs (and from
             // before the identity was renamed) can be told apart.

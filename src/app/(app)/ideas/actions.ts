@@ -7,8 +7,10 @@ import {
   cleanFormats,
   FORMATS,
   isCreatableFormat,
+  supportsMediaFormat,
   type FormatId
 } from '@/lib/formats'
+import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { loadChannels } from '@/lib/channels'
 import { requireIdentityId } from '@/lib/identity'
@@ -33,11 +35,15 @@ import {
  * when one is turned off (a page opened before Preferences changed).
  */
 function chosenFormats(raw: unknown, enabled: readonly FormatId[]): FormatId[] {
-  const formats = cleanFormats(raw).filter(isCreatableFormat)
+  // Videos (Short video in "Create posts") are asked for each time and are
+  // never turned on in Preferences, so only the other formats must be on.
+  const formats = cleanFormats(raw).filter(
+    f => isCreatableFormat(f) || (VIDEO_GENERATION_ENABLED && isVideoFormat(f))
+  )
   if (formats.length === 0) {
     throw new Error('Choose at least one platform to write these posts for.')
   }
-  const off = formats.find(f => !enabled.includes(f))
+  const off = formats.find(f => !isVideoFormat(f) && !enabled.includes(f))
   if (off) {
     throw new Error(
       `Turn on ${FORMATS[off].label}s under Identity → Preferences first.`
@@ -188,6 +194,11 @@ export async function draftSelectedIdeas(options: {
    * each format's default (imageChosenFor).
    */
   imageFormats?: string[]
+  /**
+   * Of those, the ones set to "Carousel"; the rest get a single image. Sent
+   * with imageFormats. Absent: drafting plans each (mediaChosenFor).
+   */
+  carouselFormats?: string[]
 }) {
   const user = await requireUser()
   try {
@@ -221,19 +232,33 @@ export async function draftSelectedIdeas(options: {
           : cleanFormats(options.imageFormats).filter(
               f => formats.includes(f) && canHaveImage(f)
             )
+      // Only image formats that take slides; an empty list is a choice too
+      // (every post a single image), so it is written.
+      const carouselFormats =
+        imageFormats && options.carouselFormats !== undefined
+          ? cleanFormats(options.carouselFormats).filter(
+              f => imageFormats.includes(f) && supportsMediaFormat(f, 'carousel')
+            )
+          : undefined
+      // The videos asked for, always written (an empty list too), so a later
+      // request without them does not draft an earlier one's video.
+      const videoFormats = formats.filter(isVideoFormat)
+      const mediaChoice = {
+        ...(imageFormats && { imageFormats }),
+        ...(carouselFormats && { carouselFormats }),
+        videoFormats
+      }
       // Set before the claim, so the drafting queue reads them. Ideas not yet
       // approved keep theirs: they are skipped below and not drafted. The
-      // image choice goes into the idea's image plan, merged with what is
-      // there, so a drafting resumed after a restart has it too.
+      // image and video choices go into the idea's media plan, merged with
+      // what is there, so a drafting resumed after a restart has them too.
       await db
         .update(ideasTable)
         .set({
           targetFormats: formats,
-          ...(imageFormats && {
-            // ::text first: cast straight to jsonb, the driver encodes the
-            // parameter again, and || would make the plan an array.
-            suggestedMedia: sql`coalesce(${ideasTable.suggestedMedia}, '{"mode":"none"}'::jsonb) || ${JSON.stringify({ imageFormats })}::text::jsonb`
-          }),
+          // ::text first: cast straight to jsonb, the driver encodes the
+          // parameter again, and || would make the plan an array.
+          suggestedMedia: sql`coalesce(${ideasTable.suggestedMedia}, '{"mode":"none"}'::jsonb) || ${JSON.stringify(mediaChoice)}::text::jsonb`,
           updatedAt: new Date()
         })
         .where(

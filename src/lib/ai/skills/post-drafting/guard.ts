@@ -1,4 +1,6 @@
 import type { Idea } from '@/db/schema'
+import { otherProfileLink, profileLinksOf } from '@/lib/profile-links'
+import { findLinks } from '~/lib/lint/links'
 import {
   renderAudienceBlock,
   renderGoalBlock,
@@ -70,4 +72,41 @@ export function collectFigureSources(
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+/**
+ * Every link a draft may contain: the author's goals' links, their own pages
+ * (website, profiles, and any written in their offerings or sample posts)
+ * and the pages the idea's evidence came from. Links written inside the
+ * evidence are not among them: that text is a third party's. `extraTexts`
+ * are the reviewer's own words for this draft (what they asked for, posts
+ * they approved), whose links are theirs to use. The linter flags any other.
+ */
+export function collectLinkSources(
+  ctx: GenerationContext,
+  idea: Pick<Idea, 'supportingEvidence'>,
+  extraTexts: Array<string | null | undefined> = []
+): string[] {
+  const account = ctx.account
+  const authorText = [
+    renderIdentityBlock(ctx),
+    ...ctx.samplePosts.map(s => s.content),
+    ...extraTexts
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return Array.from(
+    new Set(
+      [
+        ...[...ctx.goals, ...ctx.selectedGoals, ctx.primaryGoal].map(g => g?.targetUrl),
+        account.websiteUrl,
+        ...Object.values(profileLinksOf(account)),
+        otherProfileLink(account),
+        ...(idea.supportingEvidence || []).map(e => e.sourceUrl),
+        ...findLinks(authorText)
+      ]
+        .map(link => link?.trim())
+        .filter((link): link is string => Boolean(link))
+    )
+  )
 }

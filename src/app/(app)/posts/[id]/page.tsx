@@ -7,13 +7,14 @@ import { requireUser } from '@/lib/session'
 import { and, eq } from 'drizzle-orm'
 import { loadChannels } from '@/lib/channels'
 import { getIdentity } from '@/lib/identity'
+import { PLATFORM_IDS } from '@/lib/platforms'
 import { notFound } from 'next/navigation'
 import { z } from 'zod'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { brandColors, displayWebsite } from '~/lib/brand/theme'
 import { LIST_PARAMS } from '../list-params'
 import { PostDetailClient } from '../post-detail-client'
-import { loadPostWithVersions } from '../posts-data'
+import { loadNextToReview, loadPostWithVersions } from '../posts-data'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,11 +42,23 @@ export default async function PostPage({
     if (typeof value === 'string' && value) query.set(key, value)
   }
   const listQuery = query.toString()
+  // The list's platform and run, if it was narrowed to them: Next to review
+  // stays within them.
+  const listPlatform = PLATFORM_IDS.find(p => p === query.get('platform')) ?? null
+  const listRunId = z.string().uuid().safeParse(query.get('runId')).success
+    ? query.get('runId')
+    : null
 
-  const [found, brand, channels] = await Promise.all([
+  // The next post awaiting review rides along, offered once this one is
+  // approved or rejected.
+  const [found, brand, channels, nextReviewId] = await Promise.all([
     loadPostWithVersions(identity.id, id),
     loadBrandTheme(identity.id),
-    loadChannels(identity.id)
+    loadChannels(identity.id),
+    loadNextToReview(identity.id, id, {
+      platform: listPlatform,
+      runId: listRunId
+    })
   ])
   if (!found) {
     // One of the user's other identities' posts opens after a switch;
@@ -71,6 +84,7 @@ export default async function PostPage({
       initialVersions={found.versions}
       backHref={`/posts${listQuery ? `?${listQuery}` : ''}`}
       listQuery={listQuery}
+      nextReviewId={nextReviewId}
       enabledFormats={channels.enabledFormats}
       brand={{
         hasLogo: brand.hasLogo,

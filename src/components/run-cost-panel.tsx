@@ -1,7 +1,12 @@
 'use client'
 
 import { addUsage, cacheHitRate, type CallUsage } from '@/lib/ai/usage'
-import { Coins, Info } from 'lucide-react'
+import { InfoTip } from '@/components/ui/info-tip'
+import { ChevronDown, Coins } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { SectionCard } from '@/components/ui/section-card'
+import { FOCUS_RING, TONES } from '@/components/ui/tone'
+import { cn } from '@/lib/cn'
 
 interface StepLike {
   stage: string
@@ -47,6 +52,19 @@ function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`
 }
 
+/**
+ * An explanation kept out of the card: an Info button that shows it on hover,
+ * and on a click, tap or keyboard press (InfoTip), so it is reachable without
+ * a mouse.
+ */
+function InfoNote({ title }: { title: string }) {
+  return (
+    <InfoTip label="About this figure" className="align-middle">
+      {title}
+    </InfoTip>
+  )
+}
+
 export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelProps) {
   const byStage = new Map<string, CallUsage>()
   for (const step of steps) {
@@ -67,17 +85,20 @@ export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelP
 
   if (!hasRecordedUsage) {
     return (
-      <div className="border-border bg-surface rounded-2xl border p-6 shadow-xs">
-        <h2 className="text-foreground mb-2 flex items-center gap-2 text-sm font-semibold">
-          <Coins className="h-4 w-4" />
-          Tokens &amp; cost
-        </h2>
-        <p className="text-muted text-xs leading-relaxed">
-          {legacyCost > 0
-            ? `This run predates per-stage tracking. Its recorded total was ${formatUsd(legacyCost)}, estimated at full input price, so treat it as approximate.`
-            : 'No model calls have been recorded for this run yet.'}
+      <SectionCard title="Tokens & cost" icon={Coins}>
+        <p className="text-muted inline-flex items-center gap-1.5 text-[13px] tabular-nums">
+          {legacyCost > 0 ? (
+            <>
+              {formatUsd(legacyCost)} recorded
+              <InfoNote
+                title={`This run predates per-stage tracking. Its recorded total was ${formatUsd(legacyCost)}, estimated at full input price, so treat it as approximate.`}
+              />
+            </>
+          ) : (
+            'No model calls yet'
+          )}
         </p>
-      </div>
+      </SectionCard>
     )
   }
 
@@ -91,147 +112,147 @@ export function RunCostPanel({ steps, draftCount, legacyCostUsd }: RunCostPanelP
   const showThinking = total.reasoningTokens > 0
 
   return (
-    <div className="border-border bg-surface space-y-5 rounded-2xl border p-6 shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-foreground flex items-center gap-2 text-sm font-semibold">
-          <Coins className="h-4 w-4" />
-          Tokens &amp; cost
-        </h2>
-        <span className="text-muted text-[11px]">
-          {total.billedCalls} of {total.calls} call{total.calls === 1 ? '' : 's'}{' '}
-          priced from gateway billing
+    <SectionCard
+      title="Tokens & cost"
+      icon={Coins}
+      description={
+        <span className="inline-flex items-center gap-1.5 tabular-nums">
+          {total.billedCalls} of {total.calls} calls billed
+          {unpricedCalls > 0 && (
+            <InfoNote
+              title={`${unpricedCalls} call${unpricedCalls === 1 ? '' : 's'} came back without a billed amount. Text calls fall back to Anthropic list prices; images without one are counted but not priced, so the total may be slightly low.`}
+            />
+          )}
         </span>
-      </div>
+      }
+    >
+      <div className="space-y-5">
+        {/* Headline numbers */}
+        <dl className="divide-border grid grid-cols-2 gap-y-4 lg:grid-cols-4 lg:divide-x">
+          <Figure label="Total cost" value={formatUsd(total.costUsd)} />
+          <Figure
+            label="Cost per post"
+            value={costPerPost === null ? '—' : formatUsd(costPerPost)}
+            hint={costPerPost === null ? undefined : `${draftCount} post${draftCount === 1 ? '' : 's'}`}
+          />
+          <Figure
+            label="Output tokens"
+            value={formatTokens(total.outputTokens)}
+            hint={
+              total.reasoningTokens > 0
+                ? `${formatPercent(thinkingShare)} thinking`
+                : `${formatTokens(total.inputTokens)} input`
+            }
+          />
+          <Figure
+            label="Cache hit rate"
+            value={formatPercent(hitRate)}
+            hint={`${formatTokens(total.cacheReadTokens)} cached`}
+          />
+        </dl>
 
-      {/* Headline numbers */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Total cost" value={formatUsd(total.costUsd)} emphasis />
-        <Stat
-          label="Cost per post"
-          value={costPerPost === null ? '—' : formatUsd(costPerPost)}
-          hint={
-            costPerPost === null
-              ? 'No posts drafted yet'
-              : `${draftCount} post${draftCount === 1 ? '' : 's'}, ideation shared`
-          }
-        />
-        <Stat
-          label="Output tokens"
-          value={formatTokens(total.outputTokens)}
-          hint={
-            total.reasoningTokens > 0
-              ? `${formatPercent(thinkingShare)} of it thinking`
-              : `${formatTokens(total.inputTokens)} input`
-          }
-        />
-        <Stat
-          label="Cache hit rate"
-          value={formatPercent(hitRate)}
-          hint={`${formatTokens(total.cacheReadTokens)} input read from cache`}
-        />
-      </div>
-
-      {/* Per-stage breakdown */}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-130 text-xs">
-          <thead>
-            <tr className="text-muted border-border border-b text-left text-[10px] tracking-wider uppercase">
-              <th className="py-2 pr-3 font-semibold">Stage</th>
-              <th className="py-2 pr-3 text-right font-semibold">Calls</th>
-              <th className="py-2 pr-3 text-right font-semibold">Input</th>
-              {showCached && <th className="py-2 pr-3 text-right font-semibold">Cached</th>}
-              <th className="py-2 pr-3 text-right font-semibold">Output</th>
-              {showThinking && (
-                <th className="py-2 pr-3 text-right font-semibold">Thinking</th>
-              )}
-              <th className="py-2 pr-3 text-right font-semibold">Cost</th>
-              <th className="py-2 font-semibold">Share</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ stage, label, usage }) => {
-              const share = total.costUsd > 0 ? usage.costUsd / total.costUsd : 0
-              return (
-                <tr key={stage} className="border-border/60 border-b last:border-b-0">
-                  <td className="text-foreground py-2.5 pr-3 font-medium">{label}</td>
-                  <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                    {usage.calls}
-                  </td>
-                  <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                    {formatTokens(usage.inputTokens)}
-                  </td>
+        {/* Per-stage breakdown, folded */}
+        <details className="group border-border border-y">
+          <summary
+            className={cn(
+              'text-foreground flex cursor-pointer list-none items-center justify-between gap-3 rounded-md py-3 text-[13px] font-medium [&::-webkit-details-marker]:hidden',
+              FOCUS_RING
+            )}
+          >
+            By stage
+            <ChevronDown
+              aria-hidden
+              className="text-muted h-4 w-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+            />
+          </summary>
+          <div className="overflow-x-auto pb-3">
+            <table className="w-full min-w-130 text-xs">
+              <thead>
+                <tr className="text-muted border-border border-b text-left">
+                  <th scope="col" className="py-2 pr-3 font-medium">Stage</th>
+                  <th scope="col" className="py-2 pr-3 text-right font-medium">Calls</th>
+                  <th scope="col" className="py-2 pr-3 text-right font-medium">Input</th>
                   {showCached && (
-                    <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                      {usage.cacheReadTokens > 0 ? formatTokens(usage.cacheReadTokens) : '—'}
-                    </td>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">Cached</th>
                   )}
-                  <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                    {formatTokens(usage.outputTokens)}
-                  </td>
+                  <th scope="col" className="py-2 pr-3 text-right font-medium">Output</th>
                   {showThinking && (
-                    <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
-                      {usage.reasoningTokens > 0 ? formatTokens(usage.reasoningTokens) : '—'}
-                    </td>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">Thinking</th>
                   )}
-                  <td className="text-foreground py-2.5 pr-3 text-right font-semibold tabular-nums">
-                    {formatUsd(usage.costUsd)}
-                  </td>
-                  <td className="w-32 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-surface-hover h-1.5 flex-1 overflow-hidden rounded-full">
-                        <div
-                          className="bg-accent h-full rounded-full"
-                          style={{ width: `${Math.max(2, share * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-muted w-8 text-right text-[10px] tabular-nums">
-                        {formatPercent(share)}
-                      </span>
-                    </div>
-                  </td>
+                  <th scope="col" className="py-2 pr-3 text-right font-medium">Cost</th>
+                  <th scope="col" className="py-2 font-medium">Share</th>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {rows.map(({ stage, label, usage }) => {
+                  const share = total.costUsd > 0 ? usage.costUsd / total.costUsd : 0
+                  return (
+                    <tr key={stage} className="border-border/60 border-b last:border-b-0">
+                      <th
+                        scope="row"
+                        className="text-foreground py-2.5 pr-3 text-left font-medium"
+                      >
+                        {label}
+                      </th>
+                      <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                        {usage.calls}
+                      </td>
+                      <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                        {formatTokens(usage.inputTokens)}
+                      </td>
+                      {showCached && (
+                        <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                          {usage.cacheReadTokens > 0 ? formatTokens(usage.cacheReadTokens) : '—'}
+                        </td>
+                      )}
+                      <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                        {formatTokens(usage.outputTokens)}
+                      </td>
+                      {showThinking && (
+                        <td className="text-muted py-2.5 pr-3 text-right tabular-nums">
+                          {usage.reasoningTokens > 0 ? formatTokens(usage.reasoningTokens) : '—'}
+                        </td>
+                      )}
+                      <td className="text-foreground py-2.5 pr-3 text-right font-semibold tabular-nums">
+                        {formatUsd(usage.costUsd)}
+                      </td>
+                      <td className="w-32 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div
+                            aria-hidden
+                            className="bg-surface-hover h-1.5 flex-1 overflow-hidden rounded-full"
+                          >
+                            <div
+                              className={cn('h-full rounded-full', TONES.brand.bar)}
+                              style={{ width: `${Math.max(2, share * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-muted w-9 text-right tabular-nums">
+                            {formatPercent(share)}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </div>
-
-      {unpricedCalls > 0 && (
-        <p className="text-muted flex items-start gap-1.5 text-[11px] leading-relaxed">
-          <Info className="mt-0.5 h-3 w-3 shrink-0" />
-          {unpricedCalls} call{unpricedCalls === 1 ? '' : 's'} came back without a
-          billed amount. Text calls fall back to Anthropic list prices; images
-          without one are counted but not priced, so the total may be slightly low.
-        </p>
-      )}
-    </div>
+    </SectionCard>
   )
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-  emphasis
-}: {
-  label: string
-  value: string
-  hint?: string
-  emphasis?: boolean
-}) {
+/** One headline number, with no box of its own: the card is the box. */
+function Figure({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="border-border bg-surface-hover/50 rounded-xl border p-3">
-      <p className="text-muted text-[10px] font-semibold tracking-wider uppercase">
-        {label}
-      </p>
-      <p
-        className={`mt-1 tabular-nums ${
-          emphasis ? 'text-foreground text-xl font-bold' : 'text-foreground text-base font-semibold'
-        }`}
-      >
+    <div className="min-w-0 lg:px-5 lg:first:pl-0">
+      <dt className="text-muted text-xs">{label}</dt>
+      <dd className="text-foreground mt-0.5 text-xl font-semibold tracking-tight tabular-nums">
         {value}
-      </p>
-      {hint && <p className="text-muted mt-0.5 text-[10px] leading-snug">{hint}</p>}
+      </dd>
+      {hint && <dd className="text-muted text-xs tabular-nums">{hint}</dd>}
     </div>
   )
 }

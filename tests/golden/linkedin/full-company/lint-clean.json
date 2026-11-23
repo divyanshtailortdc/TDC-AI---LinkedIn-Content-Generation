@@ -24,6 +24,12 @@
     "passed": true
   },
   {
+    "rule": "unknown_links",
+    "severity": "info",
+    "message": "Every link is the goal's, the author's own or an evidence source's.",
+    "passed": true
+  },
+  {
     "rule": "banned_words",
     "severity": "info",
     "message": "No banned wording detected.",
@@ -57,6 +63,24 @@
     "rule": "unsupported_figures",
     "severity": "info",
     "message": "Every figure appears in the evidence or the author's details.",
+    "passed": true
+  },
+  {
+    "rule": "invented_story",
+    "severity": "info",
+    "message": "No first-hand story beyond the sources.",
+    "passed": true
+  },
+  {
+    "rule": "invented_product",
+    "severity": "info",
+    "message": "Every product named is in the evidence or the author's details.",
+    "passed": true
+  },
+  {
+    "rule": "unsourced_news",
+    "severity": "info",
+    "message": "Nothing is presented as news.",
     "passed": true
   }
 ]

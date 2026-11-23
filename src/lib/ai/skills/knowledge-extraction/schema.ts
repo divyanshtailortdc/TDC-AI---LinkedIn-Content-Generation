@@ -26,7 +26,9 @@ export const ExtractionSchema = z.object({
       z.object({
         claim: z
           .string()
-          .describe('A clear, single-sentence statement of the claim.'),
+          .describe(
+            'A clear, single-sentence statement of the claim. Write every number exactly as the quote does, never rounded or converted.'
+          ),
         quote: z
           .string()
           .describe(

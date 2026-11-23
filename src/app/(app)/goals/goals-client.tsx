@@ -47,6 +47,8 @@ import {
   MessageSquare,
   Plus,
   Sparkles,
+  Square,
+  SquareMinus,
   Target,
   Trash2,
   Wand2,
@@ -277,14 +279,16 @@ export function GoalsClient({
 
     try {
       if (editingGoalId) {
-        await updateGoal(editingGoalId, accountId, payload)
+        const updated = await updateGoal(editingGoalId, accountId, payload)
+        if (!updated.success) throw new Error(updated.error)
         showToast({
           type: 'success',
           title: 'Goal Updated',
           message: `Goal "${title.trim()}" updated successfully.`
         })
       } else {
-        await createGoal(accountId, payload)
+        const created = await createGoal(accountId, payload)
+        if (!created.success) throw new Error(created.error)
         showToast({
           type: 'success',
           title: 'Goal Saved',
@@ -323,7 +327,8 @@ export function GoalsClient({
   const handleDelete = async (goalId: string) => {
     setActionId(goalId)
     try {
-      await deleteGoal(goalId, accountId)
+      const deleted = await deleteGoal(goalId, accountId)
+      if (!deleted.success) throw new Error(deleted.error)
       showToast({
         type: 'info',
         title: 'Goal Deleted',
@@ -529,7 +534,7 @@ export function GoalsClient({
         ref={scrollRef}
         className="relative flex-1 overflow-y-auto p-4 sm:p-6"
       >
-        <div className="mx-auto max-w-4xl space-y-8">
+        <div className="w-full space-y-8">
           {error && (
             <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
               {error}
@@ -803,7 +808,14 @@ export function GoalsClient({
                       }
                       className="border-border text-foreground hover:bg-surface-hover flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors cursor-pointer"
                     >
-                      <CheckSquare className="text-accent h-3.5 w-3.5" />
+                      {/* Reads like a checkbox: empty, partly or fully ticked. */}
+                      {selectedActiveCount === activeCount ? (
+                        <CheckSquare className="text-accent h-3.5 w-3.5" />
+                      ) : selectedActiveCount > 0 ? (
+                        <SquareMinus className="text-accent h-3.5 w-3.5" />
+                      ) : (
+                        <Square className="text-muted h-3.5 w-3.5" />
+                      )}
                       {selectedActiveCount === activeCount
                         ? 'Deselect all'
                         : `Select all active (${activeCount})`}

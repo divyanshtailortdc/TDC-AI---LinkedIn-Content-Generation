@@ -20,6 +20,7 @@ import { normalizeUrlForCompare } from '@/lib/urls'
 import { SkillError } from '../run-skill'
 import { suggestSetup, type SetupSource } from '../skills/profile-setup'
 import { findEntity } from '../skills/profile-setup/entity'
+import { withoutOffPlatformMainLink } from '../skills/profile-setup/links'
 import { pickLinks } from '../skills/profile-setup/link-pick'
 import { pickSitePages } from '../skills/profile-setup/page-pick'
 import {
@@ -330,7 +331,9 @@ async function readOwnSite(
 
 export async function analyzeIdentitySetup(
   input: AnalyzeIdentityInput,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** What is known about an existing identity: the platforms it posts on. */
+  known: { platforms?: PlatformId[] } = {}
 ): Promise<IdentitySetupAnalysis> {
   const parsed = AnalyzeIdentityInputSchema.safeParse(input)
   if (!parsed.success) {
@@ -443,6 +446,9 @@ export async function analyzeIdentitySetup(
     })
   } catch (error) {
     console.error('Account Setup analysis failed:', error)
+    if (error instanceof SkillError && error.reason === 'spend_limit') {
+      throw new IdentitySetupError(error.message, false)
+    }
     if (error instanceof SkillError && error.reason === 'quota_exceeded') {
       // Retrying cannot help until the key's budget is raised or replaced.
       throw new IdentitySetupError(
@@ -474,7 +480,11 @@ export async function analyzeIdentitySetup(
         ([platform, link]) => [platform, link.url]
       )
     ),
-    suggestions: result.suggestions,
+    // A main link on a platform they do not post on would replace theirs.
+    suggestions: withoutOffPlatformMainLink(
+      result.suggestions,
+      guidance?.platforms ?? known.platforms
+    ),
     warnings: result.warnings,
     sources: sources.map(s => s.status),
     modelUsed: result.modelUsed

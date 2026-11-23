@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { ConfirmPopover } from '@/components/confirm-popover'
+import type { IdeaScorecard } from '@/lib/idea-scorecard'
 
 export interface IdeaCardData {
   id: string
@@ -33,6 +34,9 @@ export interface IdeaCardData {
   risks?: string[] | null
   /** The formats ideation judged it suits, when its run offered several. */
   formatFit?: string[] | null
+  /** Every score with its reason (src/lib/idea-scorecard); null for older ideas. */
+  scorecard?: IdeaScorecard | null
+  unsupportedClaims?: string[] | null
 }
 
 interface IdeaCardProps {
@@ -258,7 +262,7 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
                       )}
                       {typeof idea.score === 'number' && (
                         <div>
-                          <div className="text-muted">Strength score</div>
+                          <div className="text-muted">Overall score</div>
                           <div className="mt-0.5 text-sm font-semibold text-foreground">
                             {idea.score}/100
                           </div>

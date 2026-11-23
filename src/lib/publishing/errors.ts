@@ -6,7 +6,11 @@ import type { PublicationErrorCode } from './status'
  * beyond types, so tests can use them.
  */
 
-/** The platform (or the service in front of it) refused or failed a request. */
+/**
+ * The platform (or the service in front of it) refused or failed a request.
+ * The message says what happened, never whether it will be tried again: the
+ * caller decides that (the engine adds it to a publication's error).
+ */
 export class PlatformApiError extends Error {
   /** The platform certainly made nothing: trying again cannot duplicate. */
   readonly retryable: boolean
@@ -14,7 +18,9 @@ export class PlatformApiError extends Error {
   constructor(
     message: string,
     readonly code: PublicationErrorCode,
-    readonly status?: number
+    readonly status?: number,
+    /** How long the platform asked to be left alone (its Retry-After), in ms. */
+    readonly retryAfterMs?: number
   ) {
     super(message)
     this.name = 'PlatformApiError'

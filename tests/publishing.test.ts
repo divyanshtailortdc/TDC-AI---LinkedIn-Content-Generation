@@ -25,6 +25,7 @@ import {
   deletePublishedPost,
   executePublication,
   type PostImage,
+  type PublishDeps,
   PublishRequestError,
   queueAutoPublications,
   recoverStalePublications,
@@ -237,6 +238,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
     extra: {
       now?: () => Date
       loadImage?: () => Promise<PostImage | null>
+      loadVideo?: PublishDeps['loadVideo']
     } = {}
   ) => ({
     database,
@@ -249,6 +251,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         ? buffer.fetchFn(input, init)
         : linkedIn.fetchFn(input, init)) as typeof fetch,
     loadImage: extra.loadImage ?? (async () => null),
+    loadVideo: extra.loadVideo ?? (async () => null),
     now: extra.now
   })
 
@@ -1050,6 +1053,24 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.strictEqual(rows[0]!.trigger, 'auto')
     })
 
+    it('leaves posts alone while their platform is not set up on this server', async () => {
+      // Queued anyway, they failed as not_configured and were never
+      // auto-published again once publishing was switched back on.
+      const u = await setUp('auto-off', new Date(slot.getTime() - 24 * 3600_000))
+      const draft = await newPost(u.accountId, { plannedFor: day, updatedAt: before })
+      const mine = () =>
+        database
+          .select()
+          .from(schema.publicationsTable)
+          .where(eq(schema.publicationsTable.userId, u.userId))
+      await queueAutoPublications(database, today, ['x'])
+      assert.strictEqual((await mine()).length, 0)
+      await queueAutoPublications(database, today, ['linkedin', 'x'])
+      const rows = await mine()
+      assert.strictEqual(rows.length, 1)
+      assert.strictEqual(rows[0]!.draftId, draft)
+    })
+
     it('does not sweep up a slot that passed before it was turned on', async () => {
       const u = await setUp('i', new Date(slot.getTime() + 60_000))
       await newPost(u.accountId, { plannedFor: day, updatedAt: before })
@@ -1399,6 +1420,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       const r2 = await publishNow(x.userId, limited)
       assert.strictEqual(r2.status, 'scheduled', 'retried later')
       assert.strictEqual(r2.errorCode, 'rate_limited')
+      assert.match(r2.error!, /It will be tried again\.$/)
 
       const revoked = await xPost()
       buffer.answerNextCreates(() =>
@@ -1411,6 +1433,59 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       // LinkedIn's connection is untouched.
       assert.strictEqual((await getConnection(database, x.accountId))!.status, 'connected')
       await connectX(x)
+    })
+
+    it("X6b. a rate limit waits as long as Buffer asks, backs off longer without it, and says when it gives up", async () => {
+      const limited = (retryAfter?: string) => () =>
+        Response.json(
+          { errors: [{ message: 'Too many', extensions: { code: 'RATE_LIMIT_EXCEEDED' } }] },
+          { status: 429, headers: retryAfter ? { 'Retry-After': retryAfter } : {} }
+        )
+      // This row only: runDuePublications would also take other tests' rows.
+      const tryAt = async (id: string, at: Date) => {
+        const claimed = await claimPublication(database, id, at)
+        return claimed && executePublication(deps({ now: () => at }), claimed)
+      }
+
+      // Buffer asks for two hours: not tried before then, published after.
+      const asked = await xPost()
+      buffer.answerNextCreates(limited('7200'))
+      const start = Date.now()
+      const r1 = await publishNow(x.userId, asked)
+      assert.strictEqual(r1.status, 'scheduled')
+      assert.ok(r1.nextAttemptAt.getTime() - start >= 7200_000, 'waits as long as asked')
+      assert.match(r1.error!, /for about 2 hours\. It will be tried again\.$/)
+      assert.strictEqual(await tryAt(r1.id, new Date(start + 3600_000)), null)
+      const r1b = await tryAt(r1.id, new Date(r1.nextAttemptAt.getTime() + 1000))
+      assert.strictEqual(r1b?.status, 'published')
+      assert.strictEqual(r1b!.attempts, 2)
+
+      // No Retry-After: 15 minutes, then an hour, then it fails, and says so.
+      const unasked = await xPost()
+      buffer.answerNextCreates(limited(), limited(), limited())
+      const r2 = await publishNow(x.userId, unasked)
+      const waited = (row: { nextAttemptAt: Date }, from: number) =>
+        Math.round((row.nextAttemptAt.getTime() - from) / 60_000)
+      assert.strictEqual(waited(r2, Date.now()), 15)
+      const t2 = r2.nextAttemptAt.getTime() + 1000
+      const r2b = (await tryAt(r2.id, new Date(t2)))!
+      assert.strictEqual(r2b.status, 'scheduled')
+      assert.strictEqual(waited(r2b, t2), 60)
+      const r2c = (await tryAt(r2.id, new Date(r2b.nextAttemptAt.getTime() + 1000)))!
+      assert.strictEqual(r2c.status, 'failed')
+      assert.strictEqual(r2c.errorCode, 'rate_limited')
+      assert.doesNotMatch(r2c.error!, /It will be tried again/)
+      assert.match(r2c.error!, /tried 3 times and will not be tried again by itself/)
+      assert.strictEqual(buffer.creates().length, 1 + 1 + 3)
+
+      // Longer than a day (Buffer's 30-day limit): failed now, not held for days.
+      const tooLong = await xPost()
+      buffer.answerNextCreates(limited(String(3 * 24 * 3600)))
+      const r3 = await publishNow(x.userId, tooLong)
+      assert.strictEqual(r3.status, 'failed')
+      assert.strictEqual(r3.errorCode, 'rate_limited')
+      assert.match(r3.error!, /for about 3 days\. That is too long to hold the post for/)
+      assert.doesNotMatch(r3.error!, /It will be tried again/)
     })
 
     it('X7. too long for X, as X counts it, is refused before Buffer is called', async () => {
@@ -1561,7 +1636,7 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.ok(!JSON.stringify(input).includes('Link in bio note'))
     })
 
-    it('M3. an image removed after queueing fails before Buffer; a Reel cannot be published', async () => {
+    it('M3. an image removed after queueing fails before Buffer; a Reel without its video is refused', async () => {
       const draft = await caption()
       await addImage(draft)
       const result = await publishNow(m.userId, draft, deps({ loadImage: async () => null }))
@@ -1569,9 +1644,67 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.match(String(result.error), /Instagram posts need an image/)
       assert.strictEqual(buffer.creates().length, 0)
 
+      // An image is no stand-in for a Reel's video.
       const reel = await caption({ formatId: 'instagram.reel' })
       await addImage(reel)
-      assert.strictEqual(await codeOf(publishNow(m.userId, reel)), 'wrong_platform')
+      const refused = await publishNow(m.userId, reel).catch(e => e)
+      assert.strictEqual(refused.code, 'needs_image')
+      assert.match(refused.message, /has no video yet/)
+      assert.strictEqual(buffer.creates().length, 0)
+    })
+
+    it('M3b. a Reel with its video goes out as a Reel: the caption, and the video from its link', async () => {
+      const reel = await caption({
+        formatId: 'instagram.reel',
+        hook: 'Your month is not closed.',
+        body: 'Write five checks.',
+        hashtags: ['finance'],
+        payload: { caption: 'What closed should mean.', shots: [] }
+      })
+      await database.insert(schema.postVideosTable).values({
+        draftId: reel,
+        version: 1,
+        status: 'ready',
+        provider: 'gateway',
+        modelId: 'google/veo-3.1-lite-generate-001',
+        prompt: 'p',
+        aspectRatio: '9:16',
+        width: 1080,
+        height: 1920,
+        durationSeconds: 8,
+        videoUrl: 'storage://drafts/x/v.mp4',
+        mediaType: 'video/mp4',
+        byteSize: 7_000_000,
+        estimatedCostUsd: '0.6400'
+      })
+      const result = await publishNow(
+        m.userId,
+        reel,
+        deps({
+          loadVideo: async () => ({
+            id: '0b9d7c1e-2f4a-4c6b-9e1d-3a5f7b9c1d2e',
+            mediaType: 'video/mp4',
+            byteSize: 7_000_000
+          })
+        })
+      )
+      assert.strictEqual(result.status, 'published', String(result.error))
+      const input = buffer.creates().at(-1)!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_IG')
+      // The caption and hashtags; the script is what the video says.
+      assert.strictEqual(input.text, 'What closed should mean.\n\n#finance')
+      // A signed link to the app's video route (which answers HEAD), not the bucket.
+      const link = new URL(input.assets[0].video.url)
+      assert.match(link.pathname, /^\/api\/publishing-media\/video\/.+\.mp4$/)
+      const token = decodeURIComponent(link.pathname.split('/').pop()!).replace(/\.mp4$/, '')
+      assert.strictEqual(
+        verifyMediaToken(xConfig.encryptionKey, token),
+        'video_0b9d7c1e-2f4a-4c6b-9e1d-3a5f7b9c1d2e'
+      )
+      assert.deepStrictEqual(Object.keys(input.assets[0].video), ['url'])
+      assert.deepStrictEqual(input.metadata, {
+        instagram: { type: 'reel', shouldShareToFeed: true, isAiGenerated: true }
+      })
     })
 
     it('M4. auto-publishing to Instagram skips posts without an image', async () => {

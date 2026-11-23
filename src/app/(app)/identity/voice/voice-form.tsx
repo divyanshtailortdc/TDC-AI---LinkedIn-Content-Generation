@@ -437,7 +437,6 @@ export function VoiceForm({ accountId, initialConfig }: VoiceFormProps) {
 
           <SegmentedControl
             label="Emoji"
-            hint="For LinkedIn and professional posts. Casual and fun platforms use emoji freely unless you change it under Preferences."
             options={EMOJI_OPTIONS.map(option => ({
               key: option.label,
               label: option.label,

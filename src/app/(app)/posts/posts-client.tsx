@@ -1,6 +1,13 @@
 'use client'
 
+import { buttonClassName } from '@/components/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { FilterChips } from '@/components/ui/filter-chips'
+import { StatTile } from '@/components/ui/stat-tile'
+import { TimeAgo } from '@/components/ui/time-ago'
+import { FOCUS_RING, TONES, type Tone } from '@/components/ui/tone'
+import { cn } from '@/lib/cn'
 import {
   copyText,
   FORMATS,
@@ -16,36 +23,49 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { showToast } from '@/components/toast-notification'
 import type { LintFinding } from '@/lib/lint/run-linter'
+import { SIMILAR_POST_ENABLED } from '@/lib/reference-post/types'
 import type { IdentitySummary } from '@/lib/identity'
 import { PAGE_SIZE, pageNumbers, paginate, parsePage } from '@/lib/pagination'
 import { getPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/platforms'
 import { platformPostText } from '@/lib/post-text'
+import { formatPostCost, formatTokens, type PostUsage } from '@/lib/post-usage'
 import { canPublishFormat } from '@/lib/publishing/platform'
 import { isOnPlatform } from '@/lib/publishing/status'
 import type { BackgroundPattern, ImageStyle } from '@/lib/brand/theme'
 import Link from 'next/link'
 import {
   ArrowRight,
+  ArrowUpDown,
+  CalendarClock,
+  Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
   Copy,
+  ExternalLink,
   Eye,
   EyeOff,
-  FileCheck,
+  FileText,
   Funnel,
   Image as ImageIcon,
   ImageOff,
+  Inbox,
+  Layers,
   LayoutGrid,
+  Link2,
   List,
   Loader2,
   MoreVertical,
   Play,
   Plus,
   Search,
+  Send,
+  SquareCheck,
   Trash2,
-  X
+  X,
+  XCircle
 } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -58,15 +78,22 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  deleteDraft,
+  approveDraft,
+  deleteDrafts,
   loadMorePosts,
+  rejectDraft,
   setDraftHidden
 } from './actions'
 import type { PublicationSummary } from '@/lib/publishing/engine'
-import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
+import {
+  formatAbsoluteDate,
+  formatAbsoluteDateTime,
+  formatRelativeDate
+} from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import { LIST_PARAMS } from './list-params'
 import { DeletedFromPlatformTag, PostStatusPill } from './post-status'
+import { RejectPostDialog } from './reject-dialog'
 
 export interface PostDetail {
   id: string
@@ -144,6 +171,8 @@ export interface PostDetail {
   hiddenAt?: string | null
   /** The latest attempt to publish it to its platform, if any. */
   publication?: PublicationSummary | null
+  /** What the post cost in AI so far (src/lib/post-usage.ts); null when none was recorded. */
+  usage?: PostUsage | null
   /**
    * When it was last deleted from its platform through the app (ISO), for its
    * "Deleted from X" tag; null when never.
@@ -176,6 +205,7 @@ const LINT_RULE_LABELS: Record<string, string> = {
   grounded_citations: 'Citation grounding coverage',
   citations_coverage: 'Citation grounding coverage',
   unsupported_figures: 'Figures backed by evidence',
+  unknown_links: 'Links from known sources',
   generic_cta: 'Call to action fits the post',
   CHAR_LIMIT: 'Character limit',
   HOOK_FOLD: 'Hook & fold',
@@ -204,14 +234,17 @@ function getHumanRuleLabel(rule: string, formatId?: string | null): string {
 }
 
 /**
- * The status chips. Each post is in exactly one, so they add up to All:
- * Published is live on its platform; Approved is approved and not live yet
- * (waiting, scheduled or publishing).
+ * The status filters (?status=). Each post is under exactly one of the
+ * statuses, so they add up to All: Published is live on its platform;
+ * Approved is approved and not live yet (waiting, scheduled or publishing).
+ * Scheduled is the part of Approved on its way out (scheduled or publishing),
+ * so it is not counted in that sum.
  */
 type StatusFilter =
   | 'all'
   | 'awaiting_review'
   | 'approved'
+  | 'scheduled'
   | 'published'
   | 'rejected'
   | 'draft'
@@ -222,53 +255,47 @@ const STATUS_FILTERS: StatusFilter[] = [
   'all',
   'awaiting_review',
   'approved',
+  'scheduled',
   'published',
   'rejected',
   'draft'
 ]
 
-/** Each status chip's label, dot, and look when picked (as on PostStatusPill). */
-const STATUS_CHIPS: Record<
-  StatusFilter,
-  { label: string; dot: string | null; active: string }
-> = {
-  all: {
-    label: 'All',
-    dot: null,
-    active: 'border-foreground/25 bg-surface-hover text-foreground'
-  },
-  awaiting_review: {
-    label: 'Awaiting review',
-    dot: 'bg-amber-500',
-    active:
-      'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-  },
-  approved: {
-    label: 'Approved',
-    dot: 'bg-indigo-500',
-    active:
-      'border-indigo-500/50 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
-  },
-  published: {
-    label: 'Published',
-    dot: 'bg-emerald-500',
-    active:
-      'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-  },
-  rejected: {
-    label: 'Rejected',
-    dot: 'bg-rose-500',
-    active: 'border-rose-500/50 bg-rose-500/10 text-rose-600 dark:text-rose-400'
-  },
-  draft: {
-    label: 'Drafts',
-    dot: 'bg-zinc-400',
-    active: 'border-zinc-400/50 bg-zinc-400/10 text-foreground'
-  }
+/** Each status's name and tone, as on PostStatusPill and the Schedule page. */
+const STATUS_META: Record<StatusFilter, { label: string; tone?: Tone }> = {
+  all: { label: 'All' },
+  awaiting_review: { label: 'Awaiting review', tone: 'warning' },
+  approved: { label: 'Approved', tone: 'info' },
+  scheduled: { label: 'Scheduled', tone: 'brand' },
+  published: { label: 'Published', tone: 'success' },
+  rejected: { label: 'Rejected', tone: 'danger' },
+  draft: { label: 'Drafts', tone: 'neutral' }
 }
 
-/** Which status chip a post is under. */
-function statusOf(post: PostDetail): Exclude<StatusFilter, 'all'> {
+/** The stages a post moves through, as the tiles over the list. */
+const PIPELINE: {
+  status: 'awaiting_review' | 'approved' | 'scheduled' | 'published'
+  icon: typeof Inbox
+}[] = [
+  { status: 'awaiting_review', icon: Inbox },
+  { status: 'approved', icon: CheckCircle2 },
+  { status: 'scheduled', icon: CalendarClock },
+  { status: 'published', icon: Send }
+]
+
+/** Cards or rows; each named only in its button's tooltip. */
+const VIEW_OPTIONS = [
+  { value: 'grid', label: 'Cards', Icon: LayoutGrid },
+  { value: 'list', label: 'List', Icon: List }
+] as const
+
+/** The statuses off that path, beside All, as chips over the list. */
+const OTHER_STATUSES: StatusFilter[] = ['all', 'rejected', 'draft']
+
+/** Which status a post is under (Scheduled aside: see isQueued). */
+function statusOf(
+  post: PostDetail
+): Exclude<StatusFilter, 'all' | 'scheduled'> {
   // Out on its platform. One deleted from it counts as approved again.
   if (post.postedAt || isOnPlatform(post.publication)) {
     return 'published'
@@ -277,6 +304,58 @@ function statusOf(post: PostDetail): Exclude<StatusFilter, 'all'> {
   if (post.status === 'rejected') return 'rejected'
   if (post.status === 'draft') return 'draft'
   return 'awaiting_review'
+}
+
+/** Approved and on its way out: scheduled, or publishing right now. */
+function isQueued(post: PostDetail): boolean {
+  const publication = post.publication?.status
+  return (
+    statusOf(post) === 'approved' &&
+    (publication === 'scheduled' || publication === 'publishing')
+  )
+}
+
+function matchesStatus(post: PostDetail, status: StatusFilter): boolean {
+  if (status === 'all') return true
+  if (status === 'scheduled') return isQueued(post)
+  return statusOf(post) === status
+}
+
+/** When a queued publication goes out next: its retry, or its time. */
+function queuedAt(publication: PublicationSummary): string {
+  return publication.attempts > 0 ? publication.nextAttemptAt : publication.scheduledAt
+}
+
+/**
+ * Awaiting review, so Approve and Reject are offered on its card. Never one
+ * going out right now, which rejectDraft refuses (as the post page does).
+ */
+function isReviewable(post: PostDetail): boolean {
+  return (
+    statusOf(post) === 'awaiting_review' &&
+    post.publication?.status !== 'publishing'
+  )
+}
+
+/**
+ * Approved or rejected, as the post page shows it after the same action:
+ * rejecting also cancels its scheduled publication (rejectDraft does that on
+ * the server), so it shows as cancelled here too.
+ */
+function withReviewStatus(
+  post: PostDetail,
+  status: 'approved' | 'rejected'
+): PostDetail {
+  const publication =
+    status === 'rejected' && post.publication?.status === 'scheduled'
+      ? {
+          ...post.publication,
+          status: 'cancelled' as const,
+          error: 'Cancelled because the post was rejected.',
+          errorCode: 'not_approved' as const
+        }
+      : post.publication
+  return { ...post, status, publication }
 }
 
 /** Short platform names for "Live on …". */
@@ -324,9 +403,7 @@ function queueOf(
 ): PostDetail[] {
   return scoped
     .filter(
-      p =>
-        Boolean(p.hiddenAt) === hidden &&
-        (status === 'all' || statusOf(p) === status)
+      p => Boolean(p.hiddenAt) === hidden && matchesStatus(p, status)
     )
     .sort((a, b) => {
       const diff = toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
@@ -419,6 +496,14 @@ function shortAgo(value: Date | string): string {
   return formatRelativeDate(value).replace(/^yesterday$/, '1d ago')
 }
 
+/** "21 Nov, 09:00", short enough for a card's footer. Call only once mounted. */
+function shortDateTime(value: Date | string): string {
+  const date = toDate(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  return `${formatAbsoluteDate(date)}, ${time}`
+}
+
 /**
  * A day's heading: "Today · Nov 11", "Yesterday · Nov 10", "Wed · Nov 5".
  * The viewer's own calendar is only known once mounted; before that, none
@@ -441,6 +526,8 @@ function dayHeading(value: Date | string, mounted: boolean): string {
 
 /** Posts on one page of the list: the app's page size, 10 like every list. */
 const LIST_PAGE_SIZE = PAGE_SIZE
+/** Posts per deleteDrafts call; within its DELETE_DRAFTS_MAX. */
+const DELETE_CHUNK = 20
 
 /** The post's text as it is pasted on its platform, for Copy text. */
 function postTextOf(post: PostDetail): string {
@@ -584,23 +671,43 @@ export function PostsClientInner({
     [basePosts, platformFilter]
   )
 
-  // Each chip's and tab's count has the other row's choice applied, so it
-  // says what picking it would show.
-  const statusCounts = useMemo(() => {
+  // Each tile's, chip's and tab's count has the other row's choice applied,
+  // so it says what picking it would show. The tiles' hints come from the
+  // same posts: the oldest one waiting for review, the next one going out.
+  const {
+    counts: statusCounts,
+    oldestAwaiting,
+    nextQueuedAt
+  } = useMemo(() => {
     const counts: Record<StatusFilter, number> = {
       all: 0,
       awaiting_review: 0,
       approved: 0,
+      scheduled: 0,
       published: 0,
       rejected: 0,
       draft: 0
     }
+    let oldestAwaiting: Date | string | null = null
+    let nextQueuedAt: string | null = null
     for (const p of platformPosts) {
       if (Boolean(p.hiddenAt) !== showHidden) continue
       counts.all++
-      counts[statusOf(p)]++
+      const status = statusOf(p)
+      counts[status]++
+      if (
+        status === 'awaiting_review' &&
+        (!oldestAwaiting || toDate(p.createdAt) < toDate(oldestAwaiting))
+      ) {
+        oldestAwaiting = p.createdAt
+      }
+      if (isQueued(p)) {
+        counts.scheduled++
+        const at = p.publication?.status === 'scheduled' ? queuedAt(p.publication) : null
+        if (at && (!nextQueuedAt || at < nextQueuedAt)) nextQueuedAt = at
+      }
     }
-    return counts
+    return { counts, oldestAwaiting, nextQueuedAt }
   }, [platformPosts, showHidden])
 
   const platformCounts = useMemo(() => {
@@ -727,25 +834,96 @@ export function PostsClientInner({
     }
   }
 
-  // Delete (card menu) asks first.
+  // ---- Select: tick posts, or every post shown, and delete them together ----
+
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [isLoadingAll, setIsLoadingAll] = useState(false)
+  // Only the posts the list shows count, so a filter changed meanwhile never
+  // deletes posts out of sight. With none shown there is nothing to select.
+  const canSelect = filteredPosts.length > 0
+  const inSelectMode = selecting && canSelect
+  const selectedIds = filteredPosts.filter(p => selected.has(p.id)).map(p => p.id)
+  const allSelected = canSelect && selectedIds.length === filteredPosts.length
+
+  // Select all has to mean every post, so the older batches not loaded yet
+  // come in first.
+  const startSelecting = async () => {
+    let cursor = nextCursor
+    if (cursor !== null) {
+      setIsLoadingAll(true)
+      const more: PostDetail[] = []
+      try {
+        while (cursor !== null) {
+          const res = await loadMorePosts(cursor || null)
+          if (!res.success) {
+            showToast({ type: 'error', title: 'Could not load every post', message: res.error })
+            break
+          }
+          more.push(...res.posts)
+          cursor = res.nextCursor
+        }
+      } finally {
+        setIsLoadingAll(false)
+      }
+      setPosts(prev => {
+        const have = new Set(prev.map(p => p.id))
+        const added = more.filter(p => !have.has(p.id) && have.add(p.id))
+        return [...prev, ...added]
+      })
+      setNextCursor(cursor)
+    }
+    setSelecting(true)
+  }
+
+  const stopSelecting = () => {
+    setSelecting(false)
+    setSelected(new Set())
+  }
+
+  const setPostSelected = (id: string, on: boolean) =>
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+  // Delete (card menu, or the selection bar) asks first.
   const [pendingDelete, setPendingDelete] = useState<string[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  // How many of the posts being deleted are done, for the dialog's button.
+  const [deleteProgress, setDeleteProgress] = useState(0)
   const confirmDelete = async () => {
     if (!pendingDelete) return
     const ids = pendingDelete
     setIsDeleting(true)
+    setDeleteProgress(0)
     markBusy(ids, true)
     markDataChanged()
     const deleted: string[] = []
     const failures: string[] = []
-    for (const id of ids) {
-      const res = await deleteDraft(id, { alsoFromPlatform: false }).catch(
-        (err: any) => ({ success: false as const, error: err?.message as string })
-      )
-      if (res.success) deleted.push(id)
-      else failures.push(res.error || 'Failed to delete the post')
+    // In chunks, so a long selection shows progress and no one request runs long.
+    for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+      const chunk = ids.slice(i, i + DELETE_CHUNK)
+      const res = await deleteDrafts(chunk).catch((err: any) => ({
+        success: false as const,
+        error: err?.message as string
+      }))
+      if (res.success) {
+        deleted.push(...res.deleted)
+        failures.push(...res.failures)
+      } else {
+        failures.push(...chunk.map(() => res.error || 'Failed to delete the post'))
+      }
+      setDeleteProgress(i + chunk.length)
     }
     removePosts(deleted)
+    setSelected(prev => {
+      const next = new Set(prev)
+      for (const id of deleted) next.delete(id)
+      return next
+    })
     markBusy(ids, false)
     setIsDeleting(false)
     setPendingDelete(null)
@@ -768,15 +946,118 @@ export function PostsClientInner({
     }
   }
 
+  // ---- Quick review: Approve and Reject on a card awaiting review, with
+  // the post page's actions and messages. The post then moves to its new
+  // status here, out of an Awaiting review list. ----
+
+  // Shows the spinner on that card's Approve.
+  const [approvingIds, setApprovingIds] = useState<ReadonlySet<string>>(new Set())
+  const approvePost = async (post: PostDetail) => {
+    if (post.status === 'approved') return
+    markBusy([post.id], true)
+    setApprovingIds(prev => new Set(prev).add(post.id))
+    try {
+      markDataChanged()
+      // Refused for an X post over X's limit; the reason comes back as the error.
+      const res = await approveDraft(post.id)
+      if (!res.success) throw new Error(res.error)
+      setPosts(list =>
+        list.map(p => (p.id === post.id ? withReviewStatus(p, 'approved') : p))
+      )
+      showToast({ type: 'success', title: 'Post approved' })
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Post not approved',
+        message: err?.message || 'Failed to approve draft'
+      })
+    } finally {
+      markBusy([post.id], false)
+      setApprovingIds(prev => {
+        const next = new Set(prev)
+        next.delete(post.id)
+        return next
+      })
+    }
+  }
+
+  // Reject asks why first (optionally), in a dialog.
+  const [pendingReject, setPendingReject] = useState<PostDetail | null>(null)
+  const [isRejecting, setIsRejecting] = useState(false)
+  const rejectPost = async (reason: string) => {
+    const post = pendingReject
+    if (!post) return
+    // As on the post page: not once it is out, or a second time.
+    if (
+      post.status === 'rejected' ||
+      isOnPlatform(post.publication) ||
+      post.publication?.status === 'publishing'
+    ) {
+      setPendingReject(null)
+      return
+    }
+    setIsRejecting(true)
+    markBusy([post.id], true)
+    try {
+      markDataChanged()
+      const res = await rejectDraft(post.id, reason.trim() || undefined)
+      if (!res.success) throw new Error(res.error)
+      setPosts(list =>
+        list.map(p => (p.id === post.id ? withReviewStatus(p, 'rejected') : p))
+      )
+      // Closed only once it worked: a failure keeps the reason to try again.
+      setPendingReject(null)
+      showToast({
+        type: 'success',
+        title: 'Post rejected',
+        message: reason.trim()
+          ? 'Your reason was saved to shape future drafts.'
+          : undefined
+      })
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Post not rejected',
+        message: err?.message || 'Failed to reject draft'
+      })
+    } finally {
+      setIsRejecting(false)
+      markBusy([post.id], false)
+    }
+  }
+
   const cardProps = (post: PostDetail) => ({
     post,
     href: postHref(post.id),
     mounted: hasMounted,
     busy: busyIds.has(post.id),
+    approving: approvingIds.has(post.id),
+    reviewable: isReviewable(post),
     onCopy: () => void copyPostText(post),
     onToggleHidden: () => void toggleHidden(post),
-    onDelete: () => setPendingDelete([post.id])
+    onDelete: () => setPendingDelete([post.id]),
+    onApprove: () => void approvePost(post),
+    onReject: () => setPendingReject(post),
+    selecting: inSelectMode,
+    selected: selected.has(post.id),
+    onSelectChange: (on: boolean) => setPostSelected(post.id, on)
   })
+
+  // A status picked from a tile or a chip. An older link's ?status=hidden
+  // stays in hidden mode.
+  const pickStatus = (status: StatusFilter) =>
+    setFilters({
+      status: status === 'all' ? null : status,
+      ...(searchParams.get('status') === 'hidden' ? { hidden: '1' } : {})
+    })
+
+  // Only the status narrows the list, so an empty one has a reason to say.
+  const onlyStatusFilter =
+    !dateFrom &&
+    !dateTo &&
+    !showHidden &&
+    !filterRunId &&
+    searchQuery.trim().length === 0
 
   const shownFrom = pageInfo.total === 0 ? 0 : (pageInfo.page - 1) * LIST_PAGE_SIZE + 1
   const shownTo = Math.min(pageInfo.page * LIST_PAGE_SIZE, pageInfo.total)
@@ -793,21 +1074,37 @@ export function PostsClientInner({
     (sortOrder === 'oldest'
       ? pageInfo.page === 1
       : pageInfo.page === pageInfo.pageCount) ? (
-            <div className="flex flex-col items-center gap-2 pt-2 text-center">
-              <p className="text-muted text-[11px] leading-relaxed">
-                Search and filters cover the posts loaded so far.
-              </p>
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={isLoadingMore}
-                className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60"
-              >
-                {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Load older posts
-              </button>
-            </div>
+      <div className="flex justify-center pt-2">
+        <button
+          type="button"
+          onClick={() => void loadMore()}
+          disabled={isLoadingMore}
+          title="Search and filters cover the posts loaded so far"
+          className={buttonClassName({
+            variant: 'secondary',
+            size: 'sm',
+            className: FOCUS_RING
+          })}
+        >
+          {isLoadingMore && (
+            <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+          )}
+          Load older posts
+        </button>
+      </div>
     ) : null
+
+  // A tile's second line is a time or nothing: how long the oldest post has
+  // waited, when the next one goes out. Only once mounted (TimeAgo).
+  const tileHint = (status: (typeof PIPELINE)[number]['status']) => {
+    if (status === 'awaiting_review' && oldestAwaiting) {
+      return <TimeAgo value={oldestAwaiting} prefix="Oldest" />
+    }
+    if (status === 'scheduled' && nextQueuedAt) {
+      return <TimeAgo value={nextQueuedAt} prefix="Next" absolute />
+    }
+    return undefined
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -818,19 +1115,25 @@ export function PostsClientInner({
               ? 'Delete this post?'
               : `Delete ${pendingDelete.length} posts?`
           }
-          description={
-            <>
-              {pendingDelete.length === 1 ? 'It is' : 'They are'} removed from
-              the app for good, with images and alternates. This cannot be
-              undone. Scheduled publishing is cancelled; anything already
-              published stays on its platform.
-            </>
-          }
+          description="This can’t be undone. Scheduled publishing stops; published posts stay up."
           confirmLabel={pendingDelete.length === 1 ? 'Delete post' : 'Delete posts'}
-          pendingLabel="Deleting…"
+          pendingLabel={
+            pendingDelete.length > DELETE_CHUNK
+              ? `Deleting… ${deleteProgress} of ${pendingDelete.length}`
+              : 'Deleting…'
+          }
           pending={isDeleting}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void confirmDelete()}
+        />
+      )}
+
+      {pendingReject && (
+        <RejectPostDialog
+          hook={pendingReject.hook}
+          pending={isRejecting}
+          onCancel={() => setPendingReject(null)}
+          onConfirm={reason => void rejectPost(reason)}
         />
       )}
 
@@ -852,27 +1155,45 @@ export function PostsClientInner({
                 <h1 className="text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
                   Posts
                 </h1>
-                <span className="border-border bg-surface-hover text-foreground rounded-full border px-2.5 py-0.5 text-xs font-medium tabular-nums">
-                  {totalCount - deletedCount} total
+                <span
+                  title={`${totalCount - deletedCount} posts in total`}
+                  className="border-border bg-surface-hover text-muted rounded-full border px-2.5 py-0.5 text-xs font-semibold tabular-nums"
+                >
+                  {totalCount - deletedCount}
                 </span>
               </div>
-              <p className="text-muted mt-1.5 max-w-3xl text-[15px] leading-relaxed">
-                Posts drafted for 
-                <span className="text-foreground font-medium">
-                  {''} @{identity.handle}
-                </span>
-                . Review, add media, and publish to your channels.
-              </p>
+              <p className="text-muted mt-1 text-sm">@{identity.handle}</p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Link
-              href="/ideas"
-              title="Posts are drafted from ideas: approve one to draft its post"
-              className="bg-accent text-background hover:bg-accent-hover flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold shadow-xs transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Create Post</span>
-            </Link>
+              {SIMILAR_POST_ENABLED && (
+                <Link
+                  href="/ideas?similar=1"
+                  title="Create a post like a public post, reel or video, from its link"
+                  aria-label="Create a post like one you saw, from its link"
+                  className={buttonClassName({
+                    variant: 'secondary',
+                    size: 'sm',
+                    className: cn('h-9', FOCUS_RING)
+                  })}
+                >
+                  <Link2 aria-hidden className="text-accent h-4 w-4" />
+                  <span className="hidden sm:inline">From a link</span>
+                </Link>
+              )}
+              <Link
+                href="/ideas"
+                title="Posts are drafted from ideas: approve one to draft its post"
+                // Secondary: on this page the accent is kept for Approve.
+                className={buttonClassName({
+                  variant: 'secondary',
+                  size: 'sm',
+                  className: cn('h-9', FOCUS_RING)
+                })}
+              >
+                <Plus aria-hidden className="h-4 w-4" />
+                <span className="hidden sm:inline">Create Post</span>
+                <span className="sr-only sm:hidden">Create Post</span>
+              </Link>
               <ThemeToggle />
             </div>
           </div>
@@ -891,53 +1212,54 @@ export function PostsClientInner({
             />
           </div>
 
-          {/* STATUS CHIPS, then search, Filters, Sort and the view */}
+          {/* THE WAY OUT: how many posts wait for review, are approved, are
+              scheduled and are out. Each tile is also that status's filter;
+              picked again, it goes back to every status. */}
+          <div
+            role="group"
+            aria-label="Show posts by stage"
+            className="grid grid-cols-2 gap-3 @3xl:grid-cols-4"
+          >
+            {PIPELINE.map(({ status, icon }) => {
+              const active = statusFilter === status
+              return (
+                <StatTile
+                  key={status}
+                  label={STATUS_META[status].label}
+                  value={statusCounts[status]}
+                  hint={tileHint(status)}
+                  icon={icon}
+                  tone={STATUS_META[status].tone}
+                  active={active}
+                  onClick={() => pickStatus(active ? 'all' : status)}
+                  className="p-3 @lg:p-4"
+                />
+              )
+            })}
+          </div>
+
+          {/* ALL, REJECTED, DRAFTS, then search, Filters, Sort and the view */}
           <div className="flex flex-col gap-3 @min-[60rem]:flex-row @min-[60rem]:items-center @min-[60rem]:justify-between">
-            <div
-              role="group"
-              aria-label="Show posts by status"
-              className="border-border bg-surface flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border p-1.5 @min-[60rem]:min-w-0"
-            >
-              {STATUS_FILTERS.map(status => {
-                const chip = STATUS_CHIPS[status]
-                const active = statusFilter === status
-                return (
-                  <button
-                    key={status}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() =>
-                      setFilters({
-                        status: status === 'all' ? null : status,
-                        // An older link's ?status=hidden stays in hidden mode.
-                        ...(searchParams.get('status') === 'hidden'
-                          ? { hidden: '1' }
-                          : {})
-                      })
-                    }
-                    className={`flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
-                      active
-                        ? chip.active
-                        : 'text-muted hover:text-foreground border-transparent'
-                    }`}
-                  >
-                    {chip.dot && (
-                      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${chip.dot}`} />
-                    )}
-                    {chip.label}
-                    <span
-                      className={`text-[11px] tabular-nums ${active ? 'opacity-80' : 'text-muted'}`}
-                    >
-                      {statusCounts[status]}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+            <FilterChips<StatusFilter>
+              label="Show posts by status"
+              value={statusFilter}
+              onChange={pickStatus}
+              // All has no count: the number by the title is the total.
+              options={OTHER_STATUSES.map(status => ({
+                value: status,
+                label: STATUS_META[status].label,
+                count: status === 'all' ? undefined : statusCounts[status],
+                tone: STATUS_META[status].tone
+              }))}
+              className="self-start @min-[60rem]:self-auto"
+            />
 
             <div className="flex flex-wrap items-center gap-2 @min-[60rem]:shrink-0 @min-[60rem]:flex-nowrap">
               <div className="relative min-w-48 flex-1 @min-[60rem]:w-56 @min-[60rem]:flex-none">
-                <Search className="text-muted pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                <Search
+                  aria-hidden
+                  className="text-muted pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
+                />
                 <input
                   ref={searchRef}
                   type="search"
@@ -946,11 +1268,9 @@ export function PostsClientInner({
                   onKeyDown={e => e.key === 'Escape' && e.currentTarget.blur()}
                   placeholder="Search posts..."
                   aria-label="Search posts"
-                  className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent h-9 w-full rounded-lg border pr-14 pl-9 text-[13px] outline-none"
+                  title={`Search posts (${isMac ? '⌘K' : 'Ctrl+K'})`}
+                  className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent focus-visible:ring-foreground/15 h-9 w-full rounded-lg border pr-3 pl-9 text-[13px] outline-none focus-visible:ring-2"
                 />
-                <kbd className="text-muted pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 font-sans text-[11px] @lg:block">
-                  {isMac ? '⌘K' : 'Ctrl K'}
-                </kbd>
               </div>
               <PostFiltersMenu
                 value={{ from: dateFrom, to: dateTo, hidden: showHidden }}
@@ -965,17 +1285,18 @@ export function PostsClientInner({
                   })
                 }
               />
-              <label className="border-border bg-surface text-muted focus-within:border-accent relative flex h-9 items-center gap-2 rounded-lg border pr-2.5 pl-3 text-[13px]">
-                Sort:
+              <label className="border-border bg-surface text-muted focus-within:border-accent focus-within:ring-foreground/15 relative flex h-9 items-center gap-2 rounded-lg border pr-2.5 pl-3 text-[13px] focus-within:ring-2">
+                <ArrowUpDown aria-hidden className="h-4 w-4" />
                 <select
+                  aria-label="Sort"
                   value={sortOrder}
                   onChange={e =>
                     setFilters({ sort: e.target.value === 'oldest' ? 'oldest' : null })
                   }
                   className="text-foreground cursor-pointer appearance-none bg-transparent pr-6 font-medium outline-none"
                 >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
                 </select>
                 <ChevronDown
                   aria-hidden
@@ -987,12 +1308,7 @@ export function PostsClientInner({
                 aria-label="View"
                 className="border-border bg-surface flex h-9 items-center rounded-lg border p-0.5"
               >
-                {(
-                  [
-                    { value: 'grid', label: 'Cards', Icon: LayoutGrid },
-                    { value: 'list', label: 'List', Icon: List }
-                  ] as const
-                ).map(({ value, label, Icon }) => (
+                {VIEW_OPTIONS.map(({ value, label, Icon }) => (
                   <button
                     key={value}
                     type="button"
@@ -1002,107 +1318,146 @@ export function PostsClientInner({
                     onClick={() =>
                       writeParams({ view: value === 'list' ? 'list' : null }, 'replace')
                     }
-                    className={`flex h-full w-8 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                    className={cn(
+                      'flex h-full w-8 cursor-pointer items-center justify-center rounded-md transition-colors',
+                      FOCUS_RING,
                       view === value
                         ? 'bg-surface-hover text-foreground'
                         : 'text-muted hover:text-foreground'
-                    }`}
+                    )}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon aria-hidden className="h-4 w-4" />
                   </button>
                 ))}
               </div>
+              {/* Ticks posts to delete them together; the bar below the list
+                  has Select all and Delete. */}
+              {canSelect && (
+                <button
+                  type="button"
+                  aria-pressed={inSelectMode}
+                  onClick={() => (inSelectMode ? stopSelecting() : void startSelecting())}
+                  disabled={isLoadingAll}
+                  className={buttonClassName({
+                    variant: 'secondary',
+                    size: 'sm',
+                    className: cn('h-9', FOCUS_RING)
+                  })}
+                >
+                  {isLoadingAll ? (
+                    <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+                  ) : inSelectMode ? (
+                    <X aria-hidden className="h-4 w-4" />
+                  ) : (
+                    <SquareCheck aria-hidden className="h-4 w-4" />
+                  )}
+                  {inSelectMode ? 'Cancel' : 'Select'}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* What is showing, and what is loaded */}
-          <div className="text-muted flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[13px]">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {/* What else narrows the list, and the way back to all of it */}
+          {(hasActiveFilters || filterRunId) && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
               {showHidden && (
-                <>
-                  <span aria-hidden>•</span>
-                  <span className="text-foreground font-medium">Hidden posts</span>
-                </>
+                <span className="border-border bg-surface text-foreground inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 font-medium">
+                  <EyeOff aria-hidden className="text-muted h-3 w-3" />
+                  Hidden posts
+                </span>
               )}
               {filterRunId && (
-                <>
-                  <span aria-hidden>•</span>
-                  <span className="text-foreground font-medium">One run</span>
-                </>
+                <span className="border-border bg-surface text-foreground inline-flex h-6 items-center rounded-full border px-2.5 font-medium">
+                  One run
+                </span>
               )}
-              {(hasActiveFilters || filterRunId) && (
-                <>
-                  <span aria-hidden>•</span>
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className="hover:text-foreground flex cursor-pointer items-center gap-1"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    {filterRunId ? 'Show all posts' : 'Clear filters'}
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className={cn(
+                  'text-muted hover:text-foreground inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 font-medium transition-colors',
+                  FOCUS_RING
+                )}
+              >
+                <X aria-hidden className="h-3.5 w-3.5" />
+                {filterRunId ? 'Show all posts' : 'Clear filters'}
+              </button>
             </div>
-          </div>
+          )}
 
           {sortOrder === 'oldest' && loadOlder}
 
           {filteredPosts.length === 0 ? (
-            <div className="border-border bg-surface rounded-2xl border-2 border-dashed px-4 py-14 text-center">
-              {posts.length === 0 ? (
-                <>
-                  <FileCheck className="text-muted mx-auto mb-3 h-10 w-10" />
-                  <h3 className="text-foreground text-sm font-semibold">
-                    No drafted posts yet
-                  </h3>
-                  <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
-                    Approve concepts on the Ideas page to draft grounded posts.
-                  </p>
+            posts.length === 0 ? (
+              <EmptyState
+                icon={FileText}
+                tone="brand"
+                title="No posts yet"
+                description="Approve an idea to draft its post."
+                action={
                   <Link
                     href="/ideas"
-                    className="bg-accent text-background mt-4 inline-flex h-8 items-center rounded-lg px-3.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
+                    className={buttonClassName({ size: 'sm', className: FOCUS_RING })}
                   >
                     Go to Ideas
+                    <ArrowRight aria-hidden className="h-3.5 w-3.5" />
                   </Link>
-                </>
-              ) : (
-                <>
-                  <Search className="text-muted mx-auto mb-3 h-10 w-10" />
-                  <h3 className="text-foreground text-sm font-semibold">
-                    No posts match these filters
-                  </h3>
-                  <p className="text-muted mx-auto mt-1 max-w-sm text-xs">
-                    {posts.length} post{posts.length === 1 ? '' : 's'} exist in
-                    total. Pick another platform or status, or clear the
-                    filters to see them.
-                  </p>
+                }
+              />
+            ) : statusFilter === 'awaiting_review' && onlyStatusFilter ? (
+              // Reviewed everything: the queue's own good news, not a dead end.
+              <EmptyState
+                icon={CheckCircle2}
+                tone="success"
+                title="Nothing to review"
+                action={
+                  <button
+                    type="button"
+                    onClick={() => pickStatus('all')}
+                    className={buttonClassName({
+                      variant: 'secondary',
+                      size: 'sm',
+                      className: FOCUS_RING
+                    })}
+                  >
+                    Show all posts
+                  </button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={Search}
+                title="No matching posts"
+                action={
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="bg-surface-hover border-border text-foreground hover:bg-surface-hover/80 mt-4 h-8 cursor-pointer rounded-lg border px-3.5 text-[13px] font-semibold transition-colors"
+                    className={buttonClassName({
+                      variant: 'secondary',
+                      size: 'sm',
+                      className: FOCUS_RING
+                    })}
                   >
-                    Clear all filters
+                    <X aria-hidden className="h-3.5 w-3.5" />
+                    Clear filters
                   </button>
-                </>
-              )}
-            </div>
+                }
+              />
+            )
           ) : (
             <div className="space-y-7 pt-1">
               {dayGroups.map((group, i) => {
-                const scheduled = group.posts.filter(
-                  p => p.publication?.status === 'scheduled'
-                ).length
                 return (
                   <section key={`${group.key}-${i}`} className="space-y-3">
+                    {/* The day, and how many of the page's posts are from it
+                        (each card shows its own status). */}
                     <h2 className="flex items-center gap-3">
-                      <span className="text-foreground/80 text-[13px] font-semibold tracking-wider uppercase">
+                      <span className="text-foreground/80 text-xs font-semibold tracking-wider uppercase">
                         {dayHeading(group.date, hasMounted)}
                       </span>
                       <span aria-hidden className="bg-border h-px flex-1" />
-                      <span className="text-muted text-xs font-normal">
-                        {group.posts.length} post{group.posts.length === 1 ? '' : 's'}
-                        {scheduled > 0 && ` · ${scheduled} scheduled`}
+                      <span className="text-muted text-xs font-normal tabular-nums">
+                        {group.posts.length}
                       </span>
                     </h2>
                     {view === 'grid' ? (
@@ -1113,7 +1468,7 @@ export function PostsClientInner({
                         ))}
                       </div>
                     ) : (
-                      <div className="border-border bg-surface divide-border divide-y rounded-2xl border">
+                      <div className="border-border bg-surface divide-border divide-y rounded-2xl border shadow-xs">
                         {group.posts.map(post => (
                           <PostRow key={post.id} {...cardProps(post)} />
                         ))}
@@ -1133,12 +1488,11 @@ export function PostsClientInner({
               aria-label="Pagination"
               className="border-border mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-6"
             >
-              <p className="text-muted text-[13px]">
-                Showing{' '}
-                <span className="text-foreground font-semibold tabular-nums">
-                  {shownFrom} to {shownTo}
+              <p className="text-muted text-[13px] tabular-nums">
+                <span className="text-foreground font-semibold">
+                  {shownFrom}–{shownTo}
                 </span>{' '}
-                of {pageInfo.total} total drafts &amp; posts
+                of {pageInfo.total}
               </p>
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 <button
@@ -1146,10 +1500,12 @@ export function PostsClientInner({
                   disabled={pageInfo.page <= 1}
                   onClick={() => goToPage(pageInfo.page - 1)}
                   aria-label="Previous page"
-                  className="border-border bg-surface text-foreground hover:bg-surface-hover disabled:text-muted flex h-8 cursor-pointer items-center rounded-lg border px-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
+                  className={cn(
+                    'border-border bg-surface text-foreground hover:bg-surface-hover disabled:text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                    FOCUS_RING
+                  )}
                 >
-                  <ChevronLeft className="h-4 w-4 sm:hidden" />
-                  <span className="hidden sm:inline">Previous</span>
+                  <ChevronLeft aria-hidden className="h-4 w-4" />
                 </button>
                 {pageNumbers(pageInfo.page, pageInfo.pageCount).map((n, i) =>
                   n === null ? (
@@ -1162,11 +1518,13 @@ export function PostsClientInner({
                       type="button"
                       aria-current={n === pageInfo.page ? 'page' : undefined}
                       onClick={() => goToPage(n)}
-                      className={`h-8 min-w-8 cursor-pointer rounded-lg px-2 text-[13px] font-semibold tabular-nums transition-colors ${
+                      className={cn(
+                        'h-8 min-w-8 cursor-pointer rounded-lg px-2 text-[13px] font-semibold tabular-nums transition-colors',
+                        FOCUS_RING,
                         n === pageInfo.page
-                          ? 'bg-accent text-background'
-                          : 'border-border bg-surface text-foreground hover:bg-surface-hover border'
-                      }`}
+                          ? 'border-foreground/20 bg-surface-hover text-foreground border'
+                          : 'border-border bg-surface text-muted hover:text-foreground hover:bg-surface-hover border'
+                      )}
                     >
                       {n}
                     </button>
@@ -1177,13 +1535,72 @@ export function PostsClientInner({
                   disabled={pageInfo.page >= pageInfo.pageCount}
                   onClick={() => goToPage(pageInfo.page + 1)}
                   aria-label="Next page"
-                  className="border-border bg-surface text-foreground hover:bg-surface-hover disabled:text-muted flex h-8 cursor-pointer items-center rounded-lg border px-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
+                  className={cn(
+                    'border-border bg-surface text-foreground hover:bg-surface-hover disabled:text-muted flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                    FOCUS_RING
+                  )}
                 >
-                  <span className="hidden sm:inline">Next</span>
-                  <ChevronRight className="h-4 w-4 sm:hidden" />
+                  <ChevronRight aria-hidden className="h-4 w-4" />
                 </button>
               </div>
             </nav>
+          )}
+
+          {/* While selecting: how many are ticked, Select all (every post
+              the filters show, on every page), and Delete. */}
+          {inSelectMode && (
+            <div className="pointer-events-none sticky bottom-0 z-20 pt-2">
+              <div
+                role="region"
+                aria-label="Selected posts"
+                className="border-border bg-surface pointer-events-auto mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border p-2 pl-4 shadow-lg"
+              >
+                <p className="text-foreground text-sm font-medium tabular-nums">
+                  {selectedIds.length} selected
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelected(
+                        allSelected ? new Set() : new Set(filteredPosts.map(p => p.id))
+                      )
+                    }
+                    className={buttonClassName({
+                      variant: 'secondary',
+                      size: 'sm',
+                      className: FOCUS_RING
+                    })}
+                  >
+                    <SquareCheck aria-hidden className="h-3.5 w-3.5" />
+                    {allSelected ? 'Unselect all' : `Select all ${filteredPosts.length}`}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedIds.length === 0}
+                    onClick={() => setPendingDelete(selectedIds)}
+                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500/50 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-[#1b1b1f]"
+                  >
+                    <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                    {allSelected && selectedIds.length > 1
+                      ? `Delete all ${selectedIds.length}`
+                      : `Delete ${selectedIds.length}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopSelecting}
+                    aria-label="Stop selecting"
+                    title="Stop selecting"
+                    className={cn(
+                      'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg',
+                      FOCUS_RING
+                    )}
+                  >
+                    <X aria-hidden className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
@@ -1199,9 +1616,19 @@ type PostItemProps = {
   /** Relative wording ("6h ago") only once mounted, as it depends on now. */
   mounted: boolean
   busy: boolean
+  /** Its Approve is on its way to the server. */
+  approving: boolean
+  /** Awaiting review: Approve and Reject are offered on it. */
+  reviewable: boolean
   onCopy: () => void
   onToggleHidden: () => void
   onDelete: () => void
+  onApprove: () => void
+  onReject: () => void
+  /** Select mode: it shows a checkbox, and a click ticks it instead of opening the post. */
+  selecting: boolean
+  selected: boolean
+  onSelectChange: (selected: boolean) => void
 }
 
 /**
@@ -1212,12 +1639,12 @@ type PostItemProps = {
 const thumbnailCache = new Map<string, { at: number; url: Promise<string | null> }>()
 /** Signed image links expire; one is reused for this long. */
 const THUMBNAIL_TTL_MS = 45 * 60_000
-function loadThumbnail(mediaId: string): Promise<string | null> {
-  const cached = thumbnailCache.get(mediaId)
+function loadThumbnail(endpoint: string): Promise<string | null> {
+  const cached = thumbnailCache.get(endpoint)
   let pending =
     cached && Date.now() - cached.at < THUMBNAIL_TTL_MS ? cached.url : null
   if (!pending) {
-    pending = fetch(`/api/media/${mediaId}`)
+    pending = fetch(endpoint)
       .then(res => res.json())
       .then(body =>
         body?.success && typeof body.imageUrl === 'string' ? body.imageUrl : null
@@ -1225,22 +1652,46 @@ function loadThumbnail(mediaId: string): Promise<string | null> {
       .catch(() => null)
       .then(url => {
         // A failure is tried again next time the image is shown.
-        if (!url) thumbnailCache.delete(mediaId)
+        if (!url) thumbnailCache.delete(endpoint)
         return url
       })
-    thumbnailCache.set(mediaId, { at: Date.now(), url: pending })
+    thumbnailCache.set(endpoint, { at: Date.now(), url: pending })
   }
   return pending
 }
 
+/**
+ * Where a post's card picture comes from: its first slide when it goes out as
+ * a carousel, else its image; null when it has neither.
+ */
+function thumbnailSourceOf(
+  post: PostDetail
+): { endpoint: string; whole: boolean } | null {
+  const media = resolveMediaFormat(formatOf(post.formatId), post.mediaFormat, {
+    image: Boolean(post.media)
+  })
+  if (media === 'carousel' && (post.slideCount ?? 0) > 0) {
+    return { endpoint: `/api/posts/${post.id}/slides?cover`, whole: true }
+  }
+  if (post.media?.id) return { endpoint: `/api/media/${post.media.id}`, whole: false }
+  return null
+}
+
 function Thumbnail({
-  mediaId,
+  endpoint,
   alt,
-  className
+  className,
+  whole = false
 }: {
-  mediaId: string
+  /** The route answering { success, imageUrl } for the picture. */
+  endpoint: string
   alt: string
   className?: string
+  /**
+   * Show all of it (a 4:5 slide in a wide frame) over a blurred copy of
+   * itself, instead of cropping it to fill.
+   */
+  whole?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(null)
@@ -1258,7 +1709,7 @@ function Thumbnail({
       entries => {
         if (!entries.some(e => e.isIntersecting)) return
         observer.disconnect()
-        void loadThumbnail(mediaId).then(loaded => {
+        void loadThumbnail(endpoint).then(loaded => {
           if (cancelled) return
           if (loaded) setUrl(loaded)
           else setFailed(true)
@@ -1271,24 +1722,33 @@ function Thumbnail({
       cancelled = true
       observer.disconnect()
     }
-  }, [mediaId])
+  }, [endpoint])
   return (
     <div ref={ref} className={`bg-surface-hover relative overflow-hidden ${className ?? ''}`}>
+      {url && whole && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+        />
+      )}
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
           alt={alt}
-          className="h-full w-full object-cover"
+          className={`relative h-full w-full ${whole ? 'object-contain' : 'object-cover'}`}
           onError={() => {
-            thumbnailCache.delete(mediaId)
+            thumbnailCache.delete(endpoint)
             setUrl(null)
             if (retried) {
               setFailed(true)
               return
             }
             setRetried(true)
-            void loadThumbnail(mediaId).then(loaded =>
+            void loadThumbnail(endpoint).then(loaded =>
               loaded ? setUrl(loaded) : setFailed(true)
             )
           }}
@@ -1315,8 +1775,8 @@ function mediaBadge(post: PostDetail): { label: string; video: boolean } | null 
     const length = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
     return { label: `${length} ${kind}`, video: true }
   }
-  // What goes out with the text (resolveMediaFormat): a carousel's slides,
-  // nothing for a post set to text only, else its image.
+  // What goes out with the text (resolveMediaFormat): only a carousel's
+  // slides need saying.
   const media = resolveMediaFormat(formatOf(post.formatId), post.mediaFormat, {
     image: Boolean(post.media)
   })
@@ -1324,14 +1784,26 @@ function mediaBadge(post: PostDetail): { label: string; video: boolean } | null 
     const count = post.slideCount ?? 0
     return { label: count ? `${count} slides` : 'Carousel', video: false }
   }
-  if (media === 'text') return null
-  if (post.media) return { label: '1 image', video: false }
+  // A single image says so itself.
   return null
+}
+
+/** What a card with no picture says in its place: what it goes out with. */
+function placeholderLabel(post: PostDetail): string {
+  const format = formatOf(post.formatId)
+  if (FORMATS[format].structure === 'script') return 'Video script'
+  const media = resolveMediaFormat(format, post.mediaFormat, {
+    image: Boolean(post.media)
+  })
+  if (media === 'text') return 'Text only'
+  return media === 'carousel' ? 'No slides yet' : 'No image yet'
 }
 
 /**
  * Where the post goes next, as the card's footer action: live (with its
- * link), on its way, or what to do — publish, review, edit.
+ * link), when it goes out, or what to do — publish, edit, revisit. A post
+ * awaiting review has ReviewButtons instead, and one publishing right now
+ * nothing (its status says so).
  */
 function PostAction({
   post,
@@ -1345,9 +1817,14 @@ function PostAction({
   const publication = post.publication
   const platform = getPlatform(post.platform)
   const live = Boolean(post.postedAt) || isOnPlatform(publication)
-  const chip = 'relative z-10 inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium'
-  const button =
-    'relative z-10 inline-flex h-7 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition-colors'
+  const action = cn(
+    'relative z-10 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-semibold transition-colors',
+    FOCUS_RING
+  )
+  const outlined = cn(
+    action,
+    'border-border bg-surface text-foreground hover:bg-surface-hover border'
+  )
   if (live) {
     const label = `Live on ${LIVE_ON[post.platform] ?? platform.name}`
     return publication?.postUrl && !publication.deletedAt ? (
@@ -1356,36 +1833,25 @@ function PostAction({
         target="_blank"
         rel="noopener noreferrer"
         title={`Open it on ${platform.name}`}
-        className={`${chip} bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400`}
+        className={cn(action, TONES.success.text, 'hover:bg-emerald-500/10')}
       >
         {label}
+        <ExternalLink aria-hidden className="h-3 w-3" />
       </a>
     ) : (
-      <span className={`${chip} bg-emerald-500/10 text-emerald-700 dark:text-emerald-400`}>
-        {label}
-      </span>
+      <span className={cn(action, TONES.success.text)}>{label}</span>
     )
   }
-  if (publication?.status === 'publishing') {
-    return (
-      <span className={`${chip} text-muted bg-surface-hover`}>
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Publishing
-      </span>
-    )
-  }
+  if (publication?.status === 'publishing') return null
   if (publication?.status === 'scheduled') {
+    const at = queuedAt(publication)
     return (
       <span
-        className={`${chip} bg-indigo-500/10 text-indigo-700 dark:text-indigo-300`}
-        title={
-          mounted
-            ? `Publishes ${formatAbsoluteDateTime(publication.scheduledAt)}`
-            : undefined
-        }
+        className={cn(action, TONES.brand.text, 'px-1 font-medium tabular-nums')}
+        title={mounted ? `Publishes ${formatAbsoluteDateTime(at)}` : undefined}
       >
-        <Clock className="h-3 w-3" />
-        Scheduled
+        <CalendarClock aria-hidden className="h-3.5 w-3.5" />
+        {mounted ? shortDateTime(at) : ''}
       </span>
     )
   }
@@ -1394,54 +1860,143 @@ function PostAction({
     return (
       <Link
         href={href}
-        className={`${button} ${
+        className={
           failed
-            ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
-            : 'border-border text-foreground hover:bg-surface-hover'
-        }`}
+            ? cn(
+                action,
+                'border border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+              )
+            : outlined
+        }
       >
         {failed
           ? 'Retry publish'
           : canPublishFormat(post.platform, formatOf(post.formatId))
             ? 'Publish Now'
             : 'Copy & post'}
-        <ArrowRight className="h-3.5 w-3.5" />
+        <ArrowRight aria-hidden className="h-3.5 w-3.5" />
       </Link>
     )
   }
   if (post.status === 'draft') {
     return (
-      <Link href={href} className={`${button} border-border text-foreground hover:bg-surface-hover`}>
+      <Link href={href} className={outlined}>
         Continue Edit
       </Link>
     )
   }
   if (post.status === 'rejected') {
     return (
-      <Link href={href} className={`${button} border-border text-muted hover:text-foreground hover:bg-surface-hover`}>
+      <Link
+        href={href}
+        className={cn(action, 'text-muted hover:text-foreground hover:bg-surface-hover')}
+      >
         Revisit
       </Link>
     )
   }
   return (
-    <Link
-      href={href}
-      className={`${button} border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400`}
-    >
-      Review Draft
+    <Link href={href} className={cn(action, 'border', TONES.warning.chip)}>
+      Review
+      <ArrowRight aria-hidden className="h-3.5 w-3.5" />
     </Link>
   )
 }
 
-/** The ⋮ menu on a card or row: open, copy, hide, delete. */
+/**
+ * Approve on a post awaiting review, without opening it: the post page's
+ * action, with its messages. The card's one accent button; Reject, which asks
+ * for an optional reason, is in the ⋮ menu. Named after its post for screen
+ * readers, as many cards have one.
+ */
+function ApproveButton({
+  post,
+  busy,
+  approving,
+  onApprove,
+  size = 'md'
+}: Pick<PostItemProps, 'post' | 'busy' | 'approving' | 'onApprove'> & {
+  size?: 'sm' | 'md'
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onApprove}
+      disabled={busy}
+      aria-label={`Approve: ${post.hook}`}
+      className={cn(
+        'bg-accent text-background hover:bg-accent-hover pointer-events-auto relative z-10 inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        FOCUS_RING,
+        size === 'sm' ? 'h-7 px-2.5' : 'h-8 px-3'
+      )}
+    >
+      {approving ? (
+        <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Check aria-hidden className="h-3.5 w-3.5" />
+      )}
+      Approve
+    </button>
+  )
+}
+
+/**
+ * The card's one figure (length), with what the post cost in AI in its
+ * tooltip: the post page has the breakdown.
+ */
+/**
+ * The format without its platform's name ("Post", "Thread", "Reel"), for a
+ * card's header: the platform's mark beside it already names the platform,
+ * and the full label did not fit beside the status.
+ */
+function formatKind(post: PostDetail): string {
+  const label = FORMATS[formatOf(post.formatId)].label
+  const platform = getPlatform(post.platform).name
+  const kind = label.startsWith(`${platform} `)
+    ? label.slice(platform.length + 1)
+    : label
+  return kind.charAt(0).toUpperCase() + kind.slice(1)
+}
+
+function postFigure(post: PostDetail): { text: string; title: string } {
+  const spec = FORMATS[formatOf(post.formatId)]
+  const text =
+    spec.structure === 'script'
+      ? `~${videoScriptOf(post).seconds}s`
+      : `${post.charCount.toLocaleString('en-US')} chars`
+  const usage = post.usage
+  const cost = usage
+    ? ` · AI cost ${formatPostCost(usage.costUsd)}${usage.estimated ? ' (partly estimated)' : ''}, ${formatTokens(usage.totalTokens)} tokens`
+    : ''
+  return {
+    text,
+    title: `${spec.structure === 'script' ? 'Script length' : 'Length'}${cost}`
+  }
+}
+
+/** The ⋮ menu on a card or row: open, approve or reject one awaiting review, copy, hide, delete. */
 function PostMenu({
   post,
   href,
   busy,
+  reviewable,
   onCopy,
   onToggleHidden,
-  onDelete
-}: Pick<PostItemProps, 'post' | 'href' | 'busy' | 'onCopy' | 'onToggleHidden' | 'onDelete'>) {
+  onDelete,
+  onApprove,
+  onReject
+}: Pick<
+  PostItemProps,
+  | 'post'
+  | 'href'
+  | 'busy'
+  | 'reviewable'
+  | 'onCopy'
+  | 'onToggleHidden'
+  | 'onDelete'
+  | 'onApprove'
+  | 'onReject'
+>) {
   const [open, setOpen] = useState(false)
   const wrapper = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -1463,7 +2018,7 @@ function PostMenu({
     }
   }, [open])
   const item =
-    'hover:bg-surface-hover flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40'
+    'hover:bg-surface-hover focus-visible:bg-surface-hover flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40'
   const run = (action: () => void, refocus = true) => () => {
     setOpen(false)
     if (refocus) trigger.current?.focus()
@@ -1485,25 +2040,46 @@ function PostMenu({
         aria-expanded={open}
         disabled={busy}
         onClick={() => setOpen(o => !o)}
-        className="text-muted hover:text-foreground hover:bg-surface-hover flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors disabled:opacity-40"
+        className={cn(
+          'text-muted hover:text-foreground hover:bg-surface-hover flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors disabled:opacity-40',
+          FOCUS_RING
+        )}
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+        {busy ? (
+          <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+        ) : (
+          <MoreVertical aria-hidden className="h-4 w-4" />
+        )}
       </button>
       {open && (
         <div className="border-border bg-surface text-foreground absolute top-full right-0 z-30 mt-1 w-44 rounded-xl border p-1 shadow-lg">
           <Link href={href} className={item}>
-            <ArrowRight className="text-muted h-3.5 w-3.5" />
+            <ArrowRight aria-hidden className="text-muted h-3.5 w-3.5" />
             Open post
           </Link>
+          {reviewable && (
+            <>
+              <button type="button" onClick={run(onApprove)} className={item}>
+                <CheckCircle2 aria-hidden className="text-muted h-3.5 w-3.5" />
+                Approve
+              </button>
+              {/* The reason dialog takes focus, and hands it back to ⋮. */}
+              <button type="button" onClick={run(onReject)} className={item}>
+                <XCircle aria-hidden className="text-muted h-3.5 w-3.5" />
+                Reject…
+              </button>
+              <div role="separator" className="bg-border mx-1.5 my-1 h-px" />
+            </>
+          )}
           <button type="button" onClick={run(onCopy)} className={item}>
-            <Copy className="text-muted h-3.5 w-3.5" />
+            <Copy aria-hidden className="text-muted h-3.5 w-3.5" />
             Copy text
           </button>
           <button type="button" onClick={run(onToggleHidden)} className={item}>
             {post.hiddenAt ? (
-              <Eye className="text-muted h-3.5 w-3.5" />
+              <Eye aria-hidden className="text-muted h-3.5 w-3.5" />
             ) : (
-              <EyeOff className="text-muted h-3.5 w-3.5" />
+              <EyeOff aria-hidden className="text-muted h-3.5 w-3.5" />
             )}
             {post.hiddenAt ? 'Unhide' : 'Hide'}
           </button>
@@ -1513,9 +2089,9 @@ function PostMenu({
             disabled={post.publication?.status === 'publishing'}
             // The confirm dialog takes focus.
             onClick={run(onDelete, false)}
-            className={`${item} text-rose-600 hover:bg-rose-500/10 dark:text-rose-400`}
+            className={`${item} text-rose-600 hover:bg-rose-500/10 focus-visible:bg-rose-500/10 dark:text-rose-400`}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 aria-hidden className="h-3.5 w-3.5" />
             Delete
           </button>
         </div>
@@ -1526,149 +2102,199 @@ function PostMenu({
 
 /**
  * The whole card opens the post: a link stretched over it, with the menu and
- * footer action above it.
+ * footer action above it. While selecting, a click ticks the card instead; its
+ * checkbox is the control keyboards and screen readers use.
  */
-function CardCover({ post, href }: Pick<PostItemProps, 'post' | 'href'>) {
+function CardCover({
+  post,
+  href,
+  selecting,
+  selected,
+  onSelectChange
+}: Pick<PostItemProps, 'post' | 'href' | 'selecting' | 'selected' | 'onSelectChange'>) {
+  if (selecting) {
+    return (
+      <div
+        aria-hidden
+        onClick={() => onSelectChange(!selected)}
+        className="absolute inset-0 z-0 cursor-pointer rounded-[inherit]"
+      />
+    )
+  }
   return (
     <Link
       href={href}
       aria-label={`Open: ${post.hook}`}
-      className="absolute inset-0 z-0 rounded-[inherit]"
+      className={cn('absolute inset-0 z-0 rounded-[inherit]', FOCUS_RING)}
     />
   )
 }
 
-/** One post as a card: platform and status, picture, opening, tags, action. */
+/** A card's or row's checkbox while selecting. */
+function SelectBox({
+  post,
+  selected,
+  onSelectChange,
+  className
+}: Pick<PostItemProps, 'post' | 'selected' | 'onSelectChange'> & { className?: string }) {
+  return (
+    <input
+      type="checkbox"
+      checked={selected}
+      onChange={e => onSelectChange(e.target.checked)}
+      aria-label={`Select: ${post.hook}`}
+      className={cn(
+        'accent-accent pointer-events-auto h-4 w-4 shrink-0 cursor-pointer',
+        FOCUS_RING,
+        className
+      )}
+    />
+  )
+}
+
+/**
+ * One post as a card: platform and status, picture, opening, tags, then a
+ * footer of three things: when it was drafted, its length, and what comes
+ * next (Approve while it awaits review).
+ */
 function PostCard(props: PostItemProps) {
-  const { post, href, mounted } = props
+  const { post, href, mounted, reviewable, selecting, selected } = props
   const format = formatOf(post.formatId)
   const spec = FORMATS[format]
   const badge = mediaBadge(post)
-  const tags = (post.hashtags || []).slice(0, 2)
+  const picture = thumbnailSourceOf(post)
+  const figure = postFigure(post)
   return (
     <article
-      className="group border-border hover:border-foreground/20 bg-surface relative flex flex-col rounded-2xl border shadow-xs transition-colors"
+      className={cn(
+        'group bg-surface relative flex flex-col rounded-2xl border shadow-xs transition-[border-color,box-shadow] hover:shadow-sm motion-reduce:transition-none',
+        selecting && selected
+          ? 'border-brand/60 ring-brand/20 ring-2'
+          : 'border-border hover:border-foreground/20'
+      )}
     >
-      <CardCover post={post} href={href} />
+      <CardCover {...props} />
 
-      <div className="pointer-events-none relative flex items-center gap-2 px-3.5 pt-3.5">
+      <div className="pointer-events-none relative flex items-center gap-2 px-4 pt-4">
+        {selecting && <SelectBox {...props} />}
         <PlatformMark platform={post.platform} colored className="h-5 w-5 shrink-0" />
-        <span className="text-foreground min-w-0 truncate text-[13px] font-semibold">
-          {spec.label}
+        <span
+          className="text-foreground min-w-0 truncate text-[13px] font-semibold"
+          title={spec.label}
+        >
+          <span className="sr-only">{getPlatform(post.platform).name} </span>
+          {formatKind(post)}
         </span>
         <PostStatusPill post={post} className="ml-auto" />
-        <span className="pointer-events-auto">
+        <span className="pointer-events-auto -mr-1.5">
           <PostMenu {...props} />
         </span>
       </div>
 
-      <div className="pointer-events-none px-3.5 pt-3">
+      <div className="pointer-events-none px-4 pt-3">
        <div className="relative">
         {/* Deleted from its platform: a red tag on the picture's top right. */}
         <DeletedFromPlatformTag
           post={post}
           className="absolute top-2 right-2 z-10 bg-white/95 shadow-sm dark:bg-neutral-900/90"
         />
-        {post.media?.id ? (
+        {picture ? (
           <Thumbnail
-            mediaId={post.media.id}
-            alt={post.media.altText || post.hook}
+            endpoint={picture.endpoint}
+            whole={picture.whole}
+            alt={post.media?.altText || post.hook}
             className="aspect-5/2 w-full rounded-lg"
           />
         ) : (
           <div className="bg-surface-hover text-muted flex aspect-5/2 w-full flex-col items-center justify-center gap-1.5 rounded-lg">
             {spec.structure === 'script' ? (
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white">
-                <Play className="ml-0.5 h-4 w-4 fill-current" />
+                <Play aria-hidden className="ml-0.5 h-4 w-4 fill-current" />
               </span>
             ) : (
               <PlatformMark platform={post.platform} className="h-6 w-6 opacity-40" />
             )}
-            <span className="text-xs">
-              {spec.structure === 'script' ? 'Video script' : 'No image yet'}
-            </span>
+            <span className="text-xs">{placeholderLabel(post)}</span>
           </div>
         )}
         {badge && (
-          <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
-            {!badge.video && <ImageIcon className="h-3 w-3" />}
+          <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
+            {!badge.video && <Layers aria-hidden className="h-3 w-3" />}
             {badge.label}
           </span>
         )}
-        {badge?.video && post.media?.id && (
+        {badge?.video && picture && (
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm">
-              <Play className="ml-0.5 h-4 w-4 fill-current" />
+              <Play aria-hidden className="ml-0.5 h-4 w-4 fill-current" />
             </span>
           </span>
         )}
        </div>
       </div>
 
-      <div className="pointer-events-none relative flex flex-1 flex-col px-3.5 pt-3 pb-3.5">
-        <h3 className="text-foreground line-clamp-2 text-sm leading-snug font-bold">
+      <div className="pointer-events-none relative flex flex-1 flex-col px-4 pt-3 pb-4">
+        <h3 className="text-foreground line-clamp-2 text-sm leading-snug font-semibold">
           {post.hook}
         </h3>
         {post.body && (
-          <p className="text-muted mt-1 line-clamp-2 text-xs leading-relaxed">
+          <p className="text-muted mt-1 line-clamp-2 text-[13px] leading-relaxed">
             {post.body}
           </p>
         )}
-        {tags.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {tags.map(tag => (
-              <span
-                key={tag}
-                className="border-border bg-background text-muted rounded border px-1.5 py-0.5 font-mono text-[10px]"
-              >
-                #{tag.replace(/^#+/, '')}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
-      <div className="border-border pointer-events-none relative mt-auto flex items-center gap-2.5 border-t px-3.5 py-2.5">
-        {/* The exact time on hover; dates only once mounted, in the viewer's
-            own time zone. */}
-        <span
-          className="text-muted pointer-events-auto flex items-center gap-1.5 text-xs"
-          title={mounted ? formatAbsoluteDateTime(post.createdAt) : undefined}
-        >
-          <Clock className="h-3.5 w-3.5" />
-          {mounted ? shortAgo(post.createdAt) : ''}
-        </span>
-        <span className="text-muted text-xs tabular-nums">
-          {spec.structure === 'script'
-            ? `~${videoScriptOf(post).seconds}s script`
-            : `${post.charCount.toLocaleString('en-US')} chars`}
-        </span>
-        {post.hiddenAt && (
-          <span className="text-muted flex items-center gap-1 text-xs">
-            <EyeOff className="h-3 w-3" />
-            Hidden
+      {/* Footer: when, and what next. Its length and AI cost are on the
+          time's hover; beside the action they were cut short. */}
+      <div className="border-border pointer-events-none relative mt-auto flex items-center gap-3 border-t px-4 py-3">
+        <div className="text-muted flex min-w-0 flex-1 items-center gap-3 text-xs whitespace-nowrap tabular-nums">
+          {/* Times only once mounted, in the viewer's own time zone; the
+              exact one on hover. */}
+          <span
+            className="pointer-events-auto flex items-center gap-1.5"
+            title={
+              mounted
+                ? `${formatAbsoluteDateTime(post.createdAt)} · ${figure.text} · ${figure.title}`
+                : undefined
+            }
+          >
+            <Clock aria-hidden className="h-3.5 w-3.5" />
+            {mounted ? shortAgo(post.createdAt) : ''}
           </span>
-        )}
-        <span className="pointer-events-auto ml-auto">
-          <PostAction post={post} href={href} mounted={mounted} />
+        </div>
+        <span className="pointer-events-auto shrink-0">
+          {reviewable ? (
+            <ApproveButton {...props} />
+          ) : (
+            <PostAction post={post} href={href} mounted={mounted} />
+          )}
         </span>
       </div>
     </article>
   )
 }
 
-/** One post as a row, for the list view. */
+/** One post as a row, for the list view: the card's facts in a line. */
 function PostRow(props: PostItemProps) {
-  const { post, href, mounted } = props
+  const { post, href, mounted, reviewable, selecting, selected } = props
   const spec = FORMATS[formatOf(post.formatId)]
+  const picture = thumbnailSourceOf(post)
+  const figure = postFigure(post)
   return (
-    <div className="group hover:bg-surface-hover/50 relative flex items-center gap-3 px-3 py-2.5 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
-      <CardCover post={post} href={href} />
+    <div
+      className={cn(
+        'group relative flex items-center gap-3 px-4 py-3 transition-colors first:rounded-t-2xl last:rounded-b-2xl motion-reduce:transition-none',
+        selecting && selected ? 'bg-brand/5' : 'hover:bg-surface-hover/50'
+      )}
+    >
+      <CardCover {...props} />
+      {selecting && <SelectBox {...props} className="relative" />}
       <div className="pointer-events-none relative shrink-0">
-        {post.media?.id ? (
+        {picture ? (
           <Thumbnail
-            mediaId={post.media.id}
-            alt={post.media.altText || post.hook}
+            endpoint={picture.endpoint}
+            whole={picture.whole}
+            alt={post.media?.altText || post.hook}
             className="h-12 w-20 rounded-lg"
           />
         ) : (
@@ -1685,19 +2311,31 @@ function PostRow(props: PostItemProps) {
             {post.hook}
           </span>
         </div>
-        <p className="text-muted mt-0.5 truncate text-xs">{post.body}</p>
+        <div className="mt-0.5 flex min-w-0 items-center gap-2">
+          {/* Its own column from @2xl; on a narrow list, here. */}
+          <PostStatusPill post={post} size="xs" className="@2xl:hidden" />
+          <p className="text-muted truncate text-[13px]">{post.body}</p>
+        </div>
       </div>
       <span className="pointer-events-none relative hidden shrink-0 @2xl:flex">
         <PostStatusPill post={post} />
       </span>
       <span
-        className="text-muted pointer-events-auto relative hidden w-20 shrink-0 text-right text-xs @3xl:block"
-        title={mounted ? formatAbsoluteDateTime(post.createdAt) : undefined}
+        className="text-muted pointer-events-auto relative hidden w-20 shrink-0 text-right text-xs tabular-nums @3xl:block"
+        title={
+          mounted
+            ? `${formatAbsoluteDateTime(post.createdAt)} · ${figure.text} · ${figure.title}`
+            : undefined
+        }
       >
         {mounted ? shortAgo(post.createdAt) : ''}
       </span>
       <span className="relative hidden shrink-0 @4xl:block">
-        <PostAction post={post} href={href} mounted={mounted} />
+        {reviewable ? (
+          <ApproveButton {...props} size="sm" />
+        ) : (
+          <PostAction post={post} href={href} mounted={mounted} />
+        )}
       </span>
       <PostMenu {...props} />
     </div>
@@ -1805,16 +2443,18 @@ function PostFiltersMenu({
         onClick={() => (open ? setOpen(false) : openMenu())}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors ${
+        className={cn(
+          'flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors',
+          FOCUS_RING,
           activeCount > 0
             ? 'border-accent/60 bg-surface text-foreground'
             : 'border-border bg-surface text-foreground hover:bg-surface-hover'
-        }`}
+        )}
       >
-        <Funnel className="h-4 w-4" />
+        <Funnel aria-hidden className="h-4 w-4" />
         Filters
         {activeCount > 0 && (
-          <span className="bg-accent text-background flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold tabular-nums">
+          <span className="bg-foreground/10 text-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold tabular-nums">
             {activeCount}
           </span>
         )}
@@ -1851,7 +2491,7 @@ function PostFiltersMenu({
                 </legend>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label htmlFor="filter-from" className="text-muted block text-[11px]">
+                    <label htmlFor="filter-from" className="text-muted block text-xs">
                       From
                     </label>
                     <input
@@ -1866,7 +2506,7 @@ function PostFiltersMenu({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="filter-to" className="text-muted block text-[11px]">
+                    <label htmlFor="filter-to" className="text-muted block text-xs">
                       To
                     </label>
                     <input
@@ -1882,7 +2522,7 @@ function PostFiltersMenu({
                   </div>
                 </div>
                 {dateError && (
-                  <p role="alert" className="text-[11px] text-red-500">
+                  <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
                     {dateError}
                   </p>
                 )}
@@ -1895,11 +2535,8 @@ function PostFiltersMenu({
                   onChange={e => set({ hidden: e.target.checked })}
                   className="accent-accent mt-0.5"
                 />
-                <span>
-                  <span className="font-semibold">Hidden posts</span>
-                  <span className="text-muted block text-[11px]">
-                    Show only the posts hidden from the list.
-                  </span>
+                <span className="font-semibold" title="Only the posts hidden from the list">
+                  Hidden posts
                 </span>
               </label>
 

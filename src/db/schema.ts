@@ -48,6 +48,18 @@ import {
   type PublicationTrigger
 } from '../lib/publishing/status'
 import { DEFAULT_PLATFORM_ID, type PlatformId } from '../lib/platforms'
+import {
+  INSIGHT_STATUSES,
+  type InsightPost,
+  type InsightSources,
+  type InsightStatus,
+  type ProfileInsights
+} from '../lib/profile-insights/types'
+import type { IdeaScorecard } from '../lib/idea-scorecard'
+import type { IdentitySnapshot } from '../lib/identity-change'
+import type { ReferencePost } from '../lib/reference-post/types'
+import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
+import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
 import { authUsersTable } from './auth-schema'
 
 export * from './auth-schema'
@@ -112,6 +124,16 @@ export const accountsTable = pgTable('accounts', {
     .default({})
     .notNull(),
   industry: text('industry'),
+  // When the identity was last switched to another company (Re-analyze →
+  // "Switch identity", src/lib/identity-switch.ts). Prompts read the posts,
+  // ideas and rejections made since then only, so the old company's history
+  // never steers the new one. Null: everything counts.
+  contextSince: commonFieldDefs.date('context_since'),
+  // The company the voice, knowledge, goals and ideas were set up for, when
+  // the profile has since been changed by hand to another company
+  // (src/lib/identity-change.ts). Re-analyze offers to switch them over. Null
+  // when they belong to the saved profile.
+  contextIdentity: jsonb('context_identity').$type<IdentitySnapshot | null>(),
   // No longer read or written: identities used to be deactivatable. The
   // migration that dropped the feature disabled the schedules of the ones
   // that were off.
@@ -591,6 +613,11 @@ export const ideasTable = pgTable('ideas', {
         quote?: string
         publishedAt?: string
         confidence?: number
+        // How far its source can be trusted, what it was researched for,
+        // and the outlet a news search named. Absent on older ideas.
+        credibility?: SourceRating
+        kind?: SignalKind
+        publisher?: string
       }>
     >()
     .default([]),
@@ -601,6 +628,12 @@ export const ideasTable = pgTable('ideas', {
       // The formats whose posts get an image, as ticked in Create posts.
       // Absent on ideas from before that choice (imageChosenFor).
       imageFormats?: string[]
+      // Of those, the ones set to "Carousel" in Create posts; the rest get a
+      // single image (mediaChosenFor). Absent on ideas from before that choice.
+      carouselFormats?: string[]
+      // The video formats asked for in Create posts → Short video
+      // (src/lib/video/formats.ts); only these are drafted as videos.
+      videoFormats?: string[]
     }>()
     .default({ mode: 'none' }),
   noveltyNote: text('novelty_note'),
@@ -612,6 +645,10 @@ export const ideasTable = pgTable('ideas', {
   // before it, or when the review could not run.
   goalFitScore: integer('goal_fit_score'),
   goalFitNote: text('goal_fit_note'),
+  // Every other score with its reason (src/lib/idea-scorecard): originality,
+  // trend relevance, brand fit and engagement potential from the idea review,
+  // and source quality over the facts it states. Null for older ideas.
+  scorecard: jsonb('scorecard').$type<IdeaScorecard>(),
   unsupportedClaims: jsonb('unsupported_claims').$type<string[]>().default([]),
   sourceIds: jsonb('source_ids').$type<string[]>().default([]),
   risks: jsonb('risks').$type<string[]>().default([]),
@@ -626,6 +663,10 @@ export const ideasTable = pgTable('ideas', {
   // The enabled formats ideation judged this idea suits; empty when the run
   // had only one format to choose from.
   formatFit: jsonb('format_fit').$type<string[]>().default([]).notNull(),
+  // The public post this idea was made from ("a post like this one", see
+  // src/lib/reference-post): its link and what could be read of it. Drafting
+  // writes a post like it. Null for ideas from a run.
+  reference: jsonb('reference').$type<ReferencePost>(),
   ...commonFieldDefs.dates
 },
   table => [
@@ -882,6 +923,71 @@ export const postSlidesTable = pgTable(
   },
   table => [index('post_slides_draft_position_idx').on(table.draftId, table.position)]
 )
+
+// ---------------------------------------------------------------------------
+// 14c. Post Videos (1:N with PostDraft) — AI clips made from a video script
+// ---------------------------------------------------------------------------
+
+/**
+ * One AI video generated for a Reel or Short (src/lib/video), newest the
+ * one shown. Kept out of post_media, whose active row every image path
+ * (publishing, thumbnails, image edits) reads as the post's image.
+ *
+ * A generation is started and then checked until its provider finishes
+ * (start/status, so no request outlives a serverless function):
+ * 'generating' → 'finishing' (one checker downloads and stores it) →
+ * 'ready' | 'failed'. A newer ready video marks the older ones 'superseded'.
+ */
+export const postVideosTable = pgTable(
+  'post_videos',
+  {
+    id: commonFieldDefs.id(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
+    // 1, 2, 3… per post.
+    version: integer('version').notNull(),
+    status: varchar('status', { length: 20 })
+      .$type<'generating' | 'finishing' | 'ready' | 'failed' | 'superseded'>()
+      .notNull(),
+    // Which provider and model made it (src/lib/video/providers).
+    provider: varchar('provider', { length: 40 }).notNull(),
+    modelId: varchar('model_id', { length: 120 }).notNull(),
+    // The provider's opaque reference to the running job, for its status.
+    operation: jsonb('operation'),
+    // The prompt the video model was given, and what the reviewer asked for.
+    prompt: text('prompt').notNull(),
+    direction: text('direction'),
+    aspectRatio: varchar('aspect_ratio', { length: 10 }).notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    durationSeconds: integer('duration_seconds').notNull(),
+    // The clip: storage://… (src/lib/media/image-store), set once ready.
+    videoUrl: text('video_url'),
+    mediaType: varchar('media_type', { length: 40 }),
+    byteSize: integer('byte_size'),
+    error: text('error'),
+    // What it was estimated to cost when started, and what was billed.
+    estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 4 }).notNull(),
+    costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
+    // Warnings and anything else the provider reported.
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
+    lastCheckedAt: commonFieldDefs.date('last_checked_at'),
+    completedAt: commonFieldDefs.date('completed_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('post_videos_draft_created_idx').on(table.draftId, table.createdAt),
+    // One generation at a time per post: a second request (a double click,
+    // two tabs) fails here instead of paying for a second video.
+    uniqueIndex('post_videos_one_running_uq')
+      .on(table.draftId)
+      .where(sql`${table.status} in ('generating', 'finishing')`),
+    uniqueIndex('post_videos_draft_version_uq').on(table.draftId, table.version)
+  ]
+)
+
+export type PostVideo = typeof postVideosTable.$inferSelect
 
 // ---------------------------------------------------------------------------
 // 15. Schedules (1:1 with Account) — when automatic runs fire
@@ -1674,6 +1780,124 @@ export const publicationsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 26. Platform Insights (1 per Account and platform) — what an identity's
+//     public profile on a platform shows (src/lib/profile-insights)
+// ---------------------------------------------------------------------------
+
+export const platformInsightsTable = pgTable(
+  'platform_insights',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    platform: varchar('platform', { length: 30 }).$type<PlatformId>().notNull(),
+    // The profile link analyzed: the identity's profile_links entry for this
+    // platform. A different link starts over, with nothing kept.
+    profileUrl: text('profile_url').notNull(),
+    // How the latest analysis went. A failed refresh keeps the insights an
+    // earlier one made, and drafting goes on using them.
+    status: varchar('status', { length: 20 })
+      .$type<InsightStatus>()
+      .default('analyzing')
+      .notNull(),
+    // The latest insights made (or edited); null until one succeeds.
+    insights: jsonb('insights').$type<ProfileInsights>(),
+    // The posts they were made from, shown beside them (never sent to drafting).
+    posts: jsonb('posts').$type<InsightPost[]>().default([]).notNull(),
+    sources: jsonb('sources').$type<InsightSources>().default({}).notNull(),
+    // Why the latest analysis could not be made, in words for the user.
+    error: text('error'),
+    // The latest analysis began: a row still 'analyzing' long after this was
+    // interrupted, and this tells a run apart from the one that replaced it.
+    startedAt: commonFieldDefs.date('started_at'),
+    analyzedAt: commonFieldDefs.date('analyzed_at'),
+    // Set when the user edits the insights; a refresh replaces the edits.
+    editedAt: commonFieldDefs.date('edited_at'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    unique('platform_insights_account_platform_unique').on(
+      table.accountId,
+      table.platform
+    ),
+    check(
+      'platform_insights_status_check',
+      sql`${table.status} in (${sqlList(INSIGHT_STATUSES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// 27. AI Usage — every paid model call, in one ledger (src/lib/ai/spend.ts)
+// ---------------------------------------------------------------------------
+
+// One row per billed call: a model answer, a research-agent step, an
+// embedding request, an image. Written by the few functions every paid call
+// goes through, so spend outside runs (newsletters, setup, post editing) is
+// recorded too, and the spending limit reads it. Run totals (runs.cost_usd)
+// are still summed from run_steps; this is the account-wide record.
+export const aiUsageTable = pgTable(
+  'ai_usage',
+  {
+    id: commonFieldDefs.id(),
+    // Who the call is charged to: the user who owns the work and the identity
+    // it was for. The spending limit is per user, so it covers every identity
+    // they own and the setup done before an identity exists. Both stay when
+    // the identity is deleted, so deleting one does not hand its spend back.
+    // Null for shared work no one account caused (embedding the newsletter
+    // stories of every workspace at once).
+    userId: uuid('user_id').references(() => authUsersTable.id, {
+      onDelete: 'set null'
+    }),
+    accountId: uuid('account_id').references(() => accountsTable.id, {
+      onDelete: 'set null'
+    }),
+    runId: uuid('run_id').references(() => runsTable.id, {
+      onDelete: 'set null'
+    }),
+    // The post the call was for: writing it, its image, slides or video, and
+    // every rewrite since, so each post can show what it cost. No foreign
+    // key: drafting's calls are recorded before the post row is saved, and a
+    // deleted post's spend stays counted. Null for work no one post owns
+    // (research, ideation) and for calls from before posts were tagged.
+    draftId: uuid('draft_id'),
+    source: varchar('source', { length: 20 }).$type<AiSpendSource>().notNull(),
+    // A text call's stage (AIStage in src/lib/ai.ts), else 'embedding' or
+    // 'image'. Rows copied from run_steps keep the step's stage.
+    stage: varchar('stage', { length: 30 }).notNull(),
+    model: varchar('model', { length: 100 }).notNull(),
+    calls: integer('calls').default(1).notNull(),
+    inputTokens: integer('input_tokens').default(0).notNull(),
+    outputTokens: integer('output_tokens').default(0).notNull(),
+    cacheReadTokens: integer('cache_read_tokens').default(0).notNull(),
+    cacheWriteTokens: integer('cache_write_tokens').default(0).notNull(),
+    reasoningTokens: integer('reasoning_tokens').default(0).notNull(),
+    totalTokens: integer('total_tokens').default(0).notNull(),
+    // Unrounded: an embedding request costs millionths of a dollar.
+    costUsd: numeric('cost_usd', { precision: 14, scale: 8 })
+      .default('0')
+      .notNull(),
+    // The cost is the rate-table estimate (src/lib/ai/usage.ts), or unknown
+    // for an image the gateway did not price, rather than the gateway's bill.
+    costEstimated: boolean('cost_estimated').default(false).notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    // The spending limit: one user's last 30 days.
+    index('ai_usage_user_created_idx').on(table.userId, table.createdAt),
+    // The usage cards, and the limit of an identity no user owns.
+    index('ai_usage_account_created_idx').on(table.accountId, table.createdAt),
+    // Each post's cost, on the posts pages.
+    index('ai_usage_draft_idx').on(table.draftId),
+    check(
+      'ai_usage_source_check',
+      sql`${table.source} in (${sqlList(AI_SPEND_SOURCES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -1788,3 +2012,5 @@ export type PlatformConnection = typeof platformConnectionsTable.$inferSelect
 export type BufferConnection = typeof bufferConnectionsTable.$inferSelect
 export type BufferChannelRow = typeof bufferChannelsTable.$inferSelect
 export type Publication = typeof publicationsTable.$inferSelect
+export type PlatformInsightRow = typeof platformInsightsTable.$inferSelect
+export type AiUsageRow = typeof aiUsageTable.$inferSelect

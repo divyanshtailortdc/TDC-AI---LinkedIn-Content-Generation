@@ -19,6 +19,7 @@ import {
 } from '@/lib/formats'
 import { lockPost } from '@/lib/post-revisions'
 import { isPublishingConfigured } from '@/lib/publishing/config'
+import type { PublishingDb } from '@/lib/publishing/connection'
 import { hasLivePublication } from '@/lib/publishing/publication-queries'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import {
@@ -29,7 +30,9 @@ import {
 import { recheckPostText } from '~/lib/ai/pipeline/post-recheck'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
 import { SkillError } from '~/lib/ai/run-skill'
+import { forFormat } from '~/lib/ai/channel-context'
 import { rewriteSlide, writeSlides } from '~/lib/ai/skills/carousel-slides'
+import { collectFigureSources } from '~/lib/ai/skills/post-drafting/guard'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
 import type { LintFinding } from '~/lib/lint/run-linter'
@@ -45,7 +48,7 @@ import {
   storeImage,
   viewableImageUrl
 } from '~/lib/media/image-store'
-import { clampWords, cleanSlideText } from './checks'
+import { clampWords, cleanSlideText, slideFactIssues } from './checks'
 import {
   drawCarousel,
   drawSlide,
@@ -56,6 +59,7 @@ import {
 import {
   loadSlideRows,
   slideContentOf,
+  slideFactIssuesOf,
   slideIssues,
   slideRowValues
 } from './rows'
@@ -150,6 +154,7 @@ export async function buildCarouselRows(input: {
             : null,
           error: d.error,
           issues: d.issues,
+          factIssues: written.factIssues[i] ?? [],
           picturePrompt: d.picturePrompt
         })
       )
@@ -199,20 +204,43 @@ async function ownedPost(
   return draft
 }
 
-/** A post marked posted, or out on its platform, keeps the slides that went out. */
-async function assertEditable(draft: PostDraft) {
+/**
+ * A post marked posted, or out on its platform, keeps the slides that went
+ * out. `database` may be a transaction holding the post's lock.
+ */
+async function assertEditable(draft: PostDraft, database: PublishingDb = db) {
   if (draft.postedAt) {
     throw new CarouselError(
       'This post is marked as posted, so its slides can no longer change.',
       'not_editable'
     )
   }
-  if (isPublishingConfigured() && (await hasLivePublication(db, draft.id))) {
+  if (isPublishingConfigured() && (await hasLivePublication(database, draft.id))) {
     throw new CarouselError(
       'This post is published on its platform, so its slides can no longer change.',
       'not_editable'
     )
   }
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/**
+ * Runs `write` in a transaction holding the post's lock, once the locked row
+ * shows its slides can still change. Every change to the slides is saved
+ * this way: the check before a slide is drawn or written by AI can be
+ * minutes old, and a post that went out meanwhile keeps what went out.
+ */
+async function whileEditable<T>(
+  draftId: string,
+  write: (tx: Tx) => Promise<T>
+): Promise<T> {
+  return db.transaction(async tx => {
+    const current = await lockPost(tx, draftId)
+    if (!current) throw new CarouselError('Post not found.', 'not_found')
+    await assertEditable(current, tx)
+    return write(tx)
+  })
 }
 
 async function ideaOf(draft: PostDraft): Promise<Idea> {
@@ -270,6 +298,20 @@ export async function loadCarousel(
   return Promise.all(rows.map(toView))
 }
 
+/**
+ * A link to the carousel's first drawn slide, for the post's card on the
+ * Posts list; null when no slide has been drawn yet.
+ */
+export async function loadCarouselCover(
+  accountId: string,
+  draftId: string
+): Promise<string | null> {
+  await ownedPost(accountId, draftId)
+  const rows = await loadSlideRows(db, draftId)
+  const first = rows.find(row => row.imageUrl)
+  return first?.imageUrl ? viewableImageUrl(first.imageUrl) : null
+}
+
 async function toView(row: PostSlide): Promise<SlideView> {
   let imageUrl: string | null = null
   if (row.imageUrl) {
@@ -287,7 +329,8 @@ async function toView(row: PostSlide): Promise<SlideView> {
     hasPicture: Boolean(row.pictureUrl),
     status: row.renderStatus === 'failed' ? 'failed' : 'ready',
     error: row.renderError,
-    issues: slideIssues(row)
+    // What its words state that no source does comes first.
+    issues: [...slideFactIssuesOf(row), ...slideIssues(row)]
   }
 }
 
@@ -427,14 +470,10 @@ export async function createCarouselForPost(
     throw new CarouselError('Making the slides was stopped.', 'aborted')
   }
 
+  // A post that went out while its slides were being made keeps what it went
+  // out with (the stored slides are deleted below).
   const replace = async () =>
-    db.transaction(async tx => {
-      const current = await lockPost(tx, draftId)
-      if (!current) throw new CarouselError('Post not found.', 'not_found')
-      // Again on the locked row: a post that went out while its slides were
-      // being made keeps what it went out with (the stored slides are
-      // deleted below).
-      await assertEditable(current)
+    whileEditable(draftId, async tx => {
       const old = await tx
         .select({
           imageUrl: postSlidesTable.imageUrl,
@@ -477,14 +516,17 @@ interface Prepared {
   rows: PostSlide[]
   kit: SlideKit
   caption: string
+  /** What the slides may state (see slideFactIssues); null without an idea. */
+  figureSources: string | null
 }
 
 async function prepare(accountId: string, draftId: string): Promise<Prepared> {
   const draft = await ownedPost(accountId, draftId)
   await assertEditable(draft)
   const formatId = formatOf(draft.formatId)
-  const ctx = draft.ideaId
-    ? await loadIdeaContext(await ideaOf(draft), {
+  const idea = draft.ideaId ? await ideaOf(draft) : null
+  const ctx = idea
+    ? await loadIdeaContext(idea, {
         lintOnly: true,
         platform: draft.platform
       })
@@ -498,15 +540,29 @@ async function prepare(accountId: string, draftId: string): Promise<Prepared> {
     formatId,
     rows: await loadSlideRows(db, draftId),
     kit: await loadSlideKit(brand, ctx?.account.name ?? null),
-    caption: captionOf(formatId, draft)
+    caption: captionOf(formatId, draft),
+    figureSources:
+      ctx && idea ? collectFigureSources(forFormat(ctx, formatId), idea) : null
   }
 }
 
+/** A slide drawn again and stored, not yet saved. */
+interface DrawnSlide {
+  row: PostSlide
+  values: Omit<NewPostSlide, 'draftId' | 'position'>
+  /** Stored for this drawing: deleted when it is not saved. */
+  stored: Array<string | null>
+  /** What the saved drawing replaces: deleted once it is saved. */
+  replaced: Array<string | null>
+}
+
 /**
- * Draws one slide again and saves it with `content`, `picture` (stored as
- * `pictureUrl`; undefined keeps the row's), its number and the total.
+ * Draws one slide again with `content`, `picture` (stored as `pictureUrl`;
+ * undefined keeps the row's), its number and the total, and stores the
+ * image. Nothing is saved: see saveDrawn. `factIssues` are for new words
+ * (slideFactIssues); undefined keeps the row's.
  */
-async function redrawOne(
+async function drawRow(
   kit: SlideKit,
   row: PostSlide,
   content: SlideContent,
@@ -516,8 +572,9 @@ async function redrawOne(
     url: string | null
     issues?: string[]
     prompt?: string
-  }
-): Promise<void> {
+  },
+  factIssues?: string[]
+): Promise<DrawnSlide> {
   const bytes = picture ? picture.bytes : await pictureOf(row)
   let imageUrl: string | null = null
   let error: string | null = null
@@ -543,19 +600,59 @@ async function redrawOne(
     pictureUrl: picture ? picture.url : row.pictureUrl,
     error,
     issues: picture?.issues ?? (picture ? [] : slideIssues(row)),
+    factIssues: factIssues ?? slideFactIssuesOf(row),
     picturePrompt: picture?.prompt
   })
-  const [saved] = await db
-    .update(postSlidesTable)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(postSlidesTable.id, row.id))
-    .returning({ id: postSlidesTable.id })
-  // Deleted meanwhile: what was just stored belongs to nothing.
-  const replaced = saved ? [row.imageUrl] : [imageUrl]
-  if (picture && saved && row.pictureUrl !== picture.url)
-    replaced.push(row.pictureUrl)
-  void deleteStoredImages(replaced)
-  if (!saved)
+  const newPicture = Boolean(picture) && picture!.url !== row.pictureUrl
+  return {
+    row,
+    values,
+    stored: [imageUrl, newPicture ? picture!.url : null],
+    replaced: [row.imageUrl, newPicture ? row.pictureUrl : null]
+  }
+}
+
+/**
+ * Saves drawn slides together, while the post can still change (see
+ * whileEditable), and returns the ids saved: a slide deleted meanwhile is
+ * not. What a slide replaced is deleted once it is saved; what was stored
+ * for a slide that was not saved belongs to nothing and is deleted too.
+ */
+async function saveDrawn(
+  draftId: string,
+  drawn: DrawnSlide[]
+): Promise<Set<string>> {
+  let saved: Set<string>
+  try {
+    saved = await whileEditable(draftId, async tx => {
+      const ids = new Set<string>()
+      for (const d of drawn) {
+        const [row] = await tx
+          .update(postSlidesTable)
+          .set({ ...d.values, updatedAt: new Date() })
+          .where(eq(postSlidesTable.id, d.row.id))
+          .returning({ id: postSlidesTable.id })
+        if (row) ids.add(row.id)
+      }
+      return ids
+    })
+  } catch (err) {
+    void deleteStoredImages(drawn.flatMap(d => d.stored))
+    throw err
+  }
+  void deleteStoredImages(
+    drawn.flatMap(d => (saved.has(d.row.id) ? d.replaced : d.stored))
+  )
+  return saved
+}
+
+/** Draws one slide again (as drawRow) and saves it. */
+async function redrawOne(
+  ...args: Parameters<typeof drawRow>
+): Promise<void> {
+  const drawn = await drawRow(...args)
+  const saved = await saveDrawn(drawn.row.draftId, [drawn])
+  if (!saved.has(drawn.row.id))
     throw new CarouselError('That slide no longer exists.', 'not_found')
 }
 
@@ -565,11 +662,12 @@ async function redrawAll(
   draftId: string
 ): Promise<void> {
   const rows = await loadSlideRows(db, draftId)
-  await Promise.all(
+  const drawn = await Promise.all(
     rows.map(row =>
-      redrawOne(prepared.kit, row, slideContentOf(row), rows.length)
+      drawRow(prepared.kit, row, slideContentOf(row), rows.length)
     )
   )
+  await saveDrawn(draftId, drawn)
 }
 
 // ------------------------------------------------------------------ editing
@@ -625,7 +723,15 @@ export async function updateSlide(
   next.altText = [next.headline, next.body.replace(/\n/g, '. ')]
     .filter(Boolean)
     .join('. ')
-  await redrawOne(prepared.kit, row, next, prepared.rows.length)
+  // The reviewer's words are theirs to keep; what no source states is shown.
+  await redrawOne(
+    prepared.kit,
+    row,
+    next,
+    prepared.rows.length,
+    undefined,
+    prepared.figureSources ? slideFactIssues(next, prepared.figureSources) : []
+  )
   return toView(await slideOf(draftId, slideId))
 }
 
@@ -670,7 +776,8 @@ export async function rewriteSlideForPost(
       row,
       rewritten.slide,
       prepared.rows.length,
-      keepsPicture ? undefined : { bytes: null, url: null }
+      keepsPicture ? undefined : { bytes: null, url: null },
+      rewritten.factIssues
     )
     return toView(await slideOf(draftId, slideId))
   } catch (err) {
@@ -804,8 +911,7 @@ export async function deleteSlide(
       'invalid'
     )
   }
-  await db.transaction(async tx => {
-    await lockPost(tx, draftId)
+  await whileEditable(draftId, async tx => {
     await tx.delete(postSlidesTable).where(eq(postSlidesTable.id, slideId))
     await tx
       .update(postSlidesTable)
@@ -840,8 +946,7 @@ export async function moveSlide(
       'invalid'
     )
   }
-  await db.transaction(async tx => {
-    await lockPost(tx, draftId)
+  await whileEditable(draftId, async tx => {
     await tx
       .update(postSlidesTable)
       .set({ position: other.position })
@@ -852,20 +957,21 @@ export async function moveSlide(
       .where(eq(postSlidesTable.id, other.id))
   })
   const total = prepared.rows.length
-  await Promise.all([
-    redrawOne(
+  const drawn = await Promise.all([
+    drawRow(
       prepared.kit,
       { ...row, position: other.position },
       slideContentOf(row),
       total
     ),
-    redrawOne(
+    drawRow(
       prepared.kit,
       { ...other, position: row.position },
       slideContentOf(other),
       total
     )
   ])
+  await saveDrawn(draftId, drawn)
   return loadCarousel(accountId, draftId)
 }
 
@@ -900,8 +1006,7 @@ export async function addSlide(
     design: { layout: 'statement', picture: false, emphasis: [] },
     altText: 'New slide'
   }
-  await db.transaction(async tx => {
-    await lockPost(tx, draftId)
+  await whileEditable(draftId, async tx => {
     await tx
       .update(postSlidesTable)
       .set({ position: sql`${postSlidesTable.position} + 1` })

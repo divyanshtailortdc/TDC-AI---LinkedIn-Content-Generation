@@ -62,6 +62,8 @@ const account: Account = {
   linkedinUrl: null,
   profileLinks: {},
   industry: 'Accounting',
+  contextSince: null,
+  contextIdentity: null,
   isActive: true,
   createdAt: now,
   updatedAt: now
@@ -357,6 +359,8 @@ function idea(overrides: Partial<Idea>): Idea {
     originalityScore: 80,
     goalFitScore: null,
     goalFitNote: null,
+    scorecard: null,
+    reference: null,
     unsupportedClaims: [],
     sourceIds: [],
     risks: [],

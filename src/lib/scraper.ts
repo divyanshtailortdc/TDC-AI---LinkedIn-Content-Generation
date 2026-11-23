@@ -1,6 +1,11 @@
 import * as cheerio from 'cheerio'
 import { readableText } from './html-text'
-import { resolvePublicHttpUrl, safeFetch, UnsafeUrlError } from './safe-url'
+import {
+  readTextCapped,
+  resolvePublicHttpUrl,
+  safeFetch,
+  UnsafeUrlError
+} from './safe-url'
 import { extractPlatformLinks, extractSiteLinks, type SiteLink } from './site-links'
 
 export type ScrapedContent = {
@@ -111,6 +116,10 @@ export const BROWSER_HEADERS = {
 
 /** A homepage with its scripts inlined can run to a few megabytes; menus come early. */
 const MAX_HTML_CHARS = 3_000_000
+/** Pages are downloaded no further; UTF-8 never has fewer bytes than characters. */
+const MAX_HTML_BYTES = MAX_HTML_CHARS
+/** Jina's JSON reply, which holds the page's whole text; only 50k characters are kept. */
+const MAX_READER_BYTES = 5_000_000
 
 /** A page's readable text from its HTML, or null when it has too little to read. */
 function readHtml(html: string, pageUrl: string): ScrapedContent | null {
@@ -169,7 +178,7 @@ export async function scrapeHtml(url: string): Promise<{
   ) {
     return null
   }
-  const html = (await response.text()).slice(0, MAX_HTML_CHARS)
+  const { text: html } = await readTextCapped(response, MAX_HTML_BYTES)
   // Relative links resolve against where the page ended up after redirects.
   const pageUrl = response.url || url
   return {
@@ -194,7 +203,10 @@ async function readWithJina(validUrl: string): Promise<ScrapedContent | null> {
     })
 
     if (jinaResponse.ok) {
-      const jinaData = await jinaResponse.json()
+      const reply = await readTextCapped(jinaResponse, MAX_READER_BYTES)
+      // Cut short, the JSON cannot be parsed; the page is read directly instead.
+      if (reply.truncated) throw new Error('Jina reply too large')
+      const jinaData = JSON.parse(reply.text)
       const payload = jinaData.data || jinaData
       const rawContent = (payload.content || '').trim()
 
@@ -239,7 +251,8 @@ async function scrapeUncached(validUrl: string): Promise<ScrapedContent> {
     })
 
     if (response.ok) {
-      const page = readHtml(await response.text(), validUrl)
+      const { text: html } = await readTextCapped(response, MAX_HTML_BYTES)
+      const page = readHtml(html, validUrl)
       if (page) return page
     }
   } catch (directErr) {
@@ -247,7 +260,7 @@ async function scrapeUncached(validUrl: string): Promise<ScrapedContent> {
   }
 
   throw new Error(
-    'Unable to extract content from this URL. Please copy and paste the text directly into the "Add Custom Artifact" tab.'
+    'Unable to extract content from this URL. Please copy and paste the text directly into the "Paste text" tab.'
   )
 }
 
@@ -453,7 +466,8 @@ export async function scrapeArticle(
         true
       )
     } else {
-      direct = readArticleHtml(await response.text(), finalUrl)
+      const { text: html } = await readTextCapped(response, MAX_HTML_BYTES)
+      direct = readArticleHtml(html, finalUrl)
       if (direct && direct.wordCount >= opts.minWords) {
         return { ...direct, url: finalUrl }
       }

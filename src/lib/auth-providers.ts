@@ -8,10 +8,9 @@
  * Sign-in only: none of these is a platform posts are written for or
  * published to (src/lib/platforms, src/lib/publishing).
  */
-export const SOCIAL_PROVIDER_IDS = ['linkedin', 'google'] as const
+export const SOCIAL_PROVIDER_IDS = ['google'] as const
 export type SocialProvider = (typeof SOCIAL_PROVIDER_IDS)[number]
 
 export const SOCIAL_PROVIDER_LABELS: Record<SocialProvider, string> = {
-  linkedin: 'LinkedIn',
   google: 'Google'
 }

@@ -1,0 +1,124 @@
+# Run Details
+
+Run Details lists every run of the active identity, newest first. Open any run to see what it did, what it found, the ideas it produced and what it cost.
+
+To start a run, click **Generate Now**; see [Starting a Run](/docs/account-setup/runs).
+
+<Eyebrow href="/runs">Run Details</Eyebrow>
+
+## See a run in context
+
+### Follow a run as it works
+
+A run's page shows its status and each step as it happens, then the ideas it produced.
+
+<Screenshot
+  name="run-details"
+  alt="A run's status and steps, boxed in red"
+/>
+
+## Spending at a glance
+
+Once you have runs, four cards sit above the list:
+
+| Card                  | What it shows                                                    |
+| --------------------- | ---------------------------------------------------------------- |
+| **Last 7 days**       | What runs from the last 7 days cost, and how many there were.    |
+| **Last 30 days**      | The same for the last 30 days.                                   |
+| **Average per run**   | The average cost of runs that have a recorded cost.              |
+| **Projected monthly** | A month's cost at the last 7 days' pace.                         |
+
+These count runs only. AI spending outside runs, such as newsletters or identity setup, is on the [Dashboard](/docs/getting-started/dashboard).
+
+## The run list
+
+Status chips above the list show only some runs: **All**, **In progress**, **Ideas to review**, **Completed** or **Failed & stopped**. Each chip shows how many runs it holds. **In progress** covers every run still working, from **Queued** to **Drafting posts**.
+
+Each row is titled with the goals the run was for (the first two, then how many more), or the identity's name. Under the title are one outcome and when the run started. The outcome is how many ideas wait for review, such as "4 to review", or else how many are approved, how many became posts, or how many ideas the run wrote. A failed run shows its error instead. A run that is working shows a progress bar, and the run's status is on the right.
+
+Hover over a row for the rest: how the run was started (**Manual** or **Scheduled**), its platform, the identity's name as it was when the run started, its cost and its tokens. Click anywhere on a row to open the run.
+
+The list updates itself every few seconds while a run is moving, and notices runs started elsewhere, such as by your schedule.
+
+## Run statuses
+
+| Status               | What it means                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| **Queued**           | Waiting to start. A run can wait here briefly if the server is busy with other runs. |
+| **Running**          | Started, and gathering your identity's context.                                      |
+| **Researching**      | Searching the web, news and trends, and reading your knowledge base and newsletters. |
+| **Generating ideas** | Writing ideas and checking them.                                                     |
+| **Ideas to review**  | Ideas are ready. Some wait for your review, or approved ideas wait to become posts.  |
+| **Drafting posts**   | Posts are being written from approved ideas.                                         |
+| **Completed**        | No idea is left to review and every approved idea has become a post.                 |
+| **Failed**           | The run ended with an error and saved no ideas. The message says why.                |
+| **Stopped**          | You stopped it. It saved no ideas.                                                   |
+
+A completed run goes back to Ideas to review if you later approve one of its ideas, for example one you had rejected.
+
+## Inside a run
+
+A run's page is titled with its goals (or "Run for" and the identity's name), with the status beside it and **All runs** above it to go back. The line underneath says how the run was started, when, its platform if it wrote for one only, and how long it took.
+
+### Problems
+
+When something went wrong, a banner comes first. It shows the run's error, then folded lists of **Failed steps** and **Goals without ideas**, each with why. A goal left without ideas needs another run, or more knowledge base sources about it. Once the run has stopped working, **Re-analyze** sits beside the problems.
+
+### Pipeline
+
+**Pipeline** sums up the run in its four stages: **Gathering context**, **Researching**, **Generating ideas** and **Drafting posts**. Each says where the stage stands, such as how long it took, "In progress…", "Failed", "Stopped" or "Not started", and gives one figure, such as "3 goals · 5 docs", "42 sources · 6 stories" or "5 of 9 ideas" (the ideas kept, of those written). Hover over a stage for more, such as how many results were screened out or passed the source checks, or what a running stage is doing. Drafting shows "Awaiting approval" until you create posts, then how many were written.
+
+While the run is working, **Stop analysis** stops it. Once it has finished, **Re-analyze** starts a new run for the same goals and platform choice. The old run, its ideas and their posts stay, and because those ideas now count as earlier work, the new run looks for fresh angles.
+
+### Ideas from this run
+
+**Ideas** lists the run's ideas, with chips to show one status at a time: **To review**, **Approved**, **Drafted**, **Rejected** or **All**, each with its count. The cards work as on the Ideas page: approve, reject, edit and read each scorecard. **Open in Ideas** goes to the Ideas page, and once posts are written, **View posts** opens them.
+
+At the top of the page, **Approve all** approves every idea still to review once you confirm, and **Select approved** ticks the approved ones. Ticking ideas brings up a bar that stays at the bottom of the screen as you scroll. It counts your selection and offers **Approve N** for the ones still to review and **Create N posts** for the approved ones. The X clears the selection. Posts created here open on the Posts page filtered to this run.
+
+### Evidence
+
+**Evidence** shows what the ideas could draw on, such as "42 pieces · 30 recent":
+
+- **By source**: **Web research**, **Trend scan**, **Newsletters**, **Knowledge base** and **Your offerings**.
+- **Trust**: the web sources by credibility, from official sources and established news down to low-quality sites.
+- The sources themselves, each with its site (or "Knowledge base") and how far it can be trusted. Hover over one for what it says, what it was found for and its date. Pick a kind, such as **Web research**, **In the news**, **Trend**, **What people say** or **Knowledge base**, or type in **Search**.
+- **Searches**, folded: the searches behind the sources.
+- **Screened out**, folded: results kept from the writer as weak or off-topic, each with why.
+
+### Idea quality
+
+**Idea quality** shows the kept ideas' average scores out of 100, such as **Goal fit**, **Originality** and **Source quality**, and **Ideas per goal**, where a goal left without one stands out. **Discarded**, folded, lists each dropped idea with why.
+
+### Tokens and cost
+
+The **Tokens & cost** panel shows the **Total cost**, the **Cost per post** (the run's cost shared across the posts written from it), **Output tokens** and the **Cache hit rate**. **By stage**, folded, breaks the cost down: **Ideation**, **Drafting**, **Revision pass** and **Media (brief + image)**. If some calls came back without a price, an info button beside the number of calls says the total may be slightly low.
+
+### Run configuration
+
+**Run configuration**, folded at the bottom, shows the run ID, how it was started, the identity, its platform, when it started, how it researched, the model that wrote the ideas and the settings it ran with.
+
+## When a run fails
+
+A failed run shows its error in the problems banner. It saves no ideas, but what it spent before failing still counts.
+
+| Message starts with                                     | What happened                                                                                                                                                    |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "No idea survived grounding and novelty checks."        | Every idea was dropped: its facts had no sources, it missed its goal, or it repeated earlier work. Adding knowledge base sources about your goals usually helps. |
+| "The run took longer than"                              | It hit its time limit and was stopped.                                                                                                                           |
+| "The server stopped while this run was in progress."    | The server restarted mid-run.                                                                                                                                    |
+| "None of the goals picked for this run exist any more." | Its goals were deleted after it was queued.                                                                                                                      |
+| "None of the goals picked for this run are for"         | It was planned for one platform, but none of its goals are meant for it.                                                                                         |
+
+A run also fails at once if an AI spending limit has been reached; the message says which. Fix the cause, then start a new run. **Re-analyze** is quickest when the run's goals still exist.
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Starting a Run', href: '/docs/account-setup/runs' },
+    { title: 'Ideas', href: '/docs/account-setup/ideas' },
+    { title: 'Troubleshooting', href: '/docs/help/troubleshooting' },
+    { title: 'AI usage', href: '/docs/help/ai-usage' }
+  ]}
+/>

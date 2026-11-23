@@ -22,6 +22,8 @@ import { IdentityProfileSchema } from '../src/lib/identity-profile'
 import {
   isPrivateAddress,
   parsePublicHttpUrl,
+  readBodyCapped,
+  readTextCapped,
   resolvePublicHttpUrl,
   UnsafeUrlError
 } from '../src/lib/safe-url'
@@ -840,6 +842,59 @@ describe('safe-url', () => {
       resolvePublicHttpUrl('http://localtest.me'),
       UnsafeUrlError
     )
+  })
+
+  const chunked = (...chunks: (string | Uint8Array)[]) =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(
+              typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk
+            )
+          }
+          controller.close()
+        }
+      })
+    )
+
+  it('reads a body within the cap whole', async () => {
+    assert.deepStrictEqual(await readTextCapped(chunked('<p>', 'hi', '</p>'), 9), {
+      text: '<p>hi</p>',
+      truncated: false
+    })
+    assert.deepStrictEqual(await readTextCapped(new Response(null), 9), {
+      text: '',
+      truncated: false
+    })
+  })
+
+  it('stops reading an endless body at the cap', async () => {
+    let pulls = 0
+    let cancelled = false
+    const endless = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls++
+          controller.enqueue(new Uint8Array(1000).fill(0x61))
+        },
+        cancel() {
+          cancelled = true
+        }
+      })
+    )
+    const { bytes, truncated } = await readBodyCapped(endless, 2500)
+    assert.strictEqual(bytes.byteLength, 2500)
+    assert.strictEqual(truncated, true)
+    assert.strictEqual(cancelled, true)
+    assert.ok(pulls <= 4, `pulled ${pulls} chunks`)
+  })
+
+  it('drops a character cut in half by the cap', async () => {
+    // "é" is two bytes; the cap falls between them.
+    const { text, truncated } = await readTextCapped(chunked('abé'), 3)
+    assert.strictEqual(text, 'ab')
+    assert.strictEqual(truncated, true)
   })
 })
 

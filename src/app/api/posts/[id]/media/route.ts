@@ -10,11 +10,14 @@ import {
 } from '~/lib/media/image-input'
 import { createPostMedia } from '~/lib/media/post-media'
 import { createPromptMediaForDraft } from '~/lib/media/prompt-media'
+import { withAiSpend } from '~/lib/ai/spend'
 import { requireIdentityId } from '@/lib/identity'
 import { PostLockedError } from '@/lib/publishing/post-lock'
 import { getSessionUser } from '@/lib/session'
 import { isUuid } from '~/lib/ids'
 import { z } from 'zod'
+import { publicErrorMessage } from '@/lib/public-error'
+import { readTextCapped } from '@/lib/safe-url'
 
 /**
  * Image generation for a post draft from the reviewer's own input:
@@ -127,13 +130,15 @@ export async function POST(
     return fail(413, tooLarge)
   }
 
+  // Content-Length can be missing (a chunked request): the read stops at the limit.
   let raw: string
   try {
-    raw = await request.text()
+    const read = await readTextCapped(request, MAX_BODY_BYTES)
+    if (read.truncated) return fail(413, tooLarge)
+    raw = read.text
   } catch {
     return fail(400, 'Could not read the request.')
   }
-  if (raw.length > MAX_BODY_BYTES) return fail(413, tooLarge)
 
   let json: unknown
   try {
@@ -170,15 +175,17 @@ export async function POST(
   // cannot be stopped.
   if (fromPost) {
     try {
-      const outcome = await createPostMedia({
-        draftId: id,
-        accountId,
-        mode: 'ai_generated',
-        customPrompt: prompt || undefined,
-        style,
-        diagramType,
-        abortSignal: request.signal
-      })
+      const outcome = await withAiSpend({ source: 'posts', accountId, draftId: id }, () =>
+        createPostMedia({
+          draftId: id,
+          accountId,
+          mode: 'ai_generated',
+          customPrompt: prompt || undefined,
+          style,
+          diagramType,
+          abortSignal: request.signal
+        })
+      )
       if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
       if (outcome.status === 'aborted') return fail(499, 'Image generation was stopped.')
       if (outcome.status === 'failed') return fail(502, outcome.error)
@@ -188,7 +195,7 @@ export async function POST(
       if (err instanceof PostLockedError) return fail(409, err.message)
       if (request.signal.aborted) return fail(499, 'Image generation was stopped.')
       console.error('Error generating post media from the post text:', err)
-      return fail(502, err?.message || 'Failed to generate image.')
+      return fail(502, publicErrorMessage(err, 'Failed to generate image.'))
     }
   }
 
@@ -200,15 +207,17 @@ export async function POST(
   }
 
   try {
-    const outcome = await createPromptMediaForDraft({
-      draftId: id,
-      accountId,
-      prompt,
-      referenceMediaId,
-      referenceImage: upload,
-      style,
-      abortSignal: request.signal
-    })
+    const outcome = await withAiSpend({ source: 'posts', accountId, draftId: id }, () =>
+      createPromptMediaForDraft({
+        draftId: id,
+        accountId,
+        prompt,
+        referenceMediaId,
+        referenceImage: upload,
+        style,
+        abortSignal: request.signal
+      })
+    )
 
     if (outcome.status === 'draft_not_found') return fail(404, 'Post draft not found.')
     if (outcome.status === 'reference_not_found') {
@@ -229,6 +238,6 @@ export async function POST(
         : 'Error generating post media from prompt:',
       err
     )
-    return fail(502, err?.message || 'Failed to generate image.')
+    return fail(502, publicErrorMessage(err, 'Failed to generate image.'))
   }
 }

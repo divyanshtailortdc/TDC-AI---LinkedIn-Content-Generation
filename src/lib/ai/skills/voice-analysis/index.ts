@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { runSkill } from '../../run-skill'
+import { runSkill, SkillError } from '../../run-skill'
 import { analyzeHeuristically } from './fallback'
 import { sanitizeVoiceAnalysis } from './guard'
 import { buildPrompt, INSTRUCTIONS } from './prompt'
@@ -34,6 +34,10 @@ export async function analyzeVoiceSamples(
       modelUsed: `${providerName} (${modelId})`
     }
   } catch (error) {
+    // Past the spending limit the user is told so: the offline analyzer would
+    // pass for the AI having failed, and trying again would not help.
+    if (error instanceof SkillError && error.reason === 'spend_limit')
+      throw error
     // No key configured, or the call failed: the offline analyzer still gives
     // the user something to edit.
     console.warn('Voice analysis model call failed, using heuristic:', error)

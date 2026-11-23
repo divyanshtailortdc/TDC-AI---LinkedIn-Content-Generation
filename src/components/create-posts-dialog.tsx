@@ -10,11 +10,26 @@ import {
   needsImage,
   PLATFORMS,
   platformsOf,
+  supportsMediaFormat,
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
 import { canPublishFormat } from '@/lib/publishing/platform'
-import { ArrowRight, Check, Image as ImageIcon, Sparkles } from 'lucide-react'
+import {
+  describeVideoSpec,
+  VIDEO_FORMATS,
+  VIDEO_GENERATION_ENABLED,
+  VIDEO_SPECS,
+  type VideoFormatId
+} from '@/lib/video/formats'
+import {
+  ArrowRight,
+  Check,
+  Clapperboard,
+  GalleryHorizontal,
+  Image as ImageIcon,
+  Sparkles
+} from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -34,6 +49,7 @@ export function CreatePostsDialog({
   suggested,
   enabledFormats,
   initialPlatforms,
+  imageByDefault = true,
   confirmLabel,
   onCancel,
   onConfirm
@@ -46,13 +62,23 @@ export function CreatePostsDialog({
   enabledFormats: readonly FormatId[]
   /** Picked when it opens (the platform whose ideas are shown); still changeable. */
   initialPlatforms?: readonly PlatformId[]
+  /**
+   * Whether "Add an image" starts ticked (it does unless told otherwise; a
+   * post like a text-only one starts without). Still changeable.
+   */
+  imageByDefault?: boolean
   confirmLabel: string
   onCancel: () => void
   /**
-   * The chosen formats, one per platform, in the registry's order, and those
-   * of them whose posts get an image ("Add an image").
+   * The chosen formats, one per platform, in the registry's order, those of
+   * them whose posts get an image ("Add an image"), and of those the ones
+   * set to "Carousel" (the rest get a single image).
    */
-  onConfirm: (formats: FormatId[], imageFormats: FormatId[]) => void
+  onConfirm: (
+    formats: FormatId[],
+    imageFormats: FormatId[],
+    carouselFormats: FormatId[]
+  ) => void
 }) {
   const titleId = useId()
   const descriptionId = useId()
@@ -79,11 +105,18 @@ export function CreatePostsDialog({
         })
     )
   )
-  const [noImage, setNoImage] = useState<PlatformId[]>([])
+  const [noImage, setNoImage] = useState<PlatformId[]>(() =>
+    imageByDefault ? [] : platforms
+  )
+  // The platforms whose image is a carousel of slides; a single image unless
+  // picked here, so slides are never made without being asked for.
+  const [carousel, setCarousel] = useState<PlatformId[]>([])
   const togglePlatform = (platform: PlatformId) => {
     if (chosen.includes(platform)) {
       setChosen(prev => prev.filter(p => p !== platform))
-      setNoImage(prev => prev.filter(p => p !== platform))
+      setCarousel(prev => prev.filter(p => p !== platform))
+      // Picked again, it starts as the dialog did: with an image, or without.
+      setNoImage(prev => (imageByDefault ? prev.filter(p => p !== platform) : prev))
       setTypes(prev => {
         const next = { ...prev }
         delete next[platform]
@@ -97,13 +130,28 @@ export function CreatePostsDialog({
     if (only.length === 1) setTypes(prev => ({ ...prev, [platform]: only[0] }))
   }
 
+  // What to make: posts with an image (the steps below), or short videos.
+  const [kind, setKind] = useState<'image' | 'video'>('image')
+  const [videos, setVideos] = useState<VideoFormatId[]>([])
+  const toggleVideo = (id: VideoFormatId) =>
+    setVideos(prev =>
+      prev.includes(id)
+        ? prev.filter(v => v !== id)
+        : VIDEO_FORMATS.filter(v => v === id || prev.includes(v))
+    )
+
   const missingType = chosen.find(p => !types[p])
-  const ready = chosen.length > 0 && !missingType
+  const ready =
+    kind === 'video' ? videos.length > 0 : chosen.length > 0 && !missingType
   const formats = chosen.flatMap(p => (types[p] ? [types[p]!] : []))
   const imageFormats = formats.filter(
     f =>
       canHaveImage(f) &&
       (needsImage(f) || !noImage.includes(FORMATS[f].platform))
+  )
+  const carouselFormats = imageFormats.filter(
+    f =>
+      carousel.includes(FORMATS[f].platform) && supportsMediaFormat(f, 'carousel')
   )
 
   // Modal: the page behind must not act on its keys. Listening in the capture
@@ -149,6 +197,14 @@ export function CreatePostsDialog({
         </div>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
+          {/* Short video is switched off for now (VIDEO_GENERATION_ENABLED). */}
+          {VIDEO_GENERATION_ENABLED && (
+            <KindChoice value={kind} onChange={setKind} />
+          )}
+          {kind === 'video' ? (
+            <VideoChoice chosen={videos} onToggle={toggleVideo} />
+          ) : (
+          <>
           <fieldset>
             <legend className="text-foreground mb-2 text-xs font-semibold">
               1. Platform
@@ -286,6 +342,14 @@ export function CreatePostsDialog({
                             : [...prev, platform]
                         )
                       }
+                      carousel={carousel.includes(platform)}
+                      onCarouselChange={on =>
+                        setCarousel(prev =>
+                          on
+                            ? [...prev.filter(p => p !== platform), platform]
+                            : prev.filter(p => p !== platform)
+                        )
+                      }
                     />
                   )}
                   </div>
@@ -293,6 +357,8 @@ export function CreatePostsDialog({
               </div>
             )}
           </fieldset>
+          </>
+          )}
         </div>
 
         <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
@@ -300,14 +366,24 @@ export function CreatePostsDialog({
             aria-live="polite"
             className="text-muted mr-auto min-w-0 text-[11px] leading-snug"
           >
-            {chosen.length === 0
+            {kind === 'video'
+              ? videos.length === 0
+                ? 'Pick where the video goes.'
+                : `${videos.map(v => FORMATS[v].label).join(', ')}: script now, video on the post page.`
+              : chosen.length === 0
               ? 'Pick a platform.'
               : missingType
                 ? `Pick the type of ${PLATFORMS[missingType].label} post.`
                 : `${formats
                     .map(
                       f =>
-                        `${FORMATS[f].label}${imageFormats.includes(f) ? ' with image' : ''}`
+                        `${FORMATS[f].label}${
+                          carouselFormats.includes(f)
+                            ? ' with carousel'
+                            : imageFormats.includes(f)
+                              ? ' with image'
+                              : ''
+                        }`
                     )
                     .join(', ')}.`}
           </p>
@@ -321,7 +397,11 @@ export function CreatePostsDialog({
           <button
             type="button"
             disabled={!ready}
-            onClick={() => onConfirm(formats, imageFormats)}
+            onClick={() =>
+              kind === 'video'
+                ? onConfirm([...videos], [], [])
+                : onConfirm(formats, imageFormats, carouselFormats)
+            }
             className="bg-accent text-background hover:bg-accent-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles aria-hidden className="h-3.5 w-3.5" />
@@ -335,42 +415,214 @@ export function CreatePostsDialog({
   )
 }
 
+/** What to make: an image post (the platform and type steps) or a short video. */
+function KindChoice({
+  value,
+  onChange
+}: {
+  value: 'image' | 'video'
+  onChange: (value: 'image' | 'video') => void
+}) {
+  const options = [
+    { value: 'image', label: 'Image post', Icon: ImageIcon },
+    { value: 'video', label: 'Short video', Icon: Clapperboard }
+  ] as const
+  return (
+    <div
+      role="radiogroup"
+      aria-label="What to make"
+      className="border-border bg-surface grid grid-cols-2 rounded-xl border p-1"
+    >
+      {options.map(({ value: option, label, Icon }) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={value === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+            value === option
+              ? 'bg-accent text-background shadow-xs'
+              : 'text-muted hover:bg-surface-hover hover:text-foreground'
+          )}
+        >
+          <Icon aria-hidden className="h-3.5 w-3.5" />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Short video: where it goes. Each pick drafts a script now; its 8-second
+ * vertical video is generated on the post page, on request, after its cost
+ * is shown. Offered whatever the identity turned on in Preferences.
+ */
+function VideoChoice({
+  chosen,
+  onToggle
+}: {
+  chosen: readonly VideoFormatId[]
+  onToggle: (id: VideoFormatId) => void
+}) {
+  // What one video costs with the server's model: each Reel and Short drafted
+  // starts its video at once, so the cost is shown before Create.
+  const [estimate, setEstimate] = useState<{
+    estimateUsd: number | null
+    modelLabel: string | null
+    unavailable: string | null
+  } | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch('/api/video/estimate', { signal: controller.signal, cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => {
+        if (data?.success) setEstimate(data)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  return (
+    <fieldset>
+      <legend className="text-foreground mb-2 text-xs font-semibold">
+        Platform
+      </legend>
+      <div className="space-y-1.5">
+        {VIDEO_FORMATS.map(id => {
+          const spec = VIDEO_SPECS[id]
+          const on = chosen.includes(id)
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onToggle(id)}
+              data-platform={spec.platform}
+              className={cn(
+                'flex w-full cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-colors',
+                on ? 'border-brand/50 bg-brand/5' : 'border-border hover:bg-surface-hover'
+              )}
+            >
+              <PlatformMark
+                platform={spec.platform}
+                className={cn('h-4 w-4 shrink-0', on ? 'text-foreground' : 'text-muted')}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="text-foreground block text-sm font-medium">{spec.label}</span>
+                <span className="text-muted block text-[11px]">{describeVideoSpec(spec)}</span>
+              </span>
+              {on && <Check aria-hidden className="text-brand h-4 w-4 shrink-0" />}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-muted mt-2 text-[11px] leading-relaxed">
+        Pick one or more. Each idea gets a short script for every platform you
+        pick, and its {VIDEO_SPECS['instagram.reel'].seconds}-second AI video
+        starts as soon as the script is written. Approve the post, then
+        publish it from its page.
+      </p>
+      {estimate?.estimateUsd != null ? (
+        <p className="text-foreground mt-2 text-[11px] leading-relaxed">
+          <span className="font-semibold">
+            About ${estimate.estimateUsd.toFixed(2)} per video
+          </span>
+          <span className="text-muted">
+            {' '}
+            with {estimate.modelLabel}, from your AI spending limit
+            {chosen.length > 1
+              ? ` (${chosen.length} videos per idea)`
+              : ''}
+            .
+          </span>
+        </p>
+      ) : estimate?.unavailable ? (
+        <p className="text-muted mt-2 text-[11px] leading-relaxed">
+          Videos cannot be made right now ({estimate.unavailable}); the scripts
+          are still written.
+        </p>
+      ) : null}
+    </fieldset>
+  )
+}
+
 /**
  * "Add an image" under a platform's post types: the image is designed with
  * the post. Ticked by default; always on (and locked) for a post that is a
- * picture, such as an Instagram post.
+ * picture, such as an Instagram post. With an image, a post type that takes
+ * slides asks which: one image (the default) or a carousel.
  */
 function ImageChoice({
   formatId,
   on,
-  onChange
+  onChange,
+  carousel,
+  onCarouselChange
 }: {
   formatId: FormatId
   on: boolean
   onChange: (on: boolean) => void
+  carousel: boolean
+  onCarouselChange: (carousel: boolean) => void
 }) {
   const required = needsImage(formatId)
+  const withImage = required || on
+  const label = PLATFORMS[FORMATS[formatId].platform].label
+  const options = [
+    { carousel: false, label: 'Single image', Icon: ImageIcon },
+    { carousel: true, label: 'Carousel', Icon: GalleryHorizontal }
+  ] as const
   return (
-    <label
-      className={cn(
-        'mt-2 flex items-center gap-2.5 px-1 text-xs',
-        required ? 'cursor-default' : 'cursor-pointer'
+    <div className="mt-2 space-y-2">
+      <label
+        className={cn(
+          'flex items-center gap-2.5 px-1 text-xs',
+          required ? 'cursor-default' : 'cursor-pointer'
+        )}
+      >
+        <input
+          type="checkbox"
+          checked={withImage}
+          disabled={required}
+          onChange={e => onChange(e.target.checked)}
+          className="accent-accent h-4 w-4 shrink-0"
+        />
+        <ImageIcon aria-hidden className="text-muted h-3.5 w-3.5 shrink-0" />
+        <span className="text-foreground font-medium">Add an image</span>
+        {required && <span className="text-muted">· {label} posts need one</span>}
+      </label>
+      {withImage && supportsMediaFormat(formatId, 'carousel') && (
+        <div
+          role="radiogroup"
+          aria-label={`${label} image type`}
+          className="border-border ml-6.5 inline-grid grid-cols-2 rounded-lg border p-0.5"
+        >
+          {options.map(option => {
+            const active = carousel === option.carousel
+            return (
+              <button
+                key={option.label}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => onCarouselChange(option.carousel)}
+                className={cn(
+                  'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  active
+                    ? 'bg-accent text-background shadow-xs'
+                    : 'text-muted hover:bg-surface-hover hover:text-foreground'
+                )}
+              >
+                <option.Icon aria-hidden className="h-3.5 w-3.5" />
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
       )}
-    >
-      <input
-        type="checkbox"
-        checked={required || on}
-        disabled={required}
-        onChange={e => onChange(e.target.checked)}
-        className="accent-accent h-4 w-4 shrink-0"
-      />
-      <ImageIcon aria-hidden className="text-muted h-3.5 w-3.5 shrink-0" />
-      <span className="text-foreground font-medium">Add an image</span>
-      {required && (
-        <span className="text-muted">
-          · {PLATFORMS[FORMATS[formatId].platform].label} posts need one
-        </span>
-      )}
-    </label>
+    </div>
   )
 }

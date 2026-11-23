@@ -27,11 +27,14 @@ locals {
   }
 
   plain_env = merge(local.db_env, {
-    APP_ENV             = "production"
-    BETTER_AUTH_URL     = local.app_url
-    NEXT_PUBLIC_APP_URL = local.app_url
-    RESEARCH_MODE       = var.research_mode
-    ADMIN_USER_IDS      = var.admin_user_ids
+    APP_ENV                  = "production"
+    BETTER_AUTH_URL          = local.app_url
+    NEXT_PUBLIC_APP_URL      = local.app_url
+    RESEARCH_MODE            = var.research_mode
+    AI_SPEND_LIMIT_USD       = tostring(var.ai_spend_limit_usd)
+    AI_DAILY_SPEND_LIMIT_USD = tostring(var.ai_daily_spend_limit_usd)
+    AI_INBOX_DAILY_LIMIT_USD = tostring(var.ai_inbox_daily_limit_usd)
+    ADMIN_USER_IDS           = var.admin_user_ids
     # Post images through the S3-compatible API, the same code path as any
     # other host (src/lib/media/image-store.ts).
     STORAGE_BUCKET        = google_storage_bucket.media.name
@@ -47,8 +50,6 @@ locals {
     SERPER_API_KEY         = var.serper_api_key
     GOOGLE_CLIENT_ID       = var.google_client_id
     GOOGLE_CLIENT_SECRET   = var.google_client_secret
-    LINKEDIN_CLIENT_ID     = var.linkedin_client_id
-    LINKEDIN_CLIENT_SECRET = var.linkedin_client_secret
   }
   secret_values = merge(local.optional_secrets, {
     PGPASSWORD                = random_password.db.result

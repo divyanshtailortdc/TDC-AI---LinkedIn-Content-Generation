@@ -6,7 +6,8 @@ import {
   publicationsTable,
   postDraftsTable,
   postMediaTable,
-  postSlidesTable
+  postSlidesTable,
+  postVideosTable
 } from '@/db/schema'
 import { loadSlideRows } from '@/lib/carousel/rows'
 import { isUniqueViolation } from '@/lib/db-errors'
@@ -18,8 +19,11 @@ import {
   postTexts,
   resolveMediaFormat,
   toPlainText,
+  videoCaptionText,
+  videoScriptOf,
   type MediaFormat
 } from '@/lib/formats'
+import { VIDEO_FORMATS } from '@/lib/video/formats'
 import {
   instantOf,
   localDayKey,
@@ -40,6 +44,7 @@ import {
   lt,
   lte,
   notExists,
+  notInArray,
   or,
   sql
 } from 'drizzle-orm'
@@ -59,6 +64,7 @@ import {
   type PostImage,
   PostImageError,
   type PostSlideImage,
+  type PostVideo,
   type ProviderContext,
   providerFor,
   type PublishConfigs
@@ -107,6 +113,8 @@ export type PublishDeps = {
   loadImage?: (draftId: string) => Promise<PostImage | null>
   /** A carousel post's drawn slides, in order. */
   loadSlides?: (draftId: string) => Promise<PostSlideImage[]>
+  /** A Reel's or Short's ready video, as a link to fetch it from; null for none. */
+  loadVideo?: (draftId: string) => Promise<Omit<PostVideo, 'title'> | null>
   now?: () => Date
 }
 
@@ -120,6 +128,19 @@ type PublicationMetadata = Publication['metadata'] & {
 
 /** Before the second and the third attempt (maxAttempts is 3). */
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000]
+
+/**
+ * The same after a rate limit that gave no Retry-After. Buffer's shortest
+ * window is 15 minutes, so trying sooner would only be refused again.
+ */
+const RATE_LIMIT_DELAYS_MS = [15 * 60_000, 60 * 60_000]
+
+/**
+ * A platform that asks for a longer wait (Buffer's daily or 30-day limit) is
+ * not waited for: the post would go out a day or more after it was meant to,
+ * so it fails and the user decides.
+ */
+export const MAX_RETRY_WAIT_MS = 24 * 60 * 60_000
 
 /** A publishing row locked longer than this belongs to a process that died. */
 export const STALE_LOCK_MS = 10 * 60_000
@@ -221,7 +242,8 @@ async function findOwnedDraft(
       status: postDraftsTable.status,
       postedAt: postDraftsTable.postedAt,
       formatId: postDraftsTable.formatId,
-      mediaFormat: postDraftsTable.mediaFormat
+      mediaFormat: postDraftsTable.mediaFormat,
+      payload: postDraftsTable.payload
     })
     .from(postDraftsTable)
     .innerJoin(accountsTable, eq(accountsTable.id, postDraftsTable.accountId))
@@ -270,7 +292,12 @@ function assertPublishable(
       'already_posted'
     )
   }
-  const posts = postTexts(format, draft)
+  // A Reel or a Short goes out as its caption and hashtags; the script is
+  // what the video says.
+  const posts =
+    FORMATS[format].structure === 'script'
+      ? [videoCaptionText(format, draft)]
+      : postTexts(format, draft)
   const reply = provider.threads ? toPlainText(draft.firstComment).trim() : ''
   const texts = reply ? [...posts, reply] : posts
   const tooLong = texts.findIndex(
@@ -313,6 +340,25 @@ const activeImageOf = (
 
 const needsImageMessage = (name: string) =>
   `${name} posts need an image. Add one to this post, then publish it.`
+
+/** The post's ready AI video, if it has one (a Reel, a Short). */
+const readyVideoOf = (
+  database: PublishingDb,
+  draftId: string | typeof postDraftsTable.id
+) =>
+  database
+    .select({ one: sql`1` })
+    .from(postVideosTable)
+    .where(
+      and(
+        eq(postVideosTable.draftId, draftId),
+        eq(postVideosTable.status, 'ready'),
+        isNotNull(postVideosTable.videoUrl)
+      )
+    )
+
+const needsVideoMessage = (label: string) =>
+  `This ${label} has no video yet. Generate its video on the post, then publish it.`
 
 type OwnedDraft = NonNullable<Awaited<ReturnType<typeof findOwnedDraft>>>
 
@@ -450,7 +496,14 @@ export async function requestPublication(
   assertPublishable(draft)
   const name = nameOf(draft.platform)
   const media = await mediaFormatOf(database, draft)
-  if (media === 'carousel') {
+  if (media === 'video') {
+    if ((await readyVideoOf(database, draft.id).limit(1)).length === 0) {
+      throw new PublishRequestError(
+        needsVideoMessage(FORMATS[formatOf(draft.formatId)].label),
+        'needs_image'
+      )
+    }
+  } else if (media === 'carousel') {
     await assertCarouselPublishable(database, draft)
   } else if (
     providerFor(draft.platform).requiresImage &&
@@ -829,9 +882,12 @@ export async function loadPostImage(
 
 type Failure = {
   code: PublicationErrorCode
+  /** What happened; recordFailure adds whether it will be tried again. */
   message: string
   retryable: boolean
   httpStatus?: number
+  /** How long the platform asked to be left alone. */
+  retryAfterMs?: number
 }
 
 /**
@@ -842,7 +898,6 @@ type Failure = {
 function describeFailure(
   err: unknown,
   postRequested: boolean,
-  attemptsLeft: boolean,
   platformName: string
 ): Failure {
   if (err instanceof PlatformApiError) {
@@ -850,7 +905,8 @@ function describeFailure(
       code: err.code,
       message: err.message,
       retryable: err.retryable,
-      httpStatus: err.status
+      httpStatus: err.status,
+      retryAfterMs: err.retryAfterMs
     }
   }
   if (err instanceof ConnectionError || err instanceof PublishRequestError) {
@@ -875,14 +931,28 @@ function describeFailure(
       retryable: false
     }
   }
-  const NOTHING_SENT = `Publishing failed before anything was sent to ${platformName}.`
   return {
     code: 'internal',
-    message: attemptsLeft
-      ? `${NOTHING_SENT} It will be tried again.`
-      : NOTHING_SENT,
+    message: `Publishing failed before anything was sent to ${platformName}.`,
     retryable: true
   }
+}
+
+/**
+ * How long to wait before trying a retryable failure again: the usual
+ * backoff, longer for a rate limit, and never sooner than the platform asked.
+ */
+function retryDelayMs(failure: Failure, attempts: number): number {
+  const delays =
+    failure.code === 'rate_limited' && failure.retryAfterMs === undefined
+      ? RATE_LIMIT_DELAYS_MS
+      : RETRY_DELAYS_MS
+  // A larger maxAttempts than 3 keeps the last delay.
+  const backoff = delays[attempts - 1] ?? delays.at(-1)!
+  // A second over, so the platform's window has surely reset.
+  const asked =
+    failure.retryAfterMs === undefined ? 0 : failure.retryAfterMs + 1000
+  return Math.max(backoff, asked)
 }
 
 const mergeMetadata = (patch: Record<string, unknown>) =>
@@ -937,9 +1007,20 @@ async function prepare(deps: PublishDeps, publication: Publication) {
   return {
     draftId: draft.id,
     media,
-    // The image goes out unless the post is a carousel or was set to text
-    // only; a post without one loads none.
-    sendsImage: media !== 'carousel' && draft.mediaFormat !== 'text',
+    // The image goes out unless the post is a carousel or a video, or was
+    // set to text only; a post without one loads none.
+    sendsImage:
+      media !== 'carousel' && media !== 'video' && draft.mediaFormat !== 'text',
+    // A video's title, where the platform shows one: a YouTube Short's
+    // title, or its opening line when it has none.
+    videoTitle:
+      media === 'video'
+        ? videoScriptOf(draft).title.trim() ||
+          (draft.platform === 'youtube'
+            ? toPlainText(draft.hook).trim().slice(0, 100)
+            : null)
+        : null,
+    formatLabel: FORMATS[formatOf(draft.formatId)].label,
     carouselTitle,
     text,
     // A thread's other posts and the reply, for a provider with `threads`.
@@ -972,6 +1053,8 @@ export async function executePublication(
       draftId,
       media,
       sendsImage,
+      videoTitle,
+      formatLabel,
       carouselTitle,
       text,
       replies,
@@ -992,8 +1075,25 @@ export async function executePublication(
       const image = sendsImage
         ? await (deps.loadImage ?? (id => loadPostImage(database, id)))(draftId)
         : null
+      // A Reel or a Short: its ready video, as a link the provider fetches.
+      const video =
+        media === 'video'
+          ? await (
+              deps.loadVideo ??
+              (async id =>
+                (await import('~/lib/video/post-video')).publishableVideoOf(id))
+            )(draftId)
+          : null
+      if (media === 'video' && !video) {
+        throw new PostImageError(needsVideoMessage(formatLabel))
+      }
+      if (video && !provider.video) {
+        throw new PostImageError(
+          `${provider.platform.name} videos cannot be published from here.`
+        )
+      }
       // Removed since it was queued: nothing is sent.
-      if (!slides && !image && provider.requiresImage) {
+      if (!slides && !image && !video && provider.requiresImage) {
         throw new PostImageError(needsImageMessage(provider.platform.name))
       }
       // The carousel's document URN (LinkedIn) or slide links (Buffer).
@@ -1028,6 +1128,7 @@ export async function executePublication(
           metadata: mergeMetadata({
             postRequestedAt: nowOf(deps).toISOString(),
             ...(imageUrn && { imageUrn }),
+            ...(video && { videoId: video.id }),
             ...(carouselRefs && { carouselSlides: carouselRefs.length })
           })
         })
@@ -1058,7 +1159,15 @@ export async function executePublication(
                 title: carouselTitle,
                 altTexts: slides.map(s => s.altText)
               }
-            : undefined
+            : undefined,
+        video: video
+          ? {
+              id: video.id,
+              mediaType: video.mediaType,
+              byteSize: video.byteSize,
+              title: videoTitle
+            }
+          : undefined
       })
 
       // Handed on, not out yet (Buffer): the row waits, with the post's id,
@@ -1112,15 +1221,22 @@ async function recordFailure(
 ): Promise<Publication> {
   const attemptsLeft = publication.attempts < publication.maxAttempts
   const name = nameOf(publication.platform)
-  const failure = describeFailure(err, postRequested, attemptsLeft, name)
+  const failure = describeFailure(err, postRequested, name)
   if (failure.code === 'internal' || failure.code === 'unknown_outcome') {
     console.error(`${name} publication ${publication.id} failed:`, err)
   }
-  const retry = failure.retryable && attemptsLeft
+  const delay = retryDelayMs(failure, publication.attempts)
+  const tooLong = delay > MAX_RETRY_WAIT_MS
+  const retry = failure.retryable && attemptsLeft && !tooLong
+  // The failure says what happened; only here is it known what comes next.
+  const message = !failure.retryable
+    ? failure.message
+    : retry
+      ? `${failure.message} It will be tried again.`
+      : tooLong
+        ? `${failure.message} That is too long to hold the post for, so it will not be tried again by itself: use Try again once it has passed.`
+        : `${failure.message} It was tried ${publication.attempts} times and will not be tried again by itself: use Try again later.`
   const now = nowOf(deps)
-  // A larger maxAttempts than 3 keeps the last delay.
-  const delay =
-    RETRY_DELAYS_MS[publication.attempts - 1] ?? RETRY_DELAYS_MS.at(-1)!
   const patch = failure.httpStatus ? { httpStatus: failure.httpStatus } : {}
   const [row] = await deps.database
     .update(publicationsTable)
@@ -1130,7 +1246,7 @@ async function recordFailure(
         ? new Date(now.getTime() + delay)
         : publication.nextAttemptAt,
       lockedAt: null,
-      error: failure.message,
+      error: message,
       errorCode: failure.code,
       // A retry starts over: its attempt has sent nothing yet.
       metadata: retry
@@ -1548,7 +1664,13 @@ const queuedSlots = new Map<string, string>()
  */
 export async function queueAutoPublications(
   database: PublishingDb,
-  now = new Date()
+  now = new Date(),
+  /**
+   * The platforms set up on this server. A connection on another one queues
+   * nothing: its posts would fail as not_configured, and a post with a
+   * failed publication is never auto-published again.
+   */
+  configuredPlatforms?: readonly string[]
 ): Promise<number> {
   const connections = await database
     .select()
@@ -1564,6 +1686,12 @@ export async function queueAutoPublications(
     // One made before its owner had an identity publishes nothing yet.
     const accountId = connection.accountId
     if (!accountId) continue
+    if (
+      configuredPlatforms &&
+      !configuredPlatforms.includes(connection.platform)
+    ) {
+      continue
+    }
     const due = dueAutoSlot(connection, now)
     if (!due) continue
     const slotKey = `${connection.autoPublishEnabledAt!.getTime()}:${due.day}`
@@ -1585,10 +1713,16 @@ export async function queueAutoPublications(
             postDraftsTable.formatId,
             providerFor(connection.platform).formats
           ),
-          // Instagram: a post without an image (or a carousel's slides)
-          // would only fail.
+          // A Reel or a Short goes out only once its video is made.
+          or(
+            notInArray(postDraftsTable.formatId, [...VIDEO_FORMATS]),
+            exists(readyVideoOf(database, postDraftsTable.id))
+          ),
+          // Instagram: a post without an image (or a carousel's slides, or
+          // a Reel's video) would only fail.
           providerFor(connection.platform).requiresImage
             ? or(
+                exists(readyVideoOf(database, postDraftsTable.id)),
                 exists(activeImageOf(database, postDraftsTable.id)),
                 and(
                   eq(postDraftsTable.mediaFormat, 'carousel'),
@@ -1665,7 +1799,11 @@ export async function runDuePublications(
   const { database } = deps
   const recovered = await recoverStalePublications(database, nowOf(deps))
   const confirmation = await confirmPendingPublications(deps)
-  const queued = await queueAutoPublications(database, nowOf(deps))
+  const queued = await queueAutoPublications(
+    database,
+    nowOf(deps),
+    PUBLISHING_PLATFORM_IDS.filter(p => Boolean(deps.configs[p]))
+  )
   const due = await database
     .select({ id: publicationsTable.id })
     .from(publicationsTable)

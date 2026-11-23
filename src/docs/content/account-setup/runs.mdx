@@ -1,0 +1,102 @@
+# Starting a Run
+
+A run is how you ask the Content Engine for new post ideas. You pick one or more goals, and the engine researches them, writes a batch of ideas, checks them and then waits for you. Nothing is written into a post, and nothing is published, until you approve ideas and ask for posts.
+
+<Eyebrow href="/identity/runs">Runs</Eyebrow>
+
+## Start a run in context
+
+### Ask for new ideas
+
+Click **Generate Now** to start a run for the active identity.
+
+<Screenshot
+  name="runs"
+  alt="The Generate Now button, boxed in red"
+/>
+
+### Pick the goals it works toward
+
+Tick the goals the run should serve, then start it. The button counts the goals you ticked.
+
+<Screenshot
+  name="generate-ideas"
+  alt="The goal ticks and the generate button in the run dialog, boxed in red"
+/>
+
+## Before you start
+
+A run needs at least one goal, because every idea is written toward a goal you pick. If you have none, see [Goals](/docs/account-setup/goals) first.
+
+The rest of your setup makes ideas better: your profile, [voice](/docs/account-setup/voice), [knowledge base](/docs/account-setup/knowledge) and [preferences](/docs/account-setup/preferences). **Ideas per run** in Preferences sets the size of a batch.
+
+## Where to start a run
+
+- **Generate Now** on the Runs step or the Run Details page.
+- **Generate ideas** on the Goals page. The button on a goal's own card starts a run for that goal straight away, without asking anything.
+- **Generate ideas** on the Ideas page. When you are looking at one platform's tab it reads, for example, **Generate LinkedIn ideas**, and the run starts out planning for that platform.
+
+All of these, except a single goal's button, open the **Generate ideas** dialog.
+
+## Choose goals and platforms
+
+1. Tick the goals the run should work toward. Every active goal starts ticked; **Select all** and **Clear all** change that quickly.
+2. If your identity posts on more than one platform, choose under **Ideas for**. **All my platforms** gives ideas each marked with the platforms it suits. Picking one platform gives ideas made for that platform and what works there. Goals not meant for that platform are greyed out with "Not for" and the platform name.
+3. Read the line that says how many ideas the run will make.
+4. Click **Generate for 1 goal** (the number follows your ticks). While nothing is ticked the button reads **Pick a goal**.
+
+The run's page opens straight away. Opened from the Goals page with goals selected, the dialog lists only those goals, without checkboxes. Goals you leave out have no influence on the run.
+
+### How many ideas you get
+
+The run starts from your **Ideas per run** setting (5 unless you change it). Every goal you pick leads at least one idea, so picking more goals than that raises the number. A run makes at least 3 ideas and at most 12, so one run can serve up to 12 goals.
+
+| Ideas per run | Goals picked | Ideas the run makes |
+| ------------- | ------------ | ------------------- |
+| 5             | 1            | 5                   |
+| 5             | 3            | 5                   |
+| 5             | 8            | 8                   |
+
+An idea that also moves another of the run's goals is marked with that goal too.
+
+## What a run does
+
+A run moves through these stages, which you can watch on its page:
+
+1. **Gathering context.** It reads your identity: profile, offerings, audiences, knowledge base and the goals you picked.
+2. **Researching web & KB.** It searches the web for your goals, scans this week's news and trends, and reads your knowledge base and newsletter stories. Pages written only to rank in search, stories about another market and duplicate copies are set aside.
+3. **Generating ideas.** It writes more candidates than it needs, then checks them. Facts that no source backs are dropped. Each idea is scored against the goal it was written for, and ideas that miss their goal are discarded. Ideas that repeat or reword your earlier posts or ideas, including ones you rejected, are dropped. The most varied set is kept, with every goal leading at least one idea where possible. If a goal is left without one, the engine tries once more for that goal.
+4. **Waiting for you.** The run's status becomes Awaiting Idea Approval. The last stage, **Drafting posts**, only starts when you approve ideas and create posts from them.
+
+## Follow its progress
+
+The run's page updates on its own and shows **Updating live** while the run is working. Its status moves from Queued to Running, Researching and Ideating. A run usually takes a few minutes. You can leave the page; the run keeps going.
+
+An identity can have only one run going at a time. Starting another shows "A run is already in progress for this identity. Wait for it to finish, then start another." If the server is busy with other runs, a new run can wait as Queued for a little while before it starts.
+
+## Stop a run
+
+While a run is queued or working, its Progress section has **Stop analysis**. Click it and confirm with **Stop analysis** in "Stop this analysis?". Research and idea generation stop where they are and the run saves no ideas. Anything it had already saved, such as research sources, stays on the run, and its status becomes Stopped. Afterwards, **Re-analyze** starts a new run for the same goals.
+
+## When it finishes
+
+When the run reaches Awaiting Idea Approval, its ideas appear on the run's page and on the Ideas page, and the badge next to **Ideas** in the sidebar goes up. Review them, approve the ones you like, then create posts from them. See [Ideas](/docs/account-setup/ideas).
+
+If no idea passes the checks, or something else goes wrong, the run ends as Failed with a message saying why. See [Run Details](/docs/publishing/run-details).
+
+<Tags type="tip">
+
+Runs can also start on their own from your [schedule](/docs/publishing/schedule). Those runs only generate ideas; they wait for your review like any other.
+
+</Tags>
+
+## Related
+
+<NextSteps
+  links={[
+    { title: 'Goals', href: '/docs/account-setup/goals' },
+    { title: 'Ideas', href: '/docs/account-setup/ideas' },
+    { title: 'Run Details', href: '/docs/publishing/run-details' },
+    { title: 'Preferences', href: '/docs/account-setup/preferences' }
+  ]}
+/>

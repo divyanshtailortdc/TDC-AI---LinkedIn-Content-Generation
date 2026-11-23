@@ -178,7 +178,7 @@ describe('which evidence the copy check reads', () => {
     ]
   } as never
   const ctx = {
-    account: { name: 'A' }, voice: null, offerings: [], audiences: [], primaryGoal: null, selectedGoals: [],
+    account: { name: 'A' }, voice: null, offerings: [], audiences: [], goals: [], samplePosts: [], primaryGoal: null, selectedGoals: [],
     prefs: { constraints: { cta_required: false, hashtags: null, emoji_level: 'liberal', hook_max_chars: 200, max_chars: 3000 }, guardrails: { banned_topics: [] }, research: { min_citations_per_post: 1 } },
     history: EMPTY_HISTORY
   } as never
@@ -579,5 +579,55 @@ describe('sweeping claims share the absolutes check with ideation', () => {
   it('reports each phrase once', () => {
     const finding = runLinter({ hook: 'It always fails. Most teams can\'t say why.', body: 'b' }).find(f => f.rule === 'sweeping_claim')!
     assert.equal((finding.message.match(/always fails/g) || []).length, 1)
+  })
+})
+
+describe('what ideas are refused for, checked on drafts', () => {
+  const sources = 'Galaxy S25 adds a brighter screen. 40% of buyers compare screens first.'
+
+  it('flags a first-hand story no source tells', () => {
+    const failed = rules({
+      hook: 'Screens sell phones.',
+      body: 'One of our clients switched after a single demo.',
+      figureSources: sources
+    })
+    assert.ok(failed.includes('invented_story'))
+    assert.ok(
+      !rules({ hook: 'Screens sell phones.', body: 'Buyers compare screens first.', figureSources: sources }).includes('invented_story')
+    )
+  })
+
+  it('reports an invented story once, not again as unverified experience', () => {
+    const failed = rules({
+      hook: 'Screens sell phones.',
+      body: 'In my experience buyers look at the screen first.',
+      figureSources: sources
+    })
+    assert.ok(failed.includes('invented_story'))
+    assert.ok(!failed.includes('unverified_experience'))
+  })
+
+  it('flags a product model no source names', () => {
+    const post = (body: string) =>
+      rules({ hook: 'Screens sell phones.', body, figureSources: sources, productLines: ['Galaxy'] })
+    assert.ok(post('The Galaxy S26 Edge changes that.').includes('invented_product'))
+    assert.ok(!post('The Galaxy S25 changes that.').includes('invented_product'))
+  })
+
+  it('flags news language only without a recent source', () => {
+    const post = (citesRecentSource: boolean) =>
+      rules({ hook: 'Samsung just launched a brighter screen.', body: 'b', citesRecentSource })
+    assert.ok(post(false).includes('unsourced_news'))
+    assert.ok(!post(true).includes('unsourced_news'))
+  })
+
+  it('reads figures written as words', () => {
+    const post = (body: string) =>
+      rules({ hook: 'Screens sell phones.', body, figureSources: sources })
+    assert.ok(post('Seventy percent of buyers compare screens.').includes('unsupported_figures'))
+    // The same figure as the source's "40%".
+    assert.ok(!post('Forty percent of buyers compare screens first.').includes('unsupported_figures'))
+    // Ordinary words are not figures.
+    assert.ok(!post('One thing matters: three seconds on the screen.').includes('unsupported_figures'))
   })
 })

@@ -45,8 +45,7 @@ const MESSAGES = {
     'Your Buffer connection has expired or was revoked. Reconnect Buffer in Settings.',
   unreadable:
     'The saved Buffer connection can no longer be read. Reconnect Buffer in Settings.',
-  unavailable:
-    'The Buffer connection could not be renewed just now. It will be tried again.'
+  unavailable: 'The Buffer connection could not be renewed just now.'
 } as const
 
 /** The key Buffer tokens are encrypted with. */

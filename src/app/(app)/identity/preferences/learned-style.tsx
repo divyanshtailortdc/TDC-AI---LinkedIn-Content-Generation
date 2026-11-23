@@ -117,8 +117,7 @@ export function LearnedStyle({
       )}
       {!value && !open && (
         <p className="text-muted text-[11px] leading-relaxed">
-          Optional. Paste a few real {label} posts and drafts here will follow
-          how you write there, not just your core voice.
+          Optional. Paste a few of your {label} posts so drafts match how you write there.
         </p>
       )}
 

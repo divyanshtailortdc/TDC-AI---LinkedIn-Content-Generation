@@ -11,6 +11,7 @@ import {
   type PlatformId,
   type StyleMix
 } from '@/lib/formats'
+import { renderInsightsForIdeation } from '@/lib/profile-insights/render'
 import { isGenericPage } from '@/lib/urls'
 import {
   audienceSegments,
@@ -27,29 +28,25 @@ import {
 } from '../../context-blocks'
 import { inferRegion } from '../../region'
 import type { GroundingCorpus } from './guard'
+import { fenceEvidence, frameEvidenceText } from '../shared/evidence'
 import { CASUAL_ANGLE_GUIDE, PERSPECTIVE_ANGLE_GUIDE } from './schema'
 
 /**
  * How many evidence items the ideation prompt shows. Citations are resolved
  * against exactly this slice, so an out-of-range label gets no source.
  */
-export const PROMPT_EVIDENCE_LIMIT = 30
+export const PROMPT_EVIDENCE_LIMIT = 36
 
-/** Longest text from one evidence item shown to the model. */
-const EVIDENCE_TEXT_LIMIT = 700
+/** What a trend-scan item is, for the writer. */ 
+const KIND_LINES: Partial<Record<string, string>> = {
+  news: 'news: what is being reported about the brand or its field',
+  trend: 'trend signal: what people are posting and sharing',
+  conversation: 'audience conversation: what people are saying, not proof of a fact'
+}
 
-/**
- * One piece of third-party text, made safe to show as data: on one line, with
- * no angle brackets (so it cannot close the evidence block or open a tag of
- * its own) and cut to a sensible length.
- */
-export function frameEvidenceText(text: string, max = EVIDENCE_TEXT_LIMIT): string {
-  const flat = text
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/[<>]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat
+/** Whether the evidence shown includes anything from the trend scan. */
+export function hasTrendSignals(corpus: GroundingCorpus, limit = PROMPT_EVIDENCE_LIMIT): boolean {
+  return corpus.verifiedClaims.slice(0, limit).some(c => !!c.kind)
 }
 
 export function renderCorpusForPrompt(
@@ -83,11 +80,16 @@ export function renderCorpusForPrompt(
         parts.push(
           '    Origin: a newsletter the account receives, or the article it links to: third-party text that has not been verified'
         )
+      if ((c.origin === 'web' || c.origin === 'newsletter') && c.credibility) {
+        const by = c.publisher ? ` (${frameEvidenceText(c.publisher, 80)})` : ''
+        parts.push(`    Source type: ${c.credibility.label.toLowerCase()}${by}`)
+      }
+      if (c.kind && KIND_LINES[c.kind]) parts.push(`    Kind: ${KIND_LINES[c.kind]}`)
       return parts.join('\n')
     })
     .join('\n')
   // Fenced and labelled as data: the pages this text came from are not trusted.
-  return `<evidence>\n${items}\n</evidence>`
+  return fenceEvidence(items)
 }
 
 /**
@@ -130,6 +132,14 @@ export function ideationChannels(
 function platformsInScope(channels: IdeationChannels | null): PlatformId[] {
   if (!channels) return []
   return channels.target ? [channels.target] : platformsOf(channels.formats)
+}
+
+/** The platforms a run's ideas are for: its plan's, or the account's own (LinkedIn). */
+export function runPlatforms(
+  ctx: GenerationContext,
+  channels: IdeationChannels | null
+): PlatformId[] {
+  return channels ? platformsInScope(channels) : [platformOf(ctx).id]
 }
 
 /**
@@ -201,6 +211,30 @@ A post or video their followers would stop for: a skit, a POV, a tutorial, a tre
 `
 
 /**
+ * Whether every format the run plans for goes out as a picture or a carousel,
+ * with no video: Instagram posts, since Reels are not made.
+ */
+export function plansStillPosts(channels: IdeationChannels | null): boolean {
+  return (
+    !!channels &&
+    channels.formats.length > 0 &&
+    channels.formats.every(f => !FORMATS[f].media.formats.includes('video'))
+  )
+}
+
+/**
+ * Shown with CASUAL_IDEAS_BLOCK when every format is a still post: without
+ * it, ideas for Instagram pictures came back as skits to film (Zomato,
+ * 2026-11-20).
+ */
+function renderStillPostsBlock(brand: boolean): string {
+  return `
+THESE ARE STILL POSTS
+Every format in this run goes out as one image or a carousel with a caption: no video, no sound, nobody acting out a scene. Plan each idea as something that works as a still: a meme or text card, a chat, search or notification screenshot, an illustrated scene, a photo with a line on it, or a carousel whose slides unfold a joke, a story or a list. A skit or a POV becomes a single frame or a carousel of panels, not a scene someone has to perform.${brand ? ' This is a brand: its designers make the visual, so no idea needs a person on camera.' : ''}
+`
+}
+
+/**
  * A run across professional and casual platforms: which is which, and what an
  * idea is on each.
  */
@@ -229,6 +263,14 @@ export function buildInstructions(
   const region = inferRegion(ctx)
   const style = ideationStyle(ctx, channels)
   const casual = style === 'casual'
+  const still = casual && plansStillPosts(channels)
+  const brand = ctx.account.accountType === 'company'
+  // What the account already posts on the run's platforms, when its profiles
+  // were analyzed; nothing otherwise.
+  const existing = renderInsightsForIdeation(
+    ctx.platformInsights,
+    channels ? platformsInScope(channels) : [platformOf(ctx).id]
+  )
 
   return `${strategistLine(ctx, channels, style)}
 
@@ -246,14 +288,14 @@ ${
     ? `${region.name}. Every idea must hold in this market: never present another market's launches, prices, availability, rules or figures as if they applied here, and say which market a piece of evidence describes when it is not this one.`
     : 'Not stated. Assume no particular market, and make no claims about availability, pricing or regulation.'
 }
-${renderChannelsBlock(channels)}${casual ? CASUAL_IDEAS_BLOCK : style === 'mixed' ? renderMixedStylesBlock(ctx, channels) : ''}
+${renderChannelsBlock(channels)}${existing}${casual ? CASUAL_IDEAS_BLOCK : style === 'mixed' ? renderMixedStylesBlock(ctx, channels) : ''}${still ? renderStillPostsBlock(brand) : ''}
 THE GOALS THIS RUN SERVES: these and no others. Write each idea for its assigned goal, its main goal, and list that label first in goalRefs. Add another goal's label only when the idea's own argument also moves that goal's message; most ideas serve one goal, and none serves more than three. An idea must move its reader toward its goal's message, not merely share its subject. An idea achieves its goal only when all three hold:
 1. Reader: it is written for the people the goal is meant to reach.
 2. Message: its argument lands the goal's message, so a reader who agrees with it has come round to that message, not just to its topic.
 3. Action: its takeaway gives that reader a reason to take the goal's desired action (for lead generation, a reason to want help with the problem), without turning the post into an advert.
 Every idea is reviewed against these three before anyone sees it, and one that misses any of them is discarded.
 ${renderGoalsBlock(ctx.selectedGoals, channels?.target ? [] : platformsInScope(channels))}
-
+${WORTH_POSTING_BLOCK}
 HOW THIS AUTHOR SOUNDS
 ${renderVoiceBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}` : ''}
@@ -271,12 +313,30 @@ ${
 5. Cite an evidence item only for what that item itself says. A homepage or index supports general facts about the brand, never a specific story, launch, date or figure.
 ${
   casual
-    ? `6. Be specific to this author: what they post about, their personality, their followers. An idea anyone posting about anything could use is too generic. Every idea must be something they can film or photograph themselves. Promote what they offer only when a goal asks for it, and never as a hard sell.`
+    ? `6. Be specific to this author: what they post about, their personality, their followers. An idea anyone posting about anything could use is too generic. Every idea must be something ${still ? (brand ? "the brand's own team can design or photograph" : 'they can photograph or design themselves') : 'they can film or photograph themselves'}. Promote what they offer only when a goal asks for it, and never as a hard sell.`
     : `6. Be specific to this account (its field, its readers' situation, its market) without promoting it. A subject any company in any industry could post about is too generic; an idea that ends in "choose our product" is an advert. A product may appear only as an example the evidence covers, never as the conclusion.`
 }
 7. Qualify honestly. Prefer "often", "in most teams" over "always", "every", "proves that".
-8. Evidence labels (E1, E2...) belong only in evidenceRef, reader-group labels (A1, A2...) only in audienceRef, and goal labels (G1, G2...) only in goalRefs. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.`
+8. Evidence labels (E1, E2...) belong only in evidenceRef, reader-group labels (A1, A2...) only in audienceRef, and goal labels (G1, G2...) only in goalRefs. In every other field, name a source by its title, never by its label: the reviewer cannot see the labels.
+9. Never build an idea on a tragedy, disaster, death, accident, crime, war, a political or religious dispute, or a real person's private life, health or scandal, however viral it is. A joke about a public moment is fine only when nobody is its butt.`
 }
+
+/**
+ * What makes an idea worth posting, and reach, for every run: the ideas are
+ * judged on originality and engagement potential as well as on their goal.
+ */
+const WORTH_POSTING_BLOCK = `
+WHAT MAKES AN IDEA WORTH POSTING
+Ideas compete with everything else in the feed. Aim for ones these readers would stop for, react to and pass on, and that only this account could post:
+- Start from something specific: a scene, an object, a line people say, a habit, a figure from the evidence, something that happened this week. Never from a category ("customer experience", "industry trends").
+- Give it a twist: an unexpected connection, a reversal, a tension, or a question the reader wants answered before they scroll on.
+- Make the reader feel something (recognition, surprise, delight, relief, conviction) or hand them something worth saving, or worth sending to one particular person.
+- Make it so much this account's own that a competitor could not post it unchanged.
+Before writing each idea, think of the obvious post on its subject, and do not write that one. Templates are out: "X tips for Y", "why X matters", "the importance of", "did you know", "here is what I learned", a list with no point of view, a greeting for a day or festival with nothing to say, a motivational quote. No two ideas in this run share a subject, a setting or a joke.
+
+REACH, WHATEVER THE GOAL
+Give every idea a reason to travel beyond the people who already follow: someone would send it to a friend or colleague, it invites a comment or a reply, its hook opens a question, it has emotional pull. Serve the goal through that, not instead of it. For an engagement or follower goal, the share and the comment are the point. For a promotion, make people curious about the offer: it can be the punchline, the proof or the twist, never a hard sell. For authority or leads, give an insight people pass on to a peer. Not every idea has to sell or mention the offer. Nothing guarantees reach; aim for the best odds.
+`
 
 /** This run's evidence, history and the exact ideas to produce. */
 export function buildPrompt(input: {
@@ -335,10 +395,18 @@ Give each idea a different one.`
       : `${casual ? 'CONTENT FORMATS' : 'ANALYTICAL LENSES'} — give each idea a different one:
 ${list(casual ? CASUAL_ANGLE_GUIDE : PERSPECTIVE_ANGLE_GUIDE)}`
 
+  const now = hasTrendSignals(corpus)
+    ? `WHAT IS HAPPENING NOW
+Items marked "news", "trend signal" or "audience conversation" show what people are reading, posting and saying right now. Build on one only when it fits this account, these readers and ${target ? target.label : 'the platform'} naturally: a forced trend is worse than none. When an idea rides one, name it in whyNow and cite the item. Across the run, include at least one idea that rides something current when an item fits; the rest can be evergreen.`
+    : `WHAT IS HAPPENING NOW
+No trend research ran this time. Do not claim that anything is trending or viral.`
+
   return `TODAY'S DATE: ${today}
 
 EVIDENCE AVAILABLE THIS RUN
 ${renderCorpusForPrompt(corpus, PROMPT_EVIDENCE_LIMIT)}
+
+${now}
 
 ${input.history ? `${input.history}\n` : ''}
 ${angles}
@@ -356,13 +424,13 @@ ${casual ? '- thesis: what the post or video is about, in one line' : '- thesis:
 - readers: who exactly this idea is for, in a few plain words: the people its goal is meant to reach
 - audienceRef: the label of the reader group those readers belong to, e.g. "A2", or "none" when no group listed is them
 - format: the post format that fits best${formatsLine}
-- whyNow: why this earns feed space today; structural reasoning unless you cite evidence marked "(recent)"
+- whyNow: why this earns feed space today: the news, trend or conversation it rides (cite it), or structural reasoning when it rides none. Only evidence marked "(recent)" makes something current
 ${hookLine}
 ${casual ? '- coreArgument: what happens or what it shows, beat by beat' : '- coreArgument: the "so what", in full'}
 - audienceTakeaway: what that reader does or believes differently afterwards, moving them toward its goal's message and giving them a reason to take its desired action
 - supportingEvidence: claims traceable to the evidence above. Cite each by the label of the item that states it (evidenceRef "E3"), restating what that item says as it applies here. Do not retype URLs, titles or quotes. Leave empty rather than inventing.
-${casual ? '- mediaBrief: what the author should photograph or film, in one sentence' : style === 'mixed' ? '- mediaBrief: one sentence of visual direction for the image; for an idea meant for a casual or fun platform, what the author should photograph or film' : '- mediaBrief: one sentence of visual direction for the image'}
-- noveltyNote: why this is not the generic take on the subject
+${casual ? (plansStillPosts(channels) ? '- mediaBrief: what the image shows, or for a carousel what its slides show, in one sentence' : '- mediaBrief: what the author should photograph or film, in one sentence') : style === 'mixed' ? '- mediaBrief: one sentence of visual direction for the image; for an idea meant for a casual or fun platform, what the author should photograph or film' : '- mediaBrief: one sentence of visual direction for the image'}
+- noveltyNote: the obvious take on this subject that you did not write, and what this idea does instead
 - risks: anything that could make this land badly
 - estimatedStrength: your honest 1-100 assessment`
 }

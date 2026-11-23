@@ -2,8 +2,12 @@ import { getPlatform } from '@/lib/platforms'
 import { carouselWording } from '@/lib/formats/media'
 import type { MediaFormat } from '@/lib/formats/types'
 import {
+  detectFabricatedAnecdote,
   extractNumbers,
-  mentionsFigure
+  findTimelinessClaims,
+  findUnknownProducts,
+  mentionsFigure,
+  withSpelledFigures
 } from '~/lib/ai/skills/ideation/guard'
 import {
   countContrastFrames,
@@ -16,6 +20,7 @@ import {
   findVagueAttributions,
   longestSharedRun
 } from './writing-checks'
+import { findLinks, unknownLinks } from './links'
 import {
   DEFAULT_WRITING_THRESHOLDS,
   type WritingCheck,
@@ -92,6 +97,22 @@ export interface LintOptions {
    * author's own details. Absent skips the check.
    */
   figureSources?: string | null
+  /**
+   * The links the post may contain: its goals', the author's own and its
+   * evidence's sources. Any other link is flagged. Absent skips the check.
+   */
+  linkSources?: string[] | null
+  /**
+   * Names the account's products start with ("Galaxy"): a model built on one
+   * that `figureSources` never mentions is invented. Needs `figureSources`.
+   */
+  productLines?: string[] | null
+  /**
+   * Whether the post's evidence includes a recent source. False: presenting
+   * something as current ("just launched", "this week") is invented news.
+   * Absent skips the check.
+   */
+  citesRecentSource?: boolean | null
   /**
    * The wording of the evidence the post draws on (claims and quotes). A run
    * of its words in the post, outside quotation marks, was lifted. Absent
@@ -426,6 +447,30 @@ export function runLinter(opts: LintOptions): LintFinding[] {
           }
   )
 
+  // 4b. Links nobody gave the writer: invented, or planted in a source it
+  // read. Only reported when the post has links.
+  if (opts.linkSources != null) {
+    const linked = [fullText, opts.firstComment || '', ...(opts.limitTexts || [])].join('\n')
+    const hasLinks = findLinks(linked).length > 0
+    const unknown = unknownLinks(linked, opts.linkSources)
+    if (unknown.length > 0) {
+      const one = unknown.length === 1
+      findings.push({
+        rule: 'unknown_links',
+        severity: 'error',
+        message: `${unknown.map(l => `"${l}"`).join(', ')} ${one ? 'is' : 'are'} not from this post's evidence, its goal or the author's details, so ${one ? 'it' : 'they'} may be invented or planted in a source. Remove ${one ? 'it' : 'them'}, or check where ${one ? 'it goes' : 'they go'} before publishing.`,
+        passed: false
+      })
+    } else if (hasLinks) {
+      findings.push({
+        rule: 'unknown_links',
+        severity: 'info',
+        message: "Every link is the goal's, the author's own or an evidence source's.",
+        passed: true
+      })
+    }
+  }
+
   // 5. Banned words
   const allBanned = Array.from(
     new Set([
@@ -566,7 +611,7 @@ export function runLinter(opts: LintOptions): LintFinding[] {
   // 11. Numeric claims need citations
   const numericPattern =
     /\b\d+(\.\d+)?\s*%|[$£€]\s?\d+(\.\d+)?[kKmMbB]?|\b\d+(\.\d+)?x\b|\b\d[\d,]*\s*(million|billion|thousand)\b/gi
-  const numericMatches = fullText.match(numericPattern) || []
+  const numericMatches = withSpelledFigures(fullText).match(numericPattern) || []
   const citations = opts.citationsCount ?? 0
   const minCitations = opts.minCitations ?? 1
 
@@ -609,6 +654,69 @@ export function runLinter(opts: LintOptions): LintFinding[] {
             rule: 'unsupported_figures',
             severity: 'info',
             message: 'Every figure appears in the evidence or the author\'s details.',
+            passed: true
+          }
+    )
+  }
+
+  // 11c. What ideas are refused for, checked again on the post that goes out:
+  // the draft is new text, written after the idea's checks.
+  const claimed = `${fullText}\n${opts.firstComment || ''}`
+  let story: string | undefined
+  if (opts.figureSources != null) {
+    // A phrase a source or the idea itself uses is not invented here.
+    const check = detectFabricatedAnecdote(claimed, [opts.figureSources])
+    story = check.detected ? check.snippet : undefined
+    findings.push(
+      story
+        ? {
+            rule: 'invented_story',
+            severity: 'error',
+            message: `"${story}" tells a first-hand story that no source or author detail backs up. Remove it, or make it general.`,
+            passed: false
+          }
+        : {
+            rule: 'invented_story',
+            severity: 'info',
+            message: 'No first-hand story beyond the sources.',
+            passed: true
+          }
+    )
+
+    if (opts.productLines?.length) {
+      const products = findUnknownProducts(claimed, opts.productLines, opts.figureSources)
+      findings.push(
+        products.length > 0
+          ? {
+              rule: 'invented_product',
+              severity: 'error',
+              message: `${products.map(n => `"${n}"`).join(', ')} ${products.length === 1 ? 'is' : 'are'} not in this post's evidence or the author's details. Name a product the sources mention.`,
+              passed: false
+            }
+          : {
+              rule: 'invented_product',
+              severity: 'info',
+              message: 'Every product named is in the evidence or the author\'s details.',
+              passed: true
+            }
+      )
+    }
+  }
+
+  if (opts.citesRecentSource === false) {
+    const timely = findTimelinessClaims(claimed)
+    findings.push(
+      timely.length > 0
+        ? {
+            rule: 'unsourced_news',
+            severity: 'error',
+            message: `"${timely[0]}" presents something as current, but none of this post's sources is recent. Remove it, or state it without the timing.`,
+            passed: false
+          }
+        : {
+            rule: 'unsourced_news',
+            severity: 'info',
+            message: 'Nothing is presented as news.',
             passed: true
           }
     )
@@ -675,7 +783,13 @@ export function runLinter(opts: LintOptions): LintFinding[] {
     )
   }
 
-  const experience = notAuthors(findExperienceClaims(prose))
+  // A story already reported above as invented is not reported twice.
+  const experience = notAuthors(findExperienceClaims(prose)).filter(
+    e =>
+      !story ||
+      !(story.toLowerCase().includes(e.toLowerCase()) ||
+        e.toLowerCase().includes(story.toLowerCase()))
+  )
   if (experience.length > 0) {
     warn(
       'unverified_experience',

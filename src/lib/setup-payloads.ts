@@ -70,6 +70,18 @@ export const KnowledgeDocumentSchema = z.object({
   content: text(200_000, 'Content')
 })
 
+/**
+ * A problem with what was sent, in words to show the person. Setup actions
+ * return it as `{ success: false, error }` (see setupAction): production React
+ * hides the message of an error an action throws.
+ */
+export class SetupInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SetupInputError'
+  }
+}
+
 /** Returns the parsed value, or throws the first problem in plain words. */
 export function parseSetupPayload<S extends z.ZodType>(
   schema: S,
@@ -77,7 +89,9 @@ export function parseSetupPayload<S extends z.ZodType>(
 ): z.infer<S> {
   const parsed = schema.safeParse(value)
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message || 'Invalid request.')
+    throw new SetupInputError(
+      parsed.error.issues[0]?.message || 'Invalid request.'
+    )
   }
   return parsed.data
 }

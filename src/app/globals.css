@@ -20,9 +20,30 @@
   --color-platform-text: var(--platform-text);
   --color-auth-hero: var(--auth-hero);
   --color-auth-hero-glow: var(--auth-hero-glow);
+  --color-cta: var(--cta);
+  --color-cta-hover: var(--cta-hover);
+  --color-cta-text: var(--cta-text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
+
+/*
+ * Identity setup (Create identity, Profile, Voice, Knowledge, Preferences,
+ * Runs) reads a size up: Tailwind's text-* utilities read these variables, so
+ * everything inside the setup frame's body is about 1px larger.
+ */
+.setup-text {
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.1875rem;
+}
+/* Fixed pixel sizes, a pixel up to match. */
+.setup-text .text-\[9px\] { font-size: 10px; }
+.setup-text .text-\[10px\] { font-size: 11px; }
+.setup-text .text-\[11px\] { font-size: 12px; }
+.setup-text .text-\[13px\] { font-size: 14px; }
+.setup-text .text-\[15px\] { font-size: 16px; }
 
 :root {
   --background: #fafafa;
@@ -47,6 +68,11 @@
   /* The sign-in page's left panel, and the soft glow over it. */
   --auth-hero: #f4f8fd;
   --auth-hero-glow: #e2edfa;
+  /* The public website's main buttons: the logo's teal, deep enough for
+     white text. */
+  --cta: #0e7c8f;
+  --cta-hover: #0a6676;
+  --cta-text: #ffffff;
 }
 
 .dark {
@@ -67,6 +93,9 @@
   --platform-text: #70b5f9;
   --auth-hero: #0c111a;
   --auth-hero-glow: #10233c;
+  --cta: #22b5cd;
+  --cta-hover: #5ad0e3;
+  --cta-text: #041014;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -88,6 +117,9 @@
     --platform-text: #70b5f9;
     --auth-hero: #0c111a;
     --auth-hero-glow: #10233c;
+    --cta: #22b5cd;
+    --cta-hover: #5ad0e3;
+    --cta-text: #041014;
   }
 }
 
@@ -188,4 +220,58 @@ select,
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Docs search: the passage a result opened is tinted, then fades back. */
+@keyframes docs-search-hit {
+  from {
+    background-color: rgb(250 204 21 / 0.35);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.docs-search-hit {
+  border-radius: 0.375rem;
+  animation: docs-search-hit 2.4s ease-out;
+}
+
+/* ProgressBar's indeterminate state (src/components/ui/meter.tsx): a short
+   bar sliding across while there is no honest number for how far along. */
+@keyframes meter-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* The public website: a panel that changes (a step of the hero preview, a
+   tab of How it works) fades up into place. */
+@keyframes site-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.site-fade-up {
+  animation: site-fade-up 0.45s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-fade-up {
+    animation: none;
+  }
+}
+
+/* Help pages: a section's small label sits just above its heading. */
+[data-docs-content] [data-eyebrow] + h2 {
+  margin-top: 0.375rem;
 }

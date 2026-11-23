@@ -8,8 +8,14 @@ import { interleave } from '~/lib/ai/pipeline/grounding-corpus'
 import {
   buildSearchQueries,
   normalizePublishedDate,
-  searchCountFor
+  planTrendScan,
+  searchCountFor,
+  type ResearchQuery
 } from './findings'
+import { isSearchRedirect } from './search-redirect'
+import type { SignalKind } from './source-credibility'
+import type { StyleMix } from '~/lib/formats/styles'
+import type { PlatformId } from '~/lib/platforms'
 
 /**
  * Web research over Serper (Google results). Plain code, no model: the fixed
@@ -24,7 +30,14 @@ export type Finding = {
   provider: string
   /** YYYY-MM-DD, fixed when the result was fetched; absent when undated. */
   publishedAt?: string
+  /** What it was searched for: a fact (the default), the news, a trend, what people say. */
+  kind?: SignalKind
+  /** The outlet a news search named ("The Economic Times"). */
+  publisher?: string
 }
+
+export { providerTag } from './source-credibility'
+
 
 export const isWebSearchConfigured = Boolean(env.SERPER_API_KEY)
 
@@ -49,7 +62,18 @@ const SEARCH_TIMEOUT_MS = 10_000
  */
 export async function searchWeb(
   query: string,
-  options: { freshnessDays: number; resultCount?: number; country?: string }
+  options: {
+    freshnessDays: number
+    resultCount?: number
+    country?: string
+    /** Which page of results, from 1. Serper's free plan allows at most 10 a page. */
+    page?: number
+    /**
+     * Keep results Google returned as a redirect link (see search-redirect.ts):
+     * only for readers that use a result's title and snippet, not its address.
+     */
+    keepRedirects?: boolean
+  }
 ): Promise<Finding[]> {
   if (!env.SERPER_API_KEY) return []
   const tbs = freshnessToTbs(options.freshnessDays)
@@ -63,6 +87,7 @@ export async function searchWeb(
       body: JSON.stringify({
         q: query,
         num: options.resultCount ?? 5,
+        ...(options.page && options.page > 1 ? { page: options.page } : {}),
         ...(tbs ? { tbs } : {}),
         // Google's country codes are ISO ones, except "uk" for the United Kingdom.
         ...(options.country
@@ -81,6 +106,7 @@ export async function searchWeb(
     const findings: Finding[] = []
     for (const item of data.organic || []) {
       if (!item.link || !item.title) continue
+      if (!options.keepRedirects && isSearchRedirect(item.link)) continue
       findings.push({
         url: stripTrackingParams(item.link),
         title: item.title,
@@ -92,6 +118,114 @@ export async function searchWeb(
     return findings
   } catch (err) {
     console.warn(`Serper search error for "${query}":`, err)
+    return []
+  }
+}
+
+/**
+ * One news search: indexed news sites only, each result dated and named by
+ * its outlet. No results, rather than a throw, when it fails.
+ */
+export async function searchNews(
+  query: string,
+  options: { freshnessDays: number; resultCount?: number; country?: string }
+): Promise<Finding[]> {
+  if (!env.SERPER_API_KEY) return []
+  const tbs = freshnessToTbs(options.freshnessDays)
+  try {
+    const res = await fetch('https://google.serper.dev/news', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': env.SERPER_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        q: query,
+        num: Math.min(options.resultCount ?? 8, 10),
+        ...(tbs ? { tbs } : {}),
+        ...(options.country
+          ? { gl: options.country === 'gb' ? 'uk' : options.country }
+          : {})
+      }),
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+    })
+    if (!res.ok) {
+      console.warn(`Serper news search failed (${res.status}) for "${query}"`)
+      return []
+    }
+    const data = await res.json()
+    const fetchedAt = new Date()
+    const findings: Finding[] = []
+    for (const item of data.news || []) {
+      if (!item.link || !item.title || isSearchRedirect(item.link)) continue
+      findings.push({
+        url: stripTrackingParams(item.link),
+        title: item.title,
+        snippet: item.snippet || '',
+        provider: 'serper_news',
+        publishedAt: normalizePublishedDate(item.date, fetchedAt),
+        ...(typeof item.source === 'string' && item.source.trim()
+          ? { publisher: item.source.trim() }
+          : {})
+      })
+    }
+    return findings
+  } catch (err) {
+    console.warn(`Serper news search error for "${query}":`, err)
+    return []
+  }
+}
+
+export type ImageFinding = {
+  /** The page the image is on. */
+  pageUrl: string
+  title: string
+  /** The search engine's own small copy of the image. */
+  thumbnailUrl: string
+  width?: number
+  height?: number
+}
+
+/**
+ * One image search, over Serper's Google Images. Only the search engine's
+ * thumbnails are kept, never the original's address: that is the platform's
+ * own server. No results, rather than a throw, when it fails.
+ */
+export async function searchImages(
+  query: string,
+  options: { resultCount?: number } = {}
+): Promise<ImageFinding[]> {
+  if (!env.SERPER_API_KEY) return []
+  try {
+    const res = await fetch('https://google.serper.dev/images', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': env.SERPER_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ q: query, num: options.resultCount ?? 10 }),
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+    })
+    if (!res.ok) {
+      console.warn(`Serper image search failed (${res.status}) for "${query}"`)
+      return []
+    }
+    const data = await res.json()
+    const images: ImageFinding[] = []
+    for (const item of data.images || []) {
+      if (!item.link || !item.thumbnailUrl || isSearchRedirect(item.link))
+        continue
+      images.push({
+        pageUrl: stripTrackingParams(item.link),
+        title: item.title || '',
+        thumbnailUrl: item.thumbnailUrl,
+        ...(typeof item.imageWidth === 'number' ? { width: item.imageWidth } : {}),
+        ...(typeof item.imageHeight === 'number' ? { height: item.imageHeight } : {})
+      })
+    }
+    return images
+  } catch (err) {
+    console.warn(`Serper image search error for "${query}":`, err)
     return []
   }
 }
@@ -147,6 +281,36 @@ export async function runWebSearch(
       freshnessDays: policy.freshness_days,
       country: region?.code
     })
+  })
+  return dedupeFindings(interleave(perQuery))
+}
+
+/** Results kept from each trend-scan query. */
+const TREND_RESULTS_PER_QUERY = 6
+
+/**
+ * The trend scan (planTrendScan): the brand and its field in this week's
+ * news, what is going viral on the run's platforms, and what people are
+ * saying. Each finding carries the kind it was searched for. Off when web
+ * search is off; never throws.
+ */
+export async function runTrendScan(
+  ctx: GenerationContext,
+  options: { platforms: string[]; platformIds?: readonly PlatformId[]; style: StyleMix },
+  onQuery: (q: ResearchQuery) => void
+): Promise<Finding[]> {
+  if (!ctx.prefs.research.use_web_search || !env.SERPER_API_KEY) return []
+  const region = inferRegion(ctx)
+  const plan = planTrendScan(ctx, { ...options, region })
+  const perQuery = await mapConcurrently(plan, SEARCH_CONCURRENCY, async q => {
+    onQuery(q)
+    const search = q.endpoint === 'news' ? searchNews : searchWeb
+    const found = await search(q.query, {
+      freshnessDays: q.freshnessDays,
+      resultCount: TREND_RESULTS_PER_QUERY,
+      country: region?.code
+    })
+    return found.map(f => ({ ...f, kind: q.kind }))
   })
   return dedupeFindings(interleave(perQuery))
 }

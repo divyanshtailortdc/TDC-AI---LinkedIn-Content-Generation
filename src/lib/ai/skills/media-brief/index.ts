@@ -204,7 +204,10 @@ export async function deriveMediaBrief(
     // A stop the reviewer asked for is not a failure worth logging.
     if (
       !options.abortSignal?.aborted &&
-      !(err instanceof SkillError && err.reason === 'not_configured')
+      !(
+        err instanceof SkillError &&
+        (err.reason === 'not_configured' || err.reason === 'spend_limit')
+      )
     ) {
       console.warn('Media brief generation failed:', err)
     }
@@ -225,6 +228,8 @@ function describeBriefFailure(err: unknown): string {
         return 'No AI provider is configured. Add AI_GATEWAY_API_KEY (or ANTHROPIC_API_KEY) to design images.'
       case 'quota_exceeded':
         return 'The AI provider budget is used up, so the image could not be designed.'
+      case 'spend_limit':
+        return err.message
       case 'timeout':
         return 'Designing the image took too long. Try again.'
     }

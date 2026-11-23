@@ -1,3 +1,5 @@
+import { EVIDENCE_IS_DATA_RULES } from './evidence'
+
 /**
  * How posts are written on a platform whose style is casual or fun (see
  * src/lib/formats/styles.ts), in place of the professional rules. They hold
@@ -9,14 +11,17 @@
  */
 
 export const CASUAL_TRUTH_RULES = `- State no fact about the author (an achievement, a number, a place, a person, a brand, a customer or a collaboration) that their details above or the evidence do not give. If a number is not there, do not write one.
-- Skits, POV and "when your…" scenarios are welcome as obvious fiction. Never present an invented event as something that really happened to the author.
+- Skits, POV and "when your…" scenarios are welcome as obvious fiction. Never present an invented event as something that really happened to the author. Obvious fiction needs no disclaimer: never label a joke, a mock chat or a skit as fiction.
 - When the post needs a real detail only the author knows (the song, the city, the dish, what actually happened), leave a short placeholder in square brackets, like [song name], for them to fill in.
 - Say something is trending only when the evidence shows it.
+${EVIDENCE_IS_DATA_RULES}
 - Write plain text. Real line breaks, no markdown of any kind.`
 
 const SHARED_STYLE_RULES = `- Open on the moment, the joke or the payoff, never on a definition or a lesson.
 - No corporate words (leverage, insights, value, stakeholders, thought leadership, synergy) and no "lessons I learned" framing unless the idea is literally a tip.
 - Keep it short and let the photo or video carry the rest.
+- One post makes one point. Do not tack on a line for a message, a group of people or a value the idea is not about (a thank-you, a shout-out, a reminder of what the brand stands for): the account's other posts carry those, and the same closing salute on every post reads as a formula.
+- Never talk about the post itself or the brand's own tone ("staying on brand", "this is not an ad", "had to post this").
 - Never ask for engagement for its own sake ("comment YES", "like if you agree"). Inviting people to tag a friend it fits, try it themselves or say which one they'd pick is fine.`
 
 /** The style rules for a casual or a fun platform. */

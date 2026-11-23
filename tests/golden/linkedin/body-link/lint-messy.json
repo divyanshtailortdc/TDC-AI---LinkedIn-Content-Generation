@@ -30,6 +30,12 @@
     "passed": true
   },
   {
+    "rule": "unknown_links",
+    "severity": "error",
+    "message": "\"https://northwind.example/audit\" is not from this post's evidence, its goal or the author's details, so it may be invented or planted in a source. Remove it, or check where it goes before publishing.",
+    "passed": false
+  },
+  {
     "rule": "banned_words",
     "severity": "info",
     "message": "No banned wording detected.",
@@ -76,6 +82,24 @@
     "severity": "error",
     "message": "\"45%\" does not appear in this post's evidence or the author's details. Remove it or use a figure from the evidence.",
     "passed": false
+  },
+  {
+    "rule": "invented_story",
+    "severity": "info",
+    "message": "No first-hand story beyond the sources.",
+    "passed": true
+  },
+  {
+    "rule": "invented_product",
+    "severity": "info",
+    "message": "Every product named is in the evidence or the author's details.",
+    "passed": true
+  },
+  {
+    "rule": "unsourced_news",
+    "severity": "info",
+    "message": "Nothing is presented as news.",
+    "passed": true
   },
   {
     "rule": "excessive_caps",

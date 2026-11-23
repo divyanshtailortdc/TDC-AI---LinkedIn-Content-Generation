@@ -185,6 +185,9 @@ ${section('THE ARGUMENT', input.thesis)}${section(
   )}${section('WHO POSTS IT AND WHO SEES IT', input.accountContext)}${section(
     'BRAND THEME',
     input.brand
+  )}${section(
+    `HOW THIS ACCOUNT'S ${input.platformLook?.platform.toUpperCase() ?? ''} POSTS LOOK — learned from its own public posts. Make the image belong among them, within the brand theme and the image style below; never recreate one of its images`,
+    input.platformLook?.description
   )}${section(`IMAGE STYLE — ${imageStyleLabel(style)}`, styleSection)}${section(
     'REFERENCE IMAGE (attached) — the reviewer wants the new image built like it',
     input.referenceImage ? REFERENCE_GUIDE : ''

@@ -1,6 +1,7 @@
 import {
   canHaveImage,
   cleanFormats,
+  CREATABLE_FORMATS,
   FORMATS,
   isCreatableFormat,
   needsImage,
@@ -8,11 +9,14 @@ import {
   PLATFORMS,
   platformsOf
 } from './registry'
+import { videoFormatsChosen } from '@/lib/video/formats'
+import { supportsMediaFormat } from './media'
 import {
   DEFAULT_STYLES,
   isCasualStyle,
   isContentStyle,
   isEmojiLevel,
+  STARTING_FORMATS,
   type ContentStyle,
   type EmojiLevel
 } from './styles'
@@ -20,6 +24,7 @@ import {
   DEFAULT_FORMAT,
   PLATFORM_IDS,
   type FormatId,
+  type MediaFormat,
   type PlatformId
 } from './types'
 
@@ -167,6 +172,34 @@ export function resolveChannels(
 }
 
 /**
+ * The formats to save when an identity's platforms are changed (the Profile
+ * step's Platforms): a platform kept keeps the formats turned on for it,
+ * including any no longer created, and one added starts with its main post
+ * (STARTING_FORMATS), as on create. Only creatable platforms can be added.
+ */
+export function formatsForPlatforms(
+  enabledFormats: unknown,
+  platforms: readonly PlatformId[]
+): FormatId[] {
+  // What resolveChannels shows as on (LinkedIn when nothing is saved) counts
+  // as on here, so a platform the user sees as included is never reset.
+  const current = [
+    ...cleanFormats(enabledFormats),
+    ...resolveChannels({ enabledFormats }).enabledFormats
+  ]
+  const kept = current.filter(f => platforms.includes(FORMATS[f].platform))
+  const added = platforms
+    .filter(p => !kept.some(f => FORMATS[f].platform === p && isCreatableFormat(f)))
+    .flatMap(p => {
+      const starting = STARTING_FORMATS[p].filter(isCreatableFormat)
+      if (starting.length > 0) return starting
+      const first = CREATABLE_FORMATS.find(f => FORMATS[f].platform === p)
+      return first ? [first] : []
+    })
+  return cleanFormats([...kept, ...added])
+}
+
+/**
  * The formats to draft for an idea: the ones chosen for it, else the ones it
  * suits, else LinkedIn. Only formats the registry knows; an idea saved before
  * formats existed drafts LinkedIn, as it always did.
@@ -174,10 +207,15 @@ export function resolveChannels(
 export function formatsToDraft(idea: {
   targetFormats?: unknown
   formatFit?: unknown
+  suggestedMedia?: unknown
 }): FormatId[] {
-  // Only formats that can still be created: an older idea aimed at a Reel or
-  // a Short drafts its other formats, or LinkedIn.
-  const chosen = cleanFormats(idea.targetFormats).filter(isCreatableFormat)
+  // Only formats that can still be created, and the videos asked for in
+  // "Create posts" → Short video: an older idea aimed at a Reel or a Short
+  // drafts its other formats, or LinkedIn.
+  const videos: readonly FormatId[] = videoFormatsChosen(idea)
+  const chosen = cleanFormats(idea.targetFormats).filter(
+    f => isCreatableFormat(f) || videos.includes(f)
+  )
   if (chosen.length > 0) return chosen
   const fit = cleanFormats(idea.formatFit).filter(isCreatableFormat)
   return fit.length > 0 ? fit : [DEFAULT_FORMAT]
@@ -199,6 +237,29 @@ export function imageChosenFor(
   const chosen = (idea.suggestedMedia as { imageFormats?: unknown } | null)
     ?.imageFormats
   return Array.isArray(chosen) ? chosen.includes(formatId) : undefined
+}
+
+/**
+ * What goes out with an idea's post in `formatId`, as chosen in Create posts:
+ * its slides ("Carousel", kept in suggestedMedia.carouselFormats), one image,
+ * or the text alone. Drafting writes for it and never turns it into slides
+ * on its own. Undefined when nothing was chosen (an idea from before the
+ * choice): drafting plans its own (plannedMediaFormat).
+ */
+export function mediaChosenFor(
+  idea: { suggestedMedia?: unknown },
+  formatId: FormatId
+): MediaFormat | undefined {
+  const carousels = (idea.suggestedMedia as { carouselFormats?: unknown } | null)
+    ?.carouselFormats
+  const image = imageChosenFor(idea, formatId)
+  if (!Array.isArray(carousels) || image === undefined) return undefined
+  const media: MediaFormat = !image
+    ? 'text'
+    : carousels.includes(formatId) && supportsMediaFormat(formatId, 'carousel')
+      ? 'carousel'
+      : 'image'
+  return supportsMediaFormat(formatId, media) ? media : undefined
 }
 
 /**

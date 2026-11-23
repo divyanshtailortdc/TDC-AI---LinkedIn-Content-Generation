@@ -154,8 +154,9 @@ export async function planPost(draftId: string, day: string | null) {
  * Records that the reviewer published an approved post on its platform, or undoes
  * that. A post with no planned day is placed on `day` (the reviewer's today),
  * so the calendar shows when it went out. Marking it posted cancels its
- * queued publication; a post published through the API stays posted,
- * unless it was deleted from its platform since.
+ * queued publication, and is refused while one is already sending it; a post
+ * published through the API stays posted, unless it was deleted from its
+ * platform since.
  */
 export async function setPostPosted(
   draftId: string,
@@ -199,14 +200,25 @@ export async function setPostPosted(
 
       if (posted) {
         // Posted by hand: a queued publication would post it a second time.
+        // One in flight whose post was not sent yet is stopped too (its
+        // worker's fenced write before the create request no longer matches).
         await cancelPendingPublications(
           tx,
           { draftId },
           {
             message: 'Cancelled because the post was marked as posted.',
             code: 'already_posted'
-          }
+          },
+          { includeUnsentInFlight: true }
         )
+        // Still publishing: its create request is already sent, so that copy goes
+        // out whatever happens here. Refused (undoing the cancel above) so the
+        // reviewer learns of it; the post shows as posted once it is out.
+        if (await hasLivePublication(tx, draftId, ['publishing'])) {
+          throw new Error(
+            `This post is being published to ${getPlatform(updated.platform).name} right now and will show as posted once it is out. If you also posted it by hand, delete one of the two copies.`
+          )
+        }
       } else if (await hasLivePublication(tx, draftId)) {
         // Out on its platform (or going out now): un-marking it would be untrue.
         throw new Error(

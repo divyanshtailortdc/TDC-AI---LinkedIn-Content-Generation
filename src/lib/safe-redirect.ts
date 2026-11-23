@@ -13,6 +13,10 @@ export const LOGIN_PATH = '/login'
  * (`//evil.com`), and backslash forms (`/\evil.com`), which browsers treat as
  * `//evil.com`. Control characters are rejected too, since browsers strip tabs
  * and newlines from URLs (`/\t/evil.com` becomes `//evil.com`).
+ *
+ * The path returned is the normalised one, so it is checked again after
+ * normalising: dot segments can leave a `//` that was not there before
+ * (`/.//evil.com`, `/x/..//evil.com`, `/%2e//evil.com` all become `//evil.com`).
  */
 export function safeRedirectPath(
   value: unknown,
@@ -30,7 +34,10 @@ export function safeRedirectPath(
     const base = 'http://app.invalid'
     const resolved = new URL(value, base)
     if (resolved.origin !== base) return fallback
-    return `${resolved.pathname}${resolved.search}${resolved.hash}`
+    const path = `${resolved.pathname}${resolved.search}${resolved.hash}`
+    // A browser would read a leading `//` (or `/\`) as another site.
+    if (path.startsWith('//') || path.startsWith('/\\')) return fallback
+    return path
   } catch {
     return fallback
   }

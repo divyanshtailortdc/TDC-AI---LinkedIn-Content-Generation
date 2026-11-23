@@ -17,6 +17,11 @@ import {
   type PriorVisual,
   type VisualType
 } from '~/lib/ai/skills/media-brief'
+import {
+  AiSpendLimitError,
+  assertWithinAiSpendLimit,
+  recordAiSpend
+} from '~/lib/ai/spend'
 import { addUsage, readImageCost, type CallUsage } from '~/lib/ai/usage'
 import { imagePromptSuffix } from '~/lib/brand/prompt'
 import {
@@ -462,6 +467,15 @@ async function renderImage(req: {
       0
     )
   }
+  // Once per image: the models after the first are fallbacks for the same one.
+  try {
+    await assertWithinAiSpendLimit()
+  } catch (err) {
+    if (err instanceof AiSpendLimitError) {
+      throw new ImageGenerationError(err.message, 0)
+    }
+    throw err
+  }
   const references = req.references?.length ? req.references : undefined
   const models = references ? IMAGE_EDIT_MODELS : TEXT_TO_IMAGE_MODELS
   const size = `${req.target.width}x${req.target.height}` as const
@@ -486,7 +500,9 @@ async function renderImage(req: {
           )
         )
       })
-      req.onUsage(readImageCost(result))
+      const cost = readImageCost(result)
+      req.onUsage(cost)
+      await recordAiSpend({ stage: 'image', modelId, usage: cost })
 
       const first = result.images?.[0]
       if (!first?.base64) {

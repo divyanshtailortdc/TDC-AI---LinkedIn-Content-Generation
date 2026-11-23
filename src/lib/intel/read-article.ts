@@ -6,6 +6,7 @@ import {
   and,
   asc,
   eq,
+  gte,
   inArray,
   isNotNull,
   lt,
@@ -16,6 +17,7 @@ import {
 } from 'drizzle-orm'
 import { createHash } from 'node:crypto'
 import { extractKnowledgeClaims } from '../ai/skills/knowledge-extraction'
+import { withAiSpend } from '../ai/spend'
 import {
   ArticleFetchError,
   looksLikePlaceholderPage,
@@ -54,13 +56,31 @@ type ClaimedArticle = {
 async function claimArticles(limit: number): Promise<ClaimedArticle[]> {
   const now = new Date()
   const stale = new Date(now.getTime() - EXTRACTION_SETTINGS.claimTtlMs)
+  const abandoned = and(
+    eq(articles.status, 'processing'),
+    lt(articles.lockedAt, stale)
+  )
+  // As for an email (claimNextEmail): a page that keeps bringing the process
+  // down is failed after maxAttempts, not taken over forever.
+  await db
+    .update(articles)
+    .set({
+      status: 'failed',
+      lockedAt: null,
+      lastError:
+        'Reading this article was interrupted, and its attempts ran out.',
+      updatedAt: now
+    })
+    .where(
+      and(abandoned, gte(articles.attempts, EXTRACTION_SETTINGS.maxAttempts))
+    )
   const due = db
     .select({ id: articles.id })
     .from(articles)
     .where(
       or(
         and(eq(articles.status, 'pending'), lte(articles.nextAttemptAt, now)),
-        and(eq(articles.status, 'processing'), lt(articles.lockedAt, stale))
+        and(abandoned, lt(articles.attempts, EXTRACTION_SETTINGS.maxAttempts))
       )
     )
     .orderBy(asc(articles.nextAttemptAt))
@@ -164,6 +184,17 @@ async function storeDuplicate(
   }
 }
 
+/** The identity whose email first linked to the article; null once none does. */
+async function firstLinkedBy(articleId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ accountId: mentions.accountId })
+    .from(mentions)
+    .where(eq(mentions.articleId, articleId))
+    .orderBy(asc(mentions.createdAt))
+    .limit(1)
+  return row?.accountId ?? null
+}
+
 async function read(article: ClaimedArticle) {
   let page: ScrapedArticle
   try {
@@ -203,13 +234,20 @@ async function read(article: ClaimedArticle) {
     return
   }
 
+  // An article is read once for every workspace whose email links to it; the
+  // inbox that linked it first pays. Past one of that inbox's limits the
+  // summary is the heuristic one.
+  const payer = await firstLinkedBy(article.id)
   let knowledge
   try {
-    knowledge = await extractKnowledgeClaims(page.title, content, {
-      timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
-      // After about a week of a busy model, the heuristic summary.
-      throwWhenBusy: article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
-    })
+    knowledge = await withAiSpend({ source: 'inbox', accountId: payer }, () =>
+      extractKnowledgeClaims(page.title, content, {
+        timeoutMs: EXTRACTION_SETTINGS.articleModelTimeoutMs,
+        // After about a week of a busy model, the heuristic summary.
+        throwWhenBusy:
+          article.attempts < EXTRACTION_SETTINGS.maxTransientAttempts
+      })
+    )
   } catch (err) {
     // A busy model: the page is read again on the next attempt.
     throw new RetryLaterError(
