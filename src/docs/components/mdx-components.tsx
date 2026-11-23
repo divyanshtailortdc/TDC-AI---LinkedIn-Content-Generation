@@ -7,6 +7,12 @@ import {
   Tags,
   textOf
 } from '@/docs/components/mdx-blocks'
+import {
+  DocsHero,
+  Eyebrow,
+  Guide,
+  Screenshot
+} from '@/docs/components/mdx-visuals'
 import { TabItem, Tabs } from '@/docs/components/tabs'
 import { headingId } from '@/docs/sections'
 import { ExternalLink } from 'lucide-react'
@@ -28,7 +34,7 @@ const components = {
   h2: ({ children }) => (
     <h2
       id={headingId(textOf(children))}
-      className="text-foreground border-border mt-12 mb-4 scroll-mt-24 border-b pb-2 text-2xl font-semibold tracking-tight"
+      className="text-foreground mt-12 mb-4 scroll-mt-24 text-2xl font-semibold tracking-tight"
     >
       {children}
     </h2>
@@ -152,7 +158,11 @@ const components = {
   Details,
   Tabs,
   TabItem,
-  Kbd
+  Kbd,
+  DocsHero,
+  Eyebrow,
+  Guide,
+  Screenshot
 } satisfies MDXComponents
 
 export function useMDXComponents(): MDXComponents {

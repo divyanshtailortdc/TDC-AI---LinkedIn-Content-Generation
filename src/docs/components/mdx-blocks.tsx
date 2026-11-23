@@ -1,3 +1,4 @@
+import { DOC_ICONS, isDocIconName } from '@/docs/doc-icons'
 import { docHref, findDocPage, siblingDocPages, type DocPage } from '@/docs/nav'
 import { cn } from '@/lib/cn'
 import {
@@ -186,9 +187,24 @@ function describedPage(href: string): DocPage | undefined {
   return match ? findDocPage(match[1]!.replace(/\/$/, '')) : undefined
 }
 
-/** Cards side by side, two to a row on wider screens. */
-export function Grid({ children }: { children?: ReactNode }) {
-  return <div className="my-8 grid gap-3 sm:grid-cols-2">{children}</div>
+/** Cards side by side: two to a row on wider screens, or three. */
+export function Grid({
+  children,
+  columns = 2
+}: {
+  children?: ReactNode
+  columns?: 2 | 3
+}) {
+  return (
+    <div
+      className={cn(
+        'my-8 grid gap-3 sm:grid-cols-2',
+        columns === 3 && 'lg:grid-cols-3'
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 export function Card({
@@ -200,9 +216,39 @@ export function Card({
   title: string
   description?: string
   href: string
-  /** A short emoji or symbol shown above the title. */
+  /**
+   * One of the docs' icon names (src/docs/doc-icons.ts), shown in a tile
+   * beside the title; anything else, such as an emoji, sits above it.
+   */
   icon?: string
 }) {
+  if (isDocIconName(icon)) {
+    const Icon = DOC_ICONS[icon]
+    return (
+      <Link
+        href={href}
+        className="group border-border bg-surface hover:border-brand/60 hover:bg-surface-hover flex items-center gap-4 rounded-xl border p-4 no-underline transition-colors"
+      >
+        <span className="bg-brand/10 text-brand-strong flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
+          <Icon aria-hidden className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="text-foreground group-hover:text-brand-strong block font-semibold">
+            {title}
+          </span>
+          {description && (
+            <span className="text-muted mt-0.5 block text-sm leading-snug">
+              {description}
+            </span>
+          )}
+        </span>
+        <ArrowRight
+          aria-hidden
+          className="text-muted group-hover:text-brand-strong h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5"
+        />
+      </Link>
+    )
+  }
   return (
     <Link
       href={href}

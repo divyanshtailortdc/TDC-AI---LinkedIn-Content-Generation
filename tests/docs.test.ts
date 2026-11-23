@@ -28,6 +28,7 @@ import {
   type DocsSearchIndexPage
 } from '../src/docs/search'
 import { headingId, parseDoc, tableOfContents } from '../src/docs/sections'
+import { screenshotSize, screenshotSrc } from '../src/docs/screenshots'
 
 const ROOT = process.cwd()
 const CONTENT = join(ROOT, 'src/docs/content')
@@ -41,7 +42,11 @@ const COMPONENTS = new Set([
   'Details',
   'Tabs',
   'TabItem',
-  'Kbd'
+  'Kbd',
+  'DocsHero',
+  'Eyebrow',
+  'Guide',
+  'Screenshot'
 ])
 
 function filesUnder(dir: string, suffix: string): string[] {
@@ -139,6 +144,21 @@ describe('docs content', () => {
       )
       const unknown = used.filter(name => !COMPONENTS.has(name))
       assert.deepStrictEqual(unknown, [], `${file} uses unknown components`)
+    }
+  })
+
+  it('shows only screenshots that exist (run pnpm docs:screenshots)', () => {
+    for (const { file, source } of pages) {
+      const names = [
+        ...outsideCode(source).matchAll(/<Screenshot\b[^>]*?\bname="([^"]+)"/g)
+      ].map(m => m[1]!)
+      for (const name of names) {
+        assert.ok(screenshotSize(name), `${file}: ${name} is not in src/docs/screenshots.json`)
+        assert.ok(
+          existsSync(join(ROOT, 'public', screenshotSrc(name))),
+          `${file}: public${screenshotSrc(name)} is missing`
+        )
+      }
     }
   })
 

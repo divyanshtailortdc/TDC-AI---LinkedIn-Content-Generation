@@ -1,12 +1,72 @@
-# Welcome to the Content Engine
+<DocsHero
+  actions={[
+    { label: 'Set up your first identity', href: '/docs/getting-started' },
+    { label: 'Explore the app', href: '/docs/getting-started/dashboard' }
+  ]}
+>
 
-The **TDC Content Engine** plans and drafts social media posts for you or your business, and leaves every decision to you. It researches what is happening in your field, proposes post ideas that serve your goals, and drafts the posts you approve in your own voice. Nothing is published until you say so.
+# Everything you need to run the Content Engine
 
-It works for LinkedIn, X, Threads, Facebook and Instagram, and for as many identities as you write for: yourself, your company, or a client.
+The **TDC Content Engine** plans and drafts social media posts for you or your business, and leaves every decision to you. Follow clear, step-by-step guides from your first identity to a published post.
+
+</DocsHero>
+
+## Choose your path
+
+<Grid>
+  <Card
+    icon="rocket"
+    title="Publish your first post"
+    description="From a new account to a published post, step by step."
+    href="/docs/getting-started"
+  />
+  <Card
+    icon="user"
+    title="Teach it who you are"
+    description="Profile, voice and knowledge: what every post is written from."
+    href="/docs/account-setup/profile"
+  />
+  <Card
+    icon="lightbulb"
+    title="Get ideas worth posting"
+    description="Set goals, start a run and judge each idea by its scorecard."
+    href="/docs/account-setup/goals"
+  />
+  <Card
+    icon="calendar"
+    title="Publish on a schedule"
+    description="Connect your accounts and plan the week's posts."
+    href="/docs/publishing/schedule"
+  />
+</Grid>
+
+<Eyebrow>Inside the app</Eyebrow>
+
+## Every guide shows you where to look
+
+Screenshots of the app box the exact part you need in red. Follow each guide from top to bottom without guessing which button comes next.
+
+### Approve the ideas worth writing about
+
+Each idea a run proposes waits for you to approve or reject it. Approving keeps it for a post; rejecting means later runs won't propose it again.
+
+<Screenshot
+  name="ideas"
+  alt="An idea card with its Approve and Reject buttons boxed in red"
+/>
+
+### Edit and approve the draft
+
+A post opens with its text, image and a preview of how it will look. Edit it, ask for a new version, or approve it.
+
+<Screenshot
+  name="post-editor"
+  alt="A post's page with Edit Post Text, Regenerate and Approve boxed in red"
+/>
 
 ## How it fits together
 
-The engine follows the same path every time, and the app's sidebar is laid out in that order:
+It works for LinkedIn, X, Threads, Facebook and Instagram, and for as many identities as you write for: yourself, your company, or a client. The engine follows the same path every time, and the app's sidebar is laid out in that order:
 
 1. **Set up an identity.** Tell the engine who is posting, where, and how they sound: profile, voice, knowledge and preferences.
 2. **Set your goals.** Say what your posts are for, such as finding clients or building a reputation, and on which platforms.
@@ -21,28 +81,26 @@ The engine suggests and drafts; you decide. Ideas wait for your approval, drafts
 
 </Tags>
 
-## Where to start
+## Popular guides
 
-<Grid>
-  <Card
-    title="Quick Start"
-    description="From a new account to your first published post, step by step."
-    href="/docs/getting-started"
+<Grid columns={3}>
+  <Guide
+    icon="target"
+    title="Set your first goal"
+    description="Say what your posts are for, so every idea serves it."
+    href="/docs/account-setup/goals"
   />
-  <Card
-    title="Account Setup"
-    description="Profile, voice, knowledge and preferences: what the engine needs to know about you."
-    href="/docs/account-setup/profile"
-  />
-  <Card
-    title="Posts"
-    description="How drafts are made, edited and approved, with images and carousels."
+  <Guide
+    icon="post"
+    title="Create posts from ideas"
+    description="Pick the platforms and the type of post, then review the drafts."
     href="/docs/publishing/posts/overview"
   />
-  <Card
-    title="Newsletters"
-    description="Give the engine fresh material: subscribe your identity's inbox to newsletters."
-    href="/docs/publishing/newsletters/discover"
+  <Guide
+    icon="plug"
+    title="Connect your accounts"
+    description="Publish through your own Buffer account."
+    href="/docs/settings/integrations"
   />
 </Grid>
 
@@ -52,12 +110,7 @@ The engine suggests and drafts; you decide. Ideas wait for your approval, drafts
 - Press <Kbd>Ctrl</Kbd> <Kbd>K</Kbd> (<Kbd>⌘</Kbd> <Kbd>K</Kbd> on a Mac) or <Kbd>/</Kbd> to search. Type a few words, or ask a question such as "how do I connect LinkedIn?". When you are signed in, questions are also matched by meaning, not only by the words they share with a page.
 - In the app, the **?** button in the bottom-right corner has **Help for this page**, which opens the help page for the screen you are on.
 
-## Related
-
-<NextSteps
-  links={[
-    { title: 'Quick Start', href: '/docs/getting-started' },
-    { title: 'Identities', href: '/docs/getting-started/identities' },
-    { title: 'FAQ', href: '/docs/help/faq' }
-  ]}
+<Screenshot
+  name="help-button"
+  alt="The help menu opened from the ? button, with Help for this page boxed in red"
 />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useModifierKeyLabel } from '@/docs/components/docs-search'
+import { DOC_ICONS } from '@/docs/doc-icons'
 import {
   DOCS_NAV,
   docHref,
@@ -9,9 +9,24 @@ import {
   type DocNavSection
 } from '@/docs/nav'
 import { cn } from '@/lib/cn'
-import { ChevronDown, ChevronRight, Search, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useId, useRef, useState } from 'react'
+
+/** A top-level entry's icon; pages inside a group have none. */
+function NavIcon({ item, active }: { item: DocNavItem; active: boolean }) {
+  const Icon = item.icon ? DOC_ICONS[item.icon] : null
+  if (!Icon) return null
+  return (
+    <Icon
+      aria-hidden
+      className={cn(
+        'h-4 w-4 shrink-0',
+        active ? 'text-brand-strong' : 'text-muted'
+      )}
+    />
+  )
+}
 
 function containsSlug(item: DocNavItem, slug: string | null): boolean {
   if (slug === null) return false
@@ -63,6 +78,7 @@ function NavItem({
               : 'text-foreground/85 hover:bg-foreground/5 hover:text-foreground'
           )}
         >
+          {depth === 0 && <NavIcon item={item} active={containsActive} />}
           <span className="flex-1">{item.title}</span>
           <ChevronRight
             aria-hidden
@@ -103,12 +119,13 @@ function NavItem({
         href={docHref(item.slug ?? '')}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'block rounded-lg px-3 py-1.5 text-sm transition-colors',
+          'flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
           active
             ? 'bg-brand/15 text-brand-strong font-medium'
             : 'text-foreground/85 hover:bg-foreground/5 hover:text-foreground'
         )}
       >
+        {depth === 0 && <NavIcon item={item} active={active} />}
         {item.title}
       </Link>
     </li>
@@ -180,7 +197,6 @@ export function DocsSidebar({
   onSearch: () => void
 }) {
   const slug = docSlugFromPathname(pathname)
-  const modifier = useModifierKeyLabel()
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const activeSection = DOCS_NAV.find(section =>
     section.items.some(item => containsSlug(item, slug))
@@ -243,7 +259,8 @@ export function DocsSidebar({
           </button>
         </div>
 
-        <div className="px-4 pt-4 pb-2">
+        {/* From lg up, the header has the search box. */}
+        <div className="px-4 pt-4 pb-2 lg:hidden">
           <button
             type="button"
             onClick={onSearch}
@@ -253,9 +270,6 @@ export function DocsSidebar({
             <span className="min-w-0 flex-1 truncate text-left">
               Search docs…
             </span>
-            <kbd className="border-border bg-background hidden rounded-md border px-1.5 py-0.5 font-mono text-[11px] lg:inline">
-              {modifier} K
-            </kbd>
           </button>
         </div>
 
@@ -269,6 +283,26 @@ export function DocsSidebar({
               onToggle={() => toggle(section.title)}
             />
           ))}
+          {slug !== 'getting-started' && (
+            <Link
+              href={docHref('getting-started')}
+              className="group border-brand/25 bg-brand/5 hover:border-brand/50 block rounded-xl border p-4 transition-colors"
+            >
+              <span className="text-foreground block text-sm font-semibold">
+                New to the Content Engine?
+              </span>
+              <span className="text-muted mt-1 block text-[13px] leading-snug">
+                Go from a new account to your first published post.
+              </span>
+              <span className="text-brand-strong mt-2.5 inline-flex items-center gap-1 text-[13px] font-medium">
+                Start with the Quick Start
+                <ArrowRight
+                  aria-hidden
+                  className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+                />
+              </span>
+            </Link>
+          )}
         </nav>
       </aside>
     </>

@@ -1,7 +1,10 @@
 'use client'
 
 import { ThemeToggle } from '@/components/theme-toggle'
-import { DocsSearchDialog } from '@/docs/components/docs-search'
+import {
+  DocsSearchDialog,
+  useModifierKeyLabel
+} from '@/docs/components/docs-search'
 import { DocsSidebar } from '@/docs/components/docs-sidebar'
 import { DOCS_PATH } from '@/docs/nav'
 import logoDark from '@/img/tdccommercelogo-dark.webp'
@@ -24,6 +27,7 @@ export function DocsShell({ children }: { children: ReactNode }) {
   const [navOpenedOn, setNavOpenedOn] = useState<string | null>(null)
   const navOpen = navOpenedOn === pathname
   const [searchOpen, setSearchOpen] = useState(false)
+  const modifier = useModifierKeyLabel()
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -89,7 +93,20 @@ export function DocsShell({ children }: { children: ReactNode }) {
             </span>
           </Link>
 
-          <div className="ml-auto flex items-center gap-2">
+          {/* The search box in the middle of the bar, from lg up. */}
+          <button
+            type="button"
+            onClick={openSearch}
+            className="border-border bg-surface text-muted hover:border-brand/50 hover:text-foreground mx-auto hidden h-10 w-full max-w-md items-center gap-2.5 rounded-xl border px-3 text-sm transition-colors lg:flex"
+          >
+            <Search aria-hidden className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left">Search documentation…</span>
+            <kbd className="border-border bg-background rounded-md border px-1.5 py-0.5 font-mono text-[11px]">
+              {modifier} K
+            </kbd>
+          </button>
+
+          <div className="ml-auto flex items-center gap-2 lg:ml-0">
             <button
               type="button"
               onClick={openSearch}

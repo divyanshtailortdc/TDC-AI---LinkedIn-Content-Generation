@@ -3,12 +3,13 @@ import { PlatformMark } from '@/components/platform-mark'
 import { DEFAULT_PLATFORM_ID } from '@/lib/platforms'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { BadgeCheck, Check, LifeBuoy, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
 import type { ReactNode } from 'react'
 
-// Placeholders until these pages exist; every link on the sign-in page
-// points here, so there is one place to fill them in.
+// Every link on the sign-in page points here, so there is one place to fill
+// them in; '#' marks a page that doesn't exist yet.
 const LINKS = {
-  support: '#',
+  support: '/docs',
   terms: '#',
   privacy: '#',
   status: '#'
@@ -86,7 +87,8 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="bg-background flex min-h-full flex-col">
       <header className="border-border bg-surface/80 flex h-14 shrink-0 items-center justify-between border-b px-4 backdrop-blur sm:px-8">
-        <div className="flex min-w-0 items-center gap-3">
+        {/* Home: the website, for anyone not signed in yet. */}
+        <Link href="/" className="flex min-w-0 items-center gap-3">
           <AuthLogo className="h-7 w-auto shrink-0 sm:h-8" />
           <span aria-hidden className="text-border text-lg">
             /
@@ -94,15 +96,15 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           <span className="text-platform-text truncate text-[15px] font-medium">
             Content Engine
           </span>
-        </div>
+        </Link>
         <div className="flex items-center gap-4">
-          <a
+          <Link
             href={LINKS.support}
             className={`text-muted hidden items-center gap-1.5 text-[15px] sm:flex ${linkClass}`}
           >
             <LifeBuoy aria-hidden className="h-4 w-4" />
             Support &amp; Guide
-          </a>
+          </Link>
           <ThemeToggle />
         </div>
       </header>

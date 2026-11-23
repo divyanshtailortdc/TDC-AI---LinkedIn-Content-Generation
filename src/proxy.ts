@@ -1,12 +1,13 @@
 import { getSessionCookie } from 'better-auth/cookies'
 import { NextResponse, type NextRequest } from 'next/server'
 import { loginPathFor } from './lib/safe-redirect'
+import { SITE_PATH } from './lib/site'
 
 /**
- * Pages anyone can open: signing in, and the help pages (the sign-in page
- * links to them; they hold no account data).
+ * Pages anyone can open: the website, signing in, and the help pages (the
+ * sign-in page links to them; they hold no account data).
  */
-const PUBLIC_PATHS = ['/login', '/docs']
+const PUBLIC_PATHS = [SITE_PATH, '/login', '/docs']
 
 /**
  * An early, cheap redirect for visitors with no session cookie, so they land
@@ -25,6 +26,10 @@ export function proxy(request: NextRequest) {
     return NextResponse.next()
   }
   if (getSessionCookie(request)) return NextResponse.next()
+  // A visitor at the front door gets the website, under the same address.
+  if (pathname === '/') {
+    return NextResponse.rewrite(new URL(`${SITE_PATH}${search}`, request.url))
+  }
 
   return NextResponse.redirect(
     new URL(loginPathFor(`${pathname}${search}`), request.url)
