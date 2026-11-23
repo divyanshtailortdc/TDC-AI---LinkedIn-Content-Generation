@@ -10,6 +10,7 @@ import {
   platformsOf
 } from './registry'
 import { videoFormatsChosen } from '@/lib/video/formats'
+import { supportsMediaFormat } from './media'
 import {
   DEFAULT_STYLES,
   isCasualStyle,
@@ -23,6 +24,7 @@ import {
   DEFAULT_FORMAT,
   PLATFORM_IDS,
   type FormatId,
+  type MediaFormat,
   type PlatformId
 } from './types'
 
@@ -235,6 +237,29 @@ export function imageChosenFor(
   const chosen = (idea.suggestedMedia as { imageFormats?: unknown } | null)
     ?.imageFormats
   return Array.isArray(chosen) ? chosen.includes(formatId) : undefined
+}
+
+/**
+ * What goes out with an idea's post in `formatId`, as chosen in Create posts:
+ * its slides ("Carousel", kept in suggestedMedia.carouselFormats), one image,
+ * or the text alone. Drafting writes for it and never turns it into slides
+ * on its own. Undefined when nothing was chosen (an idea from before the
+ * choice): drafting plans its own (plannedMediaFormat).
+ */
+export function mediaChosenFor(
+  idea: { suggestedMedia?: unknown },
+  formatId: FormatId
+): MediaFormat | undefined {
+  const carousels = (idea.suggestedMedia as { carouselFormats?: unknown } | null)
+    ?.carouselFormats
+  const image = imageChosenFor(idea, formatId)
+  if (!Array.isArray(carousels) || image === undefined) return undefined
+  const media: MediaFormat = !image
+    ? 'text'
+    : carousels.includes(formatId) && supportsMediaFormat(formatId, 'carousel')
+      ? 'carousel'
+      : 'image'
+  return supportsMediaFormat(formatId, media) ? media : undefined
 }
 
 /**

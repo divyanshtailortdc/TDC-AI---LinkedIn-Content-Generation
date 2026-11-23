@@ -62,6 +62,7 @@ import {
   Plus,
   Search,
   Send,
+  SquareCheck,
   Trash2,
   X,
   XCircle
@@ -78,7 +79,7 @@ import {
 import { createPortal } from 'react-dom'
 import {
   approveDraft,
-  deleteDraft,
+  deleteDrafts,
   loadMorePosts,
   rejectDraft,
   setDraftHidden
@@ -525,6 +526,8 @@ function dayHeading(value: Date | string, mounted: boolean): string {
 
 /** Posts on one page of the list: the app's page size, 10 like every list. */
 const LIST_PAGE_SIZE = PAGE_SIZE
+/** Posts per deleteDrafts call; within its DELETE_DRAFTS_MAX. */
+const DELETE_CHUNK = 20
 
 /** The post's text as it is pasted on its platform, for Copy text. */
 function postTextOf(post: PostDetail): string {
@@ -831,25 +834,96 @@ export function PostsClientInner({
     }
   }
 
-  // Delete (card menu) asks first.
+  // ---- Select: tick posts, or every post shown, and delete them together ----
+
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [isLoadingAll, setIsLoadingAll] = useState(false)
+  // Only the posts the list shows count, so a filter changed meanwhile never
+  // deletes posts out of sight. With none shown there is nothing to select.
+  const canSelect = filteredPosts.length > 0
+  const inSelectMode = selecting && canSelect
+  const selectedIds = filteredPosts.filter(p => selected.has(p.id)).map(p => p.id)
+  const allSelected = canSelect && selectedIds.length === filteredPosts.length
+
+  // Select all has to mean every post, so the older batches not loaded yet
+  // come in first.
+  const startSelecting = async () => {
+    let cursor = nextCursor
+    if (cursor !== null) {
+      setIsLoadingAll(true)
+      const more: PostDetail[] = []
+      try {
+        while (cursor !== null) {
+          const res = await loadMorePosts(cursor || null)
+          if (!res.success) {
+            showToast({ type: 'error', title: 'Could not load every post', message: res.error })
+            break
+          }
+          more.push(...res.posts)
+          cursor = res.nextCursor
+        }
+      } finally {
+        setIsLoadingAll(false)
+      }
+      setPosts(prev => {
+        const have = new Set(prev.map(p => p.id))
+        const added = more.filter(p => !have.has(p.id) && have.add(p.id))
+        return [...prev, ...added]
+      })
+      setNextCursor(cursor)
+    }
+    setSelecting(true)
+  }
+
+  const stopSelecting = () => {
+    setSelecting(false)
+    setSelected(new Set())
+  }
+
+  const setPostSelected = (id: string, on: boolean) =>
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+  // Delete (card menu, or the selection bar) asks first.
   const [pendingDelete, setPendingDelete] = useState<string[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  // How many of the posts being deleted are done, for the dialog's button.
+  const [deleteProgress, setDeleteProgress] = useState(0)
   const confirmDelete = async () => {
     if (!pendingDelete) return
     const ids = pendingDelete
     setIsDeleting(true)
+    setDeleteProgress(0)
     markBusy(ids, true)
     markDataChanged()
     const deleted: string[] = []
     const failures: string[] = []
-    for (const id of ids) {
-      const res = await deleteDraft(id, { alsoFromPlatform: false }).catch(
-        (err: any) => ({ success: false as const, error: err?.message as string })
-      )
-      if (res.success) deleted.push(id)
-      else failures.push(res.error || 'Failed to delete the post')
+    // In chunks, so a long selection shows progress and no one request runs long.
+    for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+      const chunk = ids.slice(i, i + DELETE_CHUNK)
+      const res = await deleteDrafts(chunk).catch((err: any) => ({
+        success: false as const,
+        error: err?.message as string
+      }))
+      if (res.success) {
+        deleted.push(...res.deleted)
+        failures.push(...res.failures)
+      } else {
+        failures.push(...chunk.map(() => res.error || 'Failed to delete the post'))
+      }
+      setDeleteProgress(i + chunk.length)
     }
     removePosts(deleted)
+    setSelected(prev => {
+      const next = new Set(prev)
+      for (const id of deleted) next.delete(id)
+      return next
+    })
     markBusy(ids, false)
     setIsDeleting(false)
     setPendingDelete(null)
@@ -963,7 +1037,10 @@ export function PostsClientInner({
     onToggleHidden: () => void toggleHidden(post),
     onDelete: () => setPendingDelete([post.id]),
     onApprove: () => void approvePost(post),
-    onReject: () => setPendingReject(post)
+    onReject: () => setPendingReject(post),
+    selecting: inSelectMode,
+    selected: selected.has(post.id),
+    onSelectChange: (on: boolean) => setPostSelected(post.id, on)
   })
 
   // A status picked from a tile or a chip. An older link's ?status=hidden
@@ -1040,7 +1117,11 @@ export function PostsClientInner({
           }
           description="This can’t be undone. Scheduled publishing stops; published posts stay up."
           confirmLabel={pendingDelete.length === 1 ? 'Delete post' : 'Delete posts'}
-          pendingLabel="Deleting…"
+          pendingLabel={
+            pendingDelete.length > DELETE_CHUNK
+              ? `Deleting… ${deleteProgress} of ${pendingDelete.length}`
+              : 'Deleting…'
+          }
           pending={isDeleting}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void confirmDelete()}
@@ -1249,6 +1330,30 @@ export function PostsClientInner({
                   </button>
                 ))}
               </div>
+              {/* Ticks posts to delete them together; the bar below the list
+                  has Select all and Delete. */}
+              {canSelect && (
+                <button
+                  type="button"
+                  aria-pressed={inSelectMode}
+                  onClick={() => (inSelectMode ? stopSelecting() : void startSelecting())}
+                  disabled={isLoadingAll}
+                  className={buttonClassName({
+                    variant: 'secondary',
+                    size: 'sm',
+                    className: cn('h-9', FOCUS_RING)
+                  })}
+                >
+                  {isLoadingAll ? (
+                    <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+                  ) : inSelectMode ? (
+                    <X aria-hidden className="h-4 w-4" />
+                  ) : (
+                    <SquareCheck aria-hidden className="h-4 w-4" />
+                  )}
+                  {inSelectMode ? 'Cancel' : 'Select'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1440,6 +1545,63 @@ export function PostsClientInner({
               </div>
             </nav>
           )}
+
+          {/* While selecting: how many are ticked, Select all (every post
+              the filters show, on every page), and Delete. */}
+          {inSelectMode && (
+            <div className="pointer-events-none sticky bottom-0 z-20 pt-2">
+              <div
+                role="region"
+                aria-label="Selected posts"
+                className="border-border bg-surface pointer-events-auto mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border p-2 pl-4 shadow-lg"
+              >
+                <p className="text-foreground text-sm font-medium tabular-nums">
+                  {selectedIds.length} selected
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelected(
+                        allSelected ? new Set() : new Set(filteredPosts.map(p => p.id))
+                      )
+                    }
+                    className={buttonClassName({
+                      variant: 'secondary',
+                      size: 'sm',
+                      className: FOCUS_RING
+                    })}
+                  >
+                    <SquareCheck aria-hidden className="h-3.5 w-3.5" />
+                    {allSelected ? 'Unselect all' : `Select all ${filteredPosts.length}`}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedIds.length === 0}
+                    onClick={() => setPendingDelete(selectedIds)}
+                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500/50 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-[#1b1b1f]"
+                  >
+                    <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                    {allSelected && selectedIds.length > 1
+                      ? `Delete all ${selectedIds.length}`
+                      : `Delete ${selectedIds.length}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopSelecting}
+                    aria-label="Stop selecting"
+                    title="Stop selecting"
+                    className={cn(
+                      'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg',
+                      FOCUS_RING
+                    )}
+                  >
+                    <X aria-hidden className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
       </div>
@@ -1463,6 +1625,10 @@ type PostItemProps = {
   onDelete: () => void
   onApprove: () => void
   onReject: () => void
+  /** Select mode: it shows a checkbox, and a click ticks it instead of opening the post. */
+  selecting: boolean
+  selected: boolean
+  onSelectChange: (selected: boolean) => void
 }
 
 /**
@@ -1936,14 +2102,52 @@ function PostMenu({
 
 /**
  * The whole card opens the post: a link stretched over it, with the menu and
- * footer action above it.
+ * footer action above it. While selecting, a click ticks the card instead; its
+ * checkbox is the control keyboards and screen readers use.
  */
-function CardCover({ post, href }: Pick<PostItemProps, 'post' | 'href'>) {
+function CardCover({
+  post,
+  href,
+  selecting,
+  selected,
+  onSelectChange
+}: Pick<PostItemProps, 'post' | 'href' | 'selecting' | 'selected' | 'onSelectChange'>) {
+  if (selecting) {
+    return (
+      <div
+        aria-hidden
+        onClick={() => onSelectChange(!selected)}
+        className="absolute inset-0 z-0 cursor-pointer rounded-[inherit]"
+      />
+    )
+  }
   return (
     <Link
       href={href}
       aria-label={`Open: ${post.hook}`}
       className={cn('absolute inset-0 z-0 rounded-[inherit]', FOCUS_RING)}
+    />
+  )
+}
+
+/** A card's or row's checkbox while selecting. */
+function SelectBox({
+  post,
+  selected,
+  onSelectChange,
+  className
+}: Pick<PostItemProps, 'post' | 'selected' | 'onSelectChange'> & { className?: string }) {
+  return (
+    <input
+      type="checkbox"
+      checked={selected}
+      onChange={e => onSelectChange(e.target.checked)}
+      aria-label={`Select: ${post.hook}`}
+      className={cn(
+        'accent-accent pointer-events-auto h-4 w-4 shrink-0 cursor-pointer',
+        FOCUS_RING,
+        className
+      )}
     />
   )
 }
@@ -1954,7 +2158,7 @@ function CardCover({ post, href }: Pick<PostItemProps, 'post' | 'href'>) {
  * next (Approve while it awaits review).
  */
 function PostCard(props: PostItemProps) {
-  const { post, href, mounted, reviewable } = props
+  const { post, href, mounted, reviewable, selecting, selected } = props
   const format = formatOf(post.formatId)
   const spec = FORMATS[format]
   const badge = mediaBadge(post)
@@ -1962,11 +2166,17 @@ function PostCard(props: PostItemProps) {
   const figure = postFigure(post)
   return (
     <article
-      className="group border-border hover:border-foreground/20 bg-surface relative flex flex-col rounded-2xl border shadow-xs transition-[border-color,box-shadow] hover:shadow-sm motion-reduce:transition-none"
+      className={cn(
+        'group bg-surface relative flex flex-col rounded-2xl border shadow-xs transition-[border-color,box-shadow] hover:shadow-sm motion-reduce:transition-none',
+        selecting && selected
+          ? 'border-brand/60 ring-brand/20 ring-2'
+          : 'border-border hover:border-foreground/20'
+      )}
     >
-      <CardCover post={post} href={href} />
+      <CardCover {...props} />
 
       <div className="pointer-events-none relative flex items-center gap-2 px-4 pt-4">
+        {selecting && <SelectBox {...props} />}
         <PlatformMark platform={post.platform} colored className="h-5 w-5 shrink-0" />
         <span
           className="text-foreground min-w-0 truncate text-[13px] font-semibold"
@@ -2066,13 +2276,19 @@ function PostCard(props: PostItemProps) {
 
 /** One post as a row, for the list view: the card's facts in a line. */
 function PostRow(props: PostItemProps) {
-  const { post, href, mounted, reviewable } = props
+  const { post, href, mounted, reviewable, selecting, selected } = props
   const spec = FORMATS[formatOf(post.formatId)]
   const picture = thumbnailSourceOf(post)
   const figure = postFigure(post)
   return (
-    <div className="group hover:bg-surface-hover/50 relative flex items-center gap-3 px-4 py-3 transition-colors first:rounded-t-2xl last:rounded-b-2xl motion-reduce:transition-none">
-      <CardCover post={post} href={href} />
+    <div
+      className={cn(
+        'group relative flex items-center gap-3 px-4 py-3 transition-colors first:rounded-t-2xl last:rounded-b-2xl motion-reduce:transition-none',
+        selecting && selected ? 'bg-brand/5' : 'hover:bg-surface-hover/50'
+      )}
+    >
+      <CardCover {...props} />
+      {selecting && <SelectBox {...props} className="relative" />}
       <div className="pointer-events-none relative shrink-0">
         {picture ? (
           <Thumbnail

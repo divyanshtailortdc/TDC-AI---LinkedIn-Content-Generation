@@ -16,8 +16,10 @@ export function ConfirmDialog({
   confirmLabel,
   pendingLabel,
   pending,
+  confirmDisabled = false,
   onCancel,
-  onConfirm
+  onConfirm,
+  children
 }: {
   title: string
   description: React.ReactNode
@@ -25,8 +27,12 @@ export function ConfirmDialog({
   /** The confirm button's text while the action runs. */
   pendingLabel: string
   pending: boolean
+  /** Confirm waits for something more (typing the name of what goes). */
+  confirmDisabled?: boolean
   onCancel: () => void
   onConfirm: () => void
+  /** More under the description: what goes, a field to confirm with. */
+  children?: React.ReactNode
 }) {
   const titleId = useId()
   const descriptionId = useId()
@@ -76,6 +82,7 @@ export function ConfirmDialog({
             >
               {description}
             </p>
+            {children}
           </div>
         </div>
 
@@ -91,9 +98,9 @@ export function ConfirmDialog({
           </button>
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || confirmDisabled}
             onClick={onConfirm}
-            className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500/50 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-wait disabled:opacity-70 dark:focus-visible:ring-offset-[#1b1b1f]"
+            className={`inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500/50 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-70 dark:focus-visible:ring-offset-[#1b1b1f] ${pending ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed disabled:hover:bg-rose-600'}`}
           >
             {pending && (
               <Loader2 aria-hidden className="h-4 w-4 animate-spin" />

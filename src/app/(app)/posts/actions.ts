@@ -562,6 +562,39 @@ export async function deleteDraft(
   }
 }
 
+/** The most posts one deleteDrafts call takes; the list sends them in chunks. */
+const DELETE_DRAFTS_MAX = 50
+/** How many of those are deleted at once. */
+const DELETE_DRAFTS_CONCURRENCY = 4
+
+/**
+ * Deletes several of the identity's posts (Select on the Posts list), each as
+ * deleteDraft does and never from its platform, a few at a time. Says which
+ * were deleted, and why any were not.
+ */
+export async function deleteDrafts(draftIds: string[]) {
+  await requireUser()
+  const parsed = z.array(z.string()).max(DELETE_DRAFTS_MAX).safeParse(draftIds)
+  if (!parsed.success) {
+    return { success: false as const, error: 'Too many posts at once.' }
+  }
+  const ids = [...new Set(parsed.data)]
+  const deleted: string[] = []
+  const failures: string[] = []
+  for (let i = 0; i < ids.length; i += DELETE_DRAFTS_CONCURRENCY) {
+    const results = await Promise.all(
+      ids
+        .slice(i, i + DELETE_DRAFTS_CONCURRENCY)
+        .map(async id => ({ id, res: await deleteDraft(id) }))
+    )
+    for (const { id, res } of results) {
+      if (res.success) deleted.push(id)
+      else failures.push(res.error)
+    }
+  }
+  return { success: true as const, deleted, failures }
+}
+
 /**
  * Removes a post's image (every version) and the files behind it. Only the
  * image rows' own files: a carousel's slides sit under the same storage

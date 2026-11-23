@@ -305,15 +305,14 @@ export function RunsClient({
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
+    // Fills the app's main area, top to bottom and edge to edge, as a run does.
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Run Details"
         description="Research, ideas and cost of every run"
         actions={generateButton}
       />
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto max-w-7xl">{content}</div>
-      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{content}</div>
     </div>
   )
 }

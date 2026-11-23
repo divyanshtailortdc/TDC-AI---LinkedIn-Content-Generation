@@ -628,6 +628,9 @@ export const ideasTable = pgTable('ideas', {
       // The formats whose posts get an image, as ticked in Create posts.
       // Absent on ideas from before that choice (imageChosenFor).
       imageFormats?: string[]
+      // Of those, the ones set to "Carousel" in Create posts; the rest get a
+      // single image (mediaChosenFor). Absent on ideas from before that choice.
+      carouselFormats?: string[]
       // The video formats asked for in Create posts → Short video
       // (src/lib/video/formats.ts); only these are drafted as videos.
       videoFormats?: string[]

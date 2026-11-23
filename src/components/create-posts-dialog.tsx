@@ -10,6 +10,7 @@ import {
   needsImage,
   PLATFORMS,
   platformsOf,
+  supportsMediaFormat,
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
@@ -25,6 +26,7 @@ import {
   ArrowRight,
   Check,
   Clapperboard,
+  GalleryHorizontal,
   Image as ImageIcon,
   Sparkles
 } from 'lucide-react'
@@ -68,10 +70,15 @@ export function CreatePostsDialog({
   confirmLabel: string
   onCancel: () => void
   /**
-   * The chosen formats, one per platform, in the registry's order, and those
-   * of them whose posts get an image ("Add an image").
+   * The chosen formats, one per platform, in the registry's order, those of
+   * them whose posts get an image ("Add an image"), and of those the ones
+   * set to "Carousel" (the rest get a single image).
    */
-  onConfirm: (formats: FormatId[], imageFormats: FormatId[]) => void
+  onConfirm: (
+    formats: FormatId[],
+    imageFormats: FormatId[],
+    carouselFormats: FormatId[]
+  ) => void
 }) {
   const titleId = useId()
   const descriptionId = useId()
@@ -101,9 +108,13 @@ export function CreatePostsDialog({
   const [noImage, setNoImage] = useState<PlatformId[]>(() =>
     imageByDefault ? [] : platforms
   )
+  // The platforms whose image is a carousel of slides; a single image unless
+  // picked here, so slides are never made without being asked for.
+  const [carousel, setCarousel] = useState<PlatformId[]>([])
   const togglePlatform = (platform: PlatformId) => {
     if (chosen.includes(platform)) {
       setChosen(prev => prev.filter(p => p !== platform))
+      setCarousel(prev => prev.filter(p => p !== platform))
       // Picked again, it starts as the dialog did: with an image, or without.
       setNoImage(prev => (imageByDefault ? prev.filter(p => p !== platform) : prev))
       setTypes(prev => {
@@ -137,6 +148,10 @@ export function CreatePostsDialog({
     f =>
       canHaveImage(f) &&
       (needsImage(f) || !noImage.includes(FORMATS[f].platform))
+  )
+  const carouselFormats = imageFormats.filter(
+    f =>
+      carousel.includes(FORMATS[f].platform) && supportsMediaFormat(f, 'carousel')
   )
 
   // Modal: the page behind must not act on its keys. Listening in the capture
@@ -327,6 +342,14 @@ export function CreatePostsDialog({
                             : [...prev, platform]
                         )
                       }
+                      carousel={carousel.includes(platform)}
+                      onCarouselChange={on =>
+                        setCarousel(prev =>
+                          on
+                            ? [...prev.filter(p => p !== platform), platform]
+                            : prev.filter(p => p !== platform)
+                        )
+                      }
                     />
                   )}
                   </div>
@@ -354,7 +377,13 @@ export function CreatePostsDialog({
                 : `${formats
                     .map(
                       f =>
-                        `${FORMATS[f].label}${imageFormats.includes(f) ? ' with image' : ''}`
+                        `${FORMATS[f].label}${
+                          carouselFormats.includes(f)
+                            ? ' with carousel'
+                            : imageFormats.includes(f)
+                              ? ' with image'
+                              : ''
+                        }`
                     )
                     .join(', ')}.`}
           </p>
@@ -370,8 +399,8 @@ export function CreatePostsDialog({
             disabled={!ready}
             onClick={() =>
               kind === 'video'
-                ? onConfirm([...videos], [])
-                : onConfirm(formats, imageFormats)
+                ? onConfirm([...videos], [], [])
+                : onConfirm(formats, imageFormats, carouselFormats)
             }
             className="bg-accent text-background hover:bg-accent-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -523,39 +552,77 @@ function VideoChoice({
 /**
  * "Add an image" under a platform's post types: the image is designed with
  * the post. Ticked by default; always on (and locked) for a post that is a
- * picture, such as an Instagram post.
+ * picture, such as an Instagram post. With an image, a post type that takes
+ * slides asks which: one image (the default) or a carousel.
  */
 function ImageChoice({
   formatId,
   on,
-  onChange
+  onChange,
+  carousel,
+  onCarouselChange
 }: {
   formatId: FormatId
   on: boolean
   onChange: (on: boolean) => void
+  carousel: boolean
+  onCarouselChange: (carousel: boolean) => void
 }) {
   const required = needsImage(formatId)
+  const withImage = required || on
+  const label = PLATFORMS[FORMATS[formatId].platform].label
+  const options = [
+    { carousel: false, label: 'Single image', Icon: ImageIcon },
+    { carousel: true, label: 'Carousel', Icon: GalleryHorizontal }
+  ] as const
   return (
-    <label
-      className={cn(
-        'mt-2 flex items-center gap-2.5 px-1 text-xs',
-        required ? 'cursor-default' : 'cursor-pointer'
+    <div className="mt-2 space-y-2">
+      <label
+        className={cn(
+          'flex items-center gap-2.5 px-1 text-xs',
+          required ? 'cursor-default' : 'cursor-pointer'
+        )}
+      >
+        <input
+          type="checkbox"
+          checked={withImage}
+          disabled={required}
+          onChange={e => onChange(e.target.checked)}
+          className="accent-accent h-4 w-4 shrink-0"
+        />
+        <ImageIcon aria-hidden className="text-muted h-3.5 w-3.5 shrink-0" />
+        <span className="text-foreground font-medium">Add an image</span>
+        {required && <span className="text-muted">· {label} posts need one</span>}
+      </label>
+      {withImage && supportsMediaFormat(formatId, 'carousel') && (
+        <div
+          role="radiogroup"
+          aria-label={`${label} image type`}
+          className="border-border ml-6.5 inline-grid grid-cols-2 rounded-lg border p-0.5"
+        >
+          {options.map(option => {
+            const active = carousel === option.carousel
+            return (
+              <button
+                key={option.label}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => onCarouselChange(option.carousel)}
+                className={cn(
+                  'inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  active
+                    ? 'bg-accent text-background shadow-xs'
+                    : 'text-muted hover:bg-surface-hover hover:text-foreground'
+                )}
+              >
+                <option.Icon aria-hidden className="h-3.5 w-3.5" />
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
       )}
-    >
-      <input
-        type="checkbox"
-        checked={required || on}
-        disabled={required}
-        onChange={e => onChange(e.target.checked)}
-        className="accent-accent h-4 w-4 shrink-0"
-      />
-      <ImageIcon aria-hidden className="text-muted h-3.5 w-3.5 shrink-0" />
-      <span className="text-foreground font-medium">Add an image</span>
-      {required && (
-        <span className="text-muted">
-          · {PLATFORMS[FORMATS[formatId].platform].label} posts need one
-        </span>
-      )}
-    </label>
+    </div>
   )
 }

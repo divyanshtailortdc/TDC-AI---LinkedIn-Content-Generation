@@ -9,6 +9,7 @@ import { findDocPage, type DocPage } from './nav'
 const ROUTE_DOCS: Array<{ path: string; slug: string; exact?: boolean }> = [
   { path: '/', slug: 'getting-started/dashboard', exact: true },
   { path: '/identity/new', slug: 'getting-started/identities' },
+  { path: '/identities', slug: 'getting-started/identities' },
   { path: '/identity/voice', slug: 'account-setup/voice' },
   { path: '/identity/knowledge', slug: 'account-setup/knowledge' },
   { path: '/identity/preferences', slug: 'account-setup/preferences' },
