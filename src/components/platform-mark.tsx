@@ -80,14 +80,17 @@ function LinkedInBrandMark({ className }: { className: string }) {
   )
 }
 
+// Important (`!`), so a caller's own text colour (text-muted on an unpicked
+// option) leaves X and Threads in their colours, like the other logos.
+
 /** X's logo: black, and white in dark mode, as X shows it. */
 function XBrandMark({ className }: { className: string }) {
-  return <XMark className={`${className} text-black dark:text-white`} />
+  return <XMark className={`${className} text-black! dark:text-white!`} />
 }
 
 /** Threads' logo: black, and white in dark mode, as Threads shows it. */
 function ThreadsBrandMark({ className }: { className: string }) {
-  return <ThreadsMark className={`${className} text-black dark:text-white`} />
+  return <ThreadsMark className={`${className} text-black! dark:text-white!`} />
 }
 
 /** Facebook's logo in its own blue, the "f" white. */
@@ -170,13 +173,15 @@ function InitialMark({ platform, className }: { platform: PlatformId; className:
 }
 
 /**
- * A platform's mark, in the current text colour, or with `colored` its logo
- * in the platform's own colours (LinkedIn blue, Instagram's gradient…).
+ * A platform's logo in its own colours (LinkedIn blue, Instagram's
+ * gradient…), so it reads as that platform everywhere. `colored={false}`
+ * draws it in the current text colour instead, for a mark on a background
+ * of the platform's own colour, where the coloured logo would not show.
  */
 export function PlatformMark({
   platform,
   className,
-  colored = false
+  colored = true
 }: {
   platform: PlatformId
   className: string

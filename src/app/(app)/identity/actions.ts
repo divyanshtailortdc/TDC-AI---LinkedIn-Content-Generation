@@ -1,14 +1,21 @@
 'use server'
 
 import { db } from '@/db'
-import { accountsTable, platformConnectionsTable } from '@/db/schema'
+import {
+  accountsTable,
+  platformConnectionsTable,
+  preferencesTable
+} from '@/db/schema'
 import { IDENTITY_PATH, setActiveIdentity } from '@/lib/identity'
 import {
   cleanChannelSettings,
+  formatsForPlatforms,
   isCreatablePlatform,
   isPlatformId,
+  resolveChannels,
   STARTING_FORMATS,
   type ChannelSettings,
+  type FormatId,
   type PlatformId
 } from '@/lib/formats'
 import {
@@ -22,7 +29,11 @@ import {
   contextIdentityAfterSave,
   headlineAfterSave
 } from '@/lib/identity-change'
-import { insertIdentity, updateIdentity } from '@/lib/identity-write'
+import {
+  insertIdentity,
+  updateIdentity,
+  type IdentityDb
+} from '@/lib/identity-write'
 import { findOwnedAccount, ownedByUser } from '@/lib/ownership'
 import {
   runProfileAnalysis,
@@ -240,10 +251,43 @@ const updateAccountSchema = IdentityProfileSchema.extend({
    * removes that platform's link. Left out, `linkedinUrl` (one link, as the
    * AI setup suggests it) goes to the platform it is on.
    */
-  profileLinks: z.record(z.string(), z.string()).optional()
+  profileLinks: z.record(z.string(), z.string()).optional(),
+  /**
+   * Where the identity posts (the Profile step's Platforms); left out keeps
+   * them. Saved as the formats turned on (formatsForPlatforms).
+   */
+  platforms: z.array(z.string()).optional()
 })
 
 export type UpdateAccountInput = z.input<typeof updateAccountSchema>
+
+/**
+ * The formats to save for the platforms picked on the Profile step, or null
+ * when they are the ones it already posts on. Throws when none is left.
+ */
+async function changedPlatformFormats(
+  database: IdentityDb,
+  accountId: string,
+  picked: string[]
+): Promise<FormatId[] | null> {
+  const platforms = Array.from(new Set(picked.filter(isPlatformId))).filter(
+    isCreatablePlatform
+  )
+  if (platforms.length === 0) {
+    throw new Error('Keep at least one platform to post on.')
+  }
+  // Locked until the save commits, so a Preferences save in between is not
+  // overwritten with formats worked out from before it.
+  const [row] = await database
+    .select({ enabledFormats: preferencesTable.enabledFormats })
+    .from(preferencesTable)
+    .where(eq(preferencesTable.accountId, accountId))
+    .for('update')
+  const current = resolveChannels(row).platforms
+  const same =
+    current.length === platforms.length && platforms.every(p => current.includes(p))
+  return same ? null : formatsForPlatforms(row?.enabledFormats, platforms)
+}
 
 export async function updateAccountAction(input: UpdateAccountInput) {
   const user = await requireUser()
@@ -285,40 +329,59 @@ export async function updateAccountAction(input: UpdateAccountInput) {
       handle = handleFrom(mainLink, validated.name)
     }
 
-    await updateIdentity(
-      db,
-      validated.id,
-      {
-        name: validated.name,
-        ...(validated.accountType
-          ? { accountType: validated.accountType }
-          : {}),
-        handle,
-        // It is made from the company and industry, so it follows them.
-        headline: headlineAfterSave(existing.headline, existing, validated),
-        bio: validated.description,
-        company: validated.company || null,
-        industry: validated.industry,
-        linkedinUrl: mainLink,
-        profileLinks,
-        websiteUrl: validated.websiteUrl || null,
-        // Changed to another company by hand: the voice, knowledge and goals
-        // still belong to the old one until Re-analyze switches them over.
-        contextIdentity: contextIdentityAfterSave(
-          existing.contextIdentity,
-          existing,
-          {
-            name: validated.name,
-            company: validated.company || null,
-            websiteUrl: validated.websiteUrl || null
-          }
-        ),
-        updatedAt: new Date()
-      },
-      validated
-    )
+    // The profile and where it posts are saved together, or neither is.
+    const enabledFormats = await db.transaction(async tx => {
+      const formats = validated.platforms
+        ? await changedPlatformFormats(tx, validated.id, validated.platforms)
+        : null
+      await updateIdentity(
+        tx,
+        validated.id,
+        {
+          name: validated.name,
+          ...(validated.accountType
+            ? { accountType: validated.accountType }
+            : {}),
+          handle,
+          // It is made from the company and industry, so it follows them.
+          headline: headlineAfterSave(existing.headline, existing, validated),
+          bio: validated.description,
+          company: validated.company || null,
+          industry: validated.industry,
+          linkedinUrl: mainLink,
+          profileLinks,
+          websiteUrl: validated.websiteUrl || null,
+          // Changed to another company by hand: the voice, knowledge and goals
+          // still belong to the old one until Re-analyze switches them over.
+          contextIdentity: contextIdentityAfterSave(
+            existing.contextIdentity,
+            existing,
+            {
+              name: validated.name,
+              company: validated.company || null,
+              websiteUrl: validated.websiteUrl || null
+            }
+          ),
+          updatedAt: new Date()
+        },
+        validated
+      )
+      if (formats) {
+        // Only the formats change: each platform's style and notes are kept,
+        // so a platform added back sounds as it did.
+        await tx
+          .insert(preferencesTable)
+          .values({ accountId: validated.id, enabledFormats: formats })
+          .onConflictDoUpdate({
+            target: preferencesTable.accountId,
+            set: { enabledFormats: formats, updatedAt: new Date() }
+          })
+      }
+      return formats
+    })
     await analyzeChangedLinks(validated.id, saved, profileLinks)
-    revalidatePath('/')
+    // Where it posts shows on every page (ideas, posts, goals, schedule).
+    revalidatePath('/', enabledFormats ? 'layout' : undefined)
     revalidatePath(IDENTITY_PATH, 'layout')
 
     return { success: true }

@@ -1,6 +1,7 @@
 import {
   canHaveImage,
   cleanFormats,
+  CREATABLE_FORMATS,
   FORMATS,
   isCreatableFormat,
   needsImage,
@@ -14,6 +15,7 @@ import {
   isCasualStyle,
   isContentStyle,
   isEmojiLevel,
+  STARTING_FORMATS,
   type ContentStyle,
   type EmojiLevel
 } from './styles'
@@ -165,6 +167,34 @@ export function resolveChannels(
     platforms: platformsOf(enabledFormats),
     settings: cleanChannelSettings(row?.channelSettings)
   }
+}
+
+/**
+ * The formats to save when an identity's platforms are changed (the Profile
+ * step's Platforms): a platform kept keeps the formats turned on for it,
+ * including any no longer created, and one added starts with its main post
+ * (STARTING_FORMATS), as on create. Only creatable platforms can be added.
+ */
+export function formatsForPlatforms(
+  enabledFormats: unknown,
+  platforms: readonly PlatformId[]
+): FormatId[] {
+  // What resolveChannels shows as on (LinkedIn when nothing is saved) counts
+  // as on here, so a platform the user sees as included is never reset.
+  const current = [
+    ...cleanFormats(enabledFormats),
+    ...resolveChannels({ enabledFormats }).enabledFormats
+  ]
+  const kept = current.filter(f => platforms.includes(FORMATS[f].platform))
+  const added = platforms
+    .filter(p => !kept.some(f => FORMATS[f].platform === p && isCreatableFormat(f)))
+    .flatMap(p => {
+      const starting = STARTING_FORMATS[p].filter(isCreatableFormat)
+      if (starting.length > 0) return starting
+      const first = CREATABLE_FORMATS.find(f => FORMATS[f].platform === p)
+      return first ? [first] : []
+    })
+  return cleanFormats([...kept, ...added])
 }
 
 /**
