@@ -59,7 +59,8 @@ function ConnectButton({
   const className = `${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`
   const content = (
     <>
-      <PlatformMark platform={platform.id} className="h-3.5 w-3.5" />
+      {/* White on the platform's own colour, as its brand shows it. */}
+      <PlatformMark platform={platform.id} colored={false} className="h-3.5 w-3.5" />
       {expired ? `Reconnect ${platform.name}` : `Connect ${platform.name}`}
     </>
   )
@@ -570,7 +571,7 @@ function PublishControlsInner({
               {busy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <PlatformMark platform={platform.id} className="h-3.5 w-3.5" />
+                <PlatformMark platform={platform.id} colored={false} className="h-3.5 w-3.5" />
               )}
               {lastFailed ? 'Try again' : 'Publish now'}
             </button>

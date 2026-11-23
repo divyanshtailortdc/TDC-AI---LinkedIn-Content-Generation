@@ -406,10 +406,13 @@ export function IdentityFields({
   readOnly = false,
   aiFilled,
   links,
+  platforms,
   onChange
 }: {
   values: IdentityValues
   errors?: IdentityFieldErrors
+  /** Where the identity posts, shown just above its profile links (edit page). */
+  platforms?: ReactNode
   /**
    * Fields still holding an AI suggestion, marked until the user edits them;
    * a profile link by its linkFieldKey.
@@ -479,6 +482,8 @@ export function IdentityFields({
           </div>
         </div>
       </SectionCard>
+
+      {platforms}
 
       <SectionCard title="Online presence">
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
