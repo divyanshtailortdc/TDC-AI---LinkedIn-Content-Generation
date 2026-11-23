@@ -1,6 +1,6 @@
 # Dashboard
 
-The Dashboard is the home page of the Content Engine. It shows how much AI work has been done for the identity you are working on, how far that identity's setup has got, and which services the app can use.
+The Dashboard is the home page of the Content Engine. Until your first post is published it opens with the **Getting started** checklist. It also shows how much AI work has been done for the identity you are working on, and which services the app can use.
 
 Everything here is about the active identity, the one picked in the identity switcher at the top of the sidebar. Switch identity and the numbers change with it.
 
@@ -26,9 +26,37 @@ The summary cards add up the AI work done for the active identity and how much o
   alt="The AI usage cards on the Dashboard, boxed in red"
 />
 
-## Before you have an identity
+## Getting started
 
-If you have not set up an identity yet, the Dashboard shows a **Set up your content identity** card instead of your numbers. Click **Set up your identity** to create one. The **Capabilities** panel is still shown above it.
+The **Getting started** checklist takes a new identity from setup to its first published post, in three parts:
+
+| Part                       | Steps                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| **Set up your brand**      | Create your identity, set your voice, add to your knowledge base, set a goal, check your preferences, set your brand theme |
+| **Connect publishing**     | Connect your Buffer account, choose where your posts go                                     |
+| **Create your first post** | Generate your first ideas, turn an idea into a post, review and approve it, publish it      |
+
+The left side shows the step to do next: why it matters, what to click, about how long it takes, and a button that takes you there. Click any step in the list to read about it; **Back to the next step** returns to the one you are on.
+
+Each step is ticked from what is actually saved, however you did it: a goal is ticked once a goal exists, Buffer once your Buffer account is connected. Nothing is ticked just because you opened a page. Because progress comes from your saved work, you can stop at any point, on any device, and the checklist picks up where you left off.
+
+A few steps need a click of their own:
+
+- **Check your preferences**: preferences are saved with sensible defaults when the identity is created, so they count once you save them, or click **These look right**.
+- **Choose where your posts go**: connecting Buffer picks an account for each network by itself. Check them and click **Confirm channels**.
+- **Add to your knowledge base** and **Set your brand theme** are optional: **Skip for now** or **Keep the default look** leaves them for later, and **Do it now instead** takes that back.
+
+While a run is generating ideas, or a post is being written or published, the step shows **In progress** and what is happening. You can leave the page meanwhile: the step ticks itself off when the work is done. If something fails, the step says **Needs attention** and what to do.
+
+Without an identity, the checklist opens on **Create your identity**, and the token usage and identity sections are not shown yet.
+
+### The guide bar
+
+Until your first post is out, a **Getting started** bar sits at the top of every other page, with your progress and the next step. On the page where that step is done, it opens with the instructions; click the step's name to fold them away or open them again. Once you finish the step, the bar says so and offers **Continue** to the next one.
+
+Click **X** on the bar to hide it everywhere. The checklist stays on the Dashboard, where **Show the guide bar** brings the bar back.
+
+When the first post is published, the checklist and the bar say you are all set. **Hide this** or **Finish** removes them.
 
 ## Token usage
 
@@ -79,23 +107,6 @@ The first two limits count spending across every identity you own, so a busy ide
 
 The **Your identity** card shows the identity's initials, name, type and headline. Click the name or **Edit** to open its Profile.
 
-Under it, the **Setup checklist** shows how many of four setup steps have something saved, for example "2 of 4". Each item is a link:
-
-| Item            | Opens                            | Ticked when                             |
-| --------------- | -------------------------------- | --------------------------------------- |
-| **Voice**       | Identity Setup, Voice step       | A voice has been saved.                 |
-| **Knowledge**   | Identity Setup, Knowledge step   | At least one knowledge document exists. |
-| **Goals**       | The Goals page                   | At least one goal exists.               |
-| **Preferences** | Identity Setup, Preferences step | Preferences have been saved.            |
-
-An item without a tick has a dashed outline. The checklist only checks that something is saved; it does not judge how complete it is.
-
-<Tags type="tip">
-
-Goals are the one item a run cannot do without: every run writes toward goals you pick. If **Goals** is not ticked, start there.
-
-</Tags>
-
 ## Capabilities
 
 The **Capabilities** panel lists the outside services this installation of the app is set up to use:
@@ -112,6 +123,7 @@ Each shows **Active** when it is ready, or a note that its key is not set. These
 
 <NextSteps
   links={[
+    { title: 'Quick Start', href: '/docs/getting-started' },
     { title: 'Identities', href: '/docs/getting-started/identities' },
     { title: 'Goals', href: '/docs/account-setup/goals' },
     { title: 'Starting a Run', href: '/docs/account-setup/runs' },

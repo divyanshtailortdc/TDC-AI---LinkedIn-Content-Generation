@@ -1,1 +1,102 @@
-{}
+{
+  "dashboard": {
+    "width": 2320,
+    "height": 1912
+  },
+  "dashboard-usage": {
+    "width": 2320,
+    "height": 1094
+  },
+  "identity-switcher": {
+    "width": 2000,
+    "height": 920
+  },
+  "profile": {
+    "width": 2320,
+    "height": 862
+  },
+  "voice": {
+    "width": 2320,
+    "height": 998
+  },
+  "knowledge": {
+    "width": 2320,
+    "height": 884
+  },
+  "preferences": {
+    "width": 2320,
+    "height": 786
+  },
+  "runs": {
+    "width": 2320,
+    "height": 1084
+  },
+  "goals": {
+    "width": 2320,
+    "height": 1280
+  },
+  "generate-ideas": {
+    "width": 2320,
+    "height": 1246
+  },
+  "ideas": {
+    "width": 2320,
+    "height": 1018
+  },
+  "idea-scorecard": {
+    "width": 2000,
+    "height": 996
+  },
+  "create-posts": {
+    "width": 2320,
+    "height": 1108
+  },
+  "run-details": {
+    "width": 2320,
+    "height": 704
+  },
+  "posts": {
+    "width": 2320,
+    "height": 1456
+  },
+  "post-editor": {
+    "width": 2320,
+    "height": 940
+  },
+  "post-type-picker": {
+    "width": 2320,
+    "height": 1120
+  },
+  "brand-theme": {
+    "width": 2320,
+    "height": 1782
+  },
+  "newsletters-discover": {
+    "width": 2320,
+    "height": 920
+  },
+  "newsletters-inbox": {
+    "width": 2320,
+    "height": 920
+  },
+  "schedule": {
+    "width": 2320,
+    "height": 1748
+  },
+  "integrations": {
+    "width": 2320,
+    "height": 1026
+  },
+  "security": {
+    "width": 2320,
+    "height": 854
+  },
+  "theme": {
+    "width": 2320,
+    "height": 1094
+  },
+  "help-button": {
+    "width": 2320,
+    "height": 920
+  }
+}

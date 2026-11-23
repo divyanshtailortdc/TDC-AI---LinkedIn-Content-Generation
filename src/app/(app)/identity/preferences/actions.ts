@@ -1,6 +1,7 @@
 'use server'
 
 import { db } from '@/db'
+import { changeOnboarding } from '@/lib/onboarding/state'
 import {
   preferencesTable,
   type Guardrails,
@@ -149,6 +150,12 @@ async function writePreferences(
   } else {
     await db.insert(preferencesTable).values({ accountId, ...columns })
   }
+  // Saved by the user, not the defaults made with the identity: the
+  // onboarding step is done (src/lib/onboarding). The preferences are saved
+  // either way.
+  await changeOnboarding(db, accountId, { confirm: 'preferences' }).catch(err =>
+    console.error('Could not record the preferences step:', err)
+  )
 
   revalidatePath(`${IDENTITY_PATH}/preferences`)
   revalidatePath(IDENTITY_PATH)

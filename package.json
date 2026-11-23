@@ -8,13 +8,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --require ./tests/support/server-only-stub.cjs --test tests/**/*.test.ts",
     "format": "prettier --write \"./src/**/*.{js,cjs,mjs,jsx,ts,tsx,mdx}\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "docs:index": "tsx --env-file-if-exists=.env src/docs/scripts/build-search-index.ts"
+    "docs:index": "tsx --env-file-if-exists=.env src/docs/scripts/build-search-index.ts",
+    "docs:screenshots": "node scripts/docs-screenshots/capture.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.52",

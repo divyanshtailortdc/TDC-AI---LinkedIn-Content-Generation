@@ -19,6 +19,10 @@ import {
 } from '@/lib/publishing/config'
 import { pkceVerifier, verifyOAuthState } from '@/lib/publishing/oauth-state'
 import {
+  connectReturnPath,
+  RETURN_COOKIE
+} from '@/lib/publishing/return-path'
+import {
   BUFFER_FLOW,
   settingsRedirect,
   STATE_COOKIE
@@ -44,11 +48,16 @@ export async function GET(request: NextRequest) {
       new URL(loginPathFor(INTEGRATIONS_SETTINGS_PATH), request.url)
     )
   }
+  // The page the flow was started from, when /connect was told one.
+  const returnTo =
+    connectReturnPath(request.cookies.get(RETURN_COOKIE)?.value) ?? undefined
   const config = bufferConnectConfig()
-  if (!config) return settingsRedirect('not_configured', BUFFER_FLOW)
+  if (!config) {
+    return settingsRedirect('not_configured', BUFFER_FLOW, undefined, returnTo)
+  }
   // Back on the callback's own origin, where the session cookie is.
   const back = (result: CallbackResult) =>
-    settingsRedirect(result, BUFFER_FLOW, config.oauth.redirectUri)
+    settingsRedirect(result, BUFFER_FLOW, config.oauth.redirectUri, returnTo)
 
   const params = request.nextUrl.searchParams
   const error = params.get('error')

@@ -1898,6 +1898,28 @@ export const aiUsageTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Onboarding progress (1:1 with Account) — the guided first-post journey
+// ---------------------------------------------------------------------------
+
+// Only what saved data cannot show (src/lib/onboarding): the optional steps
+// the user chose to leave for later, the steps whose defaults they confirmed
+// (preferences, the channels Buffer picked), and whether the guide bar is
+// hidden. Everything else is read from the tables the steps write. No row
+// until the user skips, confirms or hides something.
+export const onboardingProgressTable = pgTable('onboarding_progress', {
+  accountId: uuid('account_id')
+    .primaryKey()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  skipped: jsonb('skipped').$type<string[]>().default([]).notNull(),
+  confirmed: jsonb('confirmed').$type<string[]>().default([]).notNull(),
+  // The guide bar is hidden; the dashboard checklist stays until complete.
+  hiddenAt: commonFieldDefs.date('hidden_at'),
+  // When the first post went out, first noticed; kept for the record.
+  completedAt: commonFieldDefs.date('completed_at'),
+  ...commonFieldDefs.dates
+})
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 

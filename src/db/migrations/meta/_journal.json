@@ -421,6 +421,13 @@
       "when": 1795238795300,
       "tag": "0059_identity_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1795413315464,
+      "tag": "0060_onboarding_progress",
+      "breakpoints": true
     }
   ]
 }

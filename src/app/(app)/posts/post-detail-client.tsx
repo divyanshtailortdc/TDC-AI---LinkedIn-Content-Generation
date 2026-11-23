@@ -1842,6 +1842,15 @@ export function PostDetailClient({
               slideCount={slides?.length ?? activePost.slideCount ?? 0}
               unsavedEdits={hasUnsavedEdits}
               textReplacing={textReplacing}
+              review={{
+                // The saved text, as Copy post gives it: what Approve
+                // stored, and so what goes out.
+                text:
+                  formatOf(activePost.formatId) === 'linkedin.post'
+                    ? platformPostText(activePost, activePlatform)
+                    : copyText(formatOf(activePost.formatId), activePost),
+                imageUrl: activePost.media?.imageUrl ?? null
+              }}
               onChange={publication => {
                 const id = activePost.id
                 // Deleted from its platform: deletePublishedPost cleared its

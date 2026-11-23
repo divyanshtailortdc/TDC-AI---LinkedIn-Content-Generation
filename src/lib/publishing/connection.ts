@@ -53,7 +53,7 @@ function messagesFor(platform: string) {
 }
 
 /** Whether the connection's grant includes posting (a key always does). */
-const canPublish = (
+export const canPublish = (
   connection: Pick<PlatformConnection, 'scopes' | 'platform'>
 ) => {
   const scope = providerFor(connection.platform).publishScope
