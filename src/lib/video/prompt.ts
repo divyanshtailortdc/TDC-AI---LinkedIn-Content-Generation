@@ -1,5 +1,6 @@
 import { videoScriptOf, type PostText } from '@/lib/formats/text'
 import { videoSpecOf, type VideoFormatId } from './formats'
+import { AI_CLIP_SECONDS } from './models'
 
 /**
  * The prompt a video model gets for a Reel or Short: built from the post's
@@ -33,11 +34,11 @@ export function buildVideoPrompt(input: VideoPromptInput): string {
   const spec = videoSpecOf(input.formatId)
   const script = videoScriptOf(input.post)
   const shots = script.shots.slice(0, MAX_SHOTS)
-  const beat = spec.seconds / Math.max(shots.length, 1)
+  const beat = AI_CLIP_SECONDS / Math.max(shots.length, 1)
   const topic = clean(input.topic) || clean(script.title)
 
   const lines = [
-    `A vertical ${spec.aspectRatio} short-form social video for ${spec.label}: one continuous ${spec.seconds}-second live-action clip that fills the whole vertical frame, edge to edge.`,
+    `A vertical ${spec.aspectRatio} short-form social video for ${spec.label}: one continuous ${AI_CLIP_SECONDS}-second live-action clip that fills the whole vertical frame, edge to edge.`,
     topic ? `Subject: ${topic}.` : null,
     'Beats, in order:',
     ...shots.map((shot, i) => {

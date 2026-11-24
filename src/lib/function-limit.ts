@@ -3,8 +3,9 @@
  * included: the Hobby plan's most. It ends the function there and runs no
  * cleanup, so work that may take longer has its own deadline below this.
  *
- * Route segment config must be a literal, so the (app) layout and
- * /api/cron/jobs repeat it as `maxDuration = 300`; change them together.
+ * Route segment config must be a literal, so the (app) layout,
+ * /api/cron/jobs and /api/posts/[id]/video repeat it as
+ * `maxDuration = 300`; change them together.
  */
 export const FUNCTION_MAX_DURATION_S = 300
 

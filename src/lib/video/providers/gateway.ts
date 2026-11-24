@@ -8,7 +8,7 @@ import {
 import { gatewayClient } from '~/lib/ai'
 import { readGatewayCost } from '~/lib/ai/usage'
 import type { VideoModelInfo } from '../models'
-import type { VideoJobStatus, VideoProvider, VideoRequest } from './types'
+import type { RemoteVideoProvider, VideoJobStatus, VideoRequest } from './types'
 
 /**
  * Video through the Vercel AI Gateway, with the key every other model call
@@ -64,7 +64,9 @@ async function download(
   return { bytes, mediaType }
 }
 
-export function gatewayVideoProvider(model: VideoModelInfo): VideoProvider {
+export function gatewayVideoProvider(
+  model: VideoModelInfo
+): RemoteVideoProvider {
   const client = gatewayClient
   if (!client) {
     throw new Error('Video generation needs AI_GATEWAY_API_KEY.')
@@ -72,6 +74,7 @@ export function gatewayVideoProvider(model: VideoModelInfo): VideoProvider {
   const videoModel = client.videoModel(model.id)
 
   return {
+    kind: 'remote',
     name: 'gateway',
     model,
 

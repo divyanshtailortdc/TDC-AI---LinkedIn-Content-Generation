@@ -8,6 +8,7 @@ import {
   videoSpecOf,
   type VideoFormatId
 } from '@/lib/video/formats'
+import { AI_CLIP_SECONDS } from '@/lib/video/models'
 import type { VideoState, VideoView } from '@/lib/video/post-video'
 import {
   AlertTriangle,
@@ -21,15 +22,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * A Reel's or Short's video on the post page, in place of the image tools:
- * Generate (after confirming the estimated cost), progress while the clip is
- * made, then the video to watch, download or make again. The state lives on
- * the server (GET /api/posts/[id]/video), so leaving the page does not stop
- * a generation, and coming back picks it up.
+ * Record video (free: recorded from the script on the server) or, with an
+ * AI model, Generate after confirming the estimated cost; progress while it
+ * is made, then the video to watch, download or make again. The state lives
+ * on the server (GET /api/posts/[id]/video), so leaving the page does not
+ * stop a generation, and coming back picks it up.
  */
 
 const POLL_MS = 5_000
-/** What Veo usually takes, for the estimated progress bar. */
-const TYPICAL_SECONDS = 90
+/** What a recording and an AI clip usually take, for the progress bar. */
+const TYPICAL_SECONDS = { recorded: 60, generated: 90 }
 
 const primaryButton =
   'bg-accent text-background hover:bg-accent-hover inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50'
@@ -160,7 +162,7 @@ export function VideoPanel({
   }, [running, readyId, failedId, state?.failed?.error])
 
   const start = async () => {
-    if (!state?.estimateUsd || startingRef.current) return
+    if (state?.estimateUsd == null || startingRef.current) return
     startingRef.current = true
     setStarting(true)
     try {
@@ -213,8 +215,9 @@ export function VideoPanel({
   const blocked = locked ?? state?.locked ?? null
   const ready = state?.ready ?? null
   const failed = state?.failed ?? null
+  const recorded = state?.recorded ?? false
   const canGenerate =
-    Boolean(state?.estimateUsd) &&
+    state?.estimateUsd != null &&
     !state?.unavailable &&
     !blocked &&
     !state?.noScript &&
@@ -253,14 +256,15 @@ export function VideoPanel({
       {state && (
         <>
           {running ? (
-            <Progress view={running} now={now} />
+            <Progress view={running} now={now} recorded={recorded} />
           ) : ready ? (
             <Player view={ready} label={spec.label} />
           ) : (
             <div className="bg-surface-hover text-muted mx-auto flex aspect-9/16 max-h-80 flex-col items-center justify-center gap-2 rounded-xl px-6 text-center text-xs">
               <Clapperboard className="h-6 w-6 opacity-50" />
-              No video yet. Generate an {spec.seconds}-second vertical clip from
-              this script.
+              {recorded
+                ? 'No video yet. Record a vertical video of this script, as slides in your brand colours.'
+                : `No video yet. Generate an ${AI_CLIP_SECONDS}-second vertical clip from this script.`}
             </div>
           )}
 
@@ -321,8 +325,8 @@ export function VideoPanel({
                   </label>
                 )}
                 <p className="text-foreground text-xs leading-relaxed">
-                  This makes one {spec.seconds}-second {spec.aspectRatio} video
-                  with {state.modelLabel}, with a voiceover of the script.
+                  This makes one {AI_CLIP_SECONDS}-second {spec.aspectRatio}{' '}
+                  video with {state.modelLabel}, with a voiceover of the script.
                   <br />
                   <span className="font-semibold">
                     Estimated cost: {formatUsd(state.estimateUsd!)}
@@ -359,6 +363,32 @@ export function VideoPanel({
                   </button>
                 </div>
               </div>
+            ) : recorded ? (
+              // Free, so no cost to confirm: it starts at once.
+              <button
+                type="button"
+                onClick={() => void start()}
+                disabled={starting}
+                className={cn(
+                  ready ? secondaryButton : primaryButton,
+                  'w-full'
+                )}
+              >
+                {starting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : ready || failed ? (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                ) : (
+                  <Clapperboard className="h-3.5 w-3.5" />
+                )}
+                {starting
+                  ? 'Starting…'
+                  : ready
+                    ? 'Record again'
+                    : failed
+                      ? 'Try again'
+                      : 'Record video'}
+              </button>
             ) : (
               <button
                 type="button"
@@ -386,8 +416,9 @@ export function VideoPanel({
 
           {ready && !running && (
             <p className="text-muted text-[11px] leading-relaxed">
-              Made with {ready.modelLabel}
-              {ready.costUsd !== null ? ` · ${formatUsd(ready.costUsd)}` : ''}.
+              {recorded
+                ? 'Recorded from this script. Edit the script, then Record again to change it. '
+                : `Made with ${ready.modelLabel}${ready.costUsd !== null ? ` · ${formatUsd(ready.costUsd)}` : ''}. `}
               Approve the post, then Publish posts this video with its caption
               to {spec.label}; or download it and post it yourself.
             </p>
@@ -398,23 +429,35 @@ export function VideoPanel({
   )
 }
 
-function Progress({ view, now }: { view: VideoView; now: number }) {
+function Progress({
+  view,
+  now,
+  recorded
+}: {
+  view: VideoView
+  now: number
+  recorded: boolean
+}) {
   const elapsed = Math.max(0, (now - Date.parse(view.startedAt)) / 1000)
+  const typical = recorded
+    ? TYPICAL_SECONDS.recorded
+    : TYPICAL_SECONDS.generated
   // Providers report no percentage: an estimate from the usual time, which
   // slows down near the end rather than claiming to be done.
   const estimate = Math.min(
     95,
-    Math.round((1 - Math.exp(-elapsed / TYPICAL_SECONDS)) * 100)
+    Math.round((1 - Math.exp(-elapsed / typical)) * 100)
   )
   return (
     <div className="bg-surface-hover mx-auto flex aspect-9/16 max-h-80 flex-col items-center justify-center gap-3 rounded-xl px-6 text-center">
       <Loader2 className="text-accent h-7 w-7 animate-spin" />
       <div>
         <p className="text-foreground text-sm font-semibold">
-          Generating your video…
+          {recorded ? 'Recording your video…' : 'Generating your video…'}
         </p>
         <p className="text-muted mt-1 text-xs">
-          {clock(elapsed)} elapsed · usually 1–3 minutes
+          {clock(elapsed)} elapsed ·{' '}
+          {recorded ? 'usually about a minute' : 'usually 1–3 minutes'}
         </p>
       </div>
       <div

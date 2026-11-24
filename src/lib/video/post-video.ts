@@ -10,7 +10,9 @@ import {
 import { formatOf } from '@/lib/formats'
 import { assertPostChangeable } from '@/lib/publishing/post-lock'
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { after } from 'next/server'
 import { env } from '~/env'
+import { onVercel } from '~/lib/function-limit'
 import {
   assertWithinAiSpendLimit,
   recordAiSpend,
@@ -29,25 +31,43 @@ import {
   type VideoFormatId,
   type VideoSpec
 } from './formats'
-import { estimateVideoCostUsd, type VideoResolution } from './models'
+import {
+  AI_CLIP_FPS,
+  AI_CLIP_SECONDS,
+  estimateVideoCostUsd,
+  type VideoResolution
+} from './models'
 import { buildVideoPrompt } from './prompt'
 import {
   currentVideoProvider,
   providerFor,
+  type LocalVideoProvider,
   type VideoProvider,
   type VideoRequest
 } from './providers'
+import { RendererUnavailableError } from './render/binaries'
+import { planVideo, plannedSeconds } from './render/plan'
 
 /**
- * A post's AI video: started on request from the post page, then checked on
- * each poll until its provider finishes, when one poll downloads it into the
- * bucket. Every step is a short request, so nothing outlives a serverless
- * function and a generation carries on while the reviewer is elsewhere.
+ * A post's video, started from the post page or by drafting.
  *
- * Cost control: the reviewer confirms the estimate the page showed, and the
- * request is refused when it no longer matches; one generation runs per post
- * (a unique index, so a double click cannot pay twice); the spending limits
- * are checked before starting, and the cost recorded when the clip lands.
+ * Recorded (the product-video recorder, the default): the script is planned
+ * into cards and slides when it starts, and recorded on this server after
+ * the response that started it, in about a minute. A page poll or the job
+ * pass that finds it not yet recorded claims and records it, so one whose
+ * function died is recorded again.
+ *
+ * AI clips (Veo, when VIDEO_MODEL names one): started at the provider, then
+ * checked on each poll until it finishes, when one poll downloads it into
+ * the bucket. Every step is a short request, so nothing outlives a
+ * serverless function and a generation carries on while the reviewer is
+ * elsewhere.
+ *
+ * Cost control: the reviewer confirms the estimate the page showed (nothing,
+ * for a recording), and the request is refused when it no longer matches;
+ * one generation runs per post (a unique index, so a double click cannot pay
+ * twice); the spending limits are checked before an AI clip starts, and its
+ * cost recorded when it lands.
  */
 
 /** How the clip is made: 1080p with its voiceover. */
@@ -65,6 +85,15 @@ const FINISH_TIMEOUT_MS = 3 * 60_000
  */
 const GENERATION_TIMEOUT_MS = 30 * 60_000
 const MAX_SAVE_ATTEMPTS = 3
+/**
+ * A recording claimed this long ago and not finished died with its function
+ * (they end at 300 s): another may claim it.
+ */
+const RENDER_LEASE_MS = 6 * 60_000
+/** Recordings of one video started before it is given up on. */
+const MAX_RENDER_ATTEMPTS = 3
+/** The job pass starts no recording this long in, so it ends in its function's time. */
+const RENDER_PASS_BUDGET_MS = 140_000
 
 export interface VideoView {
   id: string
@@ -89,6 +118,8 @@ export interface VideoState {
   estimateUsd: number | null
   unavailable: string | null
   modelLabel: string | null
+  /** Recorded on the server (no AI model, no cost, no direction to give). */
+  recorded: boolean
   /** Published or marked posted: no new video. */
   locked: string | null
   /** The script has no spoken words to make a video from. */
@@ -102,7 +133,7 @@ export interface VideoState {
 }
 
 export type StartVideoOutcome =
-  | { status: 'started' }
+  | { status: 'started'; videoId: string }
   | { status: 'not_found' }
   | { status: 'already_running' }
   | { status: 'estimate_changed'; estimateUsd: number }
@@ -154,23 +185,38 @@ async function loadVideoDraft(
   return { ...draft, formatId }
 }
 
+/** An AI clip's request: one clip of the model's length. */
 function requestFor(spec: VideoSpec, prompt: string): VideoRequest {
   return {
     prompt,
     aspectRatio: spec.aspectRatio,
     resolution: RESOLUTION,
-    seconds: spec.seconds,
-    fps: spec.fps,
+    seconds: AI_CLIP_SECONDS,
+    fps: AI_CLIP_FPS,
     audio: WITH_AUDIO
   }
 }
 
 const estimateFor = (provider: VideoProvider, spec: VideoSpec) =>
   estimateVideoCostUsd(provider.model, {
-    seconds: spec.seconds,
+    seconds: provider.kind === 'remote' ? AI_CLIP_SECONDS : spec.seconds,
     resolution: RESOLUTION,
     audio: WITH_AUDIO
   })
+
+/**
+ * Runs work after the response, where Vercel keeps the function alive for
+ * it (`after`); outside a request (the job timers) it simply runs.
+ */
+function inBackground(task: () => Promise<void>) {
+  const run = () =>
+    task().catch(err => console.error('Video recording failed:', err))
+  try {
+    after(run)
+  } catch {
+    void run()
+  }
+}
 
 /** Why no video can be made now, or null when one can. */
 function unavailableReason(
@@ -240,14 +286,166 @@ const fail = (id: string, error: string) =>
     )
 
 /**
- * Moves a running generation on: asks its provider (at most every few
- * seconds, whoever polls), and once it is done claims it, so one poll alone
- * downloads and stores the clip. Never throws: a provider that cannot be
- * reached is asked again on the next poll.
+ * Makes a finished video the post's current one: the one before is
+ * superseded, in the same transaction.
+ */
+async function markReady(
+  row: PostVideo,
+  draftId: string,
+  video: {
+    videoUrl: string
+    mediaType: string
+    byteSize: number
+    costUsd: number
+    durationSeconds?: number
+    metadata: Record<string, unknown>
+  }
+) {
+  await db.transaction(async tx => {
+    await tx
+      .update(postVideosTable)
+      .set({ status: 'superseded', updatedAt: new Date() })
+      .where(
+        and(
+          eq(postVideosTable.draftId, draftId),
+          eq(postVideosTable.status, 'ready')
+        )
+      )
+    await tx
+      .update(postVideosTable)
+      .set({
+        status: 'ready',
+        videoUrl: video.videoUrl,
+        mediaType: video.mediaType,
+        byteSize: video.byteSize,
+        ...(video.durationSeconds !== undefined
+          ? { durationSeconds: video.durationSeconds }
+          : {}),
+        costUsd: video.costUsd.toFixed(4),
+        error: null,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+        metadata: video.metadata
+      })
+      .where(eq(postVideosTable.id, row.id))
+  })
+}
+
+/**
+ * Records a video on this server, once: the claim (a lease on
+ * lastCheckedAt) keeps a page poll and the job pass from recording it
+ * twice, and lets another try once a recording's function died. Never
+ * throws.
+ */
+async function record(
+  row: PostVideo,
+  draft: VideoDraft,
+  provider: LocalVideoProvider
+): Promise<void> {
+  const now = Date.now()
+  if (now - row.createdAt.getTime() > GENERATION_TIMEOUT_MS) {
+    await fail(row.id, 'The video took too long to record. Try again.')
+    return
+  }
+  const metadata = row.metadata ?? {}
+  const attempts = Number(metadata.renderAttempts ?? 0)
+  if (attempts >= MAX_RENDER_ATTEMPTS) {
+    await fail(row.id, 'The video could not be recorded. Try again.')
+    return
+  }
+  const [claimed] = await db
+    .update(postVideosTable)
+    .set({
+      lastCheckedAt: new Date(),
+      metadata: { ...metadata, renderAttempts: attempts + 1 },
+      updatedAt: new Date()
+    })
+    .where(
+      and(
+        eq(postVideosTable.id, row.id),
+        eq(postVideosTable.status, 'generating'),
+        or(
+          isNull(postVideosTable.lastCheckedAt),
+          lt(postVideosTable.lastCheckedAt, new Date(now - RENDER_LEASE_MS))
+        )
+      )
+    )
+    .returning({ id: postVideosTable.id })
+  if (!claimed) return
+
+  let video
+  try {
+    video = await provider.render({
+      prompt: row.prompt,
+      accountId: draft.accountId
+    })
+  } catch (err) {
+    if (err instanceof RendererUnavailableError && onVercel()) {
+      // This function was deployed without the browser (only the video and
+      // job routes carry it): hand it back for one that has it.
+      await db
+        .update(postVideosTable)
+        .set({ lastCheckedAt: null, metadata, updatedAt: new Date() })
+        .where(
+          and(
+            eq(postVideosTable.id, row.id),
+            eq(postVideosTable.status, 'generating')
+          )
+        )
+      return
+    }
+    console.error(`Could not record video ${row.id}:`, err)
+    const reason = err instanceof Error && err.message ? err.message : ''
+    await fail(
+      row.id,
+      `The video could not be recorded${reason ? `: ${reason}` : '.'}`
+    )
+    return
+  }
+
+  let videoUrl: string
+  try {
+    videoUrl = await storeDraftFile(draft.id, {
+      buffer: video.bytes,
+      mediaType: video.mediaType,
+      extension: 'mp4'
+    })
+  } catch (err) {
+    console.error(`Could not store video ${row.id}:`, err)
+    await fail(row.id, 'The video was recorded but could not be saved. Try again.')
+    return
+  }
+  await markReady(row, draft.id, {
+    videoUrl,
+    mediaType: video.mediaType,
+    byteSize: video.bytes.length,
+    costUsd: 0,
+    durationSeconds: Math.max(1, Math.round(video.seconds)),
+    metadata: {
+      ...metadata,
+      renderAttempts: attempts + 1,
+      warnings: video.warnings,
+      costSource: 'none'
+    }
+  })
+}
+
+/**
+ * Moves a running generation on. A recording is recorded (see record). An
+ * AI clip's provider is asked (at most every few seconds, whoever polls),
+ * and once it is done the clip is claimed, so one poll alone downloads and
+ * stores it. Never throws: a provider that cannot be reached is asked again
+ * on the next poll.
  */
 async function advance(row: PostVideo, draft: VideoDraft): Promise<void> {
   const now = Date.now()
   const age = now - row.createdAt.getTime()
+
+  const local = providerFor(row.provider, row.modelId).provider
+  if (local?.kind === 'local') {
+    await record(row, draft, local)
+    return
+  }
 
   if (row.status === 'finishing') {
     // The poll that claimed it stopped before storing it: let another try.
@@ -288,8 +486,11 @@ async function advance(row: PostVideo, draft: VideoDraft): Promise<void> {
   if (!due) return
 
   const found = providerFor(row.provider, row.modelId)
-  if (!found.provider) {
-    await fail(row.id, found.reason)
+  if (!found.provider || found.provider.kind !== 'remote') {
+    await fail(
+      row.id,
+      found.provider ? 'This video cannot be checked.' : found.reason
+    )
     return
   }
 
@@ -360,37 +561,19 @@ async function advance(row: PostVideo, draft: VideoDraft): Promise<void> {
 
   const estimated = Number(row.estimatedCostUsd)
   const billed = result.costUsd
-  await db.transaction(async tx => {
-    await tx
-      .update(postVideosTable)
-      .set({ status: 'superseded', updatedAt: new Date() })
-      .where(
-        and(
-          eq(postVideosTable.draftId, draft.id),
-          eq(postVideosTable.status, 'ready')
-        )
-      )
-    await tx
-      .update(postVideosTable)
-      .set({
-        status: 'ready',
-        videoUrl,
-        mediaType: result.video.mediaType,
-        byteSize: result.video.bytes.length,
-        costUsd: (billed ?? estimated).toFixed(4),
-        error: null,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-        metadata: {
-          ...metadata,
-          warnings: [
-            ...((metadata.warnings as string[] | undefined) ?? []),
-            ...result.warnings
-          ],
-          costSource: billed === null ? 'estimate' : 'gateway'
-        }
-      })
-      .where(eq(postVideosTable.id, row.id))
+  await markReady(row, draft.id, {
+    videoUrl,
+    mediaType: result.video.mediaType,
+    byteSize: result.video.bytes.length,
+    costUsd: billed ?? estimated,
+    metadata: {
+      ...metadata,
+      warnings: [
+        ...((metadata.warnings as string[] | undefined) ?? []),
+        ...result.warnings
+      ],
+      costSource: billed === null ? 'estimate' : 'gateway'
+    }
   })
   await recordAiSpend({
     stage: 'video',
@@ -404,6 +587,10 @@ async function advance(row: PostVideo, draft: VideoDraft): Promise<void> {
     }
   })
 }
+
+/** Whether a video is made by recording it here, rather than by a provider. */
+const isRecording = (row: PostVideo) =>
+  providerFor(row.provider, row.modelId).provider?.kind === 'local'
 
 /** The newest rows of a post's videos, newest first. */
 const recentVideos = (draftId: string) =>
@@ -436,7 +623,11 @@ export async function getPostVideoState(
   const active = rows.find(
     r => r.status === 'generating' || r.status === 'finishing'
   )
-  if (active) {
+  if (active && isRecording(active)) {
+    // Recorded after this answer, which the page needs at once; one not
+    // yet claimed (drafting started it, or its recording died) starts here.
+    inBackground(() => advance(active, draft))
+  } else if (active) {
     try {
       await advance(active, draft)
     } catch (err) {
@@ -473,6 +664,7 @@ export async function getPostVideoState(
         : null,
     unavailable,
     modelLabel: provider.provider?.model.label ?? null,
+    recorded: provider.provider?.kind === 'local',
     locked,
     noScript: !draft.hook.trim(),
     running: running
@@ -553,17 +745,21 @@ export async function startPostVideo(options: {
   ) {
     return { status: 'estimate_changed', estimateUsd }
   }
-  await assertWithinAiSpendLimit()
+  const recorded = provider.kind === 'local'
+  // A recording costs nothing; an AI clip must fit the spending limits.
+  if (!recorded) await assertWithinAiSpendLimit()
 
-  const direction = options.direction?.trim() || null
-  const prompt = buildPromptFor(draft, await ideaTopic(draft.ideaId), direction)
-  const request = requestFor(spec, prompt)
-  const metadata = {
-    resolution: RESOLUTION,
-    audio: WITH_AUDIO,
-    fps: spec.fps,
-    trigger: options.confirmedEstimateUsd === null ? 'drafting' : 'reviewer'
-  }
+  const trigger = options.confirmedEstimateUsd === null ? 'drafting' : 'reviewer'
+  // A recording films the script as it is: its plan is its prompt, and it
+  // takes no direction.
+  const plan = recorded ? planVideo({ post: draft }) : null
+  const direction = plan ? null : options.direction?.trim() || null
+  const prompt = plan
+    ? JSON.stringify(plan)
+    : buildPromptFor(draft, await ideaTopic(draft.ideaId), direction)
+  const metadata = plan
+    ? { method: 'product-video', audio: false, fps: spec.fps, trigger }
+    : { resolution: RESOLUTION, audio: WITH_AUDIO, fps: AI_CLIP_FPS, trigger }
 
   // The row is the claim: inserted before the provider is called, so a second
   // request meets the unique index and nothing is paid twice.
@@ -582,7 +778,7 @@ export async function startPostVideo(options: {
         aspectRatio: spec.aspectRatio,
         width: spec.width,
         height: spec.height,
-        durationSeconds: spec.seconds,
+        durationSeconds: plan ? plannedSeconds(plan) : AI_CLIP_SECONDS,
         estimatedCostUsd: estimateUsd.toFixed(4),
         metadata
       })
@@ -593,8 +789,21 @@ export async function startPostVideo(options: {
     throw err
   }
 
+  if (provider.kind === 'local') {
+    // Recorded after the response; the post page shows it once it is ready.
+    inBackground(async () => {
+      const [row] = await db
+        .select()
+        .from(postVideosTable)
+        .where(eq(postVideosTable.id, rowId))
+        .limit(1)
+      if (row) await advance(row, draft)
+    })
+    return { status: 'started', videoId: rowId }
+  }
+
   try {
-    const started = await provider.start(request)
+    const started = await provider.start(requestFor(spec, prompt))
     await db
       .update(postVideosTable)
       .set({
@@ -603,7 +812,7 @@ export async function startPostVideo(options: {
         updatedAt: new Date()
       })
       .where(eq(postVideosTable.id, rowId))
-    return { status: 'started' }
+    return { status: 'started', videoId: rowId }
   } catch (err) {
     console.error(`Could not start a video for draft ${draft.id}:`, err)
     const error =
@@ -628,7 +837,14 @@ export async function finishPendingVideos(limit = 20): Promise<number> {
     .where(inArray(postVideosTable.status, ['generating', 'finishing']))
     .orderBy(postVideosTable.createdAt)
     .limit(limit)
+  const passStarted = Date.now()
   for (const { video, accountId } of rows) {
+    // A recording takes a minute or two: none starts late in the pass.
+    if (
+      isRecording(video) &&
+      Date.now() - passStarted > RENDER_PASS_BUDGET_MS
+    )
+      continue
     try {
       const draft = await loadVideoDraft(accountId, video.draftId)
       if (!draft) continue
@@ -712,6 +928,8 @@ export async function readyVideoFile(videoId: string): Promise<{
 export function currentVideoEstimate(): {
   estimateUsd: number | null
   modelLabel: string | null
+  /** Recorded on the server: no AI model and no cost. */
+  recorded: boolean
   seconds: number
   unavailable: string | null
 } {
@@ -722,7 +940,9 @@ export function currentVideoEstimate(): {
     estimateUsd:
       found.provider && !unavailable ? estimateFor(found.provider, spec) : null,
     modelLabel: found.provider?.model.label ?? null,
-    seconds: spec.seconds,
+    recorded: found.provider?.kind === 'local',
+    seconds:
+      found.provider?.kind === 'remote' ? AI_CLIP_SECONDS : spec.seconds,
     unavailable
   }
 }

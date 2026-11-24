@@ -4,9 +4,16 @@ import { env } from '~/env'
 import { hasAIGateway } from '~/lib/ai'
 import { DEFAULT_VIDEO_MODEL_ID, VIDEO_MODELS, videoModelInfo } from '../models'
 import { gatewayVideoProvider } from './gateway'
+import { recorderVideoProvider } from './recorder'
 import type { VideoProvider } from './types'
 
-export type { VideoJobStatus, VideoProvider, VideoRequest } from './types'
+export type {
+  LocalVideoProvider,
+  RemoteVideoProvider,
+  VideoJobStatus,
+  VideoProvider,
+  VideoRequest
+} from './types'
 
 /**
  * The provider videos are made with now (VIDEO_MODEL), or why there is none.
@@ -36,6 +43,10 @@ export function providerFor(
       provider: null,
       reason: `Video model ${modelId} is no longer configured.`
     }
+  }
+  // Recorded on this server: needs no key, only a browser and ffmpeg.
+  if (provider === 'recorder') {
+    return { provider: recorderVideoProvider(model) }
   }
   if (provider === 'gateway') {
     if (!hasAIGateway) {

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "product-video": {
+      "source": "ejekanshjain/skills",
+      "commit": "24db7c6ac731d6b853d7099f6de7102d5f99c0d7",
+      "sourceType": "github",
+      "skillPath": "skills/product-video/SKILL.md",
+      "computedHash": "4240744e61fb1b175fb0cfaa8327861f1df53e4c132cc140114eebeab630d692"
+    }
+  }
+}

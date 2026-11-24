@@ -22,8 +22,8 @@ export const env = createEnv({
     // 'agent' lets the research agent choose searches and read pages.
     RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
-    // The AI Gateway video model short videos are made with
-    // (src/lib/video/models.ts); unset is Veo 3.1 Lite.
+    // How short videos are made (src/lib/video/models.ts); unset is the
+    // product-video recorder, or an AI Gateway video model such as Veo.
     VIDEO_MODEL: z.string().optional(),
     // What one user may spend on AI over any 30 days, in US dollars, across
     // every identity they own and everything that calls a model (runs,

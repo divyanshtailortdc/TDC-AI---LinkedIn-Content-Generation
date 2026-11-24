@@ -607,7 +607,7 @@ describe('short videos', () => {
     const yt = variantPrompt.buildFormatPrompt(ctx, 'youtube.short')
     assert.match(yt, /PLATFORM: YouTube/)
     assert.match(yt, /1\. shots — /)
-    assert.match(yt, /about 6 seconds/)
+    assert.match(yt, /about 15 seconds/)
     assert.match(yt, /3\. title — at most 100 characters/)
   })
 

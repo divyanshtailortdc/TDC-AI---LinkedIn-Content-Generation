@@ -1,7 +1,9 @@
 /**
  * The video models short videos can be made with, and what each costs. A
- * model is picked by VIDEO_MODEL (Veo 3.1 Lite when unset); a model must be
- * listed here, so the cost shown before generating is never a guess.
+ * model is picked by VIDEO_MODEL (the product-video recorder when unset); a
+ * model must be listed here, so the cost shown before generating is never a
+ * guess. The recorder (src/lib/video/render) is the one in use; the Veo
+ * entries stay for anyone who sets VIDEO_MODEL to one.
  *
  * Switching model: add its entry here and set VIDEO_MODEL. A model from
  * another provider also needs that provider in ./providers.
@@ -15,7 +17,7 @@ export interface VideoModelInfo {
   /** The provider's model id, e.g. the AI Gateway's "google/veo-3.1-fast-generate-001". */
   id: string
   /** Which provider in ./providers calls it. */
-  provider: 'gateway'
+  provider: 'gateway' | 'recorder'
   label: string
   /** The clip lengths it makes, in seconds. */
   durations: readonly number[]
@@ -36,10 +38,31 @@ export interface VideoModelInfo {
   priceSource: string
 }
 
-export const DEFAULT_VIDEO_MODEL_ID = 'google/veo-3.1-lite-generate-001'
+/** The product-video skill's recorder: the script as brand-coloured slides. */
+export const RECORDER_MODEL_ID = 'product-video/recorder'
+export const DEFAULT_VIDEO_MODEL_ID = RECORDER_MODEL_ID
+
+/** The clip an AI video model makes: Veo's longest, one clip per request. */
+export const AI_CLIP_SECONDS = 8
+export const AI_CLIP_FPS = 24
 
 export const VIDEO_MODELS: Record<string, VideoModelInfo> = {
-  // The default: the cheapest Veo, text-to-video only, up to 1080p.
+  // The default: recorded on this server, no model and no charge.
+  [RECORDER_MODEL_ID]: {
+    id: RECORDER_MODEL_ID,
+    provider: 'recorder',
+    label: 'Product video recorder',
+    durations: [],
+    audio: false,
+    pricePerSecond: {
+      '720p': { audio: 0, silent: 0 },
+      '1080p': { audio: 0, silent: 0 }
+    },
+    resolutionParam: { '720p': '720x1280', '1080p': '1080x1920' },
+    priceSource:
+      'Recorded on the app server with a headless browser and ffmpeg: no per-video charge'
+  },
+  // The cheapest Veo, text-to-video only, up to 1080p.
   'google/veo-3.1-lite-generate-001': {
     id: 'google/veo-3.1-lite-generate-001',
     provider: 'gateway',

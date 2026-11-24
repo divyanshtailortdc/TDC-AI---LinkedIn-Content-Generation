@@ -34,10 +34,34 @@ export type VideoJobStatus =
     }
   | { status: 'failed'; error: string }
 
-export interface VideoProvider {
+/** A provider that makes the clip elsewhere, started now and asked about later. */
+export interface RemoteVideoProvider {
+  kind: 'remote'
   /** Stored on each video: which provider to ask about it later. */
   name: VideoModelInfo['provider']
   model: VideoModelInfo
   start(request: VideoRequest): Promise<StartedVideo>
   check(operation: unknown): Promise<VideoJobStatus>
 }
+
+export interface RenderedVideo {
+  bytes: Buffer
+  mediaType: string
+  seconds: number
+  warnings: string[]
+}
+
+/**
+ * A provider that makes the video on this server, in one call that takes a
+ * minute or two (the recorder, ./recorder.ts). It runs after a response, or
+ * in the job pass, never inside a request someone waits on.
+ */
+export interface LocalVideoProvider {
+  kind: 'local'
+  name: VideoModelInfo['provider']
+  model: VideoModelInfo
+  /** `prompt` is what was stored when the video was started. */
+  render(job: { prompt: string; accountId: string }): Promise<RenderedVideo>
+}
+
+export type VideoProvider = RemoteVideoProvider | LocalVideoProvider

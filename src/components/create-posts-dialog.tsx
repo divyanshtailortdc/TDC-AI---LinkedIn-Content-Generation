@@ -456,9 +456,10 @@ function KindChoice({
 }
 
 /**
- * Short video: where it goes. Each pick drafts a script now; its 8-second
- * vertical video is generated on the post page, on request, after its cost
- * is shown. Offered whatever the identity turned on in Preferences.
+ * Short video: where it goes. Each pick drafts a script now, and its
+ * vertical video starts as soon as the script is written: recorded from the
+ * script on the server (free), or an AI clip whose cost is shown here.
+ * Offered whatever the identity turned on in Preferences.
  */
 function VideoChoice({
   chosen,
@@ -472,6 +473,8 @@ function VideoChoice({
   const [estimate, setEstimate] = useState<{
     estimateUsd: number | null
     modelLabel: string | null
+    recorded?: boolean
+    seconds?: number
     unavailable: string | null
   } | null>(null)
   useEffect(() => {
@@ -521,11 +524,18 @@ function VideoChoice({
       </div>
       <p className="text-muted mt-2 text-[11px] leading-relaxed">
         Pick one or more. Each idea gets a short script for every platform you
-        pick, and its {VIDEO_SPECS['instagram.reel'].seconds}-second AI video
+        pick, and its{' '}
+        {estimate?.recorded === false
+          ? `${estimate.seconds ?? 8}-second AI video`
+          : 'video, the script as slides in your brand colours,'}{' '}
         starts as soon as the script is written. Approve the post, then
         publish it from its page.
       </p>
-      {estimate?.estimateUsd != null ? (
+      {estimate?.recorded && estimate.estimateUsd != null ? (
+        <p className="text-muted mt-2 text-[11px] leading-relaxed">
+          Recorded on the server: no AI cost.
+        </p>
+      ) : estimate?.estimateUsd != null ? (
         <p className="text-foreground mt-2 text-[11px] leading-relaxed">
           <span className="font-semibold">
             About ${estimate.estimateUsd.toFixed(2)} per video

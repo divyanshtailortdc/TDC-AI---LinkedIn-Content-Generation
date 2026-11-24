@@ -10,18 +10,27 @@ import { MAX_VIDEO_DIRECTION_CHARS } from '~/lib/video/prompt'
 import { publicErrorMessage } from '@/lib/public-error'
 
 /**
- * A Reel's or Short's AI video (src/lib/video/post-video.ts).
+ * A Reel's or Short's video (src/lib/video/post-video.ts).
  *
- * GET: where it stands, with a running generation moved on first: the post
- * page polls it every few seconds while a video is being made, and the poll
- * that finds the clip done stores it.
+ * GET: where it stands, with a running generation moved on: the post page
+ * polls it every few seconds while a video is being made. A recording not
+ * yet under way is recorded after the answer; the poll that finds an AI
+ * clip done stores it.
  *
- * POST: starts a video, with the cost the page showed. Returns at once; the
- * clip is made over the next minutes and picked up by GET.
+ * POST: starts a video, with the cost the page showed (nothing, for a
+ * recording). Returns at once; a recording is made after the response, in
+ * about a minute, and an AI clip over the next minutes, picked up by GET.
  *
  * Route handlers rather than server actions: the browser runs actions one at
  * a time, so a poll would wait behind every edit on the page.
  */
+
+/**
+ * A recording runs after the response, in this function: give it Vercel's
+ * most (src/lib/function-limit.ts). next.config.ts deploys the browser and
+ * ffmpeg with this route.
+ */
+export const maxDuration = 300
 
 const bodySchema = z.object(
   {

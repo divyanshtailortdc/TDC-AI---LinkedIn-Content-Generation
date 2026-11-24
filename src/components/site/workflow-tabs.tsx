@@ -65,7 +65,7 @@ const STEPS: Step[] = [
     summary: 'Designs images, carousels and videos',
     title: 'Images in your brand, not stock',
     detail:
-      'Images and swipeable carousels in your colours and typefaces, in the style you choose, plus 8-second videos for Instagram Reels, YouTube Shorts and Facebook Reels.',
+      'Images and swipeable carousels in your colours and typefaces, in the style you choose, plus short vertical videos of the script for Instagram Reels, YouTube Shorts and Facebook Reels.',
     icon: Images,
     picture: VisualsPicture
   },
@@ -323,11 +323,11 @@ function VisualsPicture() {
       </div>
       <div className="border-border mt-5 flex items-center gap-3 rounded-xl border p-3">
         <span className="from-brand/30 to-cta/60 relative flex h-14 w-9 shrink-0 items-end justify-center overflow-hidden rounded-md bg-linear-to-b">
-          <span className="mb-1 text-[8px] font-semibold text-white">0:08</span>
+          <span className="mb-1 text-[8px] font-semibold text-white">0:15</span>
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-foreground text-sm font-medium">Short video</p>
-          <p className="text-muted text-xs">8 seconds, vertical 9:16</p>
+          <p className="text-muted text-xs">About 15 seconds, vertical 9:16</p>
         </div>
         <span className="flex items-center gap-1.5">
           <PlatformMark platform="instagram" className="h-4 w-4" />
