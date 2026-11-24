@@ -23,8 +23,11 @@ import { ICON_NAMES } from '~/lib/media/canvas/icon-names'
  *
  * PATCH   the reviewer's own edit: headline, body, picture prompt, layout,
  *         icon, figure or emphasis. Drawn again around its picture; no AI.
+ *         A slide made like the account's posts is made again with its new
+ *         words (an image-model call; stops when the browser aborts).
  * POST    { action: 'rewrite', instruction? }  written again by AI.
- *         { action: 'picture', prompt? }  a new picture from its prompt.
+ *         { action: 'picture', prompt? }  a new picture from its prompt; a
+ *         slide made like the account's posts is made again whole.
  *         { action: 'remove_picture' }
  *         { action: 'move', direction: 'up' | 'down' }
  * DELETE  removes it (content slides only).
@@ -81,14 +84,25 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!parsed.success)
     return fail(400, parsed.error.issues[0]?.message || 'Invalid slide.')
   try {
-    const slide = await updateSlide(who.accountId, id, slideId, {
-      ...parsed.data,
-      design: parsed.data.design && {
-        ...parsed.data.design,
-        icon: parsed.data.design.icon ?? undefined,
-        stat: parsed.data.design.stat ?? undefined
-      }
-    })
+    // A slide made like the account's posts is made again: a model call.
+    const slide = await withAiSpend(
+      { source: 'posts', accountId: who.accountId, draftId: id },
+      () =>
+        updateSlide(
+          who.accountId,
+          id,
+          slideId,
+          {
+            ...parsed.data,
+            design: parsed.data.design && {
+              ...parsed.data.design,
+              icon: parsed.data.design.icon ?? undefined,
+              stat: parsed.data.design.stat ?? undefined
+            }
+          },
+          { abortSignal: request.signal }
+        )
+    )
     return Response.json({ success: true, slide })
   } catch (err) {
     return errorResponse(err, request, 'Could not save the slide')

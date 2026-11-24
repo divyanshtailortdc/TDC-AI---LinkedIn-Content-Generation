@@ -15,6 +15,7 @@ import {
 } from '@/lib/research/web-search'
 import { readBodyCapped, safeFetch } from '@/lib/safe-url'
 import { and, eq, inArray } from 'drizzle-orm'
+import { VISUAL_EXAMPLE_LIMITS } from '../visual-examples/types'
 import {
   imageQuery,
   imagesForPosts,
@@ -43,8 +44,12 @@ import type { InsightPost, InsightSources } from './types'
 
 /** More posts than this add cost to the analysis, not accuracy. */
 const MAX_POSTS = 40
-/** Images the analysis looks at: enough to see a look, few enough to stay cheap. */
-const MAX_IMAGES = 6
+/**
+ * Images kept: the analysis looks at the first few (ANALYZED_IMAGES), and
+ * all of them are saved as the account's example posts, which new images
+ * follow (src/lib/visual-examples).
+ */
+const MAX_IMAGES = VISUAL_EXAMPLE_LIMITS.learned
 const MAX_IMAGE_BYTES = 1_500_000
 const IMAGE_TIMEOUT_MS = 8000
 /** Serper's free plan takes at most 10 results a request, so a search reads two pages. */
@@ -54,7 +59,12 @@ const BUFFER_POSTS = 30
 
 export type CollectedPosts = {
   posts: InsightPost[]
-  images: Array<{ data: Uint8Array; mediaType: string; postUrl: string }>
+  images: Array<{
+    data: Uint8Array
+    mediaType: string
+    postUrl: string
+    source: 'search' | 'buffer'
+  }>
   displayName?: string
   bio?: string
   sources: InsightSources
@@ -219,7 +229,9 @@ export async function collectProfilePosts(options: {
         r.flat()
       ),
       imageSearch
-        ? searchImages(imageSearch, { resultCount: RESULTS_PER_PAGE })
+        ? mapConcurrently([1, 2], 2, page =>
+            searchImages(imageSearch, { resultCount: RESULTS_PER_PAGE, page })
+          ).then(r => r.flat())
         : []
     ])
     const results = [...profileResults, ...postResults]
@@ -253,22 +265,26 @@ export async function collectProfilePosts(options: {
     ...buffer.posts
       .filter(b => kept.has(b.post.url))
       .flatMap(b =>
-        b.imageUrls.slice(0, 1).map(url => ({ postUrl: b.post.url, url }))
+        b.imageUrls
+          .slice(0, 1)
+          .map(url => ({ postUrl: b.post.url, url, source: 'buffer' as const }))
       ),
     ...(found
       ? imagesForPosts(
           ref,
           searchPosts.filter(p => kept.has(p.url)),
-          found.imageResults
+          found.imageResults,
+          found.profile.displayName ?? ''
         ).map(i => ({
           postUrl: i.postUrl,
-          url: i.thumbnailUrl
+          url: i.thumbnailUrl,
+          source: 'search' as const
         }))
       : [])
   ].slice(0, MAX_IMAGES * 2)
   const downloaded = await mapConcurrently(candidates, 3, async c => {
     const image = await downloadImage(c.url, signal)
-    return image ? { ...image, postUrl: c.postUrl } : null
+    return image ? { ...image, postUrl: c.postUrl, source: c.source } : null
   })
   const images = downloaded
     .filter((i): i is NonNullable<typeof i> => i !== null)

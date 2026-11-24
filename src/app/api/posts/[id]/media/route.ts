@@ -1,4 +1,4 @@
-import { IMAGE_STYLES, type ImageStyle } from '~/lib/brand/theme'
+import { IMAGE_STYLE_CHOICES, type ImageStyleChoice } from '~/lib/brand/theme'
 import { ImageGenerationAbortedError, readImageDimensions } from '~/lib/media'
 import { DIAGRAM_FORMS } from '~/lib/media/canvas/spec'
 import {
@@ -61,9 +61,13 @@ const bodySchema = z.object(
     // How the image is rendered, for a design from the post or a prompt
     // alone; the brand theme's style when absent.
     style: z
-      .enum(IMAGE_STYLES.map(s => s.value) as [ImageStyle, ...ImageStyle[]], {
-        error: 'Unknown image style.'
-      })
+      .enum(
+        IMAGE_STYLE_CHOICES.map(s => s.value) as [
+          ImageStyleChoice,
+          ...ImageStyleChoice[]
+        ],
+        { error: 'Unknown image style.' }
+      )
       .optional(),
     // A diagram form, for minimal graphic design. "illustration" is what the
     // page sent before image styles; it asks for the illustration style.

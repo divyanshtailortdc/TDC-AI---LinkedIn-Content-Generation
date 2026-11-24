@@ -43,7 +43,61 @@ export function slideContentOf(row: PostSlide): SlideContent {
 }
 
 const metadataOf = (row: Pick<PostSlide, 'metadata'>) =>
-  (row.metadata ?? {}) as { issues?: unknown; factIssues?: unknown }
+  (row.metadata ?? {}) as {
+    issues?: unknown
+    factIssues?: unknown
+    look?: unknown
+  }
+
+/**
+ * How a slide made like the account's own posts was designed (SlideDesign
+ * .look), kept so it can be made again alone: the carousel's style, which
+ * examples it followed, and what this slide shows beside its words.
+ */
+export interface SlideLook {
+  kind: 'photo' | 'graphic'
+  styleNotes: string
+  /** The examples followed, 1-based, as loadLookExamples lists them. */
+  examples: number[]
+  logoCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
+  /** The account's name is set on the slide as its wordmark. */
+  wordmark: boolean
+  scene: string
+  concept: string
+}
+
+const LOOK_CORNER_VALUES = [
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
+  'none'
+] as const
+
+/** The stored design of a slide made like the account's posts; null for a drawn one. */
+export function slideLookOf(row: Pick<PostSlide, 'metadata'>): SlideLook | null {
+  const raw = metadataOf(row).look
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const look = raw as Record<string, unknown>
+  if (typeof look.styleNotes !== 'string' || !look.styleNotes.trim()) return null
+  return {
+    kind: look.kind === 'photo' ? 'photo' : 'graphic',
+    styleNotes: look.styleNotes,
+    examples: Array.isArray(look.examples)
+      ? look.examples.filter(
+          (n): n is number => Number.isInteger(n) && (n as number) >= 1
+        )
+      : [],
+    logoCorner: (LOOK_CORNER_VALUES as readonly unknown[]).includes(
+      look.logoCorner
+    )
+      ? (look.logoCorner as SlideLook['logoCorner'])
+      : 'none',
+    wordmark: look.wordmark === true,
+    scene: typeof look.scene === 'string' ? look.scene : '',
+    concept: typeof look.concept === 'string' ? look.concept : ''
+  }
+}
 
 const strings = (value: unknown) =>
   Array.isArray(value)
@@ -77,6 +131,8 @@ export function slideRowValues(
     /** See slideFactIssuesOf. */
     factIssues?: string[]
     picturePrompt?: string
+    /** A slide made like the account's posts: how it was designed. */
+    look?: SlideLook
   }
 ): NewPostSlide {
   const status: SlideRenderStatus = stored.imageUrl ? 'ready' : 'failed'
@@ -98,7 +154,8 @@ export function slideRowValues(
     metadata: {
       issues: stored.issues,
       ...(stored.factIssues?.length ? { factIssues: stored.factIssues } : {}),
-      ...(stored.picturePrompt ? { picturePrompt: stored.picturePrompt } : {})
+      ...(stored.picturePrompt ? { picturePrompt: stored.picturePrompt } : {}),
+      ...(stored.look ? { look: stored.look } : {})
     }
   }
 }

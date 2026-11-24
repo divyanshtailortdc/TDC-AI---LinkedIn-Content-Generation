@@ -23,11 +23,13 @@ import {
   BACKGROUND_PATTERNS,
   BRAND_THEME_PATH,
   FOOTER_MAX_LENGTH,
-  IMAGE_STYLES,
+  IMAGE_STYLE_CHOICES,
+  LIKE_MY_POSTS,
   imageStyleLabel,
   isPictureStyle,
+  renderingStyleOf,
   type BackgroundPattern,
-  type ImageStyle
+  type ImageStyleChoice
 } from '@/lib/brand/theme'
 import {
   formatAbsoluteDate,
@@ -321,7 +323,7 @@ export function PostDetailClient({
   const referenceInputRef = useRef<HTMLInputElement>(null)
   // The style of the next image: the one this post's image was made in, so a
   // regeneration keeps its look, else the Brand Theme's.
-  const [imageStyle, setImageStyle] = useState<ImageStyle>(
+  const [imageStyle, setImageStyle] = useState<ImageStyleChoice>(
     () => initialPost.media?.imageStyle ?? brand.style
   )
   // For minimal graphic design only; null is Auto.
@@ -776,7 +778,9 @@ export function PostDetailClient({
       activePost.id,
       imageStyle === 'minimal_graphic'
         ? `Designing a minimal graphic from the post, sized for ${activePlatform.name}. This takes about a minute.`
-        : `Designing a ${imageStyleLabel(imageStyle).toLowerCase()} visual from the post, sized for ${activePlatform.name}, then checking the picture for stray lettering and artefacts. This takes about a minute.`,
+        : imageStyle === LIKE_MY_POSTS
+          ? `Designing an image like your own posts, sized for ${activePlatform.name}, then checking its words and details. This takes about a minute.`
+          : `Designing a ${imageStyleLabel(imageStyle).toLowerCase()} visual from the post, sized for ${activePlatform.name}, then checking the picture for stray lettering and artefacts. This takes about a minute.`,
       {
         fromPost: true,
         prompt: imagePrompt.trim(),
@@ -2453,7 +2457,10 @@ export function PostDetailClient({
                       activeIndex={slideIndex}
                       onActiveIndexChange={setSlideIndex}
                       locked={mediaLocked}
-                      drawsPictures={isPictureStyle(brand.style)}
+                      drawsPictures={isPictureStyle(
+                        renderingStyleOf(brand.style)
+                      )}
+                      likeMyPosts={brand.style === LIKE_MY_POSTS}
                       loadError={slidesError}
                       onRetryLoad={retrySlides}
                     />
@@ -2787,7 +2794,7 @@ export function PostDetailClient({
                         }
                         className="flex flex-wrap gap-1.5"
                       >
-                        {IMAGE_STYLES.map(option => {
+                        {IMAGE_STYLE_CHOICES.map(option => {
                           const active = imageStyle === option.value
                           const Icon = IMAGE_STYLE_ICONS[option.value]
                           return (

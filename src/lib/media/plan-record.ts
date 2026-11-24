@@ -34,6 +34,7 @@ export function mediaPlanMetadata(
     usedReference: plan.usedReference,
     imageStyle: plan.imageStyle,
     generationPrompt: plan.generationPrompt,
+    look: plan.look,
     usage: plan.usage,
     ...extra
   }

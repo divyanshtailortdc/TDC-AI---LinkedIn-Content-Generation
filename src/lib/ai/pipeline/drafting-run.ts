@@ -21,7 +21,8 @@ import {
   type LintFinding,
   type LintOptions
 } from '~/lib/lint/run-linter'
-import { DEFAULT_BRAND_THEME } from '@/lib/brand/theme'
+import { DEFAULT_BRAND_THEME, LIKE_MY_POSTS } from '@/lib/brand/theme'
+import { loadLookExamples } from '@/lib/visual-examples/store'
 import {
   createMediaPlan,
   planHasImage,
@@ -644,6 +645,21 @@ async function planPostImage(
   // the reason shown on the review screen.
   let mediaPlan: MediaPlanResult
   try {
+    const brandRendering = await loadBrandRendering(
+      ctx.account.id,
+      ctx.brand ?? DEFAULT_BRAND_THEME
+    )
+    // Like my posts follows the identity's example posts for this platform;
+    // without them it draws in the default style.
+    const platformId = FORMATS[formatId].platform
+    const examples =
+      mediaMode === 'ai_generated' &&
+      brandRendering.theme.visualStyle === LIKE_MY_POSTS
+        ? await loadLookExamples(ctx.account.id, platformId).catch(err => {
+            console.warn('The example posts could not be loaded:', err)
+            return []
+          })
+        : []
     mediaPlan = await createMediaPlan({
       mode: mediaMode,
       postText,
@@ -654,10 +670,9 @@ async function planPostImage(
         { ...ctx, platform: getPlatform(FORMATS[formatId].platform) },
         idea
       ),
-      brand: await loadBrandRendering(
-        ctx.account.id,
-        ctx.brand ?? DEFAULT_BRAND_THEME
-      ),
+      brand: brandRendering,
+      platform: platformId,
+      examples,
       previousVersions,
       // The post's own picture idea when it has one, else the idea's visual
       // direction, written at ideation.

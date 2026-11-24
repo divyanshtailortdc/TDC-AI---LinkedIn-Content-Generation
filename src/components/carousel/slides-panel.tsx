@@ -24,6 +24,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   Trash2,
   X
@@ -37,6 +38,10 @@ import { useRef, useState } from 'react'
  * added; the whole carousel written again; every slide drawn again in the
  * brand as it now is; and all of them downloaded. The caption is edited
  * apart, in the post's text editor.
+ *
+ * A slide made like the identity's own posts (design.look) is one image
+ * with its words in it: saving new words makes it again, "Make again" gives
+ * another take, and it has no layout or separate picture.
  */
 
 type Busy = { slideId: string | null; label: string; stoppable: boolean } | null
@@ -59,6 +64,8 @@ interface SlidesPanelProps {
   locked: boolean
   /** Whether the brand's image style draws pictures (not minimal graphic design). */
   drawsPictures: boolean
+  /** The brand's image style is Like my posts: slides are made like the identity's posts. */
+  likeMyPosts?: boolean
   /**
    * Why the post's slides could not be loaded. The panel then offers to try
    * again, never to make slides: the post has some, and making new ones
@@ -104,6 +111,7 @@ export function SlidesPanel({
   onActiveIndexChange,
   locked,
   drawsPictures,
+  likeMyPosts = false,
   loadError,
   onRetryLoad
 }: SlidesPanelProps) {
@@ -122,6 +130,8 @@ export function SlidesPanel({
   const base = `/api/posts/${postId}/slides`
   const list = slides ?? []
   const disabled = locked || busy !== null
+  // Made like the identity's posts: nothing is drawn by code to redraw.
+  const allLook = list.length > 0 && list.every(s => s.design.look)
 
   const run = async (
     label: string,
@@ -150,9 +160,11 @@ export function SlidesPanel({
 
   const generate = (instructionText: string | null) =>
     run(
-      list.length
-        ? 'Writing the slides again…'
-        : 'Writing and drawing the slides…',
+      likeMyPosts
+        ? `${list.length ? 'Writing the slides again' : 'Writing the slides'} and making each one like your posts. This takes two to three minutes.`
+        : list.length
+          ? 'Writing the slides again…'
+          : 'Writing and drawing the slides…',
       null,
       true,
       async signal => {
@@ -326,8 +338,11 @@ export function SlidesPanel({
             <p className="text-muted text-xs leading-relaxed">
               AI writes a cover, {range.min - 2}–{range.max - 2} slides with one
               point each and a closing call to action, beside your caption
-              (never a copy of it), and draws them in your brand.
-              {drawsPictures
+              (never a copy of it),{' '}
+              {likeMyPosts
+                ? 'and makes each slide like the images you already post. Without example posts, they are drawn in your brand.'
+                : 'and draws them in your brand.'}
+              {!likeMyPosts && drawsPictures
                 ? ' The cover gets a picture; the rest are designed in your colours.'
                 : ''}
             </p>
@@ -377,7 +392,7 @@ export function SlidesPanel({
               <RefreshCw className="h-3.5 w-3.5" /> Write again
             </button>
           )}
-          {!locked && (
+          {!locked && !allLook && (
             <button
               type="button"
               disabled={disabled}
@@ -470,14 +485,17 @@ export function SlidesPanel({
             onCancelEdit={() => setEditingId(null)}
             onSave={patch =>
               run(
-                'Saving and drawing the slide…',
+                slide.design.look
+                  ? 'Making the slide again with your words…'
+                  : 'Saving and drawing the slide…',
                 slide.id,
-                false,
-                async () => {
+                Boolean(slide.design.look),
+                async signal => {
                   const result = await call<{ slide: SlideView }>(
                     `${base}/${slide.id}`,
                     {
                       method: 'PATCH',
+                      signal,
                       json: patch
                     }
                   )
@@ -502,9 +520,11 @@ export function SlidesPanel({
             onPicture={() =>
               void slideAction(
                 slide,
-                slide.hasPicture
-                  ? 'Making a new picture…'
-                  : 'Making a picture…',
+                slide.design.look
+                  ? 'Making the slide again…'
+                  : slide.hasPicture
+                    ? 'Making a new picture…'
+                    : 'Making a picture…',
                 true,
                 {
                   action: 'picture'
@@ -589,12 +609,15 @@ function SlideRow(props: {
   canDelete: boolean
 }) {
   const { slide } = props
+  const look = slide.design.look === true
   const roleLabel =
     slide.role === 'cover'
       ? 'Cover'
       : slide.role === 'cta'
         ? 'Call to action'
-        : SLIDE_LAYOUT_LABELS[slide.design.layout]
+        : look
+          ? 'Slide'
+          : SLIDE_LAYOUT_LABELS[slide.design.layout]
   const iconButton =
     'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-40'
 
@@ -618,7 +641,7 @@ function SlideRow(props: {
             />
           ) : (
             <span className="text-muted absolute inset-0 flex items-center justify-center text-[10px]">
-              {slide.status === 'failed' ? 'Not drawn' : '…'}
+              {slide.status === 'failed' ? (look ? 'Not made' : 'Not drawn') : '…'}
             </span>
           )}
           {props.busyLabel && (
@@ -673,21 +696,34 @@ function SlideRow(props: {
           >
             <Sparkles className="h-3.5 w-3.5" />
           </button>
-          <button
-            type="button"
-            disabled={props.disabled}
-            onClick={props.onPicture}
-            className={iconButton}
-            title={
-              slide.hasPicture
-                ? 'New picture from its prompt'
-                : 'Add a picture from its prompt'
-            }
-            aria-label={slide.hasPicture ? 'New picture' : 'Add a picture'}
-          >
-            <ImagePlus className="h-3.5 w-3.5" />
-          </button>
-          {slide.hasPicture && (
+          {look ? (
+            <button
+              type="button"
+              disabled={props.disabled}
+              onClick={props.onPicture}
+              className={iconButton}
+              title="Make this slide again, with the same words"
+              aria-label="Make this slide again"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={props.disabled}
+              onClick={props.onPicture}
+              className={iconButton}
+              title={
+                slide.hasPicture
+                  ? 'New picture from its prompt'
+                  : 'Add a picture from its prompt'
+              }
+              aria-label={slide.hasPicture ? 'New picture' : 'Add a picture'}
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {slide.hasPicture && !look && (
             <button
               type="button"
               disabled={props.disabled}
@@ -795,6 +831,8 @@ function SlideEditor({
   const [layout, setLayout] = useState<SlideLayout>(slide.design.layout)
   const [icon, setIcon] = useState(slide.design.icon ?? 'target')
   const [stat, setStat] = useState(slide.design.stat ?? '')
+  // Its words are set into the image: no layout, and saving makes it again.
+  const look = slide.design.look === true
   const field =
     'border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border px-2.5 py-1.5 text-xs outline-none'
   const count = (n: number, soft: number) => (
@@ -835,11 +873,13 @@ function SlideEditor({
       </label>
       <label className="block space-y-1">
         <span className="text-muted flex justify-between text-[11px] font-medium">
-          {layout === 'list'
-            ? 'Points, one per line'
-            : layout === 'quote'
-              ? 'Quote'
-              : 'Text'}{' '}
+          {look
+            ? 'Smaller line, or points one per line'
+            : layout === 'list'
+              ? 'Points, one per line'
+              : layout === 'quote'
+                ? 'Quote'
+                : 'Text'}{' '}
           {count(body.length, SLIDE_TEXT.body.soft)}
         </span>
         <textarea
@@ -849,7 +889,7 @@ function SlideEditor({
           className={field}
         />
       </label>
-      {slide.role === 'content' && (
+      {slide.role === 'content' && !look && (
         <div className="flex flex-wrap gap-2">
           <label className="min-w-32 flex-1 space-y-1">
             <span className="text-muted block text-[11px] font-medium">
@@ -903,7 +943,9 @@ function SlideEditor({
       )}
       <label className="block space-y-1">
         <span className="text-muted block text-[11px] font-medium">
-          Picture prompt (used by Add picture)
+          {look
+            ? 'What it shows beside its words'
+            : 'Picture prompt (used by Add picture)'}
         </span>
         <textarea
           value={imagePrompt}
@@ -912,6 +954,12 @@ function SlideEditor({
           className={field}
         />
       </label>
+      {look && (
+        <p className="text-muted text-[11px] leading-relaxed">
+          The words are part of the image, so saving makes this slide again
+          with them. This takes about half a minute.
+        </p>
+      )}
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -925,7 +973,7 @@ function SlideEditor({
           disabled={disabled || !headline.trim()}
           className="bg-accent text-background hover:bg-accent-hover cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
         >
-          Save slide
+          {look ? 'Save and make again' : 'Save slide'}
         </button>
       </div>
     </form>

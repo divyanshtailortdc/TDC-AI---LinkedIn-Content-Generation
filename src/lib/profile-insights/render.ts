@@ -158,7 +158,9 @@ export function renderInsightsForResearch(all: PlatformInsights | undefined): st
  */
 export function renderInsightsForSlides(
   insights: ProfileInsights | null | undefined,
-  platform: PlatformId
+  platform: PlatformId,
+  /** The slides are made like these posts (Like my posts), not drawn in the brand. */
+  likeTheirPosts = false
 ): string {
   if (!insights) return ''
   const label = PLATFORMS[platform].name
@@ -166,7 +168,11 @@ export function renderInsightsForSlides(
     insights.tone && `- Tone: ${insights.tone}`,
     insights.writingStyle && `- How they write: ${insights.writingStyle}`,
     insights.visualIdentity &&
-      `- How their posts look: ${insights.visualIdentity} (for the pictures; the slides' colours and fonts are the brand's)`
+      `- How their posts look: ${insights.visualIdentity} ${
+        likeTheirPosts
+          ? '(every slide is made in this look)'
+          : "(for the pictures; the slides' colours and fonts are the brand's)"
+      }`
   ].filter(Boolean)
   if (lines.length === 0) return ''
   return [

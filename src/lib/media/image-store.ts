@@ -136,6 +136,44 @@ export async function storeMediaImages(
 }
 
 /**
+ * An identity's example post (src/lib/visual-examples), stored under its own
+ * prefix. Like storeImage, it is kept as a data URL when there is no bucket
+ * or the upload fails.
+ */
+export async function storeExampleImage(
+  image: ImageBytes,
+  accountId: string
+): Promise<string> {
+  const inline = () => toDataUrl(image.buffer, image.mediaType)
+  if (!env.STORAGE_BUCKET) return inline()
+  const extension = EXTENSION_BY_TYPE[image.mediaType] ?? 'jpg'
+  const key = `examples/${accountId}/${randomUUID()}.${extension}`
+  try {
+    await client().send(
+      new PutObjectCommand({
+        Bucket: env.STORAGE_BUCKET,
+        Key: key,
+        Body: image.buffer,
+        ContentType: image.mediaType,
+        CacheControl: 'private, max-age=31536000, immutable'
+      })
+    )
+  } catch (err) {
+    console.error(`Could not upload an example image for ${accountId}:`, err)
+    return inline()
+  }
+  return `${PREFIX}${key}`
+}
+
+/** A stored image's bytes, or a data URL's; null for a link or an unreadable value. */
+export async function loadImageBytes(
+  value: string
+): Promise<ImageBytes | null> {
+  if (!isStoredImage(value)) return decodeImageDataUrl(value)
+  return decodeImageDataUrl(await loadImageDataUrl(value))
+}
+
+/**
  * Uploads a draft's file that is not an image (a Reel's video) under the
  * draft's prefix, so deleting the draft's images deletes it too. Unlike an
  * image it is never kept inline: it throws when there is no bucket or the

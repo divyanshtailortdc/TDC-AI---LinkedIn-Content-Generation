@@ -4,6 +4,7 @@ import sharp from 'sharp'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import {
   isPictureStyle,
+  renderingStyleOf,
   type ImageStyle,
   type PictureStyle
 } from '~/lib/brand/theme'
@@ -76,7 +77,8 @@ export async function loadSlideKit(
     // image) is dots on slides, which carry no brief to choose from.
     pattern:
       theme.backgroundPattern === 'auto' ? 'dots' : theme.backgroundPattern,
-    style: theme.visualStyle,
+    // Slides are drawn by code; Like my posts draws them in the default style.
+    style: renderingStyleOf(theme.visualStyle),
     brand
   }
 }

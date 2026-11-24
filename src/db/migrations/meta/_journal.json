@@ -428,6 +428,13 @@
       "when": 1795413315464,
       "tag": "0060_onboarding_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1795437854054,
+      "tag": "0061_visual_examples",
+      "breakpoints": true
     }
   ]
 }

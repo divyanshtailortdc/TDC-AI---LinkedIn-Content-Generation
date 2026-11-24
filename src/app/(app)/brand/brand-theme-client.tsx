@@ -7,7 +7,7 @@ import { findFont, FONT_CHOICES } from '@/lib/brand/fonts'
 import { IMAGE_STYLE_ICONS } from '@/components/image-style-icons'
 import {
   describeColor,
-  IMAGE_STYLES,
+  IMAGE_STYLE_CHOICES,
   isLightBackground,
   LOGO_MAX_DATA_URL_LENGTH,
   LOGO_MAX_EDGE,
@@ -15,7 +15,9 @@ import {
   LOGO_UPLOAD_MAX_BYTES,
   LOGO_UPLOAD_TYPES,
   normalizeHex,
+  renderingStyleOf,
   type ImageStyle,
+  type PictureStyle,
   type ResolvedBrandTheme
 } from '@/lib/brand/theme'
 import { cn } from '@/lib/cn'
@@ -561,7 +563,10 @@ function BrandPreview({
             {theme.visualStyle === 'minimal_graphic' ? (
               <Diagram diagram={SAMPLE_DIAGRAM} palette={palette} />
             ) : (
-              <PicturePlaceholder style={theme.visualStyle} palette={palette} />
+              <PicturePlaceholder
+                style={renderingStyleOf(theme.visualStyle) as PictureStyle}
+                palette={palette}
+              />
             )}
           </div>
 
@@ -859,14 +864,14 @@ export function BrandThemeClient({
             <Section
               icon={IMAGE_STYLE_ICONS.photorealistic}
               title="Image Style"
-              description="How the picture in every new image is rendered. Each image is still fitted to your industry, audience and the post; you can pick another style for a single image on the post."
+              description="How every new image is made. Like my posts follows the example posts on each platform's link on the Profile page; the other styles draw a picture in your colours beside the headline. You can pick another style for a single image on the post."
             >
               <div
                 role="radiogroup"
                 aria-label="Image style"
                 className="grid gap-2 sm:grid-cols-2"
               >
-                {IMAGE_STYLES.map(option => {
+                {IMAGE_STYLE_CHOICES.map(option => {
                   const active = theme.visualStyle === option.value
                   const Icon = IMAGE_STYLE_ICONS[option.value]
                   return (
@@ -894,8 +899,11 @@ export function BrandThemeClient({
                       <span className="min-w-0">
                         <span className="text-foreground block text-sm font-semibold">
                           {option.label}
-                          {option.value === 'photorealistic' && (
-                            <span className="text-muted font-normal"> · default</span>
+                          {option.value === 'my_posts' && (
+                            <span className="text-muted font-normal">
+                              {' '}
+                              · default
+                            </span>
                           )}
                         </span>
                         <span className="text-muted mt-0.5 block text-xs">

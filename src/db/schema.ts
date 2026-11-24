@@ -56,6 +56,10 @@ import {
   type ProfileInsights
 } from '../lib/profile-insights/types'
 import type { IdeaScorecard } from '../lib/idea-scorecard'
+import {
+  VISUAL_EXAMPLE_SOURCES,
+  type VisualExampleSource
+} from '../lib/visual-examples/types'
 import type { IdentitySnapshot } from '../lib/identity-change'
 import type { ReferencePost } from '../lib/reference-post/types'
 import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
@@ -1824,6 +1828,44 @@ export const platformInsightsTable = pgTable(
     check(
       'platform_insights_status_check',
       sql`${table.status} in (${sqlList(INSIGHT_STATUSES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// 26b. Visual Examples — images an identity posts, which new images follow
+// ---------------------------------------------------------------------------
+
+// One row per image: from the profile analysis of a platform (replaced each
+// time it reads the profile again) or uploaded by the user (kept until
+// removed). The image itself is in storage (`storage://examples/...`) or, with
+// no bucket, a data URL. See src/lib/visual-examples.
+export const visualExamplesTable = pgTable(
+  'visual_examples',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    platform: varchar('platform', { length: 30 }).$type<PlatformId>().notNull(),
+    source: varchar('source', { length: 10 })
+      .$type<VisualExampleSource>()
+      .notNull(),
+    imageUrl: text('image_url').notNull(),
+    // The post it was found on; null for an upload.
+    postUrl: text('post_url'),
+    width: integer('width'),
+    height: integer('height'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('visual_examples_account_platform_idx').on(
+      table.accountId,
+      table.platform
+    ),
+    check(
+      'visual_examples_source_check',
+      sql`${table.source} in (${sqlList(VISUAL_EXAMPLE_SOURCES)})`
     )
   ]
 )

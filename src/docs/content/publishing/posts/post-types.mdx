@@ -67,14 +67,17 @@ If a post's image is another shape (made for another platform, a stock photo, or
 
 ## Image styles
 
-| Style                      | What you get                                                                              |
-| -------------------------- | ----------------------------------------------------------------------------------------- |
-| **Photorealistic**         | A real-looking photograph of the post's world, lit and framed like editorial photography. |
-| **Illustration**           | A clean drawn illustration in your brand colours, with labelled badges.                   |
-| **3D Render**              | A polished 3D scene with realistic materials and studio lighting.                         |
-| **Minimal Graphic Design** | A clean diagram (steps, layers, key points or a comparison) with exact labels.            |
+| Style                      | What you get                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Like my posts**          | An image like the ones you already post on that platform: the same kind of image, layout, colours and typography. |
+| **Photorealistic**         | A real-looking photograph of the post's world, lit and framed like editorial photography.                         |
+| **Illustration**           | A clean drawn illustration in your brand colours, with labelled badges.                                           |
+| **3D Render**              | A polished 3D scene with realistic materials and studio lighting.                                                 |
+| **Minimal Graphic Design** | A clean diagram (steps, layers, key points or a comparison) with exact labels.                                    |
 
-Your [Brand Theme](/brand) sets the default, which is **Photorealistic** unless you change it. To use another style for one image, pick it under **Style** in the image panel before you generate. The link beside it, for example **Back to the Brand Theme's Photorealistic**, returns to the default.
+Your [Brand Theme](/brand) sets the default, which is **Like my posts** unless you change it. To use another style for one image, pick it under **Style** in the image panel before you generate. The link beside it, for example **Back to the Brand Theme's Like my posts**, returns to the default.
+
+**Like my posts** follows the example posts for the post's platform on the [Profile](/docs/account-setup/profile#example-posts-for-your-images) page, or another platform's when that one has none. Until the identity has example posts, it makes a **Photorealistic** image. With a prompt of your own, a few example posts go along as the look to follow.
 
 With **Minimal Graphic Design**, open **Image options** to choose a **Diagram type**: **Auto** (the engine picks), **Hub & spoke**, **Steps**, **Layers**, **Key points** or **Comparison**. An image made from a reference, or an edit of the current one, keeps that image's own look.
 
@@ -82,7 +85,9 @@ With **Minimal Graphic Design**, open **Image options** to choose a **Diagram ty
 
 If **Add an image** was ticked when the post was created, the engine designs its image while drafting. If that fails, the image panel says why, and you can generate one yourself (see [Editing a Post](/docs/publishing/posts/editing)).
 
-Each designed image combines a picture in the chosen style (or a diagram) with short text in your brand's typefaces and colours. In the picture styles, the picture is checked for stray lettering and other flaws, and anything found is listed under **Check this image before posting**.
+With **Like my posts**, the engine picks the one to three example posts that suit this post, writes the words for the image from the post, and the image is made to look like those examples. It is then read back: every word is compared with what was asked for, and invented figures, other brands' logos, anything copied from the examples and flaws that look generated are listed under **Check this image before posting**. An image with problems is made once more, and the better of the two is kept.
+
+In the other styles, each designed image combines a picture in the chosen style (or a diagram) with short text in your brand's typefaces and colours. In the picture styles, the picture is checked for stray lettering and other flaws, and anything found is listed under **Check this image before posting**.
 
 ## Your logo, colours and website
 
@@ -92,7 +97,16 @@ Every image the engine designs uses your [Brand Theme](/brand)'s logo and colour
 
 ### Make the slides
 
-Pick **Carousel**, then click **Make slides**. The AI writes a cover, slides with one point each and a closing call to action, beside your caption rather than repeating it, and draws them in your brand. A new carousel has 6 to 9 slides on LinkedIn, 4 to 6 on Facebook and 5 to 8 on Instagram. If your Brand Theme uses a picture style, the cover gets a picture.
+Pick **Carousel**, then click **Make slides**. The AI writes a cover, slides with one point each and a closing call to action, beside your caption rather than repeating it. A new carousel has 6 to 9 slides on LinkedIn, 4 to 6 on Facebook and 5 to 8 on Instagram.
+
+How the slides look depends on your Brand Theme's image style:
+
+| Image style                                                             | How the slides are made                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Like my posts**, with [example posts](/docs/account-setup/profile#example-posts-for-your-images) | Each slide is one image made like the posts you already publish on that platform, with the slide's words set into it. The cover is made first and the other slides are made to match it, so they read as one set. Takes two to three minutes. |
+| Any other style, or no example posts yet                                | The slides are drawn in your Brand Theme's colours, typefaces and logo. In a picture style, the cover gets a picture.                                                                                                                                      |
+
+Each slide made like your posts is read back like a single image: every word is compared with the slide's words, and a slide with a wrong word is made once more. Anything still wrong shows under the slide.
 
 ### Edit slides
 
@@ -105,10 +119,17 @@ Each slide is labelled **Cover**, **Call to action**, or by its layout, and has 
 
 **Add a slide after slide N** adds one, up to the platform's maximum.
 
+A slide made like your posts is one image with its words in it, so it works a little differently:
+
+- **Edit this slide** changes its **Headline**, its smaller line (or a few points, one per line) and what it shows beside its words. **Save and make again** makes the slide again with the new words and keeps its design. This takes about half a minute.
+- **Make this slide again** gives another version with the same words, made to match the cover.
+- It has no layout and no separate picture, so those controls are not shown.
+- A slide you add says **Not made** until you edit its words or write it with AI.
+
 ### Work on the whole carousel
 
 - **Write again**, then **Write slides**: replaces every slide and your edits to them. The caption stays.
-- **Redraw**: draws every slide again with your current Brand Theme, without AI. Use it after changing your logo or colours.
+- **Redraw**: draws every slide again with your current Brand Theme, without AI. Use it after changing your logo or colours. Slides made like your posts stay as they are, so a carousel made only of those has no **Redraw**.
 - **Images** and **PDF**: download the slides.
 
 A published carousel goes out as one post with all its slides as images.

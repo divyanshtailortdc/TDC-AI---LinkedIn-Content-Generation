@@ -193,7 +193,7 @@ export type ImageFinding = {
  */
 export async function searchImages(
   query: string,
-  options: { resultCount?: number } = {}
+  options: { resultCount?: number; page?: number } = {}
 ): Promise<ImageFinding[]> {
   if (!env.SERPER_API_KEY) return []
   try {
@@ -203,7 +203,11 @@ export async function searchImages(
         'X-API-KEY': env.SERPER_API_KEY,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ q: query, num: options.resultCount ?? 10 }),
+      body: JSON.stringify({
+        q: query,
+        num: options.resultCount ?? 10,
+        ...(options.page && options.page > 1 ? { page: options.page } : {})
+      }),
       signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
     })
     if (!res.ok) {

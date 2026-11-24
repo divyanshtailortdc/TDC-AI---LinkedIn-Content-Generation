@@ -74,6 +74,13 @@ export interface SlideDesign {
    * Only cover and photo slides show one.
    */
   picture?: boolean
+  /**
+   * The whole slide is one image made like the account's own posts (the
+   * Like my posts style, src/lib/carousel/look.ts): the image model sets
+   * its words into it, so it has no layout, icon, figure or separate
+   * picture, and changing its words makes it again.
+   */
+  look?: boolean
 }
 
 /** What one slide says and how it looks, before it is drawn. */
@@ -173,6 +180,7 @@ export function cleanDesign(role: SlideRole, value: unknown): SlideDesign {
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {}
+  if (raw.look === true) return lookDesign(role)
   const layout = layoutForRole(role, raw.layout)
   const emphasis = Array.isArray(raw.emphasis)
     ? raw.emphasis
@@ -192,6 +200,16 @@ export function cleanDesign(role: SlideRole, value: unknown): SlideDesign {
     picture: PICTURE_LAYOUTS.includes(layout) && raw.picture === true
   }
 }
+
+/** The design of a slide made like the account's own posts (see SlideDesign.look). */
+export const lookDesign = (role: SlideRole): SlideDesign => ({
+  layout: layoutForRole(role, 'statement'),
+  icon: null,
+  stat: null,
+  emphasis: [],
+  picture: false,
+  look: true
+})
 
 /** The text a slide shows, for checks that compare it with the caption. */
 export const slideText = (slide: Pick<SlideContent, 'headline' | 'body'>) =>

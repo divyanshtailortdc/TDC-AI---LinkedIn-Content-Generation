@@ -2,6 +2,7 @@ import 'server-only'
 
 import { db } from '@/db'
 import {
+  accountsTable,
   ideasTable,
   postDraftsTable,
   postSlidesTable,
@@ -34,7 +35,11 @@ import { forFormat } from '~/lib/ai/channel-context'
 import { rewriteSlide, writeSlides } from '~/lib/ai/skills/carousel-slides'
 import { collectFigureSources } from '~/lib/ai/skills/post-drafting/guard'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
-import { DEFAULT_BRAND_THEME } from '~/lib/brand/theme'
+import {
+  DEFAULT_BRAND_THEME,
+  LIKE_MY_POSTS,
+  renderingStyleOf
+} from '~/lib/brand/theme'
 import type { LintFinding } from '~/lib/lint/run-linter'
 import { ImageGenerationAbortedError } from '~/lib/media'
 import {
@@ -42,12 +47,17 @@ import {
   type BrandRendering
 } from '~/lib/media/brand-assets'
 import { decodeImageDataUrl, type ImageBytes } from '~/lib/media/brand-logo'
+import { buildMediaBriefContext } from '~/lib/media/brief-context'
 import {
   deleteStoredImages,
+  loadImageBytes,
   loadImageDataUrl,
   storeImage,
   viewableImageUrl
 } from '~/lib/media/image-store'
+import type { LookExample } from '~/lib/media/learned-look'
+import type { PlatformId } from '~/lib/platforms'
+import { loadLookExamples } from '~/lib/visual-examples/store'
 import { clampWords, cleanSlideText, slideFactIssues } from './checks'
 import {
   drawCarousel,
@@ -56,15 +66,19 @@ import {
   makeSlidePicture,
   type SlideKit
 } from './draw'
+import { makeLookSlides, remakeLookSlide } from './look'
 import {
   loadSlideRows,
   slideContentOf,
   slideFactIssuesOf,
   slideIssues,
-  slideRowValues
+  slideLookOf,
+  slideRowValues,
+  type SlideLook
 } from './rows'
 import {
   cleanDesign,
+  lookDesign,
   PICTURE_LAYOUTS,
   SLIDE_TEXT,
   type SlideContent,
@@ -79,6 +93,10 @@ import {
  * removing or moving slides. Every change redraws what it touched; a
  * change in numbering redraws every slide, since each shows "n / total".
  * A post that is out on its platform keeps its slides.
+ *
+ * In the Like my posts style, when the identity has example posts, each
+ * slide is instead one image made like them (./look.ts): it carries no
+ * number, so it is never redrawn, and a change to its words makes it again.
  */
 
 export type CarouselErrorCode =
@@ -126,16 +144,75 @@ export async function buildCarouselRows(input: {
 }): Promise<BuiltCarousel> {
   let usage = EMPTY_USAGE
   try {
+    const platform = FORMATS[input.formatId].platform
+    // Like my posts: every slide made like the account's example posts,
+    // when it has any; otherwise drawn in the brand.
+    const examples =
+      input.brand.theme.visualStyle === LIKE_MY_POSTS
+        ? await lookExamplesFor(input.ctx.account.id, platform)
+        : []
+    const likeTheirPosts = examples.length > 0
     const written = await writeSlides({
       ctx: input.ctx,
       idea: input.idea,
       formatId: input.formatId,
       caption: input.caption,
-      imageStyle: input.brand.theme.visualStyle,
-      instruction: input.instruction
+      imageStyle: renderingStyleOf(input.brand.theme.visualStyle),
+      instruction: input.instruction,
+      likeTheirPosts
     })
     usage = written.usage
     if (input.abortSignal?.aborted) throw new ImageGenerationAbortedError()
+
+    const notes: string[] = []
+    if (likeTheirPosts) {
+      const made = await makeLookSlides({
+        slides: written.slides,
+        examples,
+        platform,
+        brand: input.brand,
+        caption: input.caption,
+        context: buildMediaBriefContext(input.ctx, input.idea),
+        accountName: input.ctx.account.name,
+        direction: input.instruction,
+        abortSignal: input.abortSignal
+      })
+      usage = addUsage(usage, made.usage)
+      if (input.abortSignal?.aborted) throw new ImageGenerationAbortedError()
+      if ('slides' in made && made.slides.some(m => m.image)) {
+        const rows = await Promise.all(
+          made.slides.map(async (m, i) =>
+            slideRowValues(input.draftId, i + 1, written.slides[i]!, {
+              imageUrl: m.image ? await storeImage(m.image, input.draftId) : null,
+              pictureUrl: null,
+              error: m.error,
+              issues: m.issues,
+              factIssues: written.factIssues[i] ?? [],
+              picturePrompt: m.prompt,
+              look: m.look
+            })
+          )
+        )
+        const slideNotes = made.slides.flatMap((m, i) =>
+          [...(m.error ? [m.error] : []), ...m.issues].map(
+            issue => `Slide ${i + 1}: ${issue}`
+          )
+        )
+        return { rows, usage, issues: [...written.issues, ...slideNotes] }
+      }
+      // Not made like the posts: drawn in the brand, so the post keeps a carousel.
+      const reason =
+        'error' in made ? made.error : 'no image model drew the slides'
+      notes.push(
+        `The slides could not be made like your posts (${reason.replace(/\.$/, '')}), so they are drawn in your brand.`
+      )
+      for (const slide of written.slides) {
+        slide.design = cleanDesign(slide.role, {
+          layout: 'statement',
+          picture: slide.role === 'cover'
+        })
+      }
+    }
 
     const kit = await loadSlideKit(input.brand, input.ctx.account.name)
     const drawn = await drawCarousel(kit, written.slides, {
@@ -165,7 +242,11 @@ export async function buildCarouselRows(input: {
     const pictureIssues = drawn.slides.flatMap((d, i) =>
       d.issues.map(issue => `Slide ${i + 1}: ${issue}`)
     )
-    return { rows, usage, issues: [...written.issues, ...pictureIssues] }
+    return {
+      rows,
+      usage,
+      issues: [...written.issues, ...notes, ...pictureIssues]
+    }
   } catch (err) {
     const spent = err instanceof SkillError ? addUsage(usage, err.usage) : usage
     const wrapped =
@@ -516,6 +597,8 @@ interface Prepared {
   rows: PostSlide[]
   kit: SlideKit
   caption: string
+  /** The identity's name: the wordmark on slides made like its posts. */
+  accountName: string
   /** What the slides may state (see slideFactIssues); null without an idea. */
   figureSources: string | null
 }
@@ -535,12 +618,22 @@ async function prepare(accountId: string, draftId: string): Promise<Prepared> {
     accountId,
     ctx?.brand ?? (await loadBrandTheme(accountId))
   )
+  const accountName =
+    ctx?.account.name ??
+    (
+      await db.query.accountsTable.findFirst({
+        where: eq(accountsTable.id, accountId),
+        columns: { name: true }
+      })
+    )?.name ??
+    ''
   return {
     draft,
     formatId,
     rows: await loadSlideRows(db, draftId),
     kit: await loadSlideKit(brand, ctx?.account.name ?? null),
     caption: captionOf(formatId, draft),
+    accountName,
     figureSources:
       ctx && idea ? collectFigureSources(forFormat(ctx, formatId), idea) : null
   }
@@ -646,28 +739,188 @@ async function saveDrawn(
   return saved
 }
 
-/** Draws one slide again (as drawRow) and saves it. */
-async function redrawOne(
-  ...args: Parameters<typeof drawRow>
-): Promise<void> {
-  const drawn = await drawRow(...args)
+/** Saves one slide made or drawn again. */
+async function saveOne(drawn: DrawnSlide): Promise<void> {
   const saved = await saveDrawn(drawn.row.draftId, [drawn])
   if (!saved.has(drawn.row.id))
     throw new CarouselError('That slide no longer exists.', 'not_found')
 }
 
-/** Every slide drawn again, as each now stands: after a change in numbering, or in the brand. */
+/** Draws one slide again (as drawRow) and saves it. */
+async function redrawOne(
+  ...args: Parameters<typeof drawRow>
+): Promise<void> {
+  await saveOne(await drawRow(...args))
+}
+
+/** A slide made like the account's posts (SlideDesign.look), not drawn by code. */
+const isLookRow = (row: PostSlide) => slideContentOf(row).design.look === true
+
+/**
+ * Every drawn slide drawn again, as each now stands: after a change in
+ * numbering, or in the brand. Slides made like the account's posts carry
+ * no number and none of the brand's drawing, so they stay as they are.
+ */
 async function redrawAll(
   prepared: Pick<Prepared, 'kit'>,
   draftId: string
 ): Promise<void> {
   const rows = await loadSlideRows(db, draftId)
   const drawn = await Promise.all(
-    rows.map(row =>
-      drawRow(prepared.kit, row, slideContentOf(row), rows.length)
-    )
+    rows
+      .filter(row => !isLookRow(row))
+      .map(row => drawRow(prepared.kit, row, slideContentOf(row), rows.length))
   )
   await saveDrawn(draftId, drawn)
+}
+
+// ------------------------------------------------ slides made like the posts
+
+/** The identity's example posts for `platform`; none when they cannot be read. */
+async function lookExamplesFor(
+  accountId: string,
+  platform: PlatformId
+): Promise<LookExample[]> {
+  return loadLookExamples(accountId, platform).catch(err => {
+    console.warn('Could not load the example posts:', err)
+    return []
+  })
+}
+
+/**
+ * The design a slide is made again in: its own, else the carousel's (a
+ * slide added later has none of its own), the cover's first.
+ */
+function lookFor(row: PostSlide, rows: PostSlide[]): SlideLook | null {
+  const own = slideLookOf(row)
+  if (own) return own
+  const series = [...rows]
+    .sort((a, b) => (a.role === 'cover' ? -1 : b.role === 'cover' ? 1 : 0))
+    .map(slideLookOf)
+    .find((look): look is SlideLook => look !== null)
+  return series ? { ...series, scene: '', concept: '' } : null
+}
+
+/**
+ * What a slide made again is made to match, attached before the examples:
+ * itself as it is (only its words or scene change), else the cover, else
+ * another of the carousel's slides.
+ */
+async function anchorFor(
+  row: PostSlide,
+  rows: PostSlide[],
+  self: boolean
+): Promise<{ image: Buffer; kind: 'cover' | 'slide' | 'self' } | null> {
+  const bytesOf = async (value: string) =>
+    (await loadImageBytes(value).catch(() => null))?.buffer ?? null
+  if (self && row.imageUrl) {
+    const image = await bytesOf(row.imageUrl)
+    if (image) return { image, kind: 'self' }
+  }
+  const others = rows.filter(
+    r => r.id !== row.id && r.imageUrl && isLookRow(r)
+  )
+  const cover = others.find(r => r.role === 'cover')
+  const pick = cover ?? others[0]
+  if (!pick?.imageUrl) return null
+  const image = await bytesOf(pick.imageUrl)
+  return image ? { image, kind: cover ? 'cover' : 'slide' } : null
+}
+
+/**
+ * One slide made like the account's posts again, with `content` (its
+ * words) and, when given, a new scene; stored, not yet saved (see
+ * saveDrawn). Throws CarouselError carrying what was spent in `usage`
+ * when it cannot be made, and ImageGenerationAbortedError when stopped.
+ */
+async function remakeLook(
+  prepared: Prepared,
+  row: PostSlide,
+  content: SlideContent,
+  options: {
+    /** Only its words or scene change: made from itself as it is. */
+    self: boolean
+    scene?: string
+    factIssues?: string[]
+    abortSignal?: AbortSignal
+  }
+): Promise<{ drawn: DrawnSlide; usage: CallUsage }> {
+  const look = lookFor(row, prepared.rows)
+  if (!look) {
+    throw new CarouselError(
+      'This carousel has no design to follow. Write it again to make its slides.',
+      'invalid'
+    )
+  }
+  const platform = FORMATS[prepared.formatId].platform
+  const [examples, anchor] = await Promise.all([
+    lookExamplesFor(prepared.draft.accountId, platform),
+    anchorFor(row, prepared.rows, options.self)
+  ])
+  if (examples.length === 0 && !anchor) {
+    throw new CarouselError(
+      'There are no example posts or other slides to make this slide like.',
+      'invalid'
+    )
+  }
+  const slide: SlideContent = { ...content, design: lookDesign(content.role) }
+  const made = await remakeLookSlide({
+    slide,
+    look:
+      options.scene !== undefined ? { ...look, scene: options.scene } : look,
+    position: row.position,
+    total: prepared.rows.length,
+    anchor,
+    examples,
+    platform,
+    brand: prepared.kit.brand,
+    caption: prepared.caption,
+    slides: prepared.rows.map(r => (r.id === row.id ? slide : slideContentOf(r))),
+    accountName: prepared.accountName,
+    abortSignal: options.abortSignal
+  })
+  if (!made.slide.image) {
+    throw Object.assign(
+      new CarouselError(
+        made.slide.error ?? 'The slide could not be made.',
+        'failed'
+      ),
+      { usage: made.usage }
+    )
+  }
+  const imageUrl = await storeImage(made.slide.image, row.draftId)
+  const {
+    draftId: _draft,
+    position: _position,
+    ...values
+  } = slideRowValues(row.draftId, row.position, slide, {
+    imageUrl,
+    pictureUrl: null,
+    error: null,
+    issues: made.slide.issues,
+    factIssues: options.factIssues ?? slideFactIssuesOf(row),
+    picturePrompt: made.slide.prompt,
+    look: made.slide.look
+  })
+  return {
+    drawn: {
+      row,
+      values,
+      stored: [imageUrl],
+      replaced: [row.imageUrl, row.pictureUrl]
+    },
+    usage: made.usage
+  }
+}
+
+/** An error from making a slide again, as the caller throws it. */
+function remakeError(err: unknown, stopped: string, failed: string) {
+  if (err instanceof ImageGenerationAbortedError) {
+    return new CarouselError(stopped, 'aborted')
+  }
+  return err instanceof CarouselError
+    ? err
+    : new CarouselError(err instanceof Error ? err.message : failed, 'failed')
 }
 
 // ------------------------------------------------------------------ editing
@@ -681,13 +934,16 @@ export interface SlidePatch {
 
 /**
  * The reviewer's own edit to one slide: its words, picture prompt or
- * design. Drawn again around the picture it has; no AI is called.
+ * design. Drawn again around the picture it has; no AI is called. A slide
+ * made like the account's posts is made again with its new words instead
+ * (an image-model call; see updateLookSlide).
  */
 export async function updateSlide(
   accountId: string,
   draftId: string,
   slideId: string,
-  patch: SlidePatch
+  patch: SlidePatch,
+  options: { abortSignal?: AbortSignal } = {}
 ): Promise<SlideView> {
   const prepared = await prepare(accountId, draftId)
   const row = await slideOf(draftId, slideId)
@@ -697,6 +953,9 @@ export async function updateSlide(
       ? clampWords(cleanSlideText(patch.headline), SLIDE_TEXT.headline.hard)
       : current.headline
   if (!headline) throw new CarouselError('A slide needs a headline.', 'invalid')
+  if (current.design.look) {
+    return updateLookSlide(prepared, row, { ...current, headline }, patch, options)
+  }
   const merged = { ...current.design, ...patch.design }
   const design = cleanDesign(current.role, {
     ...merged,
@@ -736,8 +995,70 @@ export async function updateSlide(
 }
 
 /**
+ * The reviewer's edit to a slide made like the account's posts: its words
+ * and what it shows are set into the image, so the image is made again
+ * from itself with the new ones. Nothing changed, nothing is made; a slide
+ * that could not be made is kept as it was.
+ */
+async function updateLookSlide(
+  prepared: Prepared,
+  row: PostSlide,
+  current: SlideContent,
+  patch: SlidePatch,
+  options: { abortSignal?: AbortSignal }
+): Promise<SlideView> {
+  const next: SlideContent = {
+    ...current,
+    body:
+      patch.body !== undefined
+        ? clampWords(cleanSlideText(patch.body, true), SLIDE_TEXT.body.hard)
+        : row.body,
+    imagePrompt:
+      patch.imagePrompt !== undefined
+        ? patch.imagePrompt.trim().slice(0, SLIDE_TEXT.imagePrompt.hard)
+        : row.imagePrompt,
+    design: lookDesign(current.role)
+  }
+  next.altText = [next.headline, next.body.replace(/\n/g, '. ')]
+    .filter(Boolean)
+    .join('. ')
+  const sceneChanged = next.imagePrompt !== row.imagePrompt
+  const unchanged =
+    next.headline === row.headline && next.body === row.body && !sceneChanged
+  if (unchanged && row.imageUrl) return toView(row)
+
+  let usage = EMPTY_USAGE
+  try {
+    const made = await remakeLook(prepared, row, next, {
+      self: true,
+      scene: sceneChanged ? next.imagePrompt : undefined,
+      // The reviewer's words are theirs to keep; what no source states is shown.
+      factIssues: prepared.figureSources
+        ? slideFactIssues(next, prepared.figureSources)
+        : [],
+      abortSignal: options.abortSignal
+    })
+    usage = made.usage
+    await saveOne(made.drawn)
+    return toView(await slideOf(row.draftId, row.id))
+  } catch (err) {
+    usage = addUsage(usage, spentBy(err))
+    throw remakeError(
+      err,
+      'Making the slide again was stopped.',
+      'The slide could not be made again.'
+    )
+  } finally {
+    await recordReviewMediaSpend(row.draftId, usage, {
+      summary: `Slide ${row.position} made again with new words (post review)`
+    }).catch(() => {})
+  }
+}
+
+/**
  * One slide written again by AI, with what the reviewer wants changed (or
- * just another take), in its place in the carousel. Keeps its picture.
+ * just another take), in its place in the carousel. Keeps its picture. A
+ * slide made like the account's posts is made again with the new words.
  */
 export async function rewriteSlideForPost(
   accountId: string,
@@ -750,6 +1071,7 @@ export async function rewriteSlideForPost(
   const idea = await ideaOf(prepared.draft)
   const ctx = await loadIdeaContext(idea, { platform: prepared.draft.platform })
   const index = prepared.rows.findIndex(r => r.id === slideId)
+  const likeTheirPosts = isLookRow(row)
   let usage = EMPTY_USAGE
   try {
     const rewritten = await rewriteSlide({
@@ -760,11 +1082,24 @@ export async function rewriteSlideForPost(
       slides: prepared.rows.map(slideContentOf),
       index,
       instruction: options.instruction,
-      imageStyle: prepared.kit.style
+      imageStyle: prepared.kit.style,
+      likeTheirPosts
     })
     usage = rewritten.usage
     if (options.abortSignal?.aborted) {
       throw new CarouselError('Rewriting the slide was stopped.', 'aborted')
+    }
+    if (likeTheirPosts) {
+      // New words, so a new scene too: made to match the cover, not itself.
+      const made = await remakeLook(prepared, row, rewritten.slide, {
+        self: false,
+        scene: rewritten.slide.imagePrompt,
+        factIssues: rewritten.factIssues,
+        abortSignal: options.abortSignal
+      })
+      usage = addUsage(usage, made.usage)
+      await saveOne(made.drawn)
+      return toView(await slideOf(draftId, slideId))
     }
     // A picture is kept only where the new layout still shows one.
     const keepsPicture =
@@ -781,15 +1116,13 @@ export async function rewriteSlideForPost(
     )
     return toView(await slideOf(draftId, slideId))
   } catch (err) {
-    if (err instanceof SkillError) usage = addUsage(usage, err.usage)
-    throw err instanceof CarouselError
-      ? err
-      : new CarouselError(
-          err instanceof Error
-            ? err.message
-            : 'The slide could not be rewritten.',
-          'failed'
-        )
+    // A failed call's spend rides on its error (SkillError, or a slide not made).
+    usage = addUsage(usage, spentBy(err))
+    throw remakeError(
+      err,
+      'Rewriting the slide was stopped.',
+      'The slide could not be rewritten.'
+    )
   } finally {
     await recordReviewMediaSpend(draftId, usage, {
       summary: `Slide ${row.position} written again (post review)`
@@ -815,6 +1148,10 @@ export async function setSlidePicture(
   const prepared = await prepare(accountId, draftId)
   const row = await slideOf(draftId, slideId)
   const current = slideContentOf(row)
+
+  if (current.design.look) {
+    return remakeLookSlideForPost(prepared, row, current, options)
+  }
 
   if (options.remove) {
     const next: SlideContent = {
@@ -888,6 +1225,52 @@ export async function setSlidePicture(
   }
 }
 
+/**
+ * Another take of a slide made like the account's posts ("Make again"),
+ * with `prompt` as what it shows when given (saved as its prompt), made to
+ * match the cover. It has no separate picture to remove.
+ */
+async function remakeLookSlideForPost(
+  prepared: Prepared,
+  row: PostSlide,
+  current: SlideContent,
+  options: { remove?: boolean; prompt?: string | null; abortSignal?: AbortSignal }
+): Promise<SlideView> {
+  if (options.remove) {
+    throw new CarouselError(
+      'This slide is one image made like your posts, so it has no separate picture to remove.',
+      'invalid'
+    )
+  }
+  const scene = options.prompt?.trim().slice(0, SLIDE_TEXT.imagePrompt.hard)
+  const next: SlideContent = {
+    ...current,
+    imagePrompt: scene || current.imagePrompt
+  }
+  let usage = EMPTY_USAGE
+  try {
+    const made = await remakeLook(prepared, row, next, {
+      self: false,
+      scene: scene || undefined,
+      abortSignal: options.abortSignal
+    })
+    usage = made.usage
+    await saveOne(made.drawn)
+    return toView(await slideOf(row.draftId, row.id))
+  } catch (err) {
+    usage = addUsage(usage, spentBy(err))
+    throw remakeError(
+      err,
+      'Making the slide again was stopped.',
+      'The slide could not be made again.'
+    )
+  } finally {
+    await recordReviewMediaSpend(row.draftId, usage, {
+      summary: `Slide ${row.position} made again (post review)`
+    }).catch(() => {})
+  }
+}
+
 // ---------------------------------------------------------------- structure
 
 /** Removes a content slide; the cover and the call to action stay. */
@@ -957,20 +1340,15 @@ export async function moveSlide(
       .where(eq(postSlidesTable.id, other.id))
   })
   const total = prepared.rows.length
-  const drawn = await Promise.all([
-    drawRow(
-      prepared.kit,
+  // Each drawn slide shows its number; one made like the posts does not.
+  const drawn = await Promise.all(
+    [
       { ...row, position: other.position },
-      slideContentOf(row),
-      total
-    ),
-    drawRow(
-      prepared.kit,
-      { ...other, position: row.position },
-      slideContentOf(other),
-      total
-    )
-  ])
+      { ...other, position: row.position }
+    ]
+      .filter(moved => !isLookRow(moved))
+      .map(moved => drawRow(prepared.kit, moved, slideContentOf(moved), total))
+  )
   await saveDrawn(draftId, drawn)
   return loadCarousel(accountId, draftId)
 }
@@ -998,12 +1376,17 @@ export async function addSlide(
   // After the cover at the earliest, before the call to action at the latest.
   const position =
     Math.min(Math.max(afterPosition, 1), prepared.rows.length - 1) + 1
+  // In a carousel made like the posts, the new slide is made once it has
+  // words: making "New slide" would be paid for and thrown away.
+  const likeTheirPosts = prepared.rows.some(isLookRow)
   const slide: SlideContent = {
     role: 'content',
     headline: 'New slide',
     body: '',
     imagePrompt: '',
-    design: { layout: 'statement', picture: false, emphasis: [] },
+    design: likeTheirPosts
+      ? lookDesign('content')
+      : { layout: 'statement', picture: false, emphasis: [] },
     altText: 'New slide'
   }
   await whileEditable(draftId, async tx => {
@@ -1020,7 +1403,9 @@ export async function addSlide(
       slideRowValues(draftId, position, slide, {
         imageUrl: null,
         pictureUrl: null,
-        error: null,
+        error: likeTheirPosts
+          ? 'Not made yet: edit its words or write it with AI, and it is made like the other slides.'
+          : null,
         issues: []
       })
     )

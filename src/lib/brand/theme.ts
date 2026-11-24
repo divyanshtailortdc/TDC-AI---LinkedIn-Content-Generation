@@ -63,18 +63,51 @@ export const isPictureStyle = (style: ImageStyle): style is PictureStyle =>
   style !== 'minimal_graphic'
 
 /**
- * A stored style, including the values saved before styles existed: 'auto'
- * (the column's default, never exposed in the form) becomes the photographic
- * default, 'diagram' the minimal graphic it always drew.
+ * What the brand or the reviewer chooses: one of the styles above, or "Like
+ * my posts", where each image is made like the identity's own example posts
+ * on its platform (src/lib/media/learned-look.ts): the same kind of image,
+ * layout, colours and type. Until an identity has examples, "Like my posts"
+ * draws in the default style.
  */
-export function resolveImageStyle(value: string | null | undefined): ImageStyle {
-  if (isImageStyle(value)) return value
+export const LIKE_MY_POSTS = 'my_posts' as const
+
+export const IMAGE_STYLE_CHOICES = [
+  {
+    value: LIKE_MY_POSTS,
+    label: 'Like my posts',
+    description:
+      'Made like the images you already post: the same kind of image, layout, colours and type. A photograph until there are example posts to follow.'
+  },
+  ...IMAGE_STYLES
+] as const
+export type ImageStyleChoice = (typeof IMAGE_STYLE_CHOICES)[number]['value']
+
+/** New identities, and themes saved before the choice existed, follow their own posts. */
+export const DEFAULT_STYLE_CHOICE: ImageStyleChoice = LIKE_MY_POSTS
+
+export const isImageStyleChoice = (value: unknown): value is ImageStyleChoice =>
+  IMAGE_STYLE_CHOICES.some(s => s.value === value)
+
+/** The style an image is drawn in when it is not made like the identity's posts. */
+export const renderingStyleOf = (choice: ImageStyleChoice): ImageStyle =>
+  choice === LIKE_MY_POSTS ? DEFAULT_IMAGE_STYLE : choice
+
+/**
+ * A stored choice, including the values saved before choices existed: 'auto'
+ * (the column's default, never exposed in the form) and anything unknown
+ * become the default, Like my posts; 'diagram' the minimal graphic it always
+ * drew.
+ */
+export function resolveImageStyle(
+  value: string | null | undefined
+): ImageStyleChoice {
+  if (isImageStyleChoice(value)) return value
   if (value === 'diagram') return 'minimal_graphic'
-  return DEFAULT_IMAGE_STYLE
+  return DEFAULT_STYLE_CHOICE
 }
 
-export const imageStyleLabel = (style: ImageStyle) =>
-  IMAGE_STYLES.find(s => s.value === style)?.label ?? style
+export const imageStyleLabel = (style: ImageStyleChoice) =>
+  IMAGE_STYLE_CHOICES.find(s => s.value === style)?.label ?? style
 
 export const BACKGROUND_PATTERNS = [
   { value: 'auto', label: 'Auto' },
@@ -128,8 +161,8 @@ export interface ResolvedBrandTheme {
   /** Families from FONT_CHOICES. */
   headingFont: string
   bodyFont: string
-  /** How the picture in every image is rendered; see IMAGE_STYLES. */
-  visualStyle: ImageStyle
+  /** How every image is made; see IMAGE_STYLE_CHOICES. */
+  visualStyle: ImageStyleChoice
   backgroundPattern: BackgroundPattern
   /** Whether the logo goes on images; ignored until one is uploaded. */
   showLogo: boolean
@@ -147,7 +180,7 @@ export const DEFAULT_BRAND_THEME: ResolvedBrandTheme = {
   backgroundColor: null,
   headingFont: DEFAULT_FONT,
   bodyFont: DEFAULT_FONT,
-  visualStyle: DEFAULT_IMAGE_STYLE,
+  visualStyle: DEFAULT_STYLE_CHOICE,
   backgroundPattern: 'dots',
   showLogo: true,
   footerText: null,
@@ -379,10 +412,14 @@ export const BrandThemePayloadSchema = z.object({
   headingFont: fontField('Headline typeface'),
   bodyFont: fontField('Body typeface'),
   visualStyle: z
-    .enum(IMAGE_STYLES.map(s => s.value) as [ImageStyle, ...ImageStyle[]], {
-      error: 'Choose one of the listed image styles.'
-    })
-    .default(DEFAULT_IMAGE_STYLE),
+    .enum(
+      IMAGE_STYLE_CHOICES.map(s => s.value) as [
+        ImageStyleChoice,
+        ...ImageStyleChoice[]
+      ],
+      { error: 'Choose one of the listed image styles.' }
+    )
+    .default(DEFAULT_STYLE_CHOICE),
   backgroundPattern: z
     .enum(
       BACKGROUND_PATTERNS.map(p => p.value) as [

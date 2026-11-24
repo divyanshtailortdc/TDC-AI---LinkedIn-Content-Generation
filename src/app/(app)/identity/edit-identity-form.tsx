@@ -15,6 +15,7 @@ import { showToast } from '@/components/toast-notification'
 import type { PlatformId } from '@/lib/formats'
 import { parseAccountType, profileFromRecords } from '@/lib/identity-profile'
 import type { ProfileInsightView } from '@/lib/profile-insights/types'
+import type { VisualExampleView } from '@/lib/visual-examples/types'
 import { IDENTITY_PATH } from '@/lib/identity-path'
 import {
   linkPlatforms,
@@ -28,6 +29,7 @@ import { useState } from 'react'
 import { updateAccountAction } from './actions'
 import { IdentityPlatforms } from './identity-platforms'
 import { ProfileInsightRow, useProfileInsights } from './profile-insights'
+import { useVisualExamples, VisualExamplesRow } from './visual-examples'
 
 interface EditIdentityFormProps {
   account: {
@@ -49,6 +51,8 @@ interface EditIdentityFormProps {
   initialAudiences: Array<{ name: string }>
   /** What each profile link's analysis says (src/lib/profile-insights). */
   insights: ProfileInsightView[]
+  /** The example posts new images follow (src/lib/visual-examples). */
+  examples: VisualExampleView[]
 }
 
 /**
@@ -76,9 +80,11 @@ export function EditIdentityForm({
   platforms,
   initialOfferings,
   initialAudiences,
-  insights
+  insights,
+  examples
 }: EditIdentityFormProps) {
   const insightsApi = useProfileInsights(account.id, insights)
+  const examplesApi = useVisualExamples(account.id, examples)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<IdentityFieldErrors>({})
   const [accountType, setAccountType] = useState<AccountType>(
@@ -268,15 +274,19 @@ export function EditIdentityForm({
                 setLinkErrors(prev => ({ ...prev, [platform]: undefined }))
               }
             },
-            // What each saved link's public posts show about how you post there.
+            // What each saved link's public posts show about how you post
+            // there, and the example posts new images follow.
             footer: platform => (
-              <ProfileInsightRow
-                platform={platform}
-                savedLink={saved.links[platform] ?? ''}
-                typedLink={links[platform] ?? ''}
-                editing={editing}
-                api={insightsApi}
-              />
+              <>
+                <ProfileInsightRow
+                  platform={platform}
+                  savedLink={saved.links[platform] ?? ''}
+                  typedLink={links[platform] ?? ''}
+                  editing={editing}
+                  api={insightsApi}
+                />
+                <VisualExamplesRow platform={platform} api={examplesApi} />
+              </>
             )
           }}
           onChange={(field, value) => {

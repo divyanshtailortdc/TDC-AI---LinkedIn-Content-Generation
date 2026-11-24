@@ -10,6 +10,10 @@ import { profileLinksOf, type ProfileLinks } from '@/lib/profile-links'
 import { isBufferPlatform } from '@/lib/publishing/platform'
 import { eq } from 'drizzle-orm'
 import {
+  dropLearnedExamples,
+  replaceLearnedExamples
+} from '../visual-examples/store'
+import {
   claimProfileAnalysis,
   dropProfileAnalyses,
   finishProfileAnalysis,
@@ -39,6 +43,8 @@ export type { AnalysisClaim }
  * can follow it. A minute or two, mostly the model.
  */
 
+/** Images the analysis model looks at: enough to see a look, few enough to stay cheap. */
+const ANALYZED_IMAGES = 6
 /** Fewer readable posts than this teach a habit, not a style. */
 const MIN_POSTS = 3
 /** Shorter than this, a post's text says nothing about how it is written. */
@@ -58,6 +64,9 @@ export async function syncProfileAnalyses(
 ): Promise<AnalysisClaim[]> {
   const { removed, changed } = linkChanges(saved, next)
   await dropProfileAnalyses(db, accountId, removed)
+  // Images found on a profile belong to that profile: a removed link takes
+  // them with it, and a changed one starts again from its own.
+  await dropLearnedExamples(accountId, [...removed, ...changed])
   const claims = await Promise.all(
     changed.map(p => claimProfileAnalysis(db, accountId, p, next[p]!))
   )
@@ -130,6 +139,12 @@ export async function runProfileAnalysis(claim: AnalysisClaim): Promise<void> {
     const ref = profileRefOf(platform, profileUrl, account.name)
     const signal = AbortSignal.timeout(RUN_TIMEOUT_MS)
     const collected = await collectProfilePosts({ accountId, ref, signal })
+    // The images are kept as the account's example posts, which new images
+    // follow, whether or not there is enough text to analyze. A failure here
+    // never costs the analysis.
+    await replaceLearnedExamples(accountId, platform, collected.images).catch(
+      err => console.warn(`Saving the ${platform} example images failed:`, err)
+    )
     const readable = collected.posts.filter(
       p => p.text.trim().length >= MIN_TEXT
     )
@@ -161,11 +176,12 @@ export async function runProfileAnalysis(claim: AnalysisClaim): Promise<void> {
             ...(collected.bio ? { bio: collected.bio } : {})
           },
           posts: collected.posts,
-          images: collected.images.map(({ data, mediaType }) => ({
-            data,
-            mediaType
-          })),
-          imagePosts: collected.images.map(i => i.postUrl),
+          images: collected.images
+            .slice(0, ANALYZED_IMAGES)
+            .map(({ data, mediaType }) => ({ data, mediaType })),
+          imagePosts: collected.images
+            .slice(0, ANALYZED_IMAGES)
+            .map(i => i.postUrl),
           abortSignal: signal
         })
     )

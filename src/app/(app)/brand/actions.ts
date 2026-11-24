@@ -5,7 +5,7 @@ import { brandThemesTable } from '@/db/schema'
 import {
   BRAND_THEME_PATH,
   BrandThemePayloadSchema,
-  DEFAULT_IMAGE_STYLE,
+  DEFAULT_STYLE_CHOICE,
   type BrandThemePayload
 } from '@/lib/brand/theme'
 import { requireIdentityId } from '@/lib/identity'
@@ -33,7 +33,7 @@ export async function saveBrandTheme(rawPayload: BrandThemePayload) {
       backgroundColor: payload.backgroundColor ?? null,
       headingFont: payload.headingFont ?? null,
       bodyFont: payload.bodyFont ?? null,
-      visualStyle: payload.visualStyle ?? DEFAULT_IMAGE_STYLE,
+      visualStyle: payload.visualStyle ?? DEFAULT_STYLE_CHOICE,
       // The background pattern and website are set from the image panel on
       // the Posts page (saveImageSettings), so a save here leaves them alone.
       showLogo: payload.showLogo ?? true,

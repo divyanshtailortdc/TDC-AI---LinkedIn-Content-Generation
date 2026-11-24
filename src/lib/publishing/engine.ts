@@ -403,8 +403,16 @@ async function assertCarouselPublishable(
   }
   const undrawn = slides.filter(s => !s.imageUrl)
   if (undrawn.length > 0) {
+    const named = `Slide ${undrawn.map(s => s.position).join(', ')}`
+    const them = undrawn.length === 1 ? 'it' : 'them'
+    // Slides made like the identity's posts are made again, not redrawn.
+    const made = undrawn.every(
+      s => (s.design as { look?: unknown } | null)?.look === true
+    )
     throw new PublishRequestError(
-      `Slide ${undrawn.map(s => s.position).join(', ')} could not be drawn. Redraw ${undrawn.length === 1 ? 'it' : 'them'}, then publish.`,
+      made
+        ? `${named} ${undrawn.length === 1 ? 'has' : 'have'} no image yet. Make ${them} again, then publish.`
+        : `${named} could not be drawn. Redraw ${them}, then publish.`,
       'needs_image'
     )
   }

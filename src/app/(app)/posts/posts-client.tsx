@@ -31,7 +31,7 @@ import { platformPostText } from '@/lib/post-text'
 import { formatPostCost, formatTokens, type PostUsage } from '@/lib/post-usage'
 import { canPublishFormat } from '@/lib/publishing/platform'
 import { isOnPlatform } from '@/lib/publishing/status'
-import type { BackgroundPattern, ImageStyle } from '@/lib/brand/theme'
+import type { BackgroundPattern, ImageStyleChoice } from '@/lib/brand/theme'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -160,7 +160,7 @@ export interface PostDetail {
     /** An uploaded reference image guided its composition and style. */
     usedReference?: boolean
     /** The image style it was made in; unset for older, stock or edited images. */
-    imageStyle?: ImageStyle
+    imageStyle?: ImageStyleChoice
   } | null
   /** Why drafting could not make this post's image, when it tried and failed. */
   mediaFailure?: string | null
@@ -192,7 +192,7 @@ export interface BrandSummary {
   /** The identity's website as an image would show it, as a placeholder hint. */
   website: string | null
   /** The Brand Theme's image style: the default for a new image. */
-  style: ImageStyle
+  style: ImageStyleChoice
 }
 
 const LINT_RULE_LABELS: Record<string, string> = {
