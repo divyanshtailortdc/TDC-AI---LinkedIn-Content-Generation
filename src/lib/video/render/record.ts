@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Browser, type BrowserBinary } from './browser'
+import { formatRhythm } from './look'
 import {
   captionLook,
+  emphasisOf,
   logoPlates,
   STAGE_PIXEL_RATIO,
   STAGE_VIEWPORT,
@@ -68,7 +70,31 @@ type Segment =
   | { key: 'intro' | 'outro'; kind: 'card'; card: PlannedCard }
   | { key: string; kind: 'scene'; scene: PlannedScene; index: number }
 
-function segmentsOf(plan: VideoPlan): Segment[] {
+/**
+ * The plan as segments. A format without title cards (./look.ts) plays the
+ * hook and the call to action as slides of their own, first and last.
+ */
+function segmentsOf(plan: VideoPlan, cards: boolean): Segment[] {
+  if (!cards) {
+    const asScene = (key: string, card: PlannedCard): PlannedScene => ({
+      key,
+      num: '',
+      headline: card.title,
+      ...(card.subtitle ? { caption: card.subtitle } : {}),
+      holdMs: card.holdMs
+    })
+    const scenes = [
+      asScene('intro', plan.intro),
+      ...plan.scenes,
+      ...(plan.outro ? [asScene('outro', plan.outro)] : [])
+    ]
+    return scenes.map((scene, index) => ({
+      key: scene.key,
+      kind: 'scene',
+      scene,
+      index
+    }))
+  }
   return [
     { key: 'intro', kind: 'card', card: plan.intro },
     ...plan.scenes.map((scene, index): Segment => ({
@@ -181,7 +207,8 @@ export async function recordVideo(
         text: theme.cardText,
         accent: theme.cardAccent,
         headingFont: `"${theme.headingFont}", Inter, sans-serif`,
-        headingWeight: theme.headingWeight,
+        // Editorial titles are as quiet on the cards as on the slides
+        headingWeight: theme.format === 'editorial' ? 600 : theme.headingWeight,
         bodyFont: `"${theme.bodyFont}", Inter, sans-serif`,
         logoPlate: logoPlates(theme).card,
         captionStyle: captionLook(theme).style,
@@ -197,7 +224,12 @@ export async function recordVideo(
     await page.eval('window.__ready()')
     await stage.inject()
 
-    const total = plan.scenes.length
+    const rhythm = formatRhythm(theme.format)
+    const segments = segmentsOf(plan, rhythm.cards)
+    const total = segments.filter(s => s.kind === 'scene').length
+    // The slide's words, with the ones the look highlights marked
+    const slideOf = (scene: PlannedScene) =>
+      JSON.stringify({ ...scene, hl: emphasisOf(scene.headline) })
     const cardOf = (card: PlannedCard, key: string): Card => ({
       ...(card.kicker ? { num: card.kicker } : {}),
       title: card.title,
@@ -218,9 +250,30 @@ export async function recordVideo(
         await stage.curtainText(true, segment.card.holdMs)
         // The opening card's text leaves before the first slide
         if (segment.key === 'intro') await stage.curtainText(false, 450)
+      } else if (rhythm.cuts) {
+        // A hard cut: the slide is there from the clip's first frame, its
+        // words come in, and the next clip cuts in on it
+        await page.eval(
+          `window.__slide(${slideOf(segment.scene)}, ${segment.index}, ${total})`
+        )
+        await stage.curtain(true)
+        await stage.record(dir)
+        await stage.change('window.__go()')
+        const captionAt = Math.min(FADE_MS, segment.scene.holdMs / 3)
+        if (segment.scene.caption && !rhythm.captionInPage) {
+          await stage.wait(captionAt)
+          await stage.caption({ subtitle: segment.scene.caption })
+          await stage.wait(segment.scene.holdMs - captionAt)
+        } else {
+          await stage.wait(segment.scene.holdMs)
+        }
+        const clip = await stage.stop()
+        // Hidden off the record; the next clip starts from rest without it
+        await stage.caption(null)
+        return clip
       } else {
         await page.eval(
-          `window.__slide(${JSON.stringify(segment.scene)}, ${segment.index}, ${total})`
+          `window.__slide(${slideOf(segment.scene)}, ${segment.index}, ${total})`
         )
         await stage.record(dir)
         // No card: start on the card colour and fade straight in
@@ -230,7 +283,7 @@ export async function recordVideo(
         await stage.curtain(true)
         await stage.change('window.__go()')
         await stage.wait(FADE_MS)
-        if (segment.scene.caption)
+        if (segment.scene.caption && !rhythm.captionInPage)
           await stage.caption({ subtitle: segment.scene.caption })
         await stage.wait(segment.scene.holdMs - 2 * FADE_MS)
         await stage.caption(null)
@@ -240,7 +293,7 @@ export async function recordVideo(
       return stage.stop()
     }
 
-    for (const segment of segmentsOf(plan)) {
+    for (const segment of segments) {
       const dir = path.join(workDir, 'clips', segment.key)
       const file = path.join(workDir, 'encoded', `${segment.key}.mp4`)
       const result = await take(segment, dir)

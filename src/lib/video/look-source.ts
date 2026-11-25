@@ -9,6 +9,7 @@ import {
 } from '@/db/schema'
 import type { PlatformId } from '@/lib/platforms'
 import { insightsInUse } from '@/lib/profile-insights/in-use'
+import type { InsightPost } from '@/lib/profile-insights/types'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { createHash } from 'node:crypto'
 import { designVideoLook } from '~/lib/ai/skills/video-look'
@@ -23,14 +24,16 @@ import {
 } from './render/look'
 
 /**
- * The look of an identity's next Reel or Short, matched to its own posts:
- * the analysis of its profile (src/lib/profile-insights) and a few of its
- * post images (src/lib/visual-examples), read by the video-look skill.
+ * The format and look of an identity's next Reel or Short, matched to its
+ * own recent posts: the analysis of its profile (src/lib/profile-insights),
+ * the posts that analysis read, and a few of its post images
+ * (src/lib/visual-examples), read by the video-look skill.
  *
  * Chosen once and reused: a look is stored with each video under a stamp of
- * what it was made from (the analysis, the images, the brand colours), and a
- * later video with the same stamp takes it from there without a model call.
- * A new analysis, new images or new brand colours make a new one.
+ * what it was made from (the analysis, its posts, the images, the brand
+ * colours), and a later video with the same stamp takes it from there
+ * without a model call. A new analysis, new images or new brand colours make
+ * a new one.
  *
  * Never fails a video: with nothing learned, or when the model cannot be
  * reached or a spending limit is met, it is the default look.
@@ -38,6 +41,8 @@ import {
 
 /** Example images the skill sees, and the most shown behind slides. */
 const LOOK_IMAGES = 6
+/** Recent posts the skill reads. */
+const LOOK_POSTS = 15
 
 export interface VideoLookChoice {
   look: VideoLook
@@ -90,6 +95,21 @@ async function storedLook(
   return storedVideoLook(row?.metadata?.look)
 }
 
+/** A stored analysis's posts as the skill reads them: those with something to say. */
+function recentPosts(value: unknown): InsightPost[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(
+      (p): p is InsightPost =>
+        Boolean(p) &&
+        typeof p === 'object' &&
+        typeof p.text === 'string' &&
+        typeof p.kind === 'string'
+    )
+    .filter(p => p.text.trim() || p.aspect)
+    .slice(0, LOOK_POSTS)
+}
+
 export async function videoLookFor(options: {
   accountId: string
   /** Where the video goes. */
@@ -113,11 +133,16 @@ export async function videoLookFor(options: {
     .select({
       platform: platformInsightsTable.platform,
       profileUrl: platformInsightsTable.profileUrl,
-      insights: platformInsightsTable.insights
+      insights: platformInsightsTable.insights,
+      posts: platformInsightsTable.posts
     })
     .from(platformInsightsTable)
     .where(eq(platformInsightsTable.accountId, accountId))
   const source = lookInsightsSource(insightsInUse(rows, account), platform)
+  // The posts that analysis read: what they post there, and how it opens
+  const posts = recentPosts(
+    rows.find(r => r.platform === source?.platform)?.posts
+  )
   const examples = (
     await loadLookExamples(accountId, platform).catch(err => {
       console.warn('Example posts could not be loaded for a video:', err)
@@ -133,10 +158,11 @@ export async function videoLookFor(options: {
   }
   const stamp = hash(
     JSON.stringify({
-      v: 1,
+      v: 2,
       platform,
       from: source?.platform ?? null,
       insights: source?.insights ?? null,
+      posts,
       images: examples.map(e => hash(e.data)),
       colours
     })
@@ -151,6 +177,7 @@ export async function videoLookFor(options: {
         platform,
         insightsPlatform: source?.platform ?? null,
         insights: source?.insights ?? null,
+        posts,
         brand: colours,
         images: examples.map(e => ({
           data: e.data,

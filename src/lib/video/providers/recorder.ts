@@ -17,10 +17,10 @@ import type { RenderedVideo, VideoRecorder } from './types'
 
 /**
  * Videos recorded on this server with the product-video skill's method
- * (src/lib/video/render): the post's script played as title cards and slides
- * in a headless browser, recorded, and encoded with ffmpeg. They follow the
- * Brand Theme where it is set, and the look of the identity's own posts
- * (../look-source.ts) where it is not.
+ * (src/lib/video/render): the post's script played as slides in a headless
+ * browser, recorded, and encoded with ffmpeg. They are built in the format
+ * of the identity's own recent posts (../look-source.ts) and follow the
+ * Brand Theme where it is set, and the look of those posts where it is not.
  * No AI model and no per-video charge. The plan is the video's stored prompt
  * (render/plan.ts); the brand is read when it is recorded.
  */
@@ -86,7 +86,8 @@ export const recorder: VideoRecorder = {
             look: choice.look,
             lookStamp: choice.stamp,
             lookFrom: choice.from,
-            template: look.template
+            template: look.template,
+            format: theme.format
           }
         }
       } finally {

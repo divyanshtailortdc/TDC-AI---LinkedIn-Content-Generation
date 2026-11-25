@@ -5,7 +5,14 @@ import {
   normalizeHex,
   relativeLuminance
 } from '@/lib/brand/theme'
-import { DEFAULT_VIDEO_LOOK, type VideoLook, type VideoTemplate } from './look'
+import {
+  DEFAULT_VIDEO_LOOK,
+  formatRhythm,
+  type VideoFormat,
+  type VideoHighlight,
+  type VideoLook,
+  type VideoTemplate
+} from './look'
 
 /**
  * The page the recorder films (./record.ts), in the identity's brand: its
@@ -54,6 +61,20 @@ export interface VideoTheme {
   footer: string | null
   /** The look's template (./look.ts); cards when nothing is known. */
   template: VideoTemplate
+  /** The look's format (./look.ts): the video's structure; slides by default. */
+  format: VideoFormat
+  /** How key words stand out (emphasisOf picks them). */
+  highlight: VideoHighlight
+  /** A marker's box and its words. */
+  highlightBackground: string
+  highlightText: string
+  /** The colour key words take with the colour highlight. */
+  highlightInk: string
+  /**
+   * Kinetic type turns every other slide to these colours (none over
+   * photos): its background, words and highlight.
+   */
+  alternate: { background: string; ink: string; mark: string } | null
   /** Words set in capitals, as their posts set them. */
   upper: boolean
   /** The caption line in a box, or as plain subtitles. */
@@ -63,9 +84,10 @@ export interface VideoTheme {
   /** The pattern behind slides, with a soft glow; none for plain. */
   pattern: 'dots' | 'grid' | 'none'
   /**
-   * Their photos behind the slides (the photo template), one per slide in
-   * turn. A soft one is too small to fill the screen sharply: it is blurred
-   * behind the words and shown whole on a card.
+   * Their photos, one per slide in turn: behind the slides (the photo
+   * template), or framed in a meme or a poster whatever the template. A soft
+   * one is too small to fill the screen sharply: behind the words it is
+   * blurred and shown whole on a card.
    */
   photos: Array<{ dataUrl: string; soft: boolean }>
 }
@@ -130,25 +152,86 @@ export interface BrandForVideo {
   saved?: boolean
 }
 
+/** What the look's format adds to a template's colours (videoThemeFor). */
+type FormatParts =
+  | 'format'
+  | 'highlight'
+  | 'highlightBackground'
+  | 'highlightText'
+  | 'highlightInk'
+  | 'alternate'
+
+interface ThemeExtras {
+  heading?: string
+  body?: string
+  headingWeight?: number
+  fonts?: VideoFontFace[]
+  logo?: string | null
+  logoTone?: number | null
+  /** Matched to their posts (../look-source.ts); the default look without. */
+  look?: VideoLook | null
+  /** The look's photos, in its order. */
+  photos?: Array<{
+    dataUrl: string
+    width: number | null
+    height: number | null
+  }>
+}
+
+const photoList = (photos: ThemeExtras['photos']): VideoTheme['photos'] =>
+  (photos ?? []).map(p => ({
+    dataUrl: p.dataUrl,
+    soft: Math.min(p.width ?? 0, p.height ?? 0) < SHARP_PHOTO_PX
+  }))
+
 export function videoThemeFor(
   brand: BrandForVideo,
-  extras: {
-    heading?: string
-    body?: string
-    headingWeight?: number
-    fonts?: VideoFontFace[]
-    logo?: string | null
-    logoTone?: number | null
-    /** Matched to their posts (../look-source.ts); the default look without. */
-    look?: VideoLook | null
-    /** The look's photos, in its order. */
-    photos?: Array<{
-      dataUrl: string
-      width: number | null
-      height: number | null
-    }>
-  } = {}
+  extras: ThemeExtras = {}
 ): VideoTheme {
+  const look = extras.look ?? DEFAULT_VIDEO_LOOK
+  const palette = paletteFor(brand, extras)
+  // A meme or a poster frames their photos whatever the template; a meme
+  // with none to show is kinetic type, as cleanVideoLook makes it
+  const framed = look.format === 'meme' || look.format === 'poster'
+  const photos = framed ? photoList(extras.photos) : palette.photos
+  const format =
+    look.format === 'meme' && photos.length === 0 ? 'kinetic' : look.format
+  const alternate =
+    format === 'kinetic' && palette.template !== 'photo'
+      ? (() => {
+          // The card colour where it stands apart from the slides, else the marks'
+          const background =
+            contrastRatio(palette.card, palette.background) >= 1.6
+              ? palette.card
+              : palette.mark
+          const ink = textOn(
+            background,
+            background === palette.card ? palette.cardText : palette.background
+          )
+          return {
+            background,
+            ink,
+            mark: readable(background, palette.cardAccent, palette.mark, ink)
+          }
+        })()
+      : null
+  return {
+    ...palette,
+    photos,
+    format,
+    highlight: look.highlight,
+    highlightBackground: palette.mark,
+    highlightText: textOn(palette.mark, palette.background),
+    highlightInk: palette.mark,
+    alternate
+  }
+}
+
+/** A template's colours, the brand's type and logo, and photos behind slides. */
+function paletteFor(
+  brand: BrandForVideo,
+  extras: ThemeExtras
+): Omit<VideoTheme, FormatParts> {
   const look = extras.look ?? DEFAULT_VIDEO_LOOK
   const seen = look.colors
   // The Brand Theme's colours as set; what it leaves unset, from their
@@ -241,10 +324,7 @@ export function videoThemeFor(
       captionText: WHITE,
       // A photo fills the slide: no pattern over it.
       pattern: 'none',
-      photos: (extras.photos ?? []).map(p => ({
-        dataUrl: p.dataUrl,
-        soft: Math.min(p.width ?? 0, p.height ?? 0) < SHARP_PHOTO_PX
-      }))
+      photos: photoList(extras.photos)
     }
   }
 
@@ -278,8 +358,10 @@ export function videoThemeFor(
 export function logoPlates(theme: VideoTheme): {
   card: string | null
   slide: string | null
+  /** On kinetic type's alternate slides. */
+  alternate: string | null
 } {
-  if (!theme.logo) return { card: null, slide: null }
+  if (!theme.logo) return { card: null, slide: null, alternate: null }
   const tone = theme.logoTone
   const darkPlate = isLight(theme.card) ? INK : theme.card
   const plateOn = (dark: boolean) =>
@@ -293,7 +375,10 @@ export function logoPlates(theme: VideoTheme): {
   return {
     card: plateOn(!isLight(theme.card)),
     // A photo behind the slide is darkened, so it counts as dark ground.
-    slide: plateOn(theme.template === 'photo' || !isLight(theme.background))
+    slide: plateOn(theme.template === 'photo' || !isLight(theme.background)),
+    alternate: theme.alternate
+      ? plateOn(!isLight(theme.alternate.background))
+      : null
   }
 }
 
@@ -321,6 +406,14 @@ export function captionLook(theme: VideoTheme): {
   text: string
   shadow: boolean
 } {
+  // A meme's line sits on its photo, as subtitles do on a clip
+  if (theme.format === 'meme')
+    return {
+      style: 'subtitles',
+      background: 'transparent',
+      text: WHITE,
+      shadow: true
+    }
   if (theme.captions === 'badge')
     return {
       style: 'badge',
@@ -334,6 +427,19 @@ export function captionLook(theme: VideoTheme): {
     text: theme.ink,
     shadow: theme.template === 'photo' || !isLight(theme.background)
   }
+}
+
+/**
+ * The words of a headline that stand out when the look highlights: those
+ * with a number in them, else its closing words (a third of them, one to
+ * three). Indexes into the headline split at spaces, as the page splits it.
+ */
+export function emphasisOf(headline: string): number[] {
+  const words = headline.split(/\s+/).filter(Boolean)
+  const numbers = words.flatMap((w, i) => (/\d/.test(w) ? [i] : []))
+  if (numbers.length > 0) return numbers
+  const count = Math.min(3, Math.max(1, Math.round(words.length / 3)))
+  return words.map((_, i) => i).slice(-count)
 }
 
 /** The pattern behind slides and its glow, in the slide marks' colour. */
@@ -353,6 +459,130 @@ body::after { content: ""; position: absolute; width: 560px; height: 560px; righ
 }
 
 /**
+ * A framed photo too small to fill its frame sharply: shown whole over a
+ * blurred copy of itself, as the photo template shows one behind words.
+ */
+const FRAMED_SOFT_CSS = `#frame b { position: absolute; inset: 0; display: none; background-size: contain;
+  background-repeat: no-repeat; background-position: center; }
+#frame.soft i { inset: -8%; filter: blur(18px) saturate(1.1); }
+#frame.soft b { display: block; }`
+
+/** The largest a headline starts at, by format, before it shrinks to fit. */
+const HEADLINE_MAX_PX: Record<VideoFormat, number> = {
+  slides: 58,
+  kinetic: 96,
+  meme: 46,
+  poster: 54,
+  editorial: 48
+}
+
+/** Key words in a marker box or the accent colour, on plain and alternate slides. */
+function highlightCss(theme: VideoTheme): string {
+  if (theme.highlight === 'none') return ''
+  const alt = theme.alternate
+  if (theme.highlight === 'color')
+    return `#headline .hl { color: ${theme.highlightInk}; }
+${alt ? `body.alt #headline .hl { color: ${alt.mark}; }` : ''}`
+  // A box behind each key word, its edges joining it to the next one
+  const box = (bg: string, ink: string) =>
+    `background: ${bg}; color: ${ink}; text-shadow: none; border-radius: .12em;
+  box-shadow: .12em 0 0 ${bg}, -.12em 0 0 ${bg};`
+  return `#headline .hl { ${box(theme.highlightBackground, theme.highlightText)} }
+${alt ? `body.alt #headline .hl { ${box(alt.ink, alt.background)} }` : ''}`
+}
+
+/**
+ * What a format changes on the page; slides, the first format, changes
+ * nothing. Words stay inside the area clear of the platforms' buttons.
+ */
+function formatCss(theme: VideoTheme, body: string): string {
+  const sub = (
+    font: string
+  ) => `#sub { margin: 0; max-width: 100%; font: ${font} ${body};
+  color: ${theme.muted}; opacity: 0;
+  ${theme.template === 'photo' ? 'text-shadow: 0 2px 14px rgba(0,0,0,.6);' : ''} }`
+  switch (theme.format) {
+    case 'kinetic': {
+      const alt = theme.alternate
+      const plate = logoPlates(theme).alternate
+      return `#bars, #num { display: none; }
+#brand { justify-content: center; }
+#slide { left: 28px; right: 28px; align-items: center; text-align: center; gap: 24px; }
+#headline { line-height: 1.02; letter-spacing: ${theme.upper ? '0' : '-.035em'}; }
+#headline .w { opacity: 0; transform: scale(.35); }
+body.go #headline .w { animation: pv-pop .42s cubic-bezier(.3,1.5,.5,1) both;
+  animation-delay: calc(var(--i) * 140ms + 60ms); }
+@keyframes pv-pop { 0% { opacity: 0; transform: scale(.35); } 55% { opacity: 1; } 100% { opacity: 1; transform: none; } }
+${sub('600 22px/1.35')}
+body.go #sub { animation: pv-rise .5s cubic-bezier(.2,.8,.2,1) var(--sub-delay, 500ms) both; }
+${
+  alt
+    ? `body.alt { background: ${alt.background}; }
+body.alt::before, body.alt::after { display: none; }
+body.alt #headline { color: ${alt.ink}; }
+body.alt #sub, body.alt #brand { color: ${mixHex(alt.ink, alt.background, 0.25)}; }
+body.alt #brand img { ${plate ? `background: ${plate}; padding: 5px 9px; border-radius: 8px;` : 'background: none; padding: 0;'} }`
+    : ''
+}`
+    }
+    case 'meme':
+      return `body::before, body::after { display: none; }
+#bars, #num { display: none; }
+#slide { top: 136px; bottom: auto; max-height: 300px; overflow: hidden; left: 30px; right: 30px; gap: 0; }
+#headline { font-family: ${body}; font-weight: 600; line-height: 1.18; letter-spacing: 0; text-shadow: none; }
+#frame { position: absolute; left: 0; right: 0; top: 420px; bottom: 0; z-index: 1; overflow: hidden; }
+#frame.off { display: none; }
+#frame i { position: absolute; inset: 0; background-size: cover; background-position: center; transform: scale(1.02); }
+body.go #frame i { animation: pv-zoom var(--hold, 4000ms) linear both; }
+${FRAMED_SOFT_CSS}`
+    case 'poster': {
+      const bar =
+        contrastRatio(theme.card, theme.background) >= 1.6
+          ? theme.card
+          : theme.mark
+      return `#bars, #footer { display: none; }
+#brand img { height: 34px; max-width: 190px; }
+body::after { content: ""; position: absolute; width: 420px; height: 420px; left: auto; right: -180px; top: 420px;
+  border-radius: 50%; background: color-mix(in srgb, ${theme.mark} 16%, transparent); }
+#frame { position: absolute; left: 40px; right: 40px; top: 140px; height: 226px; z-index: 2; overflow: hidden;
+  border-radius: 22px; box-shadow: 0 16px 40px rgba(0,0,0,.22); opacity: 0; }
+#frame i { position: absolute; inset: 0; background-size: cover; background-position: center; }
+${FRAMED_SOFT_CSS}
+#slide { bottom: 296px; gap: 14px; opacity: 0; }
+body.pic #slide { top: 390px; justify-content: flex-start; }
+#num { align-self: flex-start; padding: 7px 13px; border-radius: 999px; background: ${theme.mark};
+  color: ${textOn(theme.mark, theme.background)}; font-size: 15px; letter-spacing: .12em; }
+#num:empty { display: none; }
+body.go #slide, body.go #frame { animation: pv-push .55s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes pv-push { from { opacity: 0; transform: translateX(56px); } to { opacity: 1; transform: none; } }
+${sub('500 21px/1.38')}
+body.go #sub { animation: pv-rise .5s cubic-bezier(.2,.8,.2,1) .3s both; }
+#bar { position: absolute; left: 0; right: 0; top: 664px; height: 56px; z-index: 2; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; padding: 0 24px; background: ${bar};
+  color: ${textOn(bar, theme.cardText)}; font: 700 18px/1.2 ${body}; letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }`
+    }
+    case 'editorial':
+      return `#bars { display: none; }
+#brand { justify-content: center; }
+#slide { left: 50px; right: 50px; align-items: center; text-align: center; gap: 24px; }
+#slide .rule { flex: none; width: 52px; height: 2px; background: ${theme.mark}; transform: scaleX(0); }
+body.go #slide .rule { animation: pv-rule .9s cubic-bezier(.2,.8,.2,1) .05s both; }
+@keyframes pv-rule { from { transform: scaleX(0); } to { transform: none; } }
+#num { font: 600 14px/1 ${body}; letter-spacing: .32em; color: ${theme.muted}; }
+#headline { font-weight: 600; line-height: 1.22; letter-spacing: -.01em; opacity: 0; }
+body.go #headline { animation: pv-soft 1.1s ease .12s both; }
+${sub('400 20px/1.45')}
+body.go #sub { animation: pv-soft 1s ease .75s both; }
+@keyframes pv-soft { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }`
+    default:
+      return `#headline .w { opacity: 0; transform: translateY(.4em); }
+body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
+  animation-delay: calc(var(--i) * 60ms + 120ms); }`
+  }
+}
+
+/**
  * The page, with no slide on it yet, and the script that runs on it once it
  * is open: `window.__slide(scene, index, total)` puts a slide's text on it
  * (null clears it, under a card), and `window.__go()` plays the slide's
@@ -365,6 +595,9 @@ export function stageDocument(theme: VideoTheme): {
   const heading = fontStack(theme.headingFont)
   const body = fontStack(theme.bodyFont)
   const slidePlate = logoPlates(theme).slide
+  // A meme or a poster frames their photo; other formats put it behind the words
+  const framed = theme.format === 'meme' || theme.format === 'poster'
+  const inPage = formatRhythm(theme.format).captionInPage
   const css = `
 ${fontFaces(theme.fonts)}
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
@@ -398,11 +631,11 @@ body.go #pic { animation: pv-rise .6s cubic-bezier(.2,.8,.2,1) .05s both; }
   line-height: 1.08; letter-spacing: ${theme.upper ? '0' : '-.02em'}; color: ${theme.ink}; overflow-wrap: anywhere;
   ${theme.upper ? 'text-transform: uppercase;' : ''}
   ${theme.template === 'photo' ? 'text-shadow: 0 2px 24px rgba(0,0,0,.6), 0 0 3px rgba(0,0,0,.35);' : ''} }
-#headline .w { display: inline-block; opacity: 0; transform: translateY(.4em); }
+#headline .w { display: inline-block; }
 body.go #num { animation: pv-rise .5s cubic-bezier(.2,.8,.2,1) .05s both; }
-body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
-  animation-delay: calc(var(--i) * 60ms + 120ms); }
 @keyframes pv-rise { from { opacity: 0; transform: translateY(.4em); } to { opacity: 1; transform: none; } }
+${formatCss(theme, body)}
+${highlightCss(theme)}
 .off { visibility: hidden; }
 `
   const brandRow = [
@@ -414,11 +647,12 @@ body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
   if (window.__slide) return true;
   const $ = id => document.getElementById(id);
   const photos = ${JSON.stringify(theme.photos)};
-  const footer = $("footer");
-  if (footer) footer.textContent = ${JSON.stringify(theme.footer ?? '')};
+  const alternate = ${theme.alternate ? 'true' : 'false'};
+  const meme = ${theme.format === 'meme' ? 'true' : 'false'};
+  for (const el of [$("footer"), $("bar")]) if (el) el.textContent = ${JSON.stringify(theme.footer ?? '')};
   // Shrinks the headline until the slide's words (and photo) fit its area
   const fit = (el, box) => {
-    let size = 58;
+    let size = ${HEADLINE_MAX_PX[theme.format]};
     el.style.fontSize = size + "px";
     while (size > 24 && (box.scrollHeight > box.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) {
       size -= 2;
@@ -427,6 +661,8 @@ body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
   };
   window.__slide = (scene, index, total) => {
     document.body.classList.remove("go");
+    // Kinetic type turns every other slide to its alternate colours
+    document.body.classList.toggle("alt", alternate && Boolean(scene) && index % 2 === 1);
     const bars = $("bars");
     bars.replaceChildren();
     for (let i = 0; i < total; i++) {
@@ -440,16 +676,34 @@ body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
     $("num").textContent = scene ? scene.num : "";
     const headline = $("headline");
     headline.replaceChildren();
-    (scene ? scene.headline : "").split(/\\s+/).filter(Boolean).forEach((word, i) => {
+    const key = new Set(scene && scene.hl ? scene.hl : []);
+    const words = (scene ? scene.headline : "").split(/\\s+/).filter(Boolean);
+    words.forEach((word, i) => {
       const span = document.createElement("span");
-      span.className = "w";
+      span.className = key.has(i) ? "w hl" : "w";
       span.style.setProperty("--i", String(i));
       span.textContent = word;
       headline.append(span, " ");
     });
+    // The caption line as part of the slide, after its words are in
+    const sub = $("sub");
+    if (sub) {
+      sub.textContent = scene && scene.caption ? scene.caption : "";
+      sub.style.display = sub.textContent ? "" : "none";
+    }
+    document.body.style.setProperty("--sub-delay", (words.length * 140 + 450) + "ms");
     document.body.style.setProperty("--hold", (scene ? scene.holdMs : 0) + "ms");
     // Their photo behind the slide, in turn; a small one blurred behind and shown whole
     const photo = scene && photos.length ? photos[index % photos.length] : null;
+    // Or framed, in a meme or a poster
+    const frame = $("frame");
+    if (frame) {
+      frame.classList.toggle("off", !photo);
+      frame.classList.toggle("soft", Boolean(photo && photo.soft));
+      for (const layer of frame.children)
+        layer.style.backgroundImage = photo ? 'url("' + photo.dataUrl + '")' : "none";
+      document.body.classList.toggle("pic", Boolean(photo));
+    }
     const bg = $("photo"), pic = $("pic");
     if (bg) {
       bg.classList.toggle("off", !photo);
@@ -463,6 +717,9 @@ body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
     const shown = pic && photo && photo.soft ? pic.decode().catch(() => {}) : Promise.resolve();
     return shown.then(() => {
       if (scene) fit(headline, $("slide"));
+      // A meme's photo fills the screen from just under its words
+      if (scene && frame && meme)
+        frame.style.top = Math.round($("slide").getBoundingClientRect().bottom + 24) + "px";
       return true;
     });
   };
@@ -483,11 +740,13 @@ body.go #headline .w { animation: pv-rise .55s cubic-bezier(.2,.8,.2,1) both;
 })()`
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>${css}</style></head>
-<body>
-${theme.photos.length > 0 ? '<div id="photo" class="off"></div><div id="shade" class="off"></div>' : ''}
+<body class="f-${theme.format}">
+${theme.photos.length > 0 && !framed ? '<div id="photo" class="off"></div><div id="shade" class="off"></div>' : ''}
+${theme.photos.length > 0 && framed ? '<div id="frame" class="off"><i></i><b></b></div>' : ''}
 <div id="bars" class="off"></div>
 ${brandRow ? `<div id="brand">${brandRow}</div>` : ''}
-<main id="slide" class="off">${theme.photos.length > 0 ? '<img id="pic" alt="" class="off">' : ''}<div id="num"></div><h1 id="headline"></h1></main>
+<main id="slide" class="off">${theme.photos.length > 0 && !framed ? '<img id="pic" alt="" class="off">' : ''}${theme.format === 'editorial' ? '<i class="rule"></i>' : ''}<div id="num"></div><h1 id="headline"></h1>${inPage ? '<p id="sub"></p>' : ''}${theme.format === 'editorial' ? '<i class="rule"></i>' : ''}</main>
+${theme.format === 'poster' && theme.footer ? '<div id="bar"></div>' : ''}
 </body></html>`
   return { html, script }
 }

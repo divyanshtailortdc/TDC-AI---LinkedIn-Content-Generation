@@ -2,7 +2,7 @@
 
 > **Recorded since 2026-11-24.** Videos are made with the [product-video](../.claude/skills/product-video/SKILL.md) skill's method: see [Recording](#recording) and [src/lib/video/render/README.md](../src/lib/video/render/README.md). The AI-clip path (Veo, through the AI Gateway) was removed on 2026-11-25, with the columns only it used (migration `0062_post_videos_recorder_only`). `VIDEO_GENERATION_ENABLED` in `src/lib/video/formats.ts` switches videos off.
 
-The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** and **Facebook Reels**. Each video post is a script drafted from an idea and a video **recorded on the server** from that script: title cards and slides in the identity's Brand Theme and the look of its own posts, 9:16, 1080×1920 MP4, usually 15 to 30 seconds, silent, published through Buffer like every other post.
+The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** and **Facebook Reels**. Each video post is a script drafted from an idea and a video **recorded on the server** from that script: slides built in the format of the identity's own recent posts (story slides, kinetic type, meme, poster or editorial), in its Brand Theme and the look of those posts, 9:16, 1080×1920 MP4, usually 15 to 30 seconds, silent, published through Buffer like every other post.
 
 - [How a video post is made](#how-a-video-post-is-made)
 - [Recording](#recording)
@@ -19,7 +19,7 @@ The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** 
 | `src/lib/video/models.ts` | The provider and model names stored on each video row |
 | `src/lib/video/render/` | The recorder: script → plan → brand page → recorded, encoded MP4 ([its README](../src/lib/video/render/README.md)) |
 | `src/lib/video/providers/` | `recorder.ts`: loads the brand and the look, records one video at a time |
-| `src/lib/video/look-source.ts` | The look of the identity's own posts, chosen once per platform |
+| `src/lib/video/look-source.ts` | The format and look of the identity's own recent posts, chosen once per platform |
 | `src/lib/video/post-video.ts` | Starting, recording and storing a post's video; what publishing reads |
 | `src/jobs/videos.ts` | `runVideoFinishing`, the background pass that records videos nobody is watching |
 | `src/app/api/posts/[id]/video/route.ts` | GET (the state) and POST (Record video) for the post page |
@@ -54,12 +54,24 @@ A recording takes about 25 to 40 seconds of the function's time (about a minute 
 
 ### The look
 
-Before recording, `videoLookFor` (`src/lib/video/look-source.ts`) chooses the video's look; `src/lib/video/render/look.ts` holds its type and rules, and `page.ts` draws it.
+Before recording, `videoLookFor` (`src/lib/video/look-source.ts`) chooses the video's format and look; `src/lib/video/render/look.ts` holds their type and rules, `page.ts` draws them and `record.ts` plays them.
+
+- **The format: built like their recent posts.** Two identities that post differently get differently built videos, not one layout in other colours. The skill picks one of five structures (`VIDEO_FORMATS`; `formatRhythm` says how each plays):
+
+  | Format | For feeds of | How it plays |
+  | --- | --- | --- |
+  | `slides` | carousels, tips, lists, explainers; and anyone nothing is known about | title cards, numbered slides under story bars, caption badge, fades (the videos of before) |
+  | `kinetic` | punchy one-liners, bold text graphics, hype | no cards: a few huge centred words pop in one by one, slides alternate colours, hard cuts |
+  | `meme` | memes, trend riffs, relatable jokes | a band of casual text on top, one of their photos filling the rest, hard cuts; needs a photo (else kinetic) |
+  | `poster` | branded graphics, offers, hiring, events, infographics | each slide a designed graphic: framed photo of theirs when there is one, pill tag, body line, contact bar with the footer; pushed in, hard cuts |
+  | `editorial` | quotes, reflections, premium brands | centred quieter words between thin rules, caption under them, slow fades |
+
+  Key words stand out where their images mark words (`highlight`: a `marker` box or the accent `color`, picked by `emphasisOf`: numbers, else the closing words). Their photos too small to fill a frame are shown whole over a blurred copy of themselves.
 
 - **Brand Theme first.** Its set colours (primary, accent, background), typefaces, logo, footer and, once saved, background pattern (Auto leaves it to the look) are used as they are. Its image style picks the template where a video has one to match (`brandedLook`): Minimal Graphic Design → minimal; Photorealistic → photo when there are photos; Like my posts, Illustration and 3D → the look's own.
-- **The rest from their posts.** The `video_look` skill (`src/lib/ai/skills/video-look`, Sonnet at low effort, vision) reads the profile analysis (`platform_insights`: summary, visual identity, formats, tone, captions) and up to 6 example images (`visual_examples`, via `loadLookExamples`) and returns a template (`cards`, `bold`, `minimal`, `photo`), colours, text case, caption style (badge or subtitles), pace and which images are photos to show. `cleanVideoLook` keeps only usable values, and the theme makes every pairing readable.
+- **The rest from their posts.** The `video_look` skill (`src/lib/ai/skills/video-look`, Sonnet at low effort, vision) reads the profile analysis (`platform_insights`: summary, visual identity, formats, tone, captions), up to 15 of the recent posts that analysis read (`platform_insights.posts`: kind, date, shape and opening words, newest first) and up to 6 example images (`visual_examples`, via `loadLookExamples`) and returns a format, a template (`cards`, `bold`, `minimal`, `photo`: the colours), colours, text case, caption style (badge or subtitles, for slides), pace, highlight and which images are photos to show. `cleanVideoLook` keeps only usable values, and the theme makes every pairing readable.
 - **Whose posts.** The video's platform; else Instagram ↔ Facebook; a YouTube Short reads Instagram, then Facebook (`scriptInsightsSource`). The look alone may also read any other analyzed platform's visual identity, since a brand looks alike everywhere (`lookInsightsSource`).
-- **Once, then reused.** The look is stored in the video's metadata (`look`, `lookStamp`, `lookFrom`, `template`). The stamp hashes the analysis, the example images, the brand colours and the platform; a later video with the same stamp takes the look from there (or from memory in the same process) without a model call. About $0.01 per call, recorded in `ai_usage` (stage `video_look`) against the post.
+- **Once, then reused.** The look is stored in the video's metadata (`look`, `lookStamp`, `lookFrom`, `template`, `format`). The stamp hashes the analysis, its posts, the example images, the brand colours and the platform (version 2 since formats came in, so every identity's next video chooses afresh); a later video with the same stamp takes the look from there (or from memory in the same process) without a model call. About $0.01 per call, recorded in `ai_usage` (stage `video_look`) against the post.
 - **Never fails a video.** No analysis and no images, no AI key, a spending limit or a model error: the default look, with a warning in the metadata.
 - **The script follows too.** For video formats, `renderInsightsForVideo` (`src/lib/profile-insights/render.ts`) gives the writer the same analysis, including how their posts look and what they post, so on-screen words are set the way their posts set words. Prompts for other formats, and for identities with nothing learned, are unchanged.
 
@@ -123,7 +135,7 @@ Checks before sending:
 
 | Test | Needs | Covers |
 | --- | --- | --- |
-| `tests/video.test.ts` | nothing | the video spec, video formats never created another way, the script asking for slides, the recorder's plan (cards, slides, captions, timing, stored plan read back) and page (contrast, no markup from text, embedded fonts), the look (Brand Theme first, nearest platform, readable colours, pace), which ideas draft a video, no generated image on a video post |
+| `tests/video.test.ts` | nothing | the video spec, video formats never created another way, the script asking for slides, the recorder's plan (cards, slides, captions, timing, stored plan read back) and page (contrast, no markup from text, embedded fonts), the look (Brand Theme first, nearest platform, readable colours, pace), the formats (a page of its own each, cards or cuts, framed photos, readable alternating colours, highlighted words, recent posts shown to the skill as data), which ideas draft a video, no generated image on a video post |
 | `tests/multi-platform.test.ts` → "short videos" | nothing | the script schema, the caption that goes out with the video, the Short's title rule, no URLs in a caption |
 | `tests/publishing-units.test.ts` | nothing | video media tokens and links, each network's video metadata |
 | `tests/publishing.test.ts` → M3, M3b | `DATABASE_URL` | a Reel without its video is refused (an image is no stand-in); a Reel with its video goes out as a Reel with the video from its link |

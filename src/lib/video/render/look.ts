@@ -13,7 +13,33 @@ import type { ProfileInsights } from '@/lib/profile-insights/types'
 export const VIDEO_TEMPLATES = ['cards', 'bold', 'minimal', 'photo'] as const
 export type VideoTemplate = (typeof VIDEO_TEMPLATES)[number]
 
+/**
+ * How a video is built, after how their recent posts are built: the
+ * template is its colours, the format its structure.
+ * slides: title cards, numbered slides under story bars, fades (carousels,
+ * tips, lists). kinetic: huge words that pop in one by one, hard cuts, no
+ * cards (punchy, energetic text posts). meme: a band of casual text over
+ * one of their photos, hard cuts (memes, trend riffs). poster: each slide a
+ * designed graphic with a framed photo and a contact bar, pushed in
+ * (branded graphics, announcements, infographics). editorial: centred quiet
+ * words between thin rules, slow fades (quotes, premium, editorial).
+ */
+export const VIDEO_FORMATS = [
+  'slides',
+  'kinetic',
+  'meme',
+  'poster',
+  'editorial'
+] as const
+export type VideoFormat = (typeof VIDEO_FORMATS)[number]
+
+/** How key words stand out: a marker box, the accent colour, or not at all. */
+export const VIDEO_HIGHLIGHTS = ['none', 'marker', 'color'] as const
+export type VideoHighlight = (typeof VIDEO_HIGHLIGHTS)[number]
+
 export interface VideoLook {
+  /** The video's structure (VIDEO_FORMATS); slides when nothing is known. */
+  format: VideoFormat
   /**
    * cards: deep title cards, light slides (the look with no analysis).
    * bold: dark slides, big bright words. minimal: light cards and slides.
@@ -26,6 +52,8 @@ export interface VideoLook {
   /** The caption line in a box, or as plain subtitles. */
   captions: 'badge' | 'subtitles'
   pace: 'quick' | 'steady' | 'calm'
+  /** How key words (numbers, else the closing words) stand out. */
+  highlight: VideoHighlight
   /**
    * The example images that are their photos and sit well behind words, by
    * 0-based index, best first: shown behind the slides of the photo template.
@@ -37,11 +65,13 @@ export interface VideoLook {
 
 /** The look of a video for an identity nothing is known about. */
 export const DEFAULT_VIDEO_LOOK: VideoLook = {
+  format: 'slides',
   template: 'cards',
   colors: null,
   textCase: 'as_written',
   captions: 'badge',
   pace: 'steady',
+  highlight: 'none',
   photos: [],
   reason: ''
 }
@@ -57,8 +87,9 @@ const oneOf = <T extends string>(
 
 /**
  * The skill's answer made safe to use: known values only, real hex colours
- * (all three or none), photos that exist, and a photo template only with a
- * photo to show. `imageCount` is how many images the skill was shown.
+ * (all three or none), photos that exist, and a photo template or a meme
+ * only with a photo to show (a meme without one is kinetic type).
+ * `imageCount` is how many images the skill was shown.
  */
 export function cleanVideoLook(raw: unknown, imageCount: number): VideoLook {
   const value = (raw ?? {}) as Record<string, unknown>
@@ -83,7 +114,9 @@ export function cleanVideoLook(raw: unknown, imageCount: number): VideoLook {
       ].slice(0, MAX_VIDEO_PHOTOS)
     : []
   const template = oneOf(VIDEO_TEMPLATES, value.template, 'cards')
+  const format = oneOf(VIDEO_FORMATS, value.format, 'slides')
   return {
+    format: format === 'meme' && photos.length === 0 ? 'kinetic' : format,
     template: template === 'photo' && photos.length === 0 ? 'cards' : template,
     colors,
     textCase: oneOf(
@@ -93,6 +126,7 @@ export function cleanVideoLook(raw: unknown, imageCount: number): VideoLook {
     ),
     captions: oneOf(['badge', 'subtitles'] as const, value.captions, 'badge'),
     pace: oneOf(['quick', 'steady', 'calm'] as const, value.pace, 'steady'),
+    highlight: oneOf(VIDEO_HIGHLIGHTS, value.highlight, 'none'),
     photos,
     reason:
       typeof value.reason === 'string' ? value.reason.trim().slice(0, 300) : ''
@@ -126,6 +160,25 @@ export function brandedLook(
   if (imageStyle === 'photorealistic' && look.photos.length > 0)
     return { ...look, template: 'photo' }
   return look
+}
+
+/**
+ * How a format plays: whether the hook and the call to action sit on title
+ * cards with fades between slides, or are slides themselves with hard cuts;
+ * and whether a slide's caption line is part of its layout rather than
+ * drawn over it.
+ */
+export function formatRhythm(format: VideoFormat): {
+  cards: boolean
+  cuts: boolean
+  captionInPage: boolean
+} {
+  const cards = format === 'slides' || format === 'editorial'
+  return {
+    cards,
+    cuts: !cards,
+    captionInPage: format !== 'slides' && format !== 'meme'
+  }
 }
 
 /** How much longer or shorter slides stay up at each pace. */

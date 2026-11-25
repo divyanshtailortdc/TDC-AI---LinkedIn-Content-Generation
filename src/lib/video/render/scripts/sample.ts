@@ -10,6 +10,8 @@
  *   pnpm video:sample -- --keep               keep the frames' folder, with each segment's clip
  *   pnpm video:sample -- --look bold          a look: cards, bold, minimal or photo, or a JSON file
  *   pnpm video:sample -- --look photo --photo a.jpg --photo b.jpg   photos for the photo look
+ *   pnpm video:sample -- --format meme --photo a.jpg   a format: slides, kinetic, meme, poster or editorial
+ *   pnpm video:sample -- --highlight marker            key words: none, marker or color
  *
  * Then check it: pnpm video:check <file>
  */
@@ -24,6 +26,8 @@ import {
   cleanVideoLook,
   DEFAULT_VIDEO_LOOK,
   PACE_FACTOR,
+  VIDEO_FORMATS,
+  VIDEO_HIGHLIGHTS,
   VIDEO_TEMPLATES,
   type VideoLook
 } from '../look'
@@ -110,7 +114,27 @@ async function main() {
       }
     })
   )
-  const look = await readLook(option('look'), photos.length)
+  const chosen = await readLook(option('look'), photos.length)
+  // A format or highlight named on its own goes over the look
+  const format = option('format')
+  const highlight = option('highlight')
+  if (format && !(VIDEO_FORMATS as readonly string[]).includes(format))
+    throw new Error(`--format is one of ${VIDEO_FORMATS.join(', ')}.`)
+  if (highlight && !(VIDEO_HIGHLIGHTS as readonly string[]).includes(highlight))
+    throw new Error(`--highlight is one of ${VIDEO_HIGHLIGHTS.join(', ')}.`)
+  const look = cleanVideoLook(
+    {
+      ...chosen,
+      ...(format ? { format } : {}),
+      ...(highlight ? { highlight } : {}),
+      // Every photo given, when the look named none
+      photos: (chosen.photos.length > 0
+        ? chosen.photos
+        : photos.map((_, i) => i)
+      ).map(i => i + 1)
+    },
+    photos.length
+  )
   const plan = withPace(planVideo({ post }), PACE_FACTOR[look.pace])
   console.log(
     `Recording ${plan.scenes.length} slides and ${plan.outro ? 'two cards' : 'one card'}, about ${plannedSeconds(plan)} s.`
@@ -132,7 +156,7 @@ async function main() {
     photos: look.photos.flatMap(i => (photos[i] ? [photos[i]] : []))
   })
   console.log(
-    `Look: ${look.template}, ${look.textCase}, ${look.captions}, ${look.pace}`
+    `Look: ${theme.format} in ${look.template}, ${look.textCase}, ${look.captions}, ${look.pace}, highlight ${look.highlight}`
   )
 
   const workDir = await mkdtemp(path.join(tmpdir(), 'post-video-sample-'))

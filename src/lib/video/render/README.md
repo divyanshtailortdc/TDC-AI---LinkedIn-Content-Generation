@@ -6,7 +6,7 @@ The code is the skill's toolkit, copied in and adapted. Each file says what it k
 
 | File | What it does |
 | --- | --- |
-| `plan.ts` | The script → an opening card (the hook), one slide per line (its on-screen text big, its line as a caption), a closing card (the call to action). Timed for reading; under a minute. Stored as the video's prompt. |
+| `plan.ts` | The script → an opening card (the hook), one slide per line (its on-screen text big, its line as a caption), a closing card (the call to action). Timed for reading; under a minute. Stored as the video's prompt. Formats without cards play the hook and call to action as slides. |
 | `page.ts` | The page: brand colours, embedded typefaces (no fetch while recording), logo, website or handle; 540×960 CSS pixels at 2×, so 1080×1920. Text stays clear of the Reels and Shorts buttons. |
 | `stage.ts` | The toolkit's stage: title-card curtain, caption badge, frame recorder. Frames are stepped, not screencast (below). |
 | `record.ts` | The toolkit's `make.ts`: records each segment, encodes it with its fades, joins them and adds a silent soundtrack. |
@@ -38,19 +38,21 @@ In the app, **Record video** on a Reel's or Short's page does the same with the 
 
 To try the Vercel browser locally: `AWS_LAMBDA_FUNCTION_NAME=local pnpm video:sample` (Linux x64). Add `taskset -c 0` in front to see it on one CPU, as a Hobby function has.
 
-## The look
+## The format and the look
 
-A video follows the identity's Brand Theme where it is set, and the look of its own posts where it is not: `look.ts` (the type, cleaning, Brand Theme overrides, pace), `../look-source.ts` (reads the profile analysis and example images, asks the `video_look` skill once per platform, reuses the answer by stamp), and `page.ts` (draws the four templates: cards, bold, minimal, photo). To see a look without the skill or a database:
+A video is built like the identity's own recent posts, in its Brand Theme where it is set and the look of those posts where it is not: `look.ts` (the type, cleaning, Brand Theme overrides, pace, how each format plays), `../look-source.ts` (reads the profile analysis, its recent posts and example images, asks the `video_look` skill once per platform, reuses the answer by stamp), `page.ts` (draws the five formats, slides, kinetic, meme, poster and editorial, in the four templates' colours, cards, bold, minimal and photo) and `record.ts` (title cards and fades for slides and editorial, the hook and call to action as slides with hard cuts for the rest). To see one without the skill or a database:
 
 ```bash
 pnpm video:sample -- --look bold
 pnpm video:sample -- --look photo --photo a.jpg --photo b.jpg
-pnpm video:sample -- --look look.json          # { template, colors, textCase, captions, pace, photos }
+pnpm video:sample -- --format meme --photo a.jpg --highlight marker
+pnpm video:sample -- --format kinetic --look bold
+pnpm video:sample -- --look look.json          # { format, template, colors, textCase, captions, pace, highlight, photos }
 ```
 
 ## Change the video
 
-- **Look:** `page.ts` (slides) and the CSS in `stage.ts` (cards, captions). Keep text out of the top 14% and bottom 24%.
+- **Look:** `page.ts` (slides; each format's CSS in `formatCss`) and the CSS in `stage.ts` (cards, captions). Keep text out of the top 14% and bottom 24%.
 - **Rhythm:** the reading pace and limits at the top of `plan.ts`; the fade length in `record.ts`.
 - **What the writer produces:** the video formats' rules in `src/lib/formats/registry.ts` and the shots instruction in `src/lib/ai/skills/variant-drafting/prompt.ts`.
 - **Sound:** the soundtrack is silent. Music or a voice-over goes in `record.ts`'s last ffmpeg step; the skill's `references/voiceover.md` explains both. Use only audio you have the rights to, and ask before sending scripts to a paid voice service.
