@@ -11,7 +11,10 @@ import {
   type FormatSpec,
   type MediaFormat
 } from '@/lib/formats'
-import { renderInsightsForDrafting } from '@/lib/profile-insights/render'
+import {
+  renderInsightsForDrafting,
+  renderInsightsForVideo
+} from '@/lib/profile-insights/render'
 import { channelNote, forFormat } from '../../channel-context'
 import {
   describeCta,
@@ -229,12 +232,13 @@ function renderProduceList(
     const seconds = spec.limits.seconds!
     const words = Math.round(seconds.target * WORDS_PER_SECOND)
     const shots = spec.limits.shots ?? { min: 4, max: 8 }
-    // A clip the AI makes (shots set) carries no overlay text.
-    const overlay = spec.limits.shots
-      ? 'Leave onScreenText empty: the clip has no overlays.'
-      : 'when it helps, onScreenText (a few words of overlay).'
+    // A video the app records (shots set) is its on-screen text: each shot a
+    // slide (src/lib/video/render).
+    const each = spec.limits.shots
+      ? "say (the shot's line, shown as the caption under the slide, written as natural spoken words), show (a short phrase naming what the slide is about) and onScreenText (2 to 6 words, the shot's point, shown big on its slide; never empty)."
+      : 'say (the words spoken, written to be said aloud), show (what is on screen, described so a video model can show it) and, when it helps, onScreenText (a few words of overlay).'
     return `Produce:
-1. shots — the video in order, usually ${shots.min} to ${shots.max} shots. Each has: say (the words spoken, written to be said aloud), show (what is on screen, described so a video model can show it) and ${overlay} The first shot is the hook. All the spoken words together take about ${seconds.target} seconds (about ${words} words), never over ${seconds.max} seconds. The last shot carries the call to action: ${cta}
+1. shots — the video in order, usually ${shots.min} to ${shots.max} shots. Each has: ${each} The first shot is the hook. All the spoken words together take about ${seconds.target} seconds (about ${words} words), never over ${seconds.max} seconds. The last shot carries the call to action: ${cta}
 2. caption — the text posted with the video, about ${spec.limits.targetChars} characters, never over ${spec.limits.maxChars}${spec.limits.foldChars ? `; its first ${spec.limits.foldChars} characters show before "more"` : ''}
 ${spec.platform === 'youtube' ? '3. title — at most 100 characters: exactly what the viewer gets, in the words they would search' : '3. title — leave empty'}
 4. hashtags — ${hashtags}, without the # symbol; they go after the caption
@@ -317,8 +321,12 @@ export function buildFormatPrompt(
   // The specifics this account keeps reusing (a food, a setting, a joke).
   const overused = recentMotifs(ctx, { drafts: 'own' })
   const exemplars = renderExemplars(ctx, spec)
-  // How the author's public posts on this platform already read, when known.
-  const profile = renderInsightsForDrafting(ctx.platformInsights?.[spec.platform], spec.platform)
+  // How the author's public posts on this platform already read, when known;
+  // for a video script, also how they look, from their nearest account.
+  const profile =
+    spec.structure === 'script'
+      ? renderInsightsForVideo(ctx.platformInsights, spec.platform)
+      : renderInsightsForDrafting(ctx.platformInsights?.[spec.platform], spec.platform)
 
   const lines = [
     `Write the ${spec.label} for this idea.`,

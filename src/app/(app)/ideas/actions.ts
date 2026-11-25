@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/db'
-import { feedbackTable, ideasTable } from '@/db/schema'
+import { feedbackTable, ideasTable, postDraftsTable } from '@/db/schema'
 import {
   canHaveImage,
   cleanFormats,
@@ -10,6 +10,7 @@ import {
   supportsMediaFormat,
   type FormatId
 } from '@/lib/formats'
+import { formatsStillToDraft } from '@/lib/formats/drafted'
 import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { requireOwnedIdea, requireOwnedRun } from '@/lib/account-guard'
 import { loadChannels } from '@/lib/channels'
@@ -28,6 +29,7 @@ import {
   settleRunAfterDrafting,
   settleRunAfterIdeaDecision
 } from '~/lib/ai/pipeline/drafting-run'
+import { existingPostFormats } from '~/lib/ai/pipeline/idea-posts'
 
 /**
  * The formats picked in "Create posts": ones that can be created and that the
@@ -174,9 +176,11 @@ export async function editIdea(
 }
 
 /**
- * Starts posts for the selected ideas: only those that are approved, and only
- * the identity's own (a run's own, when `runId` is given). Selected ideas that
- * are not approved are skipped and counted, never drafted.
+ * Starts posts for the selected ideas: only those that are approved, or
+ * drafted already (for the platforms they have no post on yet), and only
+ * the identity's own (a run's own, when `runId` is given). Selected ideas
+ * that are not approved are skipped and counted, never drafted; so is a
+ * drafted one that already has a post on every platform asked for.
  *
  * Answers as soon as the ideas are claimed: the drafting queue writes the
  * posts afterwards, and the page follows them with fetchIdeaStatuses.
@@ -220,6 +224,8 @@ export async function draftSelectedIdeas(options: {
     const accountId = run?.accountId ?? (await requireIdentityId())
     const runId = run?.id ?? null
 
+    // Selected ideas that already have a post on every platform asked for.
+    const nothingNew: string[] = []
     if (options.formats !== undefined) {
       const formats = chosenFormats(
         options.formats,
@@ -252,29 +258,116 @@ export async function draftSelectedIdeas(options: {
       // approved keep theirs: they are skipped below and not drafted. The
       // image and video choices go into the idea's media plan, merged with
       // what is there, so a drafting resumed after a restart has them too.
-      await db
-        .update(ideasTable)
-        .set({
-          targetFormats: formats,
-          // ::text first: cast straight to jsonb, the driver encodes the
-          // parameter again, and || would make the plan an array.
-          suggestedMedia: sql`coalesce(${ideasTable.suggestedMedia}, '{"mode":"none"}'::jsonb) || ${JSON.stringify(mediaChoice)}::text::jsonb`,
-          updatedAt: new Date()
+      // ::text first: cast straight to jsonb, the driver encodes the
+      // parameter again, and || would make the plan an array.
+      const mergeMedia = (choice: object) =>
+        sql`coalesce(${ideasTable.suggestedMedia}, '{"mode":"none"}'::jsonb) || ${JSON.stringify(choice)}::text::jsonb`
+      const writable = and(
+        eq(ideasTable.accountId, accountId),
+        inArray(ideasTable.status, ['approved', 'drafted'])
+      )
+      const selected = await db
+        .select({
+          id: ideasTable.id,
+          suggestedMedia: ideasTable.suggestedMedia
         })
-        .where(
-          and(
-            inArray(ideasTable.id, ideaIds),
-            eq(ideasTable.accountId, accountId),
-            eq(ideasTable.status, 'approved')
+        .from(ideasTable)
+        .where(and(inArray(ideasTable.id, ideaIds), writable))
+      const existing = await existingPostFormats(
+        db,
+        selected.map(i => i.id)
+      )
+      // An idea with no post yet is written as asked, all at once.
+      const firstTime = selected.filter(i => !existing.has(i.id))
+      if (firstTime.length > 0) {
+        await db
+          .update(ideasTable)
+          .set({
+            targetFormats: formats,
+            suggestedMedia: mergeMedia(mediaChoice),
+            updatedAt: new Date()
+          })
+          .where(
+            and(
+              inArray(
+                ideasTable.id,
+                firstTime.map(i => i.id)
+              ),
+              writable
+            )
           )
-        )
+      }
+      // An idea with posts already: only the platforms it has no post on,
+      // added to the ones it has; its earlier image and video choices stay
+      // for the posts they made.
+      for (const idea of selected.filter(i => existing.has(i.id))) {
+        const has = existing.get(idea.id) ?? []
+        const missing = formatsStillToDraft(formats, has)
+        if (missing.length === 0) {
+          nothingNew.push(idea.id)
+          continue
+        }
+        const before = idea.suggestedMedia
+        const keep = (old: string[] | undefined, now: FormatId[]) => [
+          ...cleanFormats(old ?? []).filter(f => !missing.includes(f)),
+          ...now.filter(f => missing.includes(f))
+        ]
+        const choice = {
+          ...(imageFormats && {
+            imageFormats: keep(before?.imageFormats, imageFormats)
+          }),
+          ...(carouselFormats && {
+            carouselFormats: keep(before?.carouselFormats, carouselFormats)
+          }),
+          videoFormats: keep(before?.videoFormats, videoFormats)
+        }
+        await db
+          .update(ideasTable)
+          .set({
+            targetFormats: cleanFormats([...has, ...missing]),
+            suggestedMedia: mergeMedia(choice),
+            updatedAt: new Date()
+          })
+          .where(and(eq(ideasTable.id, idea.id), writable))
+      }
     }
 
     const outcome = await claimDraftSelection(
       db,
-      { accountId, ideaIds, runId },
+      {
+        accountId,
+        ideaIds: ideaIds.filter(id => !nothingNew.includes(id)),
+        runId
+      },
       { settleRun: settleRunAfterDrafting }
     )
+    // Why some selected ideas will not become posts, if any will not.
+    const why = [
+      describeDraftSelection(outcome),
+      nothingNew.length > 0
+        ? `${nothingNew.length} selected idea${nothingNew.length === 1 ? ' already has a post' : 's already have posts'} on every platform you picked.`
+        : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+    // How many posts each queued idea has now, before drafting starts (it
+    // runs after the response), so the page can tell the new ones apart.
+    const queuedIds = outcome.claimed.map(c => c.ideaId)
+    const postsBefore =
+      queuedIds.length === 0
+        ? {}
+        : Object.fromEntries(
+            (
+              await db
+                .select({
+                  ideaId: postDraftsTable.ideaId,
+                  n: sql<number>`count(*)::int`
+                })
+                .from(postDraftsTable)
+                .where(inArray(postDraftsTable.ideaId, queuedIds))
+                .groupBy(postDraftsTable.ideaId)
+            ).map(row => [row.ideaId, row.n])
+          )
     // After the response, and kept alive until drafted: on Vercel a function
     // is frozen once it has answered unless `after` holds it open.
     after(() =>
@@ -289,15 +382,14 @@ export async function draftSelectedIdeas(options: {
     if (outcome.queued === 0) {
       return {
         success: false,
-        error:
-          describeDraftSelection(outcome) || 'No approved ideas found to draft'
+        error: why || 'No approved ideas found to draft'
       }
     }
     return {
       success: true,
-      queuedIds: outcome.claimed.map(c => c.ideaId),
-      // Why some selected ideas will not become posts, if any will not.
-      note: describeDraftSelection(outcome) || null
+      queuedIds,
+      postsBefore: postsBefore as Record<string, number>,
+      note: why || null
     }
   } catch (err: any) {
     return {
@@ -310,7 +402,8 @@ export async function draftSelectedIdeas(options: {
 /**
  * Where the given ideas stand, for a page following ideas being drafted:
  * "drafting" until each is done, then "drafted", or "approved" again when its
- * draft failed.
+ * draft failed. An idea drafted again for more platforms ends "drafted"
+ * either way: its number of posts says whether any new one was written.
  */
 export async function fetchIdeaStatuses(ideaIds: string[]) {
   await requireUser()
@@ -324,7 +417,11 @@ export async function fetchIdeaStatuses(ideaIds: string[]) {
       ids.length === 0
         ? []
         : await db
-            .select({ id: ideasTable.id, status: ideasTable.status })
+            .select({
+              id: ideasTable.id,
+              status: ideasTable.status,
+              posts: sql<number>`(select count(*)::int from ${postDraftsTable} where ${postDraftsTable.ideaId} = ${ideasTable.id})`
+            })
             .from(ideasTable)
             .where(
               and(

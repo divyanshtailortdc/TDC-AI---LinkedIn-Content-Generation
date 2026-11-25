@@ -168,7 +168,7 @@ export function startScheduler() {
   )
 
   // Every minute: posts scheduled (or auto-published) to their platform that
-  // are due, and AI videos still being made, stored once done.
+  // are due, and videos not yet recorded.
   cron.schedule(
     '* * * * *',
     () => {

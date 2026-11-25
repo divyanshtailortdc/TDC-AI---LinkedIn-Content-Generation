@@ -44,6 +44,7 @@ export type AIStage =
   | 'blog_drafting'
   | 'blog_editing'
   | 'blog_verification'
+  | 'video_look'
 
 /**
  * Effort is the first quality/cost lever. Ideation and drafting carry the
@@ -100,7 +101,10 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   blog_editing: { model: defaultModel, effort: 'medium' },
   // Reading whether each cited source says what its sentence claims:
   // careful reading, little reasoning.
-  blog_verification: { model: defaultModel, effort: 'low' }
+  blog_verification: { model: defaultModel, effort: 'low' },
+  // Looks at a few of an account's post images and their analysis to set a
+  // Reel's or Short's look: once per platform, reading more than reasoning.
+  video_look: { model: defaultModel, effort: 'low' }
 }
 
 /** The model and effort a stage runs at. */

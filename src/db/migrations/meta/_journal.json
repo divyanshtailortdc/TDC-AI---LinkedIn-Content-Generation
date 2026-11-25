@@ -439,14 +439,14 @@
     {
       "idx": 62,
       "version": "7",
-      "when": 1795516775055,
+      "when": 1795578973386,
       "tag": "0062_blogs",
       "breakpoints": true
     },
     {
       "idx": 63,
       "version": "7",
-      "when": 1795522566071,
+      "when": 1795578973387,
       "tag": "0063_blog_destination",
       "breakpoints": true
     },
@@ -455,6 +455,13 @@
       "version": "7",
       "when": 1795602038099,
       "tag": "0064_blog_quality",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795607286058,
+      "tag": "0065_post_videos_recorder_only",
       "breakpoints": true
     }
   ]

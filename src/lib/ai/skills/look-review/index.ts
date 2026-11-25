@@ -9,7 +9,7 @@ import {
   type ReviewLookResult
 } from './schema'
 
-export { lookIssues, lookRetryLines } from './prompt'
+export { isBlockingLookIssue, lookIssues, lookRetryLines } from './prompt'
 export type * from './schema'
 
 /** A review that takes longer than this is skipped, not waited on. */

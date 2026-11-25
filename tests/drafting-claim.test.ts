@@ -86,12 +86,30 @@ describe('an idea is drafted into one post', { skip: !url }, () => {
     assert.strictEqual(await statusOf(ideaId), 'drafting')
   })
 
-  it('does not claim an idea that is drafted, rejected or not yet approved', async () => {
-    for (const status of ['drafted', 'rejected', 'proposed']) {
+  it('does not claim an idea that is rejected or not yet approved', async () => {
+    for (const status of ['rejected', 'proposed']) {
       const ideaId = await newIdea(status)
       assert.strictEqual(await claimIdeaForDrafting(database, ideaId), false)
       assert.strictEqual(await statusOf(ideaId), status)
     }
+  })
+
+  it('claims a drafted idea again, for more platforms, and hands it back drafted with its posts', async () => {
+    const ideaId = await newIdea()
+    await claimIdeaForDrafting(database, ideaId)
+    await savePost(ideaId)
+    assert.strictEqual(await statusOf(ideaId), 'drafted')
+    // Selected again: claimed, once.
+    const claims = await Promise.all([
+      claimIdeaForDrafting(database, ideaId),
+      claimIdeaForDrafting(database, ideaId)
+    ])
+    assert.deepStrictEqual(claims.sort(), [false, true])
+    assert.strictEqual(await statusOf(ideaId), 'drafting')
+    // Nothing new written: back to drafted, not approved, with its post.
+    await releaseDraftingClaim(database, ideaId)
+    assert.strictEqual(await statusOf(ideaId), 'drafted')
+    assert.strictEqual((await postsFor(ideaId)).length, 1)
   })
 
   it('hands a failed draft back so it can be drafted again', async () => {

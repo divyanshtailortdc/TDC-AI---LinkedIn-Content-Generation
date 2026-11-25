@@ -1,15 +1,18 @@
-import { ideasTable } from '@/db/schema'
-import { and, eq, inArray, lt, notInArray, or } from 'drizzle-orm'
+import { ideasTable, postDraftsTable } from '@/db/schema'
+import { and, eq, inArray, lt, notInArray, or, sql } from 'drizzle-orm'
 import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js'
 
 /**
- * Drafting an idea makes exactly one post. A retry, a double click or two
- * tabs each used to draft every idea they were sent, so the same idea came
- * back as several posts. Each idea is now claimed before any model call
- * (approved -> drafting) with a conditional update, so only one caller gets
- * it; the post is saved in the same transaction that moves the idea from
- * drafting to drafted, and a failed draft hands the idea back as approved.
+ * Drafting an idea makes exactly one post per format. A retry, a double
+ * click or two tabs each used to draft every idea they were sent, so the
+ * same idea came back as several posts. Each idea is now claimed before any
+ * model call (approved or drafted -> drafting) with a conditional update, so
+ * only one caller gets it; the posts are saved in the same transaction that
+ * moves the idea from drafting to drafted, and a failed draft hands the idea
+ * back as approved, or as drafted when it already has posts. A drafted idea
+ * is claimed again to write the platforms it has no post on yet: drafting
+ * skips every format it already has (src/lib/formats/drafted.ts).
  *
  * Takes the database as an argument (rather than importing it) so the steps
  * can be run against any connection.
@@ -24,8 +27,8 @@ export type DraftingDb = PgDatabase<PostgresJsQueryResultHKT, any, any>
 export const DRAFTING_CLAIM_TTL_MS = 15 * 60 * 1000
 
 /**
- * Claims an approved idea for drafting. Returns false when the idea is not
- * approved: already drafted, being drafted by another request, or rejected.
+ * Claims an approved or drafted idea for drafting. Returns false when it is
+ * being drafted by another request, rejected, or not yet approved.
  */
 export async function claimIdeaForDrafting(
   database: DraftingDb,
@@ -41,6 +44,8 @@ export async function claimIdeaForDrafting(
         eq(ideasTable.id, ideaId),
         or(
           eq(ideasTable.status, 'approved'),
+          // More platforms for an idea that has posts already
+          eq(ideasTable.status, 'drafted'),
           and(
             eq(ideasTable.status, 'drafting'),
             lt(ideasTable.updatedAt, staleBefore)
@@ -99,14 +104,23 @@ export async function takeOverAbandonedDraftingClaims(
     .returning({ id: ideasTable.id, runId: ideasTable.runId })
 }
 
-/** Hands a claimed idea back after a failed draft, so it can be drafted again. */
+/**
+ * Hands a claimed idea back after a failed draft, so it can be drafted
+ * again: approved, or drafted when it has posts (it was being drafted for
+ * more platforms, and those it has stay).
+ */
 export async function releaseDraftingClaim(
   database: DraftingDb,
   ideaId: string
 ): Promise<void> {
   await database
     .update(ideasTable)
-    .set({ status: 'approved', updatedAt: new Date() })
+    .set({
+      status: sql<
+        'approved' | 'drafted'
+      >`case when exists (select 1 from ${postDraftsTable} where ${postDraftsTable.ideaId} = ${ideasTable.id}) then 'drafted' else 'approved' end`,
+      updatedAt: new Date()
+    })
     .where(and(eq(ideasTable.id, ideaId), eq(ideasTable.status, 'drafting')))
 }
 

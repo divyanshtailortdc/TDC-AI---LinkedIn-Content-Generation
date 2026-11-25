@@ -453,15 +453,17 @@ describe('posts are drafted only from selected, approved ideas', () => {
     { id: 'stale-claim', status: 'drafting' }
   ]
 
-  it('drafts the selected approved ideas, in the order selected, and nothing else', () => {
+  it('drafts the selected approved and drafted ideas, in the order selected, and nothing else', () => {
     const plan = planDraftSelection(
       ['stale-claim', 'proposed', 'approved-1', 'rejected', 'drafted', 'gone'],
       found
     )
-    // approved-2 was not selected, so it is not drafted.
-    assert.deepStrictEqual(plan.draftable, ['stale-claim', 'approved-1'])
+    // approved-2 was not selected, so it is not drafted. A drafted idea is
+    // drafted again for the platforms it has no post on; the claim decides
+    // whether one is being drafted already.
+    assert.deepStrictEqual(plan.draftable, ['stale-claim', 'approved-1', 'drafted'])
     assert.strictEqual(plan.notApproved, 2)
-    assert.strictEqual(plan.alreadyDrafted, 1)
+    assert.strictEqual(plan.alreadyDrafted, 0)
     assert.strictEqual(plan.notFound, 1)
   })
 

@@ -8,7 +8,8 @@ import { claimIdeaForDrafting, type DraftingDb } from './drafting-claim'
  * the identity (or of a run), so approving an idea to keep it for later also
  * queued it for a post. Now the selection is the request: an idea that was not
  * selected is never drafted, and a selected one that is still to review, or
- * rejected, is skipped and counted so the reviewer is told why.
+ * rejected, is skipped and counted so the reviewer is told why. A drafted
+ * idea selected again is drafted for the platforms it has no post on yet.
  *
  * Takes the database and the drafting steps as arguments so the selection
  * rules can be run against any connection without calling a model.
@@ -19,16 +20,17 @@ export type DraftSelectionOutcome = {
   queued: number
   /** Selected but not approved (still to review, or rejected). */
   notApproved: number
-  /** Selected but already drafted, or being drafted by another request. */
+  /** Selected but being drafted already, by another request. */
   alreadyDrafted: number
   /** Selected ids that are not this identity's ideas (or not this run's). */
   notFound: number
 }
 
 /**
- * Which selected ideas may be drafted, in the order they were selected. An
- * idea being drafted is included so a claim left by a crashed request can be
- * taken over once stale; the claim decides (see drafting-claim).
+ * Which selected ideas may be drafted, in the order they were selected: the
+ * approved ones, and the drafted ones (for more platforms). An idea being
+ * drafted is included so a claim left by a crashed request can be taken over
+ * once stale; the claim decides (see drafting-claim).
  */
 export function planDraftSelection(
   selectedIds: string[],
@@ -43,16 +45,20 @@ export function planDraftSelection(
   const byId = new Map(found.map(i => [i.id, i.status]))
   const draftable: string[] = []
   let notApproved = 0
-  let alreadyDrafted = 0
   let notFound = 0
   for (const id of ids) {
     const status = byId.get(id)
     if (status === undefined) notFound++
-    else if (status === 'approved' || status === 'drafting') draftable.push(id)
-    else if (status === 'drafted') alreadyDrafted++
+    else if (
+      status === 'approved' ||
+      status === 'drafted' ||
+      status === 'drafting'
+    )
+      draftable.push(id)
     else notApproved++
   }
-  return { draftable, notApproved, alreadyDrafted, notFound }
+  // Whether one is being drafted already is the claim's to say.
+  return { draftable, notApproved, alreadyDrafted: 0, notFound }
 }
 
 /**
@@ -103,9 +109,9 @@ export async function claimDraftSelection(
   const claimed: Array<{ ideaId: string; runId: string | null }> = []
   let alreadyDrafted = plan.alreadyDrafted
   try {
-    // Each idea is claimed before it is queued, so one already drafted or
-    // being drafted by another request (a retry, a double click) is skipped
-    // rather than drafted again.
+    // Each idea is claimed before it is queued, so one being drafted by
+    // another request (a retry, a double click) is skipped rather than
+    // drafted twice.
     for (const id of plan.draftable) {
       if (await claimIdeaForDrafting(database, id)) {
         claimed.push({ ideaId: id, runId: runOf.get(id) ?? null })
@@ -145,7 +151,7 @@ export function describeDraftSelection(outcome: DraftSelectionOutcome): string {
   }
   if (outcome.alreadyDrafted > 0) {
     parts.push(
-      `${ideas(outcome.alreadyDrafted)} ${outcome.alreadyDrafted === 1 ? 'was' : 'were'} already drafted.`
+      `${ideas(outcome.alreadyDrafted)} ${outcome.alreadyDrafted === 1 ? 'is' : 'are'} being drafted already.`
     )
   }
   if (outcome.notFound > 0) {
