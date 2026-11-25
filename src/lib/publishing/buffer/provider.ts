@@ -50,9 +50,9 @@ import {
  *   facebook   A Facebook Page post; its first comment goes out with it.
  *   instagram  A feed post: the caption with its image, which Instagram
  *              requires (sent as a JPEG within Instagram's aspect ratios);
- *              or a Reel: the caption with its AI video.
+ *              or a Reel: the caption with its video.
  *   facebook   …and a Facebook Reel the same way.
- *   youtube    A Short: the AI video with its title and description.
+ *   youtube    A Short: the video with its title and description.
  *
  * Buffer answers createPost before the network has the post, so a post comes
  * back `pending` unless it is sent within the short wait below; the engine
@@ -177,8 +177,8 @@ const NETWORKS = {
     // A Reel: the caption with its video (the Graph API takes up to 300 MB).
     video: { maxBytes: 300 * MB },
     // A feed post, or a Reel shared to the feed too. The caption's comment
-    // field is a link-in-bio note for the author: never posted. A Reel is an
-    // AI video, and says so.
+    // field is a link-in-bio note for the author: never posted. A Reel is
+    // marked AI-generated, as when Reels were AI clips (docs/SHORT_VIDEOS.md).
     metadata: ({ video }) => ({
       instagram: video
         ? { type: 'reel', shouldShareToFeed: true, isAiGenerated: true }

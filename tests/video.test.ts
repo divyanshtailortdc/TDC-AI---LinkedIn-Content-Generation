@@ -6,26 +6,10 @@ import { VIDEO_GENERATION_ENABLED } from '../src/lib/video/formats'
 const whileVideosOn = { skip: !VIDEO_GENERATION_ENABLED && 'video generation is switched off' }
 
 /**
- * Short-form video: the formats and their platform specs, the cost shown
- * before generating, the recorder's plan and page built from a script, the
- * AI prompt for the Veo models still listed, and which ideas draft a video.
- * Pure: no database, no browser, no provider calls.
+ * Short-form video: the formats and their platform specs, the recorder's
+ * plan and page built from a script, the look matched to their posts, and
+ * which ideas draft a video. Pure: no database, no browser, no model calls.
  */
-
-const script = {
-  hook: 'Most month-end closes slip for one reason.',
-  body: 'It is the bank feed nobody owns.\n\nGive it an owner and watch the close shrink.',
-  cta: '',
-  hashtags: ['finance'],
-  payload: {
-    caption: 'Who owns your bank feed?',
-    shots: [
-      { show: 'A finance lead frowning at a laptop late at night' },
-      { show: 'A bank feed screen with "unreconciled" rows' },
-      { show: 'The same lead smiling as a checklist turns green' }
-    ]
-  }
-}
 
 describe('video formats', () => {
   it('are the three short-video platforms, vertical 9:16 at 1080×1920, about 15 seconds', async () => {
@@ -79,129 +63,12 @@ describe('video formats', () => {
   })
 })
 
-describe('video cost', () => {
-  it('records by default, which costs nothing', async () => {
-    const { estimateVideoCostUsd, videoModelInfo, RECORDER_MODEL_ID } =
+describe('how videos are made', () => {
+  it('records them: the one way left, named on each video row', async () => {
+    const { RECORDER_MODEL_ID, RECORDER_PROVIDER } =
       await import('../src/lib/video/models')
-    const model = videoModelInfo(undefined)!
-    assert.equal(model.id, RECORDER_MODEL_ID)
-    assert.equal(model.provider, 'recorder')
-    assert.equal(
-      estimateVideoCostUsd(model, { seconds: 15, resolution: '1080p', audio: true }),
-      0
-    )
-  })
-
-  it('still prices Veo 3.1 Lite when VIDEO_MODEL names it: $0.64 for 8 seconds at 1080p with audio', async () => {
-    const { estimateVideoCostUsd, videoModelInfo } =
-      await import('../src/lib/video/models')
-    const model = videoModelInfo('google/veo-3.1-lite-generate-001')!
-    assert.equal(model.id, 'google/veo-3.1-lite-generate-001')
-    assert.equal(
-      estimateVideoCostUsd(model, {
-        seconds: 8,
-        resolution: '1080p',
-        audio: true
-      }),
-      0.64
-    )
-    assert.equal(
-      estimateVideoCostUsd(model, {
-        seconds: 8,
-        resolution: '720p',
-        audio: false
-      }),
-      0.24
-    )
-  })
-
-  it('still prices Veo 3.1 Fast when VIDEO_MODEL names it: $0.96 for 8 seconds at 1080p with audio', async () => {
-    const { estimateVideoCostUsd, videoModelInfo } =
-      await import('../src/lib/video/models')
-    const fast = videoModelInfo('google/veo-3.1-fast-generate-001')!
-    assert.equal(
-      estimateVideoCostUsd(fast, {
-        seconds: 8,
-        resolution: '1080p',
-        audio: true
-      }),
-      0.96
-    )
-  })
-
-  it('uses the default model for a blank VIDEO_MODEL and refuses one with no price on record', async () => {
-    const { videoModelInfo } = await import('../src/lib/video/models')
-    assert.equal(videoModelInfo('  ')?.id, 'product-video/recorder')
-    assert.equal(videoModelInfo('someone/unpriced-video'), null)
-  })
-
-  it('formats dollars for the confirm button', async () => {
-    const { formatUsd } = await import('../src/lib/video/formats')
-    assert.equal(formatUsd(0.96), '$0.96')
-    assert.equal(formatUsd(0.004), '<$0.01')
-  })
-})
-
-describe('video prompt', () => {
-  it('describes a vertical clip for the platform with each shot as a timed beat and its voiceover', async () => {
-    const { buildVideoPrompt } = await import('../src/lib/video/prompt')
-    const prompt = buildVideoPrompt({
-      formatId: 'instagram.reel',
-      post: script,
-      topic: 'Bank feeds'
-    })
-    assert.match(
-      prompt,
-      /vertical 9:16 short-form social video for Instagram Reels/
-    )
-    assert.match(prompt, /8-second live-action clip/)
-    assert.match(prompt, /Subject: Bank feeds\./)
-    assert.match(prompt, /1\. \(0–3s\) Picture: A finance lead frowning/)
-    assert.match(
-      prompt,
-      /Voiceover: "Most month-end closes slip for one reason\."/
-    )
-    assert.match(prompt, /3\. \(5–8s\)/)
-    assert.match(
-      prompt,
-      /No on-screen text, captions, subtitles, logos or watermarks/
-    )
-    // Veo drew a phone around the picture when told the clip was for a phone.
-    assert.match(prompt, /fills the whole vertical frame/)
-    assert.match(prompt, /No phone mockup, device frame, bezel, border/)
-    assert.doesNotMatch(prompt, /for a phone held upright/)
-  })
-
-  it('keeps at most three shots, keeps quotes from breaking the voiceover, and caps the direction', async () => {
-    const { buildVideoPrompt, MAX_VIDEO_DIRECTION_CHARS } =
-      await import('../src/lib/video/prompt')
-    const long = {
-      ...script,
-      hook: 'She said "stop" twice.',
-      body: ['Two.', 'Three.', 'Four.', 'Five.'].join('\n\n')
-    }
-    const prompt = buildVideoPrompt({
-      formatId: 'youtube.short',
-      post: long,
-      direction: 'x'.repeat(MAX_VIDEO_DIRECTION_CHARS + 100)
-    })
-    assert.match(prompt, /YouTube Shorts/)
-    assert.ok(!/\n4\. /.test(prompt), 'no fourth beat')
-    assert.match(prompt, /Voiceover: "She said 'stop' twice\."/)
-    const direction = prompt.split('change: ')[1]!
-    assert.equal(direction.length, MAX_VIDEO_DIRECTION_CHARS)
-  })
-
-  it('gives a shot with no picture a stand-in', async () => {
-    const { buildVideoPrompt } = await import('../src/lib/video/prompt')
-    const prompt = buildVideoPrompt({
-      formatId: 'facebook.reel',
-      post: { hook: 'One line.', body: '', payload: {} }
-    })
-    assert.match(
-      prompt,
-      /1\. \(0–8s\) Picture: a picture that shows what the voiceover says/
-    )
+    assert.equal(RECORDER_PROVIDER, 'recorder')
+    assert.equal(RECORDER_MODEL_ID, 'product-video/recorder')
   })
 })
 
@@ -423,5 +290,155 @@ describe('the logo on a recorded video', () => {
     // Unknown tone: plated on the dark cards, where a dark logo would be lost.
     assert.deepEqual(withLogo(null), { card: '#ffffff', slide: null })
     assert.deepEqual(logoPlates(videoThemeFor(brand)), { card: null, slide: null })
+  })
+})
+
+describe('a video in the look of their own posts', () => {
+  const insights = (visualIdentity: string) => ({
+    summary: 'A bakery.',
+    themes: [{ name: 'Fresh bakes', description: 'Bread.' }],
+    writingStyle: 'Short captions.',
+    tone: 'Warm.',
+    captions: 'One line.',
+    hashtags: [],
+    hashtagUsage: 'None used',
+    visualIdentity,
+    formats: [{ format: 'Reels', note: 'Baking clips with words on screen.' }]
+  })
+
+  it('keeps only what it can use from the skill: known values, real colours, photos that exist', async () => {
+    const { cleanVideoLook } = await import('../src/lib/video/render/look')
+    const look = cleanVideoLook(
+      {
+        template: 'photo',
+        colors: { background: '#2F4A3A', text: '#fffaf0', accent: '#c98a4b' },
+        textCase: 'upper',
+        captions: 'subtitles',
+        pace: 'warp',
+        photos: [2, 2, 9, 1],
+        reason: 'Warm photos.'
+      },
+      2
+    )
+    assert.equal(look.template, 'photo')
+    assert.deepEqual(look.colors, { background: '#2f4a3a', text: '#fffaf0', accent: '#c98a4b' })
+    assert.equal(look.pace, 'steady', 'an unknown pace is steady')
+    assert.deepEqual(look.photos, [1, 0], 'numbered from 1, deduplicated, in range')
+    // No photo to show: no photo template. A bad colour drops all three.
+    const bare = cleanVideoLook({ template: 'photo', colors: { background: 'green', text: '#fff', accent: '#000' } }, 0)
+    assert.equal(bare.template, 'cards')
+    assert.equal(bare.colors, null)
+  })
+
+  it('lets the Brand Theme decide what it sets: its colours, its pattern, its image style', async () => {
+    const { brandedLook, cleanVideoLook } = await import('../src/lib/video/render/look')
+    const { videoThemeFor } = await import('../src/lib/video/render/page')
+    const look = cleanVideoLook(
+      { template: 'cards', colors: { background: '#fdf6e3', text: '#3b2f2f', accent: '#c98a4b' }, photos: [1] },
+      1
+    )
+    const unset = { primaryColor: null, accentColor: null, backgroundColor: null, footerText: null }
+    // Nothing set in the Brand Theme: their posts' colours fill it.
+    const fromPosts = videoThemeFor(unset, { look })
+    assert.equal(fromPosts.background, '#fdf6e3')
+    assert.equal(fromPosts.ink, '#3b2f2f')
+    // Set in the Brand Theme: the brand's colours win.
+    const set = { ...unset, primaryColor: '#0297b2', accentColor: '#0297b2', backgroundColor: '#ffffff' }
+    const branded = videoThemeFor(set, { look })
+    assert.equal(branded.background, '#ffffff')
+    assert.equal(branded.mark, '#0297b2')
+    // A saved pattern is used; Auto, or an unsaved theme, leaves it to the look.
+    assert.equal(videoThemeFor({ ...set, saved: true, backgroundPattern: 'grid' }, { look }).pattern, 'grid')
+    assert.equal(videoThemeFor({ ...set, saved: true, backgroundPattern: 'plain' }, { look }).pattern, 'none')
+    assert.equal(videoThemeFor({ ...set, saved: true, backgroundPattern: 'auto' }, { look }).pattern, 'dots')
+    assert.equal(videoThemeFor({ ...set, saved: false, backgroundPattern: 'grid' }, { look }).pattern, 'dots')
+    // An image style set there picks the template; Like my posts keeps the look's.
+    assert.equal(brandedLook(look, 'minimal_graphic').template, 'minimal')
+    assert.equal(brandedLook(look, 'photorealistic').template, 'photo')
+    assert.equal(brandedLook({ ...look, photos: [] }, 'photorealistic').template, 'cards')
+    assert.equal(brandedLook(look, 'my_posts').template, 'cards')
+  })
+
+  it('keeps every look readable, and the default look exactly as before', async () => {
+    const { contrastRatio } = await import('../src/lib/brand/theme')
+    const { cleanVideoLook } = await import('../src/lib/video/render/look')
+    const { videoThemeFor } = await import('../src/lib/video/render/page')
+    const brand = { primaryColor: '#fde047', accentColor: null, backgroundColor: null, footerText: null }
+    assert.deepEqual(
+      { ...videoThemeFor(brand), photos: [] },
+      { ...videoThemeFor(brand, { look: null }), photos: [] }
+    )
+    for (const template of ['cards', 'bold', 'minimal', 'photo']) {
+      // Their colours here are unreadable together, on purpose.
+      const look = cleanVideoLook(
+        { template, colors: { background: '#777777', text: '#808080', accent: '#7a7a7a' }, photos: [1] },
+        1
+      )
+      const theme = videoThemeFor(brand, {
+        look,
+        photos: [{ dataUrl: 'data:image/jpeg;base64,AA==', width: 300, height: 300 }]
+      })
+      if (template !== 'photo') {
+        assert.ok(contrastRatio(theme.ink, theme.background) >= 4.5, `${template} words`)
+        assert.ok(contrastRatio(theme.cardText, theme.card) >= 4.5, `${template} cards`)
+      }
+      assert.ok(contrastRatio(theme.captionText, theme.captionBackground) >= 4.5, `${template} caption`)
+    }
+    const photo = videoThemeFor(brand, {
+      look: cleanVideoLook({ template: 'photo', photos: [1, 2] }, 2),
+      photos: [
+        { dataUrl: 'data:image/jpeg;base64,AA==', width: 300, height: 300 },
+        { dataUrl: 'data:image/jpeg;base64,AA==', width: 1080, height: 1350 }
+      ]
+    })
+    assert.deepEqual(photo.photos.map(p => p.soft), [true, false], 'a thumbnail is shown on a card, a large photo fills the frame')
+  })
+
+  it('slows or quickens the slides with the pace, and stays under a minute', async () => {
+    const { planVideo, withPace, plannedSeconds } = await import('../src/lib/video/render/plan')
+    const plan = planVideo({ post: { hook: 'A hook here.', body: 'One line.\n\nTwo lines.', cta: 'Ask.' } })
+    assert.equal(withPace(plan, 1), plan)
+    assert.ok(withPace(plan, 0.85).scenes[0]!.holdMs < plan.scenes[0]!.holdMs)
+    assert.ok(withPace(plan, 1.15).intro.holdMs > plan.intro.holdMs)
+    const long = planVideo({
+      post: { hook: 'A hook.', body: Array.from({ length: 12 }, (_, i) => `A long line of words that takes the slide its longest time ${i}.`).join('\n\n'), cta: '' }
+    })
+    assert.ok(plannedSeconds(withPace(long, 1.15)) < 62, String(plannedSeconds(withPace(long, 1.15))))
+  })
+
+  it('reads the nearest account that was studied: a Short borrows Instagram, else Facebook', async () => {
+    const { lookInsightsSource, scriptInsightsSource } = await import('../src/lib/video/render/look')
+    const ig = insights('Warm photos of bread.')
+    const fb = insights('Flyers.')
+    const li = insights('Corporate blue infographics.')
+    assert.equal(scriptInsightsSource({ instagram: ig, facebook: fb }, 'youtube')?.platform, 'instagram')
+    assert.equal(scriptInsightsSource({ facebook: fb }, 'youtube')?.platform, 'facebook')
+    assert.equal(scriptInsightsSource({ instagram: ig }, 'facebook')?.platform, 'instagram')
+    assert.equal(scriptInsightsSource({ linkedin: li }, 'instagram'), null, 'a script never reads LinkedIn')
+    // The look may: a brand looks alike everywhere.
+    assert.equal(lookInsightsSource({ linkedin: li }, 'instagram')?.platform, 'linkedin')
+    assert.equal(lookInsightsSource({}, 'instagram'), null)
+  })
+
+  it('tells the script writer how their posts look, and leaves the prompt as it was with nothing learned', async () => {
+    const { buildFormatPrompt } = await import('../src/lib/ai/skills/variant-drafting/prompt')
+    const { goldenCases } = await import('./fixtures/generation')
+    const ctx = goldenCases()[0]!.ctx
+    const before = buildFormatPrompt({ ...ctx, platformInsights: {} }, 'youtube.short')
+    assert.doesNotMatch(before, /ALREADY LOOKS LIKE/)
+    const short = buildFormatPrompt(
+      { ...ctx, platformInsights: { instagram: insights('Warm photos of bread, white capitals.') } },
+      'youtube.short'
+    )
+    assert.match(short, /WHAT THEIR INSTAGRAM ALREADY LOOKS LIKE/)
+    assert.match(short, /their YouTube was not studied/)
+    assert.match(short, /How their posts look: Warm photos of bread, white capitals\. This video is made in that look/)
+    assert.match(short, /What they post there: Reels \(Baking clips with words on screen\.\)/)
+    // An Instagram caption post reads only what it always did.
+    const caption = buildFormatPrompt(
+      { ...ctx, platformInsights: { instagram: insights('Warm photos.') } },
+      'instagram.caption'
+    )
+    assert.doesNotMatch(caption, /This video is made in that look/)
   })
 })

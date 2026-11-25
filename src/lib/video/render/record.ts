@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Browser, type BrowserBinary } from './browser'
 import {
+  captionLook,
   logoPlates,
   STAGE_PIXEL_RATIO,
   STAGE_VIEWPORT,
@@ -182,12 +183,18 @@ export async function recordVideo(
         headingFont: `"${theme.headingFont}", Inter, sans-serif`,
         headingWeight: theme.headingWeight,
         bodyFont: `"${theme.bodyFont}", Inter, sans-serif`,
-        logoPlate: logoPlates(theme).card
+        logoPlate: logoPlates(theme).card,
+        captionStyle: captionLook(theme).style,
+        captionBackground: captionLook(theme).background,
+        captionText: captionLook(theme).text,
+        captionShadow: captionLook(theme).shadow,
+        upper: theme.upper
       }
     })
     const document = stageDocument(theme)
     await page.setContent(document.html)
     await page.eval(document.script)
+    await page.eval('window.__ready()')
     await stage.inject()
 
     const total = plan.scenes.length

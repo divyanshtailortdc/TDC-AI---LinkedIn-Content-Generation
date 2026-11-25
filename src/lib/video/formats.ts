@@ -12,7 +12,7 @@ import type { FormatId, PlatformId } from '@/lib/formats/types'
  */
 
 /**
- * Short video, on since 2026-11-24 (recorded, no longer AI clips). Set to
+ * Short video, on since 2026-11-24 (recorded on the server). Set to
  * false to hide it again: Create posts loses the Short video choice, ideas
  * draft no video scripts and start no videos, existing Reels and Shorts are
  * hidden from Posts and Schedule (inKnownFormat), and the API refuses to
@@ -114,10 +114,4 @@ export function videoFormatsChosen(idea: {
   return Array.isArray(chosen)
     ? VIDEO_FORMATS.filter(f => chosen.includes(f))
     : []
-}
-
-/** "$0.96". Below a cent shows as "<$0.01". */
-export function formatUsd(value: number): string {
-  if (value > 0 && value < 0.01) return '<$0.01'
-  return `$${value.toFixed(2)}`
 }

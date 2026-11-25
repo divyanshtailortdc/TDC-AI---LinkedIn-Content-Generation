@@ -1,6 +1,6 @@
 # Publishing
 
-How users connect their accounts for publishing, and how approved posts are published: now, at a scheduled time, or automatically. Six platforms publish, **all through each user's own Buffer account**: **LinkedIn**, **X**, **Threads**, **Facebook**, **Instagram** and **YouTube** (Shorts only). Each user connects Buffer once (OAuth) and picks the account each network publishes to; how that works, and its setup, is in [BUFFER_OAUTH.md](BUFFER_OAUTH.md). Network specifics: [PUBLISHING_X.md](PUBLISHING_X.md), [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md); Reels and Shorts, which go out with an AI video: [SHORT_VIDEOS.md](SHORT_VIDEOS.md#publishing). Until 2026-11-16 LinkedIn published through its own API; that code is gone. The pipeline, states, retries and security below apply to every network.
+How users connect their accounts for publishing, and how approved posts are published: now, at a scheduled time, or automatically. Six platforms publish, **all through each user's own Buffer account**: **LinkedIn**, **X**, **Threads**, **Facebook**, **Instagram** and **YouTube** (Shorts only). Each user connects Buffer once (OAuth) and picks the account each network publishes to; how that works, and its setup, is in [BUFFER_OAUTH.md](BUFFER_OAUTH.md). Network specifics: [PUBLISHING_X.md](PUBLISHING_X.md), [PUBLISHING_FACEBOOK_INSTAGRAM.md](PUBLISHING_FACEBOOK_INSTAGRAM.md); Reels and Shorts, which go out with their recorded video: [SHORT_VIDEOS.md](SHORT_VIDEOS.md#publishing). Until 2026-11-16 LinkedIn published through its own API; that code is gone. The pipeline, states, retries and security below apply to every network.
 
 - [Platforms and providers](#platforms-and-providers)
 - [Sign-in and publishing are separate](#sign-in-and-publishing-are-separate)
@@ -151,7 +151,7 @@ npm run db:migrate
 
 ### 4. The worker
 
-- **Long-running server / `next dev`**: the scheduler runs a publishing pass every minute (`APP_ROLE` `all` or `worker`), and beside it a pass that stores finished AI videos ([SHORT_VIDEOS.md](SHORT_VIDEOS.md#generation-start-then-check)).
+- **Long-running server / `next dev`**: the scheduler runs a publishing pass every minute (`APP_ROLE` `all` or `worker`), and beside it a pass that records videos not yet recorded ([SHORT_VIDEOS.md](SHORT_VIDEOS.md#recording)).
 - **Vercel**: timers do not run. `/api/cron/jobs` runs both passes, side by side, each time it is called, so scheduled posts go out as late as the calls are apart. Vercel Hobby cron runs once a day, so point an external pinger at it every 1–5 minutes (`Authorization: Bearer $CRON_SECRET`).
 
 ## Local development

@@ -15,10 +15,10 @@ Threads, Facebook and Instagram posts are published the same way as X posts: thr
 | Platform | What Buffer can connect | Format published | Formats copied by hand |
 | --- | --- | --- | --- |
 | Threads | A **Threads** account | `threads.post` | none |
-| Facebook | A **Facebook Page** | `facebook.post`; `facebook.reel`, shown as **Facebook Reel**: an AI video with its caption | none |
-| Instagram | An Instagram **business or creator** account (Buffer cannot connect personal accounts) | `instagram.caption`, shown as **Instagram post**: a picture with its caption; `instagram.reel`, shown as **Instagram Reel**: an AI video with its caption | none |
+| Facebook | A **Facebook Page** | `facebook.post`; `facebook.reel`, shown as **Facebook Reel**: a recorded video with its caption | none |
+| Instagram | An Instagram **business or creator** account (Buffer cannot connect personal accounts) | `instagram.caption`, shown as **Instagram post**: a picture with its caption; `instagram.reel`, shown as **Instagram Reel**: a recorded video with its caption | none |
 
-Reels go out only once their AI video is ready. How the video is made and sent is in [SHORT_VIDEOS.md](SHORT_VIDEOS.md).
+Reels go out only once their video is ready. How the video is made and sent is in [SHORT_VIDEOS.md](SHORT_VIDEOS.md).
 
 This is set in `PUBLISHABLE_FORMATS` in `src/lib/publishing/platform.ts`. Each platform has its own connection (one row per identity and platform in `linkedin_connections`), its own Buffer authorization, its own auto-publishing time, and its own **Change account** for picking another Page or Instagram account in the same Buffer account. Disconnecting one leaves the others alone.
 

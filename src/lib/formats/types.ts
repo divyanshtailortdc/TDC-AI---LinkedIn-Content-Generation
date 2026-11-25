@@ -19,8 +19,8 @@ export const FORMAT_IDS = [
   'threads.post',
   'facebook.post',
   'instagram.caption',
-  // Short vertical videos: a script, and an AI video made from it on the
-  // post page (src/lib/video). Created only as a video in "Create posts",
+  // Short vertical videos: a script, and a video recorded from it
+  // (src/lib/video). Created only as a video in "Create posts",
   // never through CREATABLE_FORMATS.
   'instagram.reel',
   'youtube.short',

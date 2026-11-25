@@ -162,6 +162,31 @@ export function planVideo({ post, kicker }: PlanInput): VideoPlan {
 }
 
 /**
+ * The plan at the look's pace: every hold longer or shorter by `factor`,
+ * the whole kept under a minute. A factor of 1 leaves it as it is.
+ */
+export function withPace(plan: VideoPlan, factor: number): VideoPlan {
+  if (factor === 1) return plan
+  const total =
+    plan.intro.holdMs +
+    (plan.outro?.holdMs ?? 0) +
+    plan.scenes.reduce((sum, scene) => sum + scene.holdMs, 0)
+  const f = Math.min(factor, MAX_TOTAL_MS / Math.max(total, 1))
+  const hold = (ms: number) => Math.round(ms * f)
+  return {
+    ...plan,
+    intro: { ...plan.intro, holdMs: hold(plan.intro.holdMs) },
+    scenes: plan.scenes.map(scene => ({
+      ...scene,
+      holdMs: hold(scene.holdMs)
+    })),
+    outro: plan.outro
+      ? { ...plan.outro, holdMs: hold(plan.outro.holdMs) }
+      : null
+  }
+}
+
+/**
  * About how long the finished video runs, in seconds: each segment's hold,
  * plus the moments around it the recorder adds (./record.ts).
  */

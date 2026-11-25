@@ -1665,17 +1665,16 @@ describe('LinkedIn publishing', { skip: !url }, () => {
         draftId: reel,
         version: 1,
         status: 'ready',
-        provider: 'gateway',
-        modelId: 'google/veo-3.1-lite-generate-001',
+        provider: 'recorder',
+        modelId: 'product-video/recorder',
         prompt: 'p',
         aspectRatio: '9:16',
         width: 1080,
         height: 1920,
-        durationSeconds: 8,
+        durationSeconds: 15,
         videoUrl: 'storage://drafts/x/v.mp4',
         mediaType: 'video/mp4',
-        byteSize: 7_000_000,
-        estimatedCostUsd: '0.6400'
+        byteSize: 7_000_000
       })
       const result = await publishNow(
         m.userId,

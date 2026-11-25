@@ -929,18 +929,17 @@ export const postSlidesTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// 14c. Post Videos (1:N with PostDraft) — AI clips made from a video script
+// 14c. Post Videos (1:N with PostDraft) — videos recorded from a video script
 // ---------------------------------------------------------------------------
 
 /**
- * One AI video generated for a Reel or Short (src/lib/video), newest the
- * one shown. Kept out of post_media, whose active row every image path
+ * One video recorded for a Reel or Short (src/lib/video), newest the one
+ * shown. Kept out of post_media, whose active row every image path
  * (publishing, thumbnails, image edits) reads as the post's image.
  *
- * A generation is started and then checked until its provider finishes
- * (start/status, so no request outlives a serverless function):
- * 'generating' → 'finishing' (one checker downloads and stores it) →
- * 'ready' | 'failed'. A newer ready video marks the older ones 'superseded'.
+ * 'generating' until it is recorded (a lease on last_checked_at keeps it to
+ * one recorder at a time), then 'ready' | 'failed'. A newer ready video marks
+ * the older ones 'superseded'.
  */
 export const postVideosTable = pgTable(
   'post_videos',
@@ -952,16 +951,14 @@ export const postVideosTable = pgTable(
     // 1, 2, 3… per post.
     version: integer('version').notNull(),
     status: varchar('status', { length: 20 })
-      .$type<'generating' | 'finishing' | 'ready' | 'failed' | 'superseded'>()
+      .$type<'generating' | 'ready' | 'failed' | 'superseded'>()
       .notNull(),
-    // Which provider and model made it (src/lib/video/providers).
+    // How it was made (src/lib/video/models.ts): 'recorder'; rows from
+    // before name the AI model that made them.
     provider: varchar('provider', { length: 40 }).notNull(),
     modelId: varchar('model_id', { length: 120 }).notNull(),
-    // The provider's opaque reference to the running job, for its status.
-    operation: jsonb('operation'),
-    // The prompt the video model was given, and what the reviewer asked for.
+    // What it is made from: the recording's plan, as JSON (render/plan.ts).
     prompt: text('prompt').notNull(),
-    direction: text('direction'),
     aspectRatio: varchar('aspect_ratio', { length: 10 }).notNull(),
     width: integer('width').notNull(),
     height: integer('height').notNull(),
@@ -971,10 +968,7 @@ export const postVideosTable = pgTable(
     mediaType: varchar('media_type', { length: 40 }),
     byteSize: integer('byte_size'),
     error: text('error'),
-    // What it was estimated to cost when started, and what was billed.
-    estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 4 }).notNull(),
-    costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
-    // Warnings and anything else the provider reported.
+    // The look it was recorded in, warnings, and how it was started.
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     lastCheckedAt: commonFieldDefs.date('last_checked_at'),
     completedAt: commonFieldDefs.date('completed_at'),
@@ -982,11 +976,11 @@ export const postVideosTable = pgTable(
   },
   table => [
     index('post_videos_draft_created_idx').on(table.draftId, table.createdAt),
-    // One generation at a time per post: a second request (a double click,
-    // two tabs) fails here instead of paying for a second video.
+    // One recording at a time per post: a second request (a double click,
+    // two tabs) fails here instead of starting a second one.
     uniqueIndex('post_videos_one_running_uq')
       .on(table.draftId)
-      .where(sql`${table.status} in ('generating', 'finishing')`),
+      .where(sql`${table.status} = 'generating'`),
     uniqueIndex('post_videos_draft_version_uq').on(table.draftId, table.version)
   ]
 )

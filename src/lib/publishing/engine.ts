@@ -341,7 +341,7 @@ const activeImageOf = (
 const needsImageMessage = (name: string) =>
   `${name} posts need an image. Add one to this post, then publish it.`
 
-/** The post's ready AI video, if it has one (a Reel, a Short). */
+/** The post's ready video, if it has one (a Reel, a Short). */
 const readyVideoOf = (
   database: PublishingDb,
   draftId: string | typeof postDraftsTable.id
@@ -358,7 +358,7 @@ const readyVideoOf = (
     )
 
 const needsVideoMessage = (label: string) =>
-  `This ${label} has no video yet. Generate its video on the post, then publish it.`
+  `This ${label} has no video yet. Record its video on the post, then publish it.`
 
 type OwnedDraft = NonNullable<Awaited<ReturnType<typeof findOwnedDraft>>>
 

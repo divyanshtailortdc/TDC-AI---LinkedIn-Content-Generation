@@ -35,7 +35,7 @@ const STAGE_LABELS: Record<string, string> = {
   media_brief: 'Image planning',
   media_review: 'Image check',
   image: 'Image',
-  video: 'Video',
+  video_look: 'Video look',
   embedding: 'Embedding'
 }
 

@@ -1,4 +1,5 @@
 import { PLATFORM_IDS, PLATFORMS, type PlatformId } from '@/lib/platforms'
+import { scriptInsightsSource } from '@/lib/video/render/look'
 import type { ProfileInsights } from './types'
 
 /**
@@ -150,6 +151,34 @@ export function renderInsightsForResearch(all: PlatformInsights | undefined): st
   return `Subjects it already posts about, learned from its own public posts (look for where a goal meets one of these; never research one for its own sake): ${subjects
     .map(t => (t.description ? `${t.name} (${t.description})` : t.name))
     .join('; ')}`
+}
+
+/**
+ * For writing a Reel's or Short's script: how the author's posts read and
+ * look, from the video's own platform or, where that was not studied, their
+ * nearest short-video account (YouTube is never analyzed, so a Short reads
+ * their Instagram, else their Facebook). The video is made in that look
+ * (src/lib/video/look-source.ts), so its on-screen words should be set the
+ * way their posts set words. Empty when nothing was learned.
+ */
+export function renderInsightsForVideo(
+  all: PlatformInsights | undefined,
+  platform: PlatformId
+): string {
+  const source = scriptInsightsSource(all, platform)
+  if (!source) return ''
+  const { insights } = source
+  const extra = [
+    source.platform !== platform &&
+      `- These are their ${PLATFORMS[source.platform].name} posts: their ${PLATFORMS[platform].name} was not studied, and this is their nearest account of short videos.`,
+    insights.formats.length > 0 &&
+      `- What they post there: ${insights.formats.map(f => `${f.format} (${f.note})`).join('; ')}`,
+    insights.visualIdentity &&
+      `- How their posts look: ${insights.visualIdentity} This video is made in that look: write each shot's on-screen text the way their posts put words on images (how many words, capitals, numbers).`
+  ].filter(Boolean)
+  return [renderInsightsForDrafting(insights, source.platform), ...extra].join(
+    '\n'
+  )
 }
 
 /**

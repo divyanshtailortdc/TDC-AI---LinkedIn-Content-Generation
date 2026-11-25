@@ -2411,7 +2411,7 @@ export function PostDetailClient({
                   </div>
                 )}
                 {shownMedia === 'video' && isVideoFormat(activeFormat) ? (
-                  // VIDEO CARD: a Reel's or Short's AI video, apart from the image tools.
+                  // VIDEO CARD: a Reel's or Short's video, apart from the image tools.
                   VIDEO_GENERATION_ENABLED ? (
                     <VideoPanel
                       key={activePost.id}

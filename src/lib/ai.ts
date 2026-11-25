@@ -40,6 +40,7 @@ export type AIStage =
   | 'goal_review'
   | 'profile_analysis'
   | 'reference_ideation'
+  | 'video_look'
 
 /**
  * Effort is the first quality/cost lever. Ideation and drafting carry the
@@ -80,7 +81,10 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   profile_analysis: { model: defaultModel, effort: 'medium' },
   // Turns a post someone shared into an idea for a post like it: reading
   // and judgment, while the user waits on the dialog.
-  reference_ideation: { model: defaultModel, effort: 'medium' }
+  reference_ideation: { model: defaultModel, effort: 'medium' },
+  // Looks at a few of an account's post images and their analysis to set a
+  // Reel's or Short's look: once per platform, reading more than reasoning.
+  video_look: { model: defaultModel, effort: 'low' }
 }
 
 export interface LanguageModelHandle {

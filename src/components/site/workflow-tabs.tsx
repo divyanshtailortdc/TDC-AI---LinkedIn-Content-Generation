@@ -117,7 +117,7 @@ export function WorkflowTabs() {
                       : 'border-border bg-surface text-muted'
                   }`}
                 >
-                  <Icon className="h-[18px] w-[18px]" />
+                  <Icon className="h-4.5 w-4.5" />
                 </span>
                 <span className="min-w-0">
                   <span
@@ -176,7 +176,7 @@ function ResearchPicture() {
         {rows.map(([text, note, done]) => (
           <li key={text} className="relative">
             <span
-              className={`absolute top-0.5 -left-[29px] flex h-4 w-4 items-center justify-center rounded-full ${
+              className={`absolute top-0.5 -left-7.25x h-4 w-4 items-center justify-center rounded-full ${
                 done
                   ? 'bg-emerald-600 text-white'
                   : 'bg-surface text-brand-strong'
@@ -281,7 +281,7 @@ function VisualsPicture() {
         Carousel · 7 slides
       </p>
       <div className="mt-3 grid grid-cols-3 gap-3">
-        <div className="bg-cta text-cta-text flex aspect-[4/5] flex-col justify-between rounded-lg p-3">
+        <div className="bg-cta text-cta-text flex aspect-4/5 flex-col justify-between rounded-lg p-3">
           <span className="text-[10px] font-medium opacity-80">
             NORTHWIND STUDIO
           </span>
@@ -290,7 +290,7 @@ function VisualsPicture() {
           </span>
           <span className="text-[10px] opacity-80">Swipe →</span>
         </div>
-        <div className="border-border bg-surface flex aspect-[4/5] flex-col justify-between rounded-lg border p-3">
+        <div className="border-border bg-surface flex aspect-4/5 flex-col justify-between rounded-lg border p-3">
           <span className="bg-brand/15 text-brand-strong flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold">
             1
           </span>
@@ -299,7 +299,7 @@ function VisualsPicture() {
           </span>
           <span className="bg-brand/20 h-1 w-8 rounded-full" />
         </div>
-        <div className="border-border bg-brand/10 flex aspect-[4/5] flex-col justify-between rounded-lg border p-3">
+        <div className="border-border bg-brand/10 flex aspect-4/5 flex-col justify-between rounded-lg border p-3">
           <span className="text-brand-strong text-[10px] font-medium">
             YOUR TURN
           </span>

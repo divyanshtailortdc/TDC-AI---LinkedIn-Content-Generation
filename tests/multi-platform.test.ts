@@ -566,7 +566,7 @@ describe('short videos', () => {
 
   it('checks spoken length, caption and title', () => {
     const rule = (list: ReturnType<typeof runLinter>, name: string) => list.find(f => f.rule === name)
-    // Spoken in under 8 seconds: a Short is one 8-second AI clip.
+    // A short script: well within a Short's target length.
     const brief = {
       ...answer,
       shots: [
@@ -582,7 +582,7 @@ describe('short videos', () => {
     assert.strictEqual(rule(good, 'video_title'), undefined)
     assert.strictEqual(rule(good, 'cta_required'), undefined)
 
-    // 500 words is over 3 minutes spoken, far past a Short's 8-second clip.
+    // 500 words is over 3 minutes spoken, far past a Short's limit.
     const long = toVariantDraft('youtube.short', {
       ...answer,
       caption: '',

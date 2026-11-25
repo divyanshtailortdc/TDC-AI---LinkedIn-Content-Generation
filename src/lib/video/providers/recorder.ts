@@ -7,17 +7,20 @@ import { loadBrandTheme } from '~/lib/ai/context'
 import { loadBrandLogo } from '~/lib/media/brand-assets'
 import { logoTone, toDataUrl } from '~/lib/media/brand-logo'
 import { loadCanvasFonts } from '~/lib/media/canvas/fonts'
-import type { VideoModelInfo } from '../models'
+import { videoLookFor } from '../look-source'
 import { findBrowser, findFfmpeg } from '../render/binaries'
+import { brandedLook, PACE_FACTOR } from '../render/look'
 import { videoThemeFor } from '../render/page'
-import { parsePlan } from '../render/plan'
+import { parsePlan, withPace } from '../render/plan'
 import { recordVideo } from '../render/record'
-import type { LocalVideoProvider, RenderedVideo } from './types'
+import type { RenderedVideo, VideoRecorder } from './types'
 
 /**
  * Videos recorded on this server with the product-video skill's method
- * (src/lib/video/render): the post's script played as brand-coloured title
- * cards and slides in a headless browser, recorded, and encoded with ffmpeg.
+ * (src/lib/video/render): the post's script played as title cards and slides
+ * in a headless browser, recorded, and encoded with ffmpeg. They follow the
+ * Brand Theme where it is set, and the look of the identity's own posts
+ * (../look-source.ts) where it is not.
  * No AI model and no per-video charge. The plan is the video's stored prompt
  * (render/plan.ts); the brand is read when it is recorded.
  */
@@ -31,56 +34,64 @@ function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
   return next
 }
 
-export function recorderVideoProvider(
-  model: VideoModelInfo
-): LocalVideoProvider {
-  return {
-    kind: 'local',
-    name: 'recorder',
-    model,
+export const recorder: VideoRecorder = {
+  async render({ prompt, accountId, platform }): Promise<RenderedVideo> {
+    const plan = parsePlan(prompt)
+    // First, so a function deployed without them says so before any work.
+    const ffmpeg = await findFfmpeg()
+    const browser = await findBrowser()
+    const brand = await loadBrandTheme(accountId)
+    // The look of their own posts, with the Brand Theme's image style over it
+    const choice = await videoLookFor({ accountId, platform, brand })
+    const look = brandedLook(choice.look, brand.visualStyle)
+    const fonts = await loadCanvasFonts(brand)
+    const logoBytes =
+      brand.showLogo && brand.hasLogo ? await loadBrandLogo(accountId) : null
+    const theme = videoThemeFor(brand, {
+      heading: fonts.heading,
+      body: fonts.body,
+      headingWeight: fonts.headingWeight,
+      fonts: fonts.fonts.map(f => ({
+        family: f.name,
+        weight: f.weight,
+        data: f.data
+      })),
+      // Browsers read the image's own format whatever the type says.
+      logo: logoBytes ? toDataUrl(logoBytes, 'image/png') : null,
+      logoTone: logoBytes ? await logoTone(logoBytes).catch(() => null) : null,
+      look,
+      photos: choice.photos
+    })
+    const paced = withPace(plan, PACE_FACTOR[look.pace])
 
-    async render({ prompt, accountId }): Promise<RenderedVideo> {
-      const plan = parsePlan(prompt)
-      // First, so a function deployed without them says so before any work.
-      const ffmpeg = await findFfmpeg()
-      const browser = await findBrowser()
-      const brand = await loadBrandTheme(accountId)
-      const fonts = await loadCanvasFonts(brand)
-      const logoBytes =
-        brand.showLogo && brand.hasLogo ? await loadBrandLogo(accountId) : null
-      const theme = videoThemeFor(brand, {
-        heading: fonts.heading,
-        body: fonts.body,
-        headingWeight: fonts.headingWeight,
-        fonts: fonts.fonts.map(f => ({
-          family: f.name,
-          weight: f.weight,
-          data: f.data
-        })),
-        // Browsers read the image's own format whatever the type says.
-        logo: logoBytes ? toDataUrl(logoBytes, 'image/png') : null,
-        logoTone: logoBytes ? await logoTone(logoBytes).catch(() => null) : null
-      })
-
-      return oneAtATime(async () => {
-        const workDir = await mkdtemp(path.join(tmpdir(), 'post-video-'))
-        try {
-          const video = await recordVideo(plan, theme, {
-            browser,
-            ffmpeg,
-            workDir,
-            log: line => console.log(`[video] ${line}`)
-          })
-          return {
-            bytes: await readFile(video.file),
-            mediaType: 'video/mp4',
-            seconds: video.seconds,
-            warnings: fonts.issues
+    return oneAtATime(async () => {
+      const workDir = await mkdtemp(path.join(tmpdir(), 'post-video-'))
+      try {
+        const video = await recordVideo(paced, theme, {
+          browser,
+          ffmpeg,
+          workDir,
+          log: line => console.log(`[video] ${line}`)
+        })
+        return {
+          bytes: await readFile(video.file),
+          mediaType: 'video/mp4',
+          seconds: video.seconds,
+          warnings: [
+            ...fonts.issues,
+            ...(choice.warning ? [choice.warning] : [])
+          ],
+          metadata: {
+            // As the skill chose it, so a later video with the same stamp reuses it
+            look: choice.look,
+            lookStamp: choice.stamp,
+            lookFrom: choice.from,
+            template: look.template
           }
-        } finally {
-          await rm(workDir, { recursive: true, force: true }).catch(() => {})
         }
-      })
-    }
+      } finally {
+        await rm(workDir, { recursive: true, force: true }).catch(() => {})
+      }
+    })
   }
 }

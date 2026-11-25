@@ -39,6 +39,14 @@ export type StageTheme = {
   bodyFont: string
   /** A plate behind the logo on cards, when it would vanish there; null for none. */
   logoPlate: string | null
+  /** The caption line in a box (badge), or as plain subtitles. */
+  captionStyle: 'badge' | 'subtitles'
+  captionBackground: string
+  captionText: string
+  /** Subtitles over a photo or a dark slide get a shadow to stay readable. */
+  captionShadow: boolean
+  /** Titles in capitals, as the account's posts set them. */
+  upper: boolean
 }
 
 export type StageOptions = {
@@ -52,9 +60,16 @@ const stageScript = (theme: StageTheme) => {
   const css = `
     #__pv_caption { position: fixed; left: 50%; bottom: 236px; z-index: 2147483645; pointer-events: none;
       width: max-content; max-width: 444px; box-sizing: border-box; padding: 13px 18px; border-radius: 16px;
-      background: ${theme.background}; color: ${theme.text}; font-family: ${theme.bodyFont}; text-align: center;
+      background: ${theme.captionBackground}; color: ${theme.captionText}; font-family: ${theme.bodyFont}; text-align: center;
       box-shadow: 0 12px 40px rgba(0,0,0,.28); opacity: 0; transform: translate(-50%, 14px);
       transition: opacity .45s ease, transform .45s cubic-bezier(.2,.8,.2,1); }
+    ${
+      theme.captionStyle === 'subtitles'
+        ? `#__pv_caption { background: none; box-shadow: none; padding: 0 4px;
+      ${theme.captionShadow ? 'text-shadow: 0 2px 14px rgba(0,0,0,.6), 0 0 2px rgba(0,0,0,.5);' : ''} }
+    #__pv_caption .s { font-size: 23px; font-weight: 700; }`
+        : ''
+    }
     #__pv_caption.on { opacity: 1; transform: translate(-50%, 0); }
     #__pv_caption .s { font-size: 20px; font-weight: 600; line-height: 1.32; }
     #__pv_curtain { position: fixed; inset: 0; z-index: 2147483647; background: ${theme.background};
@@ -65,7 +80,8 @@ const stageScript = (theme: StageTheme) => {
     #__pv_curtain .num { font: 700 15px/1.2 ${theme.bodyFont}; color: ${theme.accent};
       letter-spacing: .18em; text-transform: uppercase; }
     #__pv_curtain .t { font-family: ${theme.headingFont}; font-size: 54px; font-weight: ${theme.headingWeight};
-      letter-spacing: -.025em; line-height: 1.08; overflow-wrap: anywhere; max-width: 100%; }
+      letter-spacing: ${theme.upper ? '0' : '-.025em'}; line-height: 1.08; overflow-wrap: anywhere; max-width: 100%;
+      ${theme.upper ? 'text-transform: uppercase;' : ''} }
     #__pv_curtain .s { font-size: 22px; line-height: 1.35; color: color-mix(in srgb, currentColor 78%, transparent); }
     #__pv_curtain .f { position: absolute; left: 0; right: 0; bottom: 250px; font-size: 17px; font-weight: 600;
       color: ${theme.accent}; }

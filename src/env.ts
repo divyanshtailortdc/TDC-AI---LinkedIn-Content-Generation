@@ -22,9 +22,6 @@ export const env = createEnv({
     // 'agent' lets the research agent choose searches and read pages.
     RESEARCH_MODE: z.enum(['fixed', 'agent']).default('fixed'),
     AI_GATEWAY_API_KEY: z.string().optional(),
-    // How short videos are made (src/lib/video/models.ts); unset is the
-    // product-video recorder, or an AI Gateway video model such as Veo.
-    VIDEO_MODEL: z.string().optional(),
     // What one user may spend on AI over any 30 days, in US dollars, across
     // every identity they own and everything that calls a model (runs,
     // newsletters, setup, post editing). Past it, new model calls are
@@ -162,7 +159,6 @@ export const env = createEnv({
     SERPER_API_KEY: process.env.SERPER_API_KEY,
     RESEARCH_MODE: process.env.RESEARCH_MODE,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
-    VIDEO_MODEL: process.env.VIDEO_MODEL,
     AI_SPEND_LIMIT_USD: process.env.AI_SPEND_LIMIT_USD,
     AI_DAILY_SPEND_LIMIT_USD: process.env.AI_DAILY_SPEND_LIMIT_USD,
     AI_INBOX_DAILY_LIMIT_USD: process.env.AI_INBOX_DAILY_LIMIT_USD,

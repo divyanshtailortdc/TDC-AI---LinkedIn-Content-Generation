@@ -38,6 +38,16 @@ In the app, **Record video** on a Reel's or Short's page does the same with the 
 
 To try the Vercel browser locally: `AWS_LAMBDA_FUNCTION_NAME=local pnpm video:sample` (Linux x64). Add `taskset -c 0` in front to see it on one CPU, as a Hobby function has.
 
+## The look
+
+A video follows the identity's Brand Theme where it is set, and the look of its own posts where it is not: `look.ts` (the type, cleaning, Brand Theme overrides, pace), `../look-source.ts` (reads the profile analysis and example images, asks the `video_look` skill once per platform, reuses the answer by stamp), and `page.ts` (draws the four templates: cards, bold, minimal, photo). To see a look without the skill or a database:
+
+```bash
+pnpm video:sample -- --look bold
+pnpm video:sample -- --look photo --photo a.jpg --photo b.jpg
+pnpm video:sample -- --look look.json          # { template, colors, textCase, captions, pace, photos }
+```
+
 ## Change the video
 
 - **Look:** `page.ts` (slides) and the CSS in `stage.ts` (cards, captions). Keep text out of the top 14% and bottom 24%.
