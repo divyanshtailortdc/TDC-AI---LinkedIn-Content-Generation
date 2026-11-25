@@ -12,7 +12,12 @@ import {
   stageDocument,
   type VideoTheme
 } from './page'
-import type { PlannedCard, PlannedScene, VideoPlan } from './plan'
+import {
+  backdropKeys,
+  type PlannedCard,
+  type PlannedScene,
+  type VideoPlan
+} from './plan'
 import { type Card, Stage } from './stage'
 
 // Records a planned video and exports one MP4, adapted from the product-video
@@ -61,6 +66,33 @@ const clipFilter = `fps=30,scale=${OUTPUT.width}:${OUTPUT.height}:flags=lanczos:
 // encoded at ffmpeg's 25 fps default leaves a gap where the clips join.
 const VIDEO_FLAGS = [
   ...'-r 30 -c:v libx264 -profile:v high -crf 20 -preset medium -tune stillimage -pix_fmt yuv420p -g 60'.split(
+    ' '
+  ),
+  ...COLOR_TAGS
+]
+
+/**
+ * Clips of a cut format are joined with a short transition rather than a
+ * jump: the scenes blend, slide or zoom into each other, one way after
+ * another, as an editor would cut them.
+ */
+const TRANSITION_S = 0.5
+/** The least a scene with its own picture stays up: its words are in it. */
+const PICTURE_HOLD_MS = 3200
+export const TRANSITIONS = [
+  'fade',
+  'smoothleft',
+  'fade',
+  'smoothup',
+  'fade',
+  'slideleft'
+] as const
+/** The transition into clip `i` (1-based: there is none into the first). Pure. */
+export const transitionInto = (i: number) =>
+  TRANSITIONS[(i - 1) % TRANSITIONS.length]!
+/** The joined video is encoded again: moving pictures, not stills. */
+const JOIN_FLAGS = [
+  ...'-r 30 -c:v libx264 -profile:v high -crf 20 -preset veryfast -pix_fmt yuv420p -g 60'.split(
     ' '
   ),
   ...COLOR_TAGS
@@ -200,6 +232,7 @@ export async function recordVideo(
     profileDir: path.join(workDir, 'profile')
   })
   const recorded: RecordedVideo['segments'] = []
+  let rhythm = formatRhythm(theme.format)
   try {
     const stage = new Stage(page, {
       theme: {
@@ -224,12 +257,26 @@ export async function recordVideo(
     await page.eval('window.__ready()')
     await stage.inject()
 
-    const rhythm = formatRhythm(theme.format)
+    // A video with pictures made for its scenes plays every segment, the
+    // hook and call to action too, as a scene, joined by transitions
+    const pictured = Object.keys(theme.scenePictures).length > 0
+    rhythm = pictured
+      ? { ...formatRhythm(theme.format), cards: false, cuts: true }
+      : formatRhythm(theme.format)
     const segments = segmentsOf(plan, rhythm.cards)
     const total = segments.filter(s => s.kind === 'scene').length
+    // Scenes without a picture of their own sit on one of the others, blurred
+    const backdrops = backdropKeys(
+      segments.map(s => s.key),
+      Object.keys(theme.scenePictures)
+    )
     // The slide's words, with the ones the look highlights marked
     const slideOf = (scene: PlannedScene) =>
-      JSON.stringify({ ...scene, hl: emphasisOf(scene.headline) })
+      JSON.stringify({
+        ...scene,
+        hl: emphasisOf(scene.headline),
+        ...(backdrops[scene.key] ? { backdrop: backdrops[scene.key] } : {})
+      })
     const cardOf = (card: PlannedCard, key: string): Card => ({
       ...(card.kicker ? { num: card.kicker } : {}),
       title: card.title,
@@ -251,21 +298,29 @@ export async function recordVideo(
         // The opening card's text leaves before the first slide
         if (segment.key === 'intro') await stage.curtainText(false, 450)
       } else if (rhythm.cuts) {
-        // A hard cut: the slide is there from the clip's first frame, its
-        // words come in, and the next clip cuts in on it
+        // A cut: the slide is there from the clip's first frame and its
+        // words come in; the join blends the next clip in over its end
+        const pictureHere = Boolean(theme.scenePictures[segment.scene.key])
+        const hold =
+          // A picture's own words need time to be read
+          Math.max(segment.scene.holdMs, pictureHere ? PICTURE_HOLD_MS : 0) +
+          // and the next clip's transition covers this one's last moment
+          (segment.index < total - 1 ? TRANSITION_S * 1000 : 0)
+        const scene = { ...segment.scene, holdMs: hold }
         await page.eval(
-          `window.__slide(${slideOf(segment.scene)}, ${segment.index}, ${total})`
+          `window.__slide(${slideOf(scene)}, ${segment.index}, ${total})`
         )
         await stage.curtain(true)
         await stage.record(dir)
         await stage.change('window.__go()')
-        const captionAt = Math.min(FADE_MS, segment.scene.holdMs / 3)
-        if (segment.scene.caption && !rhythm.captionInPage) {
+        const captionAt = Math.min(FADE_MS, hold / 3)
+        // A pictured scene carries its words in the picture
+        if (scene.caption && !rhythm.captionInPage && !pictureHere) {
           await stage.wait(captionAt)
-          await stage.caption({ subtitle: segment.scene.caption })
-          await stage.wait(segment.scene.holdMs - captionAt)
+          await stage.caption({ subtitle: scene.caption })
+          await stage.wait(hold - captionAt)
         } else {
-          await stage.wait(segment.scene.holdMs)
+          await stage.wait(hold)
         }
         const clip = await stage.stop()
         // Hidden off the record; the next clip starts from rest without it
@@ -313,14 +368,48 @@ export async function recordVideo(
     await page.close()
   }
 
-  // Joined without re-encoding: every segment was encoded alike
-  const list = path.join(workDir, 'order.txt')
-  await writeFile(
-    list,
-    recorded.map(s => `file 'encoded/${s.key}.mp4'`).join('\n')
-  )
   const master = path.join(workDir, 'master.mp4')
-  await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', master])
+  const clips = recorded.map(s => path.join(workDir, 'encoded', `${s.key}.mp4`))
+  if (rhythm.cuts && clips.length > 1) {
+    // Each clip blends into the next over its last moment
+    const lengths = await Promise.all(clips.map(duration))
+    const t = Math.min(TRANSITION_S, ...lengths.map(l => l / 3))
+    const graph = clips.map((_, i) => `[${i}:v]settb=AVTB,fps=30[c${i}]`)
+    let previous = '[c0]'
+    let offset = 0
+    for (let i = 1; i < clips.length; i++) {
+      offset += lengths[i - 1]! - t
+      const out = i === clips.length - 1 ? '[v]' : `[x${i}]`
+      graph.push(
+        `${previous}[c${i}]xfade=transition=${transitionInto(i)}:duration=${t.toFixed(3)}:offset=${offset.toFixed(3)}${out}`
+      )
+      previous = out
+    }
+    await ffmpeg([
+      ...clips.flatMap(file => ['-i', file]),
+      ...['-filter_complex', graph.join(';'), '-map', '[v]'],
+      ...JOIN_FLAGS,
+      master
+    ])
+  } else {
+    // Joined without re-encoding: every segment was encoded alike
+    const list = path.join(workDir, 'order.txt')
+    await writeFile(
+      list,
+      recorded.map(s => `file 'encoded/${s.key}.mp4'`).join('\n')
+    )
+    await ffmpeg([
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      list,
+      '-c',
+      'copy',
+      master
+    ])
+  }
   const seconds = await duration(master)
 
   // A silent soundtrack: some platforms refuse a video with no audio stream

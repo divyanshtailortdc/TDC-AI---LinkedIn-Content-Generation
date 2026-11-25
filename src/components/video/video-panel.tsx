@@ -26,8 +26,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  */
 
 const POLL_MS = 5_000
-/** What a recording usually takes, for the progress bar. */
-const TYPICAL_SECONDS = 60
+/**
+ * What a video usually takes, for the progress bar: pictures for a few of
+ * its scenes are made first, then it is recorded.
+ */
+const TYPICAL_SECONDS = 150
 
 const primaryButton =
   'bg-accent text-background hover:bg-accent-hover inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50'
@@ -334,10 +337,10 @@ function Progress({ view, now }: { view: VideoView; now: number }) {
       <Loader2 className="text-accent h-7 w-7 animate-spin" />
       <div>
         <p className="text-foreground text-sm font-semibold">
-          Recording your video…
+          Making your video…
         </p>
         <p className="text-muted mt-1 text-xs">
-          {clock(elapsed)} elapsed · usually about a minute
+          {clock(elapsed)} elapsed · usually two to three minutes
         </p>
       </div>
       <div

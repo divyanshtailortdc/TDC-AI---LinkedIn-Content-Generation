@@ -9,7 +9,7 @@ The code is the skill's toolkit, copied in and adapted. Each file says what it k
 | `plan.ts` | The script → an opening card (the hook), one slide per line (its on-screen text big, its line as a caption), a closing card (the call to action). Timed for reading; under a minute. Stored as the video's prompt. Formats without cards play the hook and call to action as slides. |
 | `page.ts` | The page: brand colours, embedded typefaces (no fetch while recording), logo, website or handle; 540×960 CSS pixels at 2×, so 1080×1920. Text stays clear of the Reels and Shorts buttons. |
 | `stage.ts` | The toolkit's stage: title-card curtain, caption badge, frame recorder. Frames are stepped, not screencast (below). |
-| `record.ts` | The toolkit's `make.ts`: records each segment, encodes it with its fades, joins them and adds a silent soundtrack. |
+| `record.ts` | The toolkit's `make.ts`: records each segment, encodes it with its fades, joins them (with `xfade` transitions for the formats without title cards, re-encoding once) and adds a silent soundtrack. |
 | `browser.ts` | The toolkit's dependency-free DevTools Protocol driver. |
 | `binaries.ts` | Finds the browser and ffmpeg, locally and on Vercel. |
 | `scripts/sample.ts` | Records a sample (or your own script) with no database. |
@@ -48,7 +48,10 @@ pnpm video:sample -- --look photo --photo a.jpg --photo b.jpg
 pnpm video:sample -- --format meme --photo a.jpg --highlight marker
 pnpm video:sample -- --format kinetic --look bold
 pnpm video:sample -- --look look.json          # { format, template, colors, textCase, captions, pace, highlight, photos }
+pnpm video:sample -- --picture intro=a.jpg --picture slide-2=b.jpg   # scenes with pictures of their own
 ```
+
+**Scene pictures** (`../scenes.ts`, made before recording): a scene with a picture of its own is that picture full screen (`#shot`), moving slowly (`mv-in`, `mv-up`, `mv-out`, `mv-side`); the other scenes sit on one of the pictures blurred (`#photo.backdrop`, chosen by `backdropKeys` in `plan.ts`), in white with key words in the brand's colour. Segment keys name the pictures: `intro`, then `slide-1`, `slide-2`… as the plan names its scenes.
 
 ## Change the video
 

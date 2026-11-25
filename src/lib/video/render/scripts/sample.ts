@@ -12,6 +12,7 @@
  *   pnpm video:sample -- --look photo --photo a.jpg --photo b.jpg   photos for the photo look
  *   pnpm video:sample -- --format meme --photo a.jpg   a format: slides, kinetic, meme, poster or editorial
  *   pnpm video:sample -- --highlight marker            key words: none, marker or color
+ *   pnpm video:sample -- --picture intro=a.jpg --picture slide-2=b.jpg   a scene's own picture
  *
  * Then check it: pnpm video:check <file>
  */
@@ -122,6 +123,22 @@ async function main() {
     throw new Error(`--format is one of ${VIDEO_FORMATS.join(', ')}.`)
   if (highlight && !(VIDEO_HIGHLIGHTS as readonly string[]).includes(highlight))
     throw new Error(`--highlight is one of ${VIDEO_HIGHLIGHTS.join(', ')}.`)
+  // Pictures made for scenes, as the app makes them (src/lib/video/scenes.ts)
+  const scenePictures = Object.fromEntries(
+    await Promise.all(
+      options('picture').map(async value => {
+        const at = value.indexOf('=')
+        if (at <= 0)
+          throw new Error('--picture is key=file, such as intro=a.jpg.')
+        const data = await readFile(value.slice(at + 1))
+        const meta = await sharp(data).metadata()
+        return [
+          value.slice(0, at),
+          `data:image/${meta.format === 'png' ? 'png' : 'jpeg'};base64,${data.toString('base64')}`
+        ] as const
+      })
+    )
+  )
   const look = cleanVideoLook(
     {
       ...chosen,
@@ -153,7 +170,8 @@ async function main() {
       data: f.data
     })),
     look,
-    photos: look.photos.flatMap(i => (photos[i] ? [photos[i]] : []))
+    photos: look.photos.flatMap(i => (photos[i] ? [photos[i]] : [])),
+    scenePictures
   })
   console.log(
     `Look: ${theme.format} in ${look.template}, ${look.textCase}, ${look.captions}, ${look.pace}, highlight ${look.highlight}`

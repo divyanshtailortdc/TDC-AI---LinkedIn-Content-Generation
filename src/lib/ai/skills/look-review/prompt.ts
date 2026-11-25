@@ -56,6 +56,17 @@ export function lookIssues(review: LookReview): string[] {
   ]
 }
 
+/**
+ * The problems that make an image wrong rather than imperfect: its words
+ * are not the ones given, it states something the post does not, or it
+ * shows another brand's mark. Read from lookIssues' wording.
+ */
+export function isBlockingLookIssue(issue: string): boolean {
+  return ['Text: ', 'Not in the post: ', "Another brand's mark: "].some(p =>
+    issue.startsWith(p)
+  )
+}
+
 /** Plain instructions for the second attempt at an image the review found problems in. */
 export function lookRetryLines(review: LookReview): string {
   const out: string[] = []

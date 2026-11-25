@@ -23,5 +23,7 @@ export interface VideoRecorder {
     prompt: string
     accountId: string
     platform: PlatformId
+    /** Pictures made for some scenes (../scenes.ts), by segment key; stored in the bucket. */
+    scenes?: Array<{ key: string; url: string }>
   }): Promise<RenderedVideo>
 }

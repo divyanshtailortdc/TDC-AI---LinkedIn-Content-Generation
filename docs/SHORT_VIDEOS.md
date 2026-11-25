@@ -2,7 +2,7 @@
 
 > **Recorded since 2026-11-24.** Videos are made with the [product-video](../.claude/skills/product-video/SKILL.md) skill's method: see [Recording](#recording) and [src/lib/video/render/README.md](../src/lib/video/render/README.md). The AI-clip path (Veo, through the AI Gateway) was removed on 2026-11-25, with the columns only it used (migration `0062_post_videos_recorder_only`). `VIDEO_GENERATION_ENABLED` in `src/lib/video/formats.ts` switches videos off.
 
-The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** and **Facebook Reels**. Each video post is a script drafted from an idea and a video **recorded on the server** from that script: slides built in the format of the identity's own recent posts (story slides, kinetic type, meme, poster or editorial), in its Brand Theme and the look of those posts, 9:16, 1080×1920 MP4, usually 15 to 30 seconds, silent, published through Buffer like every other post.
+The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** and **Facebook Reels**. Each video post is a script drafted from an idea and a video **recorded on the server** from that script: the hook and up to two of its lines as pictures made like the identity's own posts (words included, as its posts set them), the other lines as type in the format of its recent posts (story slides, kinetic type, meme, poster or editorial), blended into each other, in its Brand Theme and the look of those posts, 9:16, 1080×1920 MP4, usually 15 to 30 seconds, silent, published through Buffer like every other post.
 
 - [How a video post is made](#how-a-video-post-is-made)
 - [Recording](#recording)
@@ -20,6 +20,7 @@ The app makes short vertical videos for **Instagram Reels**, **YouTube Shorts** 
 | `src/lib/video/render/` | The recorder: script → plan → brand page → recorded, encoded MP4 ([its README](../src/lib/video/render/README.md)) |
 | `src/lib/video/providers/` | `recorder.ts`: loads the brand and the look, records one video at a time |
 | `src/lib/video/look-source.ts` | The format and look of the identity's own recent posts, chosen once per platform |
+| `src/lib/video/scenes.ts` | Pictures for the hook and up to two lines, made like the identity's posts (`makeLookSlides`, src/lib/carousel/look.ts) |
 | `src/lib/video/post-video.ts` | Starting, recording and storing a post's video; what publishing reads |
 | `src/jobs/videos.ts` | `runVideoFinishing`, the background pass that records videos nobody is watching |
 | `src/app/api/posts/[id]/video/route.ts` | GET (the state) and POST (Record video) for the post page |
@@ -43,14 +44,26 @@ generating ──► ready ──► superseded   (when a newer video is ready)
 ```
 
 - **Start** (`startPostVideo`): the script is planned into cards and slides (`planVideo`, `render/plan.ts`) and the plan is stored as the row's `prompt`, so a recording that is tried again films the same thing. The row is inserted first: the partial unique index `post_videos_one_running_uq` (one `generating` row per post) is the claim, so a double click or a second tab gets `already_running`. The recording then runs **after the response** (`after()`), so the request answers at once.
-- **Record** (`record` in `post-video.ts`): claims the row with a lease on `last_checked_at` (6 minutes, longer than any function runs), counts the attempt in `metadata.renderAttempts`, renders (brand theme, typefaces, logo and look loaded by `providers/recorder.ts`; one recording per process at a time), stores the MP4 under the post's prefix and marks it `ready` with its real length, superseding older ready rows in the same transaction. A page poll that finds a row not yet claimed records it in the background; so does the job pass (`runVideoFinishing`, every minute from the scheduler and on every `/api/cron/jobs` call, beside the publishing pass), which starts no recording after 140 seconds so it ends inside its function's 300.
-- **On Vercel**, only `/api/posts/[id]/video` and `/api/cron/jobs` carry the browser and ffmpeg (`next.config.ts`). A recording started elsewhere, such as by drafting inside another function, finds no browser and is handed back (the lease and attempt are released) for one of those routes to pick up: the post page when it is opened, or the next cron call.
+- **Record** (`record` in `post-video.ts`): claims the row with a lease on `last_checked_at` (6 minutes, longer than any function runs), counts the attempt in `metadata.renderAttempts` (in SQL, reading the metadata back, so pictures another process stored are never lost), first makes the scene pictures once (see [Scene pictures](#scene-pictures); not counted as an attempt, and handed back for the next poll or pass to record when they took over 100 seconds), then renders (brand theme, typefaces, logo and look loaded by `providers/recorder.ts`; one recording per process at a time), stores the MP4 under the post's prefix and marks it `ready` with its real length, superseding older ready rows in the same transaction. A page poll that finds a row not yet claimed records it in the background; so does the job pass (`runVideoFinishing`, every minute from the scheduler and on every `/api/cron/jobs` call, beside the publishing pass), which starts no recording after 140 seconds so it ends inside its function's 300.
+- **On Vercel**, only `/api/posts/[id]/video` and `/api/cron/jobs` carry the browser and ffmpeg (`next.config.ts`). A recording started elsewhere, such as by drafting inside another function, finds no ffmpeg and is left before anything is claimed or spent (`canRecordHere`), or, finding no browser, is handed back (the lease and attempt are released) for one of those routes to pick up: the post page when it is opened, or the next cron call.
 - **Gives up** after 3 started attempts, or 30 minutes; a render that fails (bad plan, the browser or ffmpeg failing) fails the row with the reason, and the page offers **Try again**.
 - **Rows from before** (an AI clip, `provider` other than `recorder`) still play when ready; one still running is failed with "a video model the app no longer uses" (by migration `0062`, and by `advance` if one slips through).
 
 Deleting a post deletes its `post_videos` rows (cascade) and its files, which sit under the post's bucket prefix.
 
-A recording takes about 25 to 40 seconds of the function's time (about a minute in the photo look, whose zooming photos are captured every frame).
+A recording takes about 25 to 40 seconds of the function's time (about a minute with pictures or in the photo look, whose moving pictures are captured every frame, and whose clips are encoded again when joined with transitions). Making the scene pictures takes about 2 to 3 minutes more, before it.
+
+### Scene pictures
+
+Every scene of a video used to be the brand's type over a template, and with only a few example images saved, the same photo came back slide after slide. Now (`src/lib/video/scenes.ts`, `makeSceneImages`):
+
+- **The hook and up to two lines get a picture of their own** (`pickSceneSegments`: the hook always, then lines spread through the middle; `MAX_SCENE_PICTURES = 3`, a cost cap the user chose). Each is one 1080×1920 image made the way a carousel is made like the account's posts (`makeLookSlides` in `src/lib/carousel/look.ts`): one art-director call (`look-series`) picks 1 to 3 example posts and sets the set's look; the hook's picture is drawn first and attached to the others so they match; each is drawn by the image model with the scene's exact words set into it as the account's posts set theirs, read back by a vision check (`look-review`) and drawn once more when the check finds problems; the brand's real logo is laid on by code. What each picture shows comes from the script's `show` line for that shot (`visual` in the plan).
+- **For a video**, the art director is told the set is the scenes of a vertical video (`SCENES_DIRECTION`): words in the middle of the frame, between about a sixth and two thirds down, clear of the buttons and caption Reels and Shorts lay over the top and bottom; each scene a different moment, framed differently. The image model is told the same (`SCENE_NOTE`, `medium: 'video'` in `seriesLines`: "scene N of one short vertical video", no numbers, player controls or swipe hints). The logo goes top-left whenever the examples keep one, whatever corner they use, as the lower corners sit under the buttons.
+- **A picture whose words came out wrong is left out** (`isBlockingLookIssue`: wrong text, a claim the post doesn't make, another brand's mark, still there after the second try); that scene is set in type. Smaller flaws are kept and listed in `metadata.sceneIssues`.
+- **The other scenes** are type in the look's format (slides and memes play as kinetic type, whose layouts need no number or photo), set white over one of the pictures cropped, blurred and darkened (`backdropKeys`: never the picture shown just before or after it), key words in the brand's colour as the pictures set theirs. No old post photo is shown, and no scene shows a number or a dot pattern.
+- **Every scene is its own clip**, the pictures moving slowly (zoom in, out, up or across, a different move each), joined by `xfade` transitions (crossfade, smooth wipe or push, a different one each time; `TRANSITIONS`) and encoded again once.
+- **Made once per video** and stored under the post's bucket prefix; their places are kept in `metadata.scenes` (`{ key, url }`), so a later attempt records with them and nothing is paid twice. Record again makes new ones. With no example posts (`visual_examples`), no AI key, a spending limit or a model failure, there are no pictures and the video is type only, with the reason in `metadata.sceneError` and the video's warnings.
+- **Measured on 2026-11-25** (Swiggy, three pictures): 141 and 188 seconds, $0.31 and $0.49, the difference being second tries after the check.
 
 ### The look
 
@@ -60,13 +73,13 @@ Before recording, `videoLookFor` (`src/lib/video/look-source.ts`) chooses the vi
 
   | Format | For feeds of | How it plays |
   | --- | --- | --- |
-  | `slides` | carousels, tips, lists, explainers; and anyone nothing is known about | title cards, numbered slides under story bars, caption badge, fades (the videos of before) |
-  | `kinetic` | punchy one-liners, bold text graphics, hype | no cards: a few huge centred words pop in one by one, slides alternate colours, hard cuts |
-  | `meme` | memes, trend riffs, relatable jokes | a band of casual text on top, one of their photos filling the rest, hard cuts; needs a photo (else kinetic) |
-  | `poster` | branded graphics, offers, hiring, events, infographics | each slide a designed graphic: framed photo of theirs when there is one, pill tag, body line, contact bar with the footer; pushed in, hard cuts |
+  | `slides` | carousels, tips, lists, explainers; and anyone nothing is known about | title cards, slides under story bars, caption badge, fades |
+  | `kinetic` | punchy one-liners, bold text graphics, hype | no cards: a few huge words pop in one by one, placed differently slide by slide, slides alternate colours, joined by transitions |
+  | `meme` | memes, trend riffs, relatable jokes | a band of casual text on top, one of their photos filling the rest; needs a photo (else kinetic) |
+  | `poster` | branded graphics, offers, hiring, events, infographics | each slide a designed graphic: framed photo of theirs when there is one, body line, contact bar with the footer; pushed in |
   | `editorial` | quotes, reflections, premium brands | centred quieter words between thin rules, caption under them, slow fades |
 
-  Key words stand out where their images mark words (`highlight`: a `marker` box or the accent `color`, picked by `emphasisOf`: numbers, else the closing words). Their photos too small to fill a frame are shown whole over a blurred copy of themselves.
+  No format numbers its slides, and only story slides keep a background pattern. Key words stand out where their images mark words (`highlight`: a `marker` box or the accent `color`, picked by `emphasisOf`: numbers, else the closing words). Their photos too small to fill a frame are shown whole over a blurred copy of themselves, and no photo is shown twice. With [scene pictures](#scene-pictures), these formats set only the scenes without a picture.
 
 - **Brand Theme first.** Its set colours (primary, accent, background), typefaces, logo, footer and, once saved, background pattern (Auto leaves it to the look) are used as they are. Its image style picks the template where a video has one to match (`brandedLook`): Minimal Graphic Design → minimal; Photorealistic → photo when there are photos; Like my posts, Illustration and 3D → the look's own.
 - **The rest from their posts.** The `video_look` skill (`src/lib/ai/skills/video-look`, Sonnet at low effort, vision) reads the profile analysis (`platform_insights`: summary, visual identity, formats, tone, captions), up to 15 of the recent posts that analysis read (`platform_insights.posts`: kind, date, shape and opening words, newest first) and up to 6 example images (`visual_examples`, via `loadLookExamples`) and returns a format, a template (`cards`, `bold`, `minimal`, `photo`: the colours), colours, text case, caption style (badge or subtitles, for slides), pace, highlight and which images are photos to show. `cleanVideoLook` keeps only usable values, and the theme makes every pairing readable.
@@ -77,6 +90,7 @@ Before recording, `videoLookFor` (`src/lib/video/look-source.ts`) chooses the vi
 
 ## Cost
 
+- **Scene pictures** cost about $0.30 to $0.50 a video (three images at about $0.06 each, the art direction, the checks and any second tries), recorded in `ai_usage` against the post (image and review stages), so they show on its cost card. A spending limit stops them, and the video is recorded in type only.
 - **Recording costs nothing**: no model makes the video, and spending limits don't stop it.
 - **Matching the look of their posts** is one `video_look` model call (about $0.01) the first time per platform, recorded in `ai_usage` against the post, so it shows on the post's cost card ([POST_COST.md](POST_COST.md)). Later videos reuse the look (see [The look](#the-look)).
 
@@ -135,7 +149,7 @@ Checks before sending:
 
 | Test | Needs | Covers |
 | --- | --- | --- |
-| `tests/video.test.ts` | nothing | the video spec, video formats never created another way, the script asking for slides, the recorder's plan (cards, slides, captions, timing, stored plan read back) and page (contrast, no markup from text, embedded fonts), the look (Brand Theme first, nearest platform, readable colours, pace), the formats (a page of its own each, cards or cuts, framed photos, readable alternating colours, highlighted words, recent posts shown to the skill as data), which ideas draft a video, no generated image on a video post |
+| `tests/video.test.ts` | nothing | the video spec, video formats never created another way, the script asking for slides, the recorder's plan (cards, slides, captions, timing, stored plan read back) and page (contrast, no markup from text, embedded fonts), the look (Brand Theme first, nearest platform, readable colours, pace), the formats (a page of its own each, cards or cuts, framed photos, readable alternating colours, highlighted words, recent posts shown to the skill as data), the scene pictures (which scenes, picture briefs in the plan, blurred backdrops never next to their picture, transitions, white words and brand-coloured key words over pictures, no numbers, the video wording for the image model, wrong pictures left out), which ideas draft a video, no generated image on a video post |
 | `tests/multi-platform.test.ts` → "short videos" | nothing | the script schema, the caption that goes out with the video, the Short's title rule, no URLs in a caption |
 | `tests/publishing-units.test.ts` | nothing | video media tokens and links, each network's video metadata |
 | `tests/publishing.test.ts` → M3, M3b | `DATABASE_URL` | a Reel without its video is refused (an image is no stand-in); a Reel with its video goes out as a Reel with the video from its link |

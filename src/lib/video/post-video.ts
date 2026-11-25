@@ -3,6 +3,7 @@ import 'server-only'
 import { db } from '@/db'
 import { postDraftsTable, postVideosTable, type PostVideo } from '@/db/schema'
 import { formatOf, isPlatformId } from '@/lib/formats'
+import { videoScriptOf } from '@/lib/formats/text'
 import { PLATFORMS } from '@/lib/platforms'
 import { assertPostChangeable } from '@/lib/publishing/post-lock'
 import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm'
@@ -24,8 +25,9 @@ import {
 } from './formats'
 import { RECORDER_MODEL_ID, RECORDER_PROVIDER } from './models'
 import { recorder } from './providers/recorder'
-import { RendererUnavailableError } from './render/binaries'
-import { planVideo, plannedSeconds } from './render/plan'
+import { findFfmpeg, RendererUnavailableError } from './render/binaries'
+import { parsePlan, plannedSeconds, planVideo } from './render/plan'
+import { makeSceneImages, type SceneImage } from './scenes'
 
 /**
  * A post's video, started from the post page or by drafting, and recorded
@@ -48,6 +50,32 @@ const RENDER_LEASE_MS = 6 * 60_000
 const MAX_RENDER_ATTEMPTS = 3
 /** The job pass starts no recording this long in, so it ends in its function's time. */
 const RENDER_PASS_BUDGET_MS = 140_000
+/**
+ * Scene pictures that took longer than this to make leave the recording to
+ * the next poll or job pass, so neither runs past its function's 300 s.
+ */
+const RECORD_AFTER_SCENES_MS = 100_000
+/**
+ * The job pass starts making a video's pictures only this early in, so the
+ * two or three minutes they take end inside its function's time.
+ */
+const PASS_SCENES_START_MS = 60_000
+
+/**
+ * Whether this function can record: on Vercel only the video and job routes
+ * carry ffmpeg and the browser (next.config.ts). Elsewhere (drafting) a
+ * video is left for them before anything is spent on it.
+ */
+async function canRecordHere(): Promise<boolean> {
+  if (!onVercel()) return true
+  try {
+    await findFfmpeg()
+    return true
+  } catch (err) {
+    if (err instanceof RendererUnavailableError) return false
+    throw err
+  }
+}
 
 export interface VideoView {
   id: string
@@ -90,6 +118,7 @@ export type StartVideoOutcome =
 type VideoDraft = {
   id: string
   accountId: string
+  ideaId: string | null
   formatId: VideoFormatId
   hook: string
   body: string
@@ -108,6 +137,7 @@ async function loadVideoDraft(
     .select({
       id: postDraftsTable.id,
       accountId: postDraftsTable.accountId,
+      ideaId: postDraftsTable.ideaId,
       formatId: postDraftsTable.formatId,
       hook: postDraftsTable.hook,
       body: postDraftsTable.body,
@@ -250,23 +280,40 @@ async function markReady(
  * twice, and lets another try once a recording's function died. Never
  * throws.
  */
-async function record(row: PostVideo, draft: VideoDraft): Promise<void> {
+async function record(
+  row: PostVideo,
+  draft: VideoDraft,
+  opts: {
+    /** No picture-making starts after this time (the job pass's). */
+    startScenesBy?: number
+  } = {}
+): Promise<void> {
   const now = Date.now()
   if (now - row.createdAt.getTime() > GENERATION_TIMEOUT_MS) {
     await fail(row.id, 'The video took too long to record. Try again.')
     return
   }
-  const metadata = row.metadata ?? {}
-  const attempts = Number(metadata.renderAttempts ?? 0)
-  if (attempts >= MAX_RENDER_ATTEMPTS) {
+  const seen = row.metadata ?? {}
+  if (Number(seen.renderAttempts ?? 0) >= MAX_RENDER_ATTEMPTS) {
     await fail(row.id, 'The video could not be recorded. Try again.')
     return
   }
+  if (
+    !Array.isArray(seen.scenes) &&
+    opts.startScenesBy !== undefined &&
+    now > opts.startScenesBy
+  ) {
+    return
+  }
+  if (!(await canRecordHere())) return
+  // The attempt is counted in the database, and the metadata read back from
+  // it: another process may have stored the scene pictures since this row
+  // was read, and they must not be lost and paid for again
   const [claimed] = await db
     .update(postVideosTable)
     .set({
       lastCheckedAt: new Date(),
-      metadata: { ...metadata, renderAttempts: attempts + 1 },
+      metadata: sql`${postVideosTable.metadata} || jsonb_build_object('renderAttempts', coalesce((${postVideosTable.metadata}->>'renderAttempts')::int, 0) + 1)`,
       updatedAt: new Date()
     })
     .where(
@@ -279,8 +326,74 @@ async function record(row: PostVideo, draft: VideoDraft): Promise<void> {
         )
       )
     )
-    .returning({ id: postVideosTable.id })
+    .returning({ id: postVideosTable.id, metadata: postVideosTable.metadata })
   if (!claimed) return
+  const attempts = Number(claimed.metadata.renderAttempts) - 1
+  if (attempts >= MAX_RENDER_ATTEMPTS) {
+    await fail(row.id, 'The video could not be recorded. Try again.')
+    return
+  }
+  const metadata: Record<string, unknown> = {
+    ...claimed.metadata,
+    renderAttempts: attempts
+  }
+
+  // First, once per video: pictures for the hook and a few lines, made like
+  // their posts. Kept in the metadata, so a later attempt records with them
+  let metadataNow: Record<string, unknown> = metadata
+  if (!Array.isArray(metadata.scenes)) {
+    const spend = {
+      source: 'posts' as const,
+      accountId: draft.accountId,
+      draftId: draft.id
+    }
+    let made: Awaited<ReturnType<typeof makeSceneImages>>
+    try {
+      made = await withAiSpend(spend, () =>
+        makeSceneImages({
+          plan: parsePlan(row.prompt),
+          draft,
+          platform: videoSpecOf(draft.formatId).platform,
+          caption: videoScriptOf(draft).caption || draft.hook
+        })
+      )
+    } catch (err) {
+      console.warn(`Scene pictures for video ${row.id} failed:`, err)
+      made = {
+        scenes: [],
+        issues: [],
+        error: 'The scene pictures could not be made.',
+        usage: null
+      }
+    }
+    // Making pictures is not a recording attempt
+    metadataNow = {
+      ...metadata,
+      renderAttempts: attempts,
+      scenes: made.scenes,
+      sceneIssues: made.issues,
+      ...(made.error ? { sceneError: made.error } : {})
+    }
+    const late = Date.now() - now > RECORD_AFTER_SCENES_MS
+    await db
+      .update(postVideosTable)
+      .set({
+        metadata: late
+          ? metadataNow
+          : { ...metadataNow, renderAttempts: attempts + 1 },
+        // Late: handed back for the next poll or job pass to record
+        ...(late ? { lastCheckedAt: null } : {}),
+        updatedAt: new Date()
+      })
+      .where(
+        and(
+          eq(postVideosTable.id, row.id),
+          eq(postVideosTable.status, 'generating')
+        )
+      )
+    if (late) return
+  }
+  const scenes = (metadataNow.scenes as SceneImage[] | undefined) ?? []
 
   let video
   try {
@@ -291,7 +404,8 @@ async function record(row: PostVideo, draft: VideoDraft): Promise<void> {
         recorder.render({
           prompt: row.prompt,
           accountId: draft.accountId,
-          platform: videoSpecOf(draft.formatId).platform
+          platform: videoSpecOf(draft.formatId).platform,
+          scenes
         })
     )
   } catch (err) {
@@ -300,7 +414,11 @@ async function record(row: PostVideo, draft: VideoDraft): Promise<void> {
       // job routes carry it): hand it back for one that has it.
       await db
         .update(postVideosTable)
-        .set({ lastCheckedAt: null, metadata, updatedAt: new Date() })
+        .set({
+          lastCheckedAt: null,
+          metadata: { ...metadataNow, renderAttempts: attempts },
+          updatedAt: new Date()
+        })
         .where(
           and(
             eq(postVideosTable.id, row.id),
@@ -336,10 +454,15 @@ async function record(row: PostVideo, draft: VideoDraft): Promise<void> {
     byteSize: video.bytes.length,
     durationSeconds: Math.max(1, Math.round(video.seconds)),
     metadata: {
-      ...metadata,
+      ...metadataNow,
       ...video.metadata,
       renderAttempts: attempts + 1,
-      warnings: video.warnings
+      warnings: [
+        ...video.warnings,
+        ...(typeof metadataNow.sceneError === 'string' && scenes.length === 0
+          ? [metadataNow.sceneError]
+          : [])
+      ]
     }
   })
 }
@@ -348,7 +471,11 @@ async function record(row: PostVideo, draft: VideoDraft): Promise<void> {
  * Moves a running video on: records it (see record). A video an AI model
  * was making, before videos were recorded, can no longer finish.
  */
-async function advance(row: PostVideo, draft: VideoDraft): Promise<void> {
+async function advance(
+  row: PostVideo,
+  draft: VideoDraft,
+  opts: { startScenesBy?: number } = {}
+): Promise<void> {
   if (row.provider !== RECORDER_PROVIDER) {
     await fail(
       row.id,
@@ -356,7 +483,7 @@ async function advance(row: PostVideo, draft: VideoDraft): Promise<void> {
     )
     return
   }
-  await record(row, draft)
+  await record(row, draft, opts)
 }
 
 /** The newest rows of a post's videos, newest first. */
@@ -512,8 +639,12 @@ export async function finishPendingVideos(limit = 20): Promise<number> {
     try {
       const draft = await loadVideoDraft(accountId, video.draftId)
       if (!draft) continue
-      await withAiSpend({ source: 'posts', accountId, draftId: video.draftId }, () =>
-        advance(video, draft)
+      await withAiSpend(
+        { source: 'posts', accountId, draftId: video.draftId },
+        () =>
+          advance(video, draft, {
+            startScenesBy: passStarted + PASS_SCENES_START_MS
+          })
       )
     } catch (err) {
       console.error(`Could not move video ${video.id} on:`, err)

@@ -90,6 +90,12 @@ export interface VideoTheme {
    * blurred and shown whole on a card.
    */
   photos: Array<{ dataUrl: string; soft: boolean }>
+  /**
+   * Pictures made for some scenes (../scenes.ts), by segment key ('intro'
+   * or a scene's key), as data URLs: such a scene is its picture, full
+   * screen with a slow camera move, its words drawn into it.
+   */
+  scenePictures: Record<string, string>
 }
 
 const INK = '#0f172a'
@@ -160,6 +166,7 @@ type FormatParts =
   | 'highlightText'
   | 'highlightInk'
   | 'alternate'
+  | 'scenePictures'
 
 interface ThemeExtras {
   heading?: string
@@ -176,6 +183,8 @@ interface ThemeExtras {
     width: number | null
     height: number | null
   }>
+  /** Pictures made for some scenes, by segment key, as data URLs. */
+  scenePictures?: Record<string, string>
 }
 
 const photoList = (photos: ThemeExtras['photos']): VideoTheme['photos'] =>
@@ -189,13 +198,39 @@ export function videoThemeFor(
   extras: ThemeExtras = {}
 ): VideoTheme {
   const look = extras.look ?? DEFAULT_VIDEO_LOOK
-  const palette = paletteFor(brand, extras)
+  const scenePictures = extras.scenePictures ?? {}
+  // Scenes without a picture of their own sit on one of the pictures,
+  // blurred and darkened: white words, in the photo template's colours
+  const palette = paletteFor(
+    brand,
+    Object.keys(scenePictures).length > 0
+      ? { ...extras, look: { ...look, template: 'photo' }, photos: [] }
+      : extras
+  )
+  // With pictures made for its scenes, a video shows no old post photo
+  // (each scene its own picture, none twice), and its other scenes are type:
+  // kinetic for slides and memes, whose own layouts need a photo or numbers
+  const pictured = Object.keys(scenePictures).length > 0
+  const wanted =
+    pictured && (look.format === 'slides' || look.format === 'meme')
+      ? 'kinetic'
+      : look.format
   // A meme or a poster frames their photos whatever the template; a meme
   // with none to show is kinetic type, as cleanVideoLook makes it
-  const framed = look.format === 'meme' || look.format === 'poster'
-  const photos = framed ? photoList(extras.photos) : palette.photos
-  const format =
-    look.format === 'meme' && photos.length === 0 ? 'kinetic' : look.format
+  const framed = wanted === 'meme' || wanted === 'poster'
+  const photos = pictured
+    ? []
+    : framed
+      ? photoList(extras.photos)
+      : palette.photos
+  const format = wanted === 'meme' && photos.length === 0 ? 'kinetic' : wanted
+  // Over pictures made like their posts, key words take the brand's own
+  // colour where it reads on the darkened picture, as the pictures' words do
+  const primary = normalizeHex(brand.primaryColor)
+  const key =
+    pictured && primary
+      ? readable('#2a2a2a', primary, palette.mark)
+      : palette.mark
   const alternate =
     format === 'kinetic' && palette.template !== 'photo'
       ? (() => {
@@ -217,12 +252,15 @@ export function videoThemeFor(
       : null
   return {
     ...palette,
+    // Only story slides keep a pattern behind them
+    pattern: format === 'slides' ? palette.pattern : 'none',
     photos,
+    scenePictures,
     format,
     highlight: look.highlight,
-    highlightBackground: palette.mark,
-    highlightText: textOn(palette.mark, palette.background),
-    highlightInk: palette.mark,
+    highlightBackground: key,
+    highlightText: textOn(key, palette.background),
+    highlightInk: key,
     alternate
   }
 }
@@ -505,10 +543,12 @@ function formatCss(theme: VideoTheme, body: string): string {
     case 'kinetic': {
       const alt = theme.alternate
       const plate = logoPlates(theme).alternate
-      return `#bars, #num { display: none; }
+      return `#bars { display: none; }
 #brand { justify-content: center; }
 #slide { left: 28px; right: 28px; align-items: center; text-align: center; gap: 24px; }
 #headline { line-height: 1.02; letter-spacing: ${theme.upper ? '0' : '-.035em'}; }
+body.v1 #slide { align-items: flex-start; text-align: left; justify-content: flex-end; }
+body.v2 #slide { align-items: flex-start; text-align: left; justify-content: flex-start; }
 #headline .w { opacity: 0; transform: scale(.35); }
 body.go #headline .w { animation: pv-pop .42s cubic-bezier(.3,1.5,.5,1) both;
   animation-delay: calc(var(--i) * 140ms + 60ms); }
@@ -527,14 +567,15 @@ body.alt #brand img { ${plate ? `background: ${plate}; padding: 5px 9px; border-
     }
     case 'meme':
       return `body::before, body::after { display: none; }
-#bars, #num { display: none; }
+#bars { display: none; }
 #slide { top: 136px; bottom: auto; max-height: 300px; overflow: hidden; left: 30px; right: 30px; gap: 0; }
 #headline { font-family: ${body}; font-weight: 600; line-height: 1.18; letter-spacing: 0; text-shadow: none; }
 #frame { position: absolute; left: 0; right: 0; top: 420px; bottom: 0; z-index: 1; overflow: hidden; }
 #frame.off { display: none; }
 #frame i { position: absolute; inset: 0; background-size: cover; background-position: center; transform: scale(1.02); }
 body.go #frame i { animation: pv-zoom var(--hold, 4000ms) linear both; }
-${FRAMED_SOFT_CSS}`
+${FRAMED_SOFT_CSS}
+body:not(.pic) #slide { top: 150px; bottom: 250px; max-height: none; justify-content: center; }`
     case 'poster': {
       const bar =
         contrastRatio(theme.card, theme.background) >= 1.6
@@ -542,17 +583,12 @@ ${FRAMED_SOFT_CSS}`
           : theme.mark
       return `#bars, #footer { display: none; }
 #brand img { height: 34px; max-width: 190px; }
-body::after { content: ""; position: absolute; width: 420px; height: 420px; left: auto; right: -180px; top: 420px;
-  border-radius: 50%; background: color-mix(in srgb, ${theme.mark} 16%, transparent); }
 #frame { position: absolute; left: 40px; right: 40px; top: 140px; height: 226px; z-index: 2; overflow: hidden;
   border-radius: 22px; box-shadow: 0 16px 40px rgba(0,0,0,.22); opacity: 0; }
 #frame i { position: absolute; inset: 0; background-size: cover; background-position: center; }
 ${FRAMED_SOFT_CSS}
 #slide { bottom: 296px; gap: 14px; opacity: 0; }
 body.pic #slide { top: 390px; justify-content: flex-start; }
-#num { align-self: flex-start; padding: 7px 13px; border-radius: 999px; background: ${theme.mark};
-  color: ${textOn(theme.mark, theme.background)}; font-size: 15px; letter-spacing: .12em; }
-#num:empty { display: none; }
 body.go #slide, body.go #frame { animation: pv-push .55s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes pv-push { from { opacity: 0; transform: translateX(56px); } to { opacity: 1; transform: none; } }
 ${sub('500 21px/1.38')}
@@ -569,7 +605,6 @@ body.go #sub { animation: pv-rise .5s cubic-bezier(.2,.8,.2,1) .3s both; }
 #slide .rule { flex: none; width: 52px; height: 2px; background: ${theme.mark}; transform: scaleX(0); }
 body.go #slide .rule { animation: pv-rule .9s cubic-bezier(.2,.8,.2,1) .05s both; }
 @keyframes pv-rule { from { transform: scaleX(0); } to { transform: none; } }
-#num { font: 600 14px/1 ${body}; letter-spacing: .32em; color: ${theme.muted}; }
 #headline { font-weight: 600; line-height: 1.22; letter-spacing: -.01em; opacity: 0; }
 body.go #headline { animation: pv-soft 1.1s ease .12s both; }
 ${sub('400 20px/1.45')}
@@ -607,6 +642,8 @@ ${patternCss(theme)}
 #photo { position: absolute; inset: -2%; z-index: 0; background-size: cover; background-position: center;
   transform: scale(1.04); }
 #photo.soft { inset: -8%; filter: blur(18px) saturate(1.1); }
+#photo.backdrop { inset: -14%; background-size: 180%; filter: blur(36px) saturate(1.3); }
+body.bd #shade { opacity: .72; }
 #shade { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg,
   rgba(0,0,0,.62) 0%, rgba(0,0,0,.42) 30%, rgba(0,0,0,.5) 60%, rgba(0,0,0,.82) 100%); }
 body.go #photo { animation: pv-zoom var(--hold, 4000ms) linear both; }
@@ -626,16 +663,23 @@ body.go #pic { animation: pv-rise .6s cubic-bezier(.2,.8,.2,1) .05s both; }
   ${slidePlate ? `background: ${slidePlate}; padding: 5px 9px; border-radius: 8px;` : ''} }
 #slide { position: absolute; left: 40px; right: 40px; top: 150px; bottom: 250px; z-index: 2;
   display: flex; flex-direction: column; justify-content: center; gap: 18px; }
-#num { font: 700 20px/1 ${heading}; letter-spacing: .14em; color: ${theme.mark}; opacity: 0; }
+#num { display: none; }
 #headline { margin: 0; font-family: ${heading}; font-weight: ${theme.headingWeight}; font-size: 56px;
   line-height: 1.08; letter-spacing: ${theme.upper ? '0' : '-.02em'}; color: ${theme.ink}; overflow-wrap: anywhere;
   ${theme.upper ? 'text-transform: uppercase;' : ''}
   ${theme.template === 'photo' ? 'text-shadow: 0 2px 24px rgba(0,0,0,.6), 0 0 3px rgba(0,0,0,.35);' : ''} }
 #headline .w { display: inline-block; }
-body.go #num { animation: pv-rise .5s cubic-bezier(.2,.8,.2,1) .05s both; }
 @keyframes pv-rise { from { opacity: 0; transform: translateY(.4em); } to { opacity: 1; transform: none; } }
 ${formatCss(theme, body)}
 ${highlightCss(theme)}
+#shot { position: absolute; inset: 0; z-index: 5; overflow: hidden; background: ${theme.card}; }
+#shot.off { display: none; }
+#shot i { position: absolute; inset: 0; background-size: cover; background-position: center; }
+body.go #shot i { animation: var(--move, mv-in) var(--hold, 4000ms) cubic-bezier(.33,.1,.4,1) both; }
+@keyframes mv-in { from { transform: scale(1); } to { transform: scale(1.08); } }
+@keyframes mv-out { from { transform: scale(1.08); } to { transform: scale(1); } }
+@keyframes mv-up { from { transform: scale(1.07) translateY(2%); } to { transform: scale(1.07) translateY(-2%); } }
+@keyframes mv-side { from { transform: scale(1.07) translateX(-2%); } to { transform: scale(1.07) translateX(2%); } }
 .off { visibility: hidden; }
 `
   const brandRow = [
@@ -648,6 +692,11 @@ ${highlightCss(theme)}
   const $ = id => document.getElementById(id);
   const photos = ${JSON.stringify(theme.photos)};
   const alternate = ${theme.alternate ? 'true' : 'false'};
+  const kinetic = ${theme.format === 'kinetic' ? 'true' : 'false'};
+  // Pictures made for some scenes, by segment key; each moves its own way
+  const pictures = ${JSON.stringify(theme.scenePictures)};
+  const moves = ["mv-in", "mv-up", "mv-out", "mv-side"];
+  const crops = ["30% 25%", "75% 70%", "50% 90%", "20% 65%"];
   const meme = ${theme.format === 'meme' ? 'true' : 'false'};
   for (const el of [$("footer"), $("bar")]) if (el) el.textContent = ${JSON.stringify(theme.footer ?? '')};
   // Shrinks the headline until the slide's words (and photo) fit its area
@@ -663,6 +712,17 @@ ${highlightCss(theme)}
     document.body.classList.remove("go");
     // Kinetic type turns every other slide to its alternate colours
     document.body.classList.toggle("alt", alternate && Boolean(scene) && index % 2 === 1);
+    // Kinetic type sets its words in a different place slide by slide
+    document.body.classList.toggle("v1", kinetic && Boolean(scene) && index % 3 === 1);
+    document.body.classList.toggle("v2", kinetic && Boolean(scene) && index % 3 === 2);
+    // A scene with its own picture is that picture, full screen, moving slowly
+    const picture = scene ? pictures[scene.key] : null;
+    const shot = $("shot");
+    if (shot) {
+      shot.classList.toggle("off", !picture);
+      shot.firstChild.style.backgroundImage = picture ? 'url("' + picture + '")' : "none";
+      document.body.style.setProperty("--move", moves[index % moves.length]);
+    }
     const bars = $("bars");
     bars.replaceChildren();
     for (let i = 0; i < total; i++) {
@@ -694,7 +754,8 @@ ${highlightCss(theme)}
     document.body.style.setProperty("--sub-delay", (words.length * 140 + 450) + "ms");
     document.body.style.setProperty("--hold", (scene ? scene.holdMs : 0) + "ms");
     // Their photo behind the slide, in turn; a small one blurred behind and shown whole
-    const photo = scene && photos.length ? photos[index % photos.length] : null;
+    // Each photo shows once: a slide past the last has none
+    const photo = scene && index < photos.length ? photos[index] : null;
     // Or framed, in a meme or a poster
     const frame = $("frame");
     if (frame) {
@@ -704,12 +765,21 @@ ${highlightCss(theme)}
         layer.style.backgroundImage = photo ? 'url("' + photo.dataUrl + '")' : "none";
       document.body.classList.toggle("pic", Boolean(photo));
     }
+    // Or, in a video with pictures made for its scenes, one of those
+    // pictures blurred behind the words, cropped its own way each time
+    const backdrop = scene && !picture && scene.backdrop ? pictures[scene.backdrop] : null;
+    const behind = photo ? photo.dataUrl : backdrop;
     const bg = $("photo"), pic = $("pic");
     if (bg) {
-      bg.classList.toggle("off", !photo);
+      bg.classList.toggle("off", !behind);
       bg.classList.toggle("soft", Boolean(photo && photo.soft));
-      bg.style.backgroundImage = photo ? 'url("' + photo.dataUrl + '")' : "none";
-      $("shade").classList.toggle("off", !photo);
+      bg.classList.toggle("backdrop", Boolean(!photo && backdrop));
+      document.body.classList.toggle("bd", Boolean(!photo && backdrop));
+      bg.style.backgroundImage = behind ? 'url("' + behind + '")' : "none";
+      bg.style.backgroundPosition = !photo && backdrop ? crops[index % crops.length] : "";
+      $("shade").classList.toggle("off", !behind);
+    }
+    if (pic) {
       pic.classList.toggle("off", !(photo && photo.soft));
       pic.style.display = photo && photo.soft ? "block" : "none";
       if (photo && photo.soft) pic.src = photo.dataUrl;
@@ -725,9 +795,9 @@ ${highlightCss(theme)}
   };
   // Decodes every photo before recording, so none appears late in a frame
   const kept = [];
-  window.__ready = () => Promise.all(photos.map(p => {
+  window.__ready = () => Promise.all([...photos.map(p => p.dataUrl), ...Object.values(pictures)].map(src => {
     const img = new Image();
-    img.src = p.dataUrl;
+    img.src = src;
     kept.push(img);
     return img.decode().catch(() => {});
   })).then(() => true);
@@ -741,12 +811,13 @@ ${highlightCss(theme)}
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>${css}</style></head>
 <body class="f-${theme.format}">
-${theme.photos.length > 0 && !framed ? '<div id="photo" class="off"></div><div id="shade" class="off"></div>' : ''}
+${(theme.photos.length > 0 && !framed) || Object.keys(theme.scenePictures).length > 0 ? '<div id="photo" class="off"></div><div id="shade" class="off"></div>' : ''}
 ${theme.photos.length > 0 && framed ? '<div id="frame" class="off"><i></i><b></b></div>' : ''}
 <div id="bars" class="off"></div>
 ${brandRow ? `<div id="brand">${brandRow}</div>` : ''}
 <main id="slide" class="off">${theme.photos.length > 0 && !framed ? '<img id="pic" alt="" class="off">' : ''}${theme.format === 'editorial' ? '<i class="rule"></i>' : ''}<div id="num"></div><h1 id="headline"></h1>${inPage ? '<p id="sub"></p>' : ''}${theme.format === 'editorial' ? '<i class="rule"></i>' : ''}</main>
 ${theme.format === 'poster' && theme.footer ? '<div id="bar"></div>' : ''}
+${Object.keys(theme.scenePictures).length > 0 ? '<div id="shot" class="off"><i></i></div>' : ''}
 </body></html>`
   return { html, script }
 }

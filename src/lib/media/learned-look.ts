@@ -98,10 +98,37 @@ export type SeriesPlace = {
   position: number
   total: number
   anchor: 'cover' | 'slide' | 'self' | null
+  /** A carousel's slides (the default), or the still scenes of a short video. */
+  medium?: 'carousel' | 'video'
+}
+
+/** The lines that make an image one scene of a short video. Pure, for tests. */
+function videoSceneLines(series: SeriesPlace, platformName: string): string {
+  const which =
+    series.position === 1
+      ? `the opening scene, 1 of ${series.total},`
+      : `scene ${series.position} of ${series.total}`
+  const lead = `This image is ${which} of one ${platformName} short vertical video made of still scenes, each filling the whole screen in turn.`
+  const rest =
+    'Do not number the scene, and draw no arrows, swipe hints, play buttons, progress bars or video player controls.'
+  switch (series.anchor) {
+    case 'cover':
+    case 'slide':
+      return `${lead} The first attached image is ${
+        series.anchor === 'cover'
+          ? 'its opening scene'
+          : 'another of its scenes'
+      }: keep its colours, typefaces, type sizes, finish and wordmark, so the scenes read as one video, but show a different moment, framed differently; only what the scene shows and its words change. ${rest}`
+    case 'self':
+      return `${lead} The first attached image is this scene as it is now: make it again with the same design, changing only the words and what it shows to what is described here. ${rest}`
+    default:
+      return `${lead} The other scenes will be made to match it, so give it a clear look that a whole video can follow. ${rest}`
+  }
 }
 
 /** The lines that make an image one slide of a set. Pure, for tests. */
 export function seriesLines(series: SeriesPlace, platformName: string): string {
+  if (series.medium === 'video') return videoSceneLines(series, platformName)
   const which =
     series.position === 1
       ? `the cover, slide 1 of ${series.total},`

@@ -1,6 +1,6 @@
 import 'server-only'
 
-import type { LookDesign } from '~/lib/ai/skills/look-design'
+import type { LookCorner, LookDesign } from '~/lib/ai/skills/look-design'
 import { designLookSeries } from '~/lib/ai/skills/look-series'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import type { BrandRendering } from '~/lib/media/brand-assets'
@@ -133,6 +133,10 @@ interface MakeOne {
   brand: BrandRendering
   reviewText: string
   accountName: string
+  /** The image's size; a carousel slide's by default. */
+  target?: { width: number; height: number }
+  /** A carousel's slides (the default), or a short video's scenes. */
+  medium?: SeriesPlace['medium']
   abortSignal?: AbortSignal
 }
 
@@ -150,10 +154,11 @@ async function makeOne(
     series: {
       position: req.position,
       total: req.total,
-      anchor: req.anchor?.kind ?? null
+      anchor: req.anchor?.kind ?? null,
+      ...(req.medium ? { medium: req.medium } : {})
     },
     platformName: PLATFORMS[req.platform].name,
-    target: SLIDE_SIZE,
+    target: req.target ?? SLIDE_SIZE,
     brand: req.brand,
     postText: req.reviewText,
     accountName: req.accountName,
@@ -197,12 +202,24 @@ export async function makeLookSlides(req: {
   context: MediaBriefContext
   accountName: string
   direction?: string | null
+  /** The images' size; a carousel slide's by default (a video's scenes are 9:16). */
+  target?: { width: number; height: number }
+  /** Added to every slide's scene, such as where words must stay. */
+  sceneNote?: string
+  /** A carousel's slides (the default), or a short video's scenes. */
+  medium?: SeriesPlace['medium']
+  /**
+   * Where the logo goes when the examples keep one, whatever corner they
+   * keep it in (a video's buttons cover its lower corners).
+   */
+  logoCorner?: Exclude<LookCorner, 'none'>
   abortSignal?: AbortSignal
 }): Promise<
   { slides: LookSlide[]; usage: CallUsage } | { error: string; usage: CallUsage }
 > {
   let usage = EMPTY_USAGE
   const platformName = PLATFORMS[req.platform].name
+  const target = req.target ?? SLIDE_SIZE
   const shown = await withSmallCopies(req.examples)
 
   const designed = await designLookSeries(
@@ -214,7 +231,7 @@ export async function makeLookSlides(req: {
         body: s.body,
         idea: s.imagePrompt
       })),
-      platform: { name: platformName, shape: shapeWords(SLIDE_SIZE) },
+      platform: { name: platformName, shape: shapeWords(target) },
       context: req.context,
       examples: shown.map(e => ({
         data: e.small,
@@ -238,9 +255,14 @@ export async function makeLookSlides(req: {
     kind: series.kind,
     styleNotes: series.styleNotes,
     examples: series.examples,
-    logoCorner: series.logoCorner,
+    logoCorner:
+      req.logoCorner && series.logoCorner !== 'none'
+        ? req.logoCorner
+        : series.logoCorner,
     wordmark: series.wordmark,
-    scene: series.slides[i]?.scene || slide.imagePrompt,
+    scene: [series.slides[i]?.scene || slide.imagePrompt, req.sceneNote]
+      .filter(Boolean)
+      .join(' '),
     concept: series.slides[i]?.concept || slide.headline
   }))
   const reviewText = carouselReviewText(req.caption, req.slides)
@@ -257,6 +279,8 @@ export async function makeLookSlides(req: {
       brand: req.brand,
       reviewText,
       accountName: req.accountName,
+      target,
+      medium: req.medium,
       abortSignal: req.abortSignal
     })
 

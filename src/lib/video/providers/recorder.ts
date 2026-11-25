@@ -7,6 +7,7 @@ import { loadBrandTheme } from '~/lib/ai/context'
 import { loadBrandLogo } from '~/lib/media/brand-assets'
 import { logoTone, toDataUrl } from '~/lib/media/brand-logo'
 import { loadCanvasFonts } from '~/lib/media/canvas/fonts'
+import { loadImageBytes } from '~/lib/media/image-store'
 import { videoLookFor } from '../look-source'
 import { findBrowser, findFfmpeg } from '../render/binaries'
 import { brandedLook, PACE_FACTOR } from '../render/look'
@@ -34,8 +35,31 @@ function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
   return next
 }
 
+/** The scene pictures as data URLs, by segment key; one that cannot be read is left out. */
+async function scenePictures(
+  scenes: Array<{ key: string; url: string }>
+): Promise<Record<string, string>> {
+  const loaded = await Promise.all(
+    scenes.map(async s => {
+      const bytes = await loadImageBytes(s.url).catch(err => {
+        console.warn('A scene picture could not be read:', err)
+        return null
+      })
+      return bytes
+        ? ([s.key, toDataUrl(bytes.buffer, bytes.mediaType)] as const)
+        : null
+    })
+  )
+  return Object.fromEntries(loaded.filter(e => e !== null))
+}
+
 export const recorder: VideoRecorder = {
-  async render({ prompt, accountId, platform }): Promise<RenderedVideo> {
+  async render({
+    prompt,
+    accountId,
+    platform,
+    scenes = []
+  }): Promise<RenderedVideo> {
     const plan = parsePlan(prompt)
     // First, so a function deployed without them says so before any work.
     const ffmpeg = await findFfmpeg()
@@ -60,7 +84,8 @@ export const recorder: VideoRecorder = {
       logo: logoBytes ? toDataUrl(logoBytes, 'image/png') : null,
       logoTone: logoBytes ? await logoTone(logoBytes).catch(() => null) : null,
       look,
-      photos: choice.photos
+      photos: choice.photos,
+      scenePictures: await scenePictures(scenes)
     })
     const paced = withPace(plan, PACE_FACTOR[look.pace])
 
@@ -87,7 +112,8 @@ export const recorder: VideoRecorder = {
             lookStamp: choice.stamp,
             lookFrom: choice.from,
             template: look.template,
-            format: theme.format
+            format: theme.format,
+            scenePictures: Object.keys(theme.scenePictures).length
           }
         }
       } finally {

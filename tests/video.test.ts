@@ -567,3 +567,137 @@ describe('a video built like their recent posts', () => {
     assert.match(none, /None could be read\./)
   })
 })
+
+describe('a video with pictures made for its scenes', () => {
+  const brand = { primaryColor: '#ff5219', accentColor: '#ffffff', backgroundColor: '#ffffff', footerText: '@brand' }
+  const picture = 'data:image/jpeg;base64,AA=='
+  const post = {
+    hook: 'salary week',
+    body: 'fridge khaali\n\nwallet khaali\n\nbut cravings full',
+    cta: 'tag that friend',
+    payload: {
+      shots: [
+        { show: 'A tired worker on a sofa at night.', onScreenText: 'salary aane se pehle wala week' },
+        { show: 'An almost empty fridge.', onScreenText: 'fridge: khaali' },
+        { show: 'An upside-down wallet.', onScreenText: 'wallet: khaali' },
+        { show: 'Food floating around a dreamer.', onScreenText: 'cravings: 100% full' },
+        { show: 'Friends sharing a plate.', onScreenText: 'tag that friend' }
+      ]
+    }
+  }
+
+  it("keeps each shot's picture brief in the plan, and drops a caption that only repeats the words", async () => {
+    const { parsePlan, planVideo } = await import('../src/lib/video/render/plan')
+    const plan = planVideo({ post })
+    assert.equal(plan.intro.visual, 'A tired worker on a sofa at night.')
+    assert.equal(plan.scenes[0]!.visual, 'An almost empty fridge.')
+    assert.equal(plan.outro?.visual, 'Friends sharing a plate.')
+    assert.equal(plan.scenes[0]!.caption, undefined, '"fridge: khaali" and "fridge khaali" are the same words')
+    assert.equal(plan.scenes[2]!.caption, 'but cravings full')
+    assert.deepEqual(parsePlan(JSON.stringify(plan)), plan)
+  })
+
+  it('pictures the hook and lines spread through the middle, at most three, never the call to action', async () => {
+    const { MAX_SCENE_PICTURES, pickSceneSegments, planVideo } = await import('../src/lib/video/render/plan')
+    const plan = planVideo({ post })
+    const picks = pickSceneSegments(plan)
+    assert.equal(MAX_SCENE_PICTURES, 3)
+    assert.deepEqual(picks.map(p => p.key), ['intro', 'slide-1', 'slide-3'])
+    assert.deepEqual(picks.map(p => p.role), ['cover', 'content', 'content'])
+    assert.equal(picks[1]!.visual, 'An almost empty fridge.')
+    assert.deepEqual(pickSceneSegments(plan, 1).map(p => p.key), ['intro'])
+    assert.deepEqual(pickSceneSegments(plan, 0), [])
+    const short = planVideo({ post: { hook: 'Just a hook.', body: '', cta: '' } })
+    assert.deepEqual(pickSceneSegments(short).map(p => p.key), ['intro'])
+  })
+
+  it('sits every other scene on a picture blurred, never one shown next to it', async () => {
+    const { backdropKeys } = await import('../src/lib/video/render/plan')
+    assert.deepEqual(
+      backdropKeys(['intro', 'slide-1', 'slide-2', 'slide-3', 'outro'], ['intro', 'slide-1', 'slide-3']),
+      { 'slide-2': 'intro', outro: 'slide-1' }
+    )
+    assert.deepEqual(
+      backdropKeys(['intro', 's1', 's2', 's3', 's4', 'outro'], ['intro', 's2', 's3']),
+      { s1: 's3', s4: 's2', outro: 's3' }
+    )
+    // One picture only: the nearest, there being no other
+    assert.deepEqual(backdropKeys(['intro', 'outro'], ['intro']), { outro: 'intro' })
+    assert.deepEqual(backdropKeys(['intro', 'outro'], []), {})
+  })
+
+  it('blends scenes into each other, a different way each time', async () => {
+    const { TRANSITIONS, transitionInto } = await import('../src/lib/video/render/record')
+    assert.equal(transitionInto(1), TRANSITIONS[0])
+    assert.notEqual(transitionInto(1), transitionInto(2))
+    assert.equal(transitionInto(TRANSITIONS.length + 1), TRANSITIONS[0])
+  })
+
+  it('shows no old post photo, plays slides and memes as type, and sets words white over pictures', async () => {
+    const { cleanVideoLook } = await import('../src/lib/video/render/look')
+    const { contrastRatio } = await import('../src/lib/brand/theme')
+    const { videoThemeFor } = await import('../src/lib/video/render/page')
+    const scenePictures = { intro: picture }
+    const photos = [{ dataUrl: picture, width: 1080, height: 1350 }]
+    for (const format of ['slides', 'meme', 'poster', 'kinetic', 'editorial']) {
+      const theme = videoThemeFor(brand, {
+        look: cleanVideoLook({ format, template: 'cards', photos: [1] }, 1),
+        photos,
+        scenePictures
+      })
+      assert.equal(theme.photos.length, 0, `${format}: no old post photo`)
+      assert.equal(theme.pattern, 'none', `${format}: no pattern`)
+      assert.equal(theme.template, 'photo', `${format}: words over a darkened picture`)
+      assert.equal(theme.ink, '#ffffff')
+      if (format === 'slides' || format === 'meme') assert.equal(theme.format, 'kinetic', format)
+      else assert.equal(theme.format, format)
+    }
+    const theme = videoThemeFor(brand, { look: cleanVideoLook({ format: 'kinetic', highlight: 'marker' }, 0), scenePictures })
+    assert.equal(theme.highlightInk, '#ff5219', "key words in the brand's colour, as the pictures set theirs")
+    assert.ok(contrastRatio(theme.highlightText, theme.highlightBackground) >= 4.5)
+    // Without pictures, the look is as before
+    assert.equal(videoThemeFor(brand, { look: cleanVideoLook({ format: 'poster' }, 0) }).template, 'cards')
+  })
+
+  it('puts each picture full screen with a camera move, and no slide numbers anywhere', async () => {
+    const { cleanVideoLook, VIDEO_FORMATS } = await import('../src/lib/video/render/look')
+    const { stageDocument, videoThemeFor } = await import('../src/lib/video/render/page')
+    const pictured = stageDocument(videoThemeFor(brand, { look: cleanVideoLook({ format: 'kinetic' }, 0), scenePictures: { intro: picture } }))
+    assert.match(pictured.html, /<div id="shot" class="off"><i><\/i><\/div>/)
+    assert.match(pictured.html, /id="photo"/, 'the blurred backdrop layer')
+    assert.match(pictured.script, /"intro":"data:image\/jpeg;base64,AA=="/)
+    assert.match(pictured.html, /@keyframes mv-in/)
+    for (const format of VIDEO_FORMATS) {
+      const { html } = stageDocument(videoThemeFor(brand, { look: cleanVideoLook({ format }, 0) }))
+      assert.match(html, /#num \{ display: none; \}/, `${format}: no number`)
+      assert.doesNotMatch(html, /id="shot"/, `${format}: no picture layer without pictures`)
+    }
+  })
+
+  it('tells the image model these are scenes of a video, and keeps carousel slides as they were', async () => {
+    const { seriesLines } = await import('../src/lib/media/learned-look')
+    const video = seriesLines({ position: 2, total: 3, anchor: 'cover', medium: 'video' }, 'Instagram')
+    assert.match(video, /scene 2 of 3 of one Instagram short vertical video/)
+    assert.match(video, /its opening scene/)
+    assert.match(video, /play buttons, progress bars or video player controls/)
+    assert.doesNotMatch(video, /carousel/)
+    const slide = seriesLines({ position: 2, total: 3, anchor: 'cover' }, 'Instagram')
+    assert.match(slide, /slide 2 of 3 of one Instagram carousel/)
+  })
+
+  it('leaves out a picture whose words or claims came out wrong, not one with a small flaw', async () => {
+    const { isBlockingLookIssue, lookIssues } = await import('../src/lib/ai/skills/look-review/prompt')
+    const issues = lookIssues({
+      textErrors: ['the smaller line reads "but wallet: 0%"'],
+      extraText: ['MENU on a flyer'],
+      inventedFacts: ['an empty wallet'],
+      foreignMarks: ['a cola logo'],
+      copiedFromExamples: [],
+      artifacts: [],
+      artifactsNoticeable: false,
+      matchesExamples: false,
+      summary: ''
+    } as never)
+    assert.deepEqual(issues.map(isBlockingLookIssue), [true, false, true, true, false])
+  })
+})
