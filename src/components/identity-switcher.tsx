@@ -5,9 +5,10 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
 import { IDENTITIES_PATH, NEW_IDENTITY_PATH } from '@/lib/identity-path'
+import { pathAfterSwitch } from '@/lib/identity-switch-path'
 import { Check, ChevronsUpDown, Loader2, Plus, Settings2 } from 'lucide-react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useEffect, useId, useRef, useState, useTransition } from 'react'
 
 /** An identity as the switcher lists it. */
@@ -32,15 +33,6 @@ export function initialsOf(name: string) {
 }
 
 /**
- * Pages that show one identity's item (a post, a run): after a switch they
- * would show "not found", so the list they belong to opens instead.
- */
-function pathAfterSwitch(pathname: string): string | null {
-  const match = /^\/(posts|runs|ideas)\/[^/]+/.exec(pathname)
-  return match ? `/${match[1]}` : null
-}
-
-/**
  * Which identity the app is working on, at the top of the sidebar, and the
  * way to switch to another or create one. Everything (goals, ideas, posts,
  * connections) is the active identity's.
@@ -55,7 +47,6 @@ export function IdentitySwitcher({
   collapsed?: boolean
 }) {
   const router = useRouter()
-  const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [pending, startTransition] = useTransition()
   const [switchingTo, setSwitchingTo] = useState<string | null>(null)
@@ -97,7 +88,12 @@ export function IdentitySwitcher({
       }
       setOpen(false)
       markDataChanged()
-      const next = pathAfterSwitch(pathname)
+      // A page of the old identity's item opens its list instead
+      // (src/lib/identity-switch-path.ts).
+      const next = pathAfterSwitch(
+        window.location.pathname,
+        window.location.search
+      )
       if (next) router.push(next)
       router.refresh()
     })

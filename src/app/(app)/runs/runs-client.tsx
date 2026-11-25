@@ -4,6 +4,7 @@ import { useEffect, useOptimistic, useState, useTransition } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
+  ArrowLeft,
   Calculator,
   CalendarDays,
   ChevronRight,
@@ -308,6 +309,17 @@ export function RunsClient({
     // Fills the app's main area, top to bottom and edge to edge, as a run does.
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
+        // Run Details opens from Ideas, the runs' results.
+        preTitle={
+          <Link
+            href="/ideas"
+            aria-label="Back to Ideas"
+            title="Back to Ideas"
+            className="text-muted hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-lg"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        }
         title="Run Details"
         description="Research, ideas and cost of every run"
         actions={generateButton}

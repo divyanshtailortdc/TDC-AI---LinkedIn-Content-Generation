@@ -57,7 +57,11 @@ import {
 } from '~/lib/media/image-store'
 import type { LookExample } from '~/lib/media/learned-look'
 import type { PlatformId } from '~/lib/platforms'
-import { loadLookExamples } from '~/lib/visual-examples/store'
+import type { RecentLook } from '~/lib/visual-examples/recent'
+import {
+  loadLookExamples,
+  loadRecentLooks
+} from '~/lib/visual-examples/store'
 import { clampWords, cleanSlideText, slideFactIssues } from './checks'
 import {
   drawCarousel,
@@ -175,6 +179,8 @@ export async function buildCarouselRows(input: {
         context: buildMediaBriefContext(input.ctx, input.idea),
         accountName: input.ctx.account.name,
         direction: input.instruction,
+        // Written again, the post's own carousel is not counted as another post's.
+        recentLooks: await recentLooksFor(input.ctx.account.id, platform, input.draftId),
         abortSignal: input.abortSignal
       })
       usage = addUsage(usage, made.usage)
@@ -785,6 +791,20 @@ async function lookExamplesFor(
     console.warn('Could not load the example posts:', err)
     return []
   })
+}
+
+/** The looks of the account's latest posts on `platform`, other than `draftId`; none when they cannot be read. */
+async function recentLooksFor(
+  accountId: string,
+  platform: PlatformId,
+  draftId: string
+): Promise<RecentLook[]> {
+  return loadRecentLooks(accountId, platform, { excludeDraftId: draftId }).catch(
+    err => {
+      console.warn('Could not load the latest looks:', err)
+      return []
+    }
+  )
 }
 
 /**

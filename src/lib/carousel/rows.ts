@@ -59,6 +59,8 @@ export interface SlideLook {
   styleNotes: string
   /** The examples followed, 1-based, as loadLookExamples lists them. */
   examples: number[]
+  /** The same examples by id (visual_examples), so later posts can tell which looks were used. */
+  exampleIds?: string[]
   logoCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
   /** The account's name is set on the slide as its wordmark. */
   wordmark: boolean
@@ -80,6 +82,9 @@ export function slideLookOf(row: Pick<PostSlide, 'metadata'>): SlideLook | null 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const look = raw as Record<string, unknown>
   if (typeof look.styleNotes !== 'string' || !look.styleNotes.trim()) return null
+  const exampleIds = Array.isArray(look.exampleIds)
+    ? look.exampleIds.filter((id): id is string => typeof id === 'string')
+    : []
   return {
     kind: look.kind === 'photo' ? 'photo' : 'graphic',
     styleNotes: look.styleNotes,
@@ -95,7 +100,8 @@ export function slideLookOf(row: Pick<PostSlide, 'metadata'>): SlideLook | null 
       : 'none',
     wordmark: look.wordmark === true,
     scene: typeof look.scene === 'string' ? look.scene : '',
-    concept: typeof look.concept === 'string' ? look.concept : ''
+    concept: typeof look.concept === 'string' ? look.concept : '',
+    ...(exampleIds.length > 0 ? { exampleIds } : {})
   }
 }
 

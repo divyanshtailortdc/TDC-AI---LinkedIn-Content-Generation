@@ -92,23 +92,42 @@ export function countEmDashes(text: string): number {
   return (text.match(/—/g) || []).length
 }
 
-/** Text between quotation marks: copying a source is fine when it is a quote. */
+/**
+ * Text between quotation marks blanked out, keeping every other character
+ * where it was: copying a source is fine when it is a quote.
+ */
 function withoutQuotedText(text: string): string {
-  return text.replace(/“[^”]*”/g, ' ').replace(/"[^"]*"/g, ' ')
+  const blank = (quoted: string) => ' '.repeat(quoted.length)
+  return text.replace(/“[^”]*”/g, blank).replace(/"[^"]*"/g, blank)
+}
+
+/** The words of `text` as `words` splits them, each with where it is in `text`. */
+function wordSpans(
+  text: string
+): Array<{ word: string; start: number; end: number }> {
+  const spans: Array<{ word: string; start: number; end: number }> = []
+  for (const match of text.matchAll(/[\p{L}\p{N}“”"‘’']+/gu)) {
+    const word = match[0].toLowerCase().replace(/[“”"‘’']/g, '')
+    if (word)
+      spans.push({ word, start: match.index, end: match.index + match[0].length })
+  }
+  return spans
 }
 
 /**
- * The longest run of words the post shares with any one source, and that
- * source's text. Quoted passages are left out of the post first.
+ * The longest run of words the post shares with any one source: its length,
+ * and its text as the post wrote it ("61% of B2B…", not "61 of b2b…").
+ * Quoted passages are left out of the post first.
  */
 export function longestSharedRun(
   post: string,
   sources: string[]
 ): { length: number; text: string } {
-  const postWords = words(withoutQuotedText(post))
+  const postSpans = wordSpans(withoutQuotedText(post))
+  const postWords = postSpans.map(span => span.word)
   let best = { length: 0, text: '' }
   for (const source of sources) {
-    const sourceWords = words(source)
+    const sourceWords = wordSpans(source).map(span => span.word)
     if (sourceWords.length === 0) continue
     const starts = new Map<string, number[]>()
     sourceWords.forEach((w, i) => {
@@ -126,7 +145,12 @@ export function longestSharedRun(
         )
           k++
         if (k > best.length) {
-          best = { length: k, text: postWords.slice(i, i + k).join(' ') }
+          best = {
+            length: k,
+            text: post
+              .slice(postSpans[i]!.start, postSpans[i + k - 1]!.end)
+              .replace(/\s+/g, ' ')
+          }
         }
       }
     }

@@ -14,21 +14,23 @@ import { IDENTITIES_PATH, IDENTITY_PATH } from '@/lib/identity-path'
 import { useIdeasToReview } from '@/lib/ideas-badge'
 import { INBOX_PATH } from '@/lib/inbox-path'
 import { NEWSLETTERS_PATH } from '@/lib/newsletters-path'
+import { PUBLISHED_PATH } from '@/lib/published-content'
 import { SIDEBAR_COLLAPSED_COOKIE } from '@/lib/sidebar-pref'
 import {
+  BookOpenText,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  FileText,
   Inbox,
   LayoutDashboard,
   Lightbulb,
+  MessageSquareText,
   Newspaper,
   Palette,
-  Play,
   Plus,
   Search,
+  Send,
   Settings,
   Target,
   UserRound,
@@ -62,6 +64,11 @@ function isSubNavActive(pathname: string, { href, exact }: SubNavItem) {
   return !exact && pathname.startsWith(`${href}/`)
 }
 
+/** A page or a page under it, by whole segments (/posts is not /published). */
+function isPathActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
 // In the order the work moves: find newsletters and subscribe, then read
 // what arrives. Its stories go to the Knowledge base on their own (Account
 // Setup → Knowledge → From newsletters), so there is no page for them here.
@@ -71,19 +78,33 @@ const newsletterNavItems: SubNavItem[] = [
   { href: INBOX_PATH, label: 'Inbox', icon: Inbox }
 ]
 
-// In the order work moves: the newsletters that come in, the runs and posts
-// they produce, then when each post goes out. Goals and Ideas sit under
-// Account Setup.
-const primaryNavItems = [
+// Content Creation is what gets made: the ideas both kinds of content start
+// from, then the two content types, each with its own workflow. Run Details
+// (the runs that make ideas) opens from the Ideas page, so Ideas stays marked
+// on it.
+const contentNavItems: Array<{
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  /** Other pages that belong to this entry. */
+  alsoActiveOn?: string[]
+}> = [
+  { href: '/ideas', label: 'Ideas', icon: Lightbulb, alsoActiveOn: ['/runs'] },
+  { href: '/posts', label: 'Social Media Posts', icon: MessageSquareText },
+  { href: '/blogs', label: 'Blogs & Articles', icon: BookOpenText }
+]
+
+// Publishing is where and when content goes out, whatever its type: the
+// schedule of posts, everything already out, and the newsletters that come in.
+const publishingNavItems = [
+  { href: '/schedule', label: 'Schedule', icon: CalendarDays },
+  { href: PUBLISHED_PATH, label: 'Published Content', icon: Send },
   {
     href: NEWSLETTERS_PATH,
     label: 'Newsletters',
     icon: Newspaper,
     items: newsletterNavItems
-  },
-  { href: '/runs', label: 'Run Details', icon: Play },
-  { href: '/posts', label: 'Posts', icon: FileText },
-  { href: '/schedule', label: 'Schedule', icon: CalendarDays }
+  }
 ]
 
 /** Heading above a group of nav links; a thin divider in the collapsed rail. */
@@ -406,7 +427,6 @@ export function Sidebar({
       icon: hasIdentity ? UserRound : Plus
     },
     { href: '/goals', label: 'Goals', icon: Target },
-    { href: '/ideas', label: 'Ideas', icon: Lightbulb, badge: ideasBadge },
     ...(hasIdentity
       ? [{ href: BRAND_THEME_PATH, label: 'Brand Theme', icon: Palette }]
       : [])
@@ -534,8 +554,23 @@ export function Sidebar({
             collapsed={collapsed}
           />
 
+          <NavSection label="Content Creation" collapsed={collapsed} />
+          {contentNavItems.map(({ href, label, icon, alsoActiveOn = [] }) => (
+            <NavLink
+              key={href}
+              href={href}
+              label={label}
+              icon={icon}
+              active={[href, ...alsoActiveOn].some(path =>
+                isPathActive(pathname, path)
+              )}
+              collapsed={collapsed}
+              badge={href === '/ideas' ? ideasBadge : 0}
+            />
+          ))}
+
           <NavSection label="Publishing" collapsed={collapsed} />
-          {primaryNavItems.map(({ href, label, icon, ...rest }) => {
+          {publishingNavItems.map(({ href, label, icon, ...rest }) => {
             if (rest.items)
               return (
                 <NavGroup
@@ -553,7 +588,7 @@ export function Sidebar({
                 href={href}
                 label={label}
                 icon={icon}
-                active={pathname.startsWith(href)}
+                active={isPathActive(pathname, href)}
                 collapsed={collapsed}
               />
             )

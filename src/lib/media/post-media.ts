@@ -19,7 +19,10 @@ import {
   LIKE_MY_POSTS,
   type ImageStyleChoice
 } from '~/lib/brand/theme'
-import { loadLookExamples } from '@/lib/visual-examples/store'
+import {
+  loadLookExamples,
+  loadRecentLooks
+} from '@/lib/visual-examples/store'
 import type { DiagramForm } from './canvas/spec'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
@@ -154,6 +157,15 @@ export async function createPostMedia(input: {
           return []
         })
       : []
+  // Other posts' latest looks here; this post's own are previousVersions.
+  const recentLooks = examples.length
+    ? await loadRecentLooks(draft.accountId, platform, {
+        excludeDraftId: draft.id
+      }).catch(err => {
+        console.warn('The latest looks could not be loaded:', err)
+        return []
+      })
+    : []
   const ideaDirection = (idea?.suggestedMedia as { brief?: string } | null)
     ?.brief
 
@@ -204,6 +216,7 @@ export async function createPostMedia(input: {
     referenceImage: mode === 'ai_generated' ? input.referenceImage : undefined,
     platform,
     examples,
+    recentLooks,
     abortSignal: input.abortSignal
   })
 

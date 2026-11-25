@@ -1,4 +1,5 @@
 import type { MediaBriefContext } from '@/lib/media/brief-context'
+import type { RecentLookInput } from '@/lib/visual-examples/recent'
 import { z } from 'zod'
 import type { CallUsage } from '../../usage'
 import {
@@ -78,6 +79,8 @@ export type DesignLookSeriesInput = {
   logoFile: boolean
   /** What the reviewer asked for when the carousel was written again. */
   direction?: string | null
+  /** The account's latest images and carousels on this platform, newest first. */
+  recentLooks?: RecentLookInput[]
 }
 
 export type DesignLookSeriesResult =

@@ -17,6 +17,10 @@ import {
   type LogoPlacement
 } from '~/lib/brand/theme'
 import { PLATFORMS, type PlatformId } from '~/lib/platforms'
+import {
+  numberRecentLooks,
+  type RecentLook
+} from '~/lib/visual-examples/recent'
 import type { BrandRendering } from './brand-assets'
 import {
   compositeLogo,
@@ -49,6 +53,8 @@ import {
 
 /** An example post with its bytes, as loadLookExamples gives them. */
 export type LookExample = {
+  /** Its visual_examples row, so the looks made from it can be told apart later. */
+  id?: string
   platform: PlatformId
   source: 'search' | 'buffer' | 'upload'
   data: Buffer
@@ -190,6 +196,8 @@ export type LookPlan = {
   usage: CallUsage
   /** The examples followed, by their place in the list given. */
   followed: number[]
+  /** The same examples by id, where they have one. */
+  followedIds: string[]
 }
 
 /** An example as the models get it: full size for the image model, small for the ones that look. */
@@ -205,7 +213,10 @@ export const withSmallCopies = (examples: LookExample[]): Promise<ShownExample[]
   )
 
 /** A designed image made: everything in a LookPlan but the design call's share. */
-export type LookRender = Omit<LookPlan, 'design' | 'followed' | 'usage'>
+export type LookRender = Omit<
+  LookPlan,
+  'design' | 'followed' | 'followedIds' | 'usage'
+>
 
 /**
  * Draws a design: the image model with the chosen examples attached (after
@@ -383,6 +394,8 @@ export async function createLookImage(req: {
   direction?: string
   previousVersions?: PriorVisual[]
   rejectionReason?: string
+  /** The account's latest looks on this platform, so this one differs. */
+  recentLooks?: RecentLook[]
   seed?: number
   abortSignal?: AbortSignal
 }): Promise<{ plan: LookPlan } | { error: string; usage: CallUsage }> {
@@ -408,7 +421,8 @@ export async function createLookImage(req: {
       logoFile,
       direction: req.direction,
       previousVersions: req.previousVersions,
-      rejectionReason: req.rejectionReason
+      rejectionReason: req.rejectionReason,
+      recentLooks: numberRecentLooks(req.recentLooks ?? [], req.examples)
     },
     { abortSignal: req.abortSignal }
   )
@@ -430,7 +444,10 @@ export async function createLookImage(req: {
   })
   const usage = addUsage(designed.usage, made.usage)
   if ('error' in made) return { error: made.error, usage }
-  return { plan: { ...made.render, design, usage, followed } }
+  const followedIds = followed
+    .map(i => shown[i]?.id)
+    .filter((id): id is string => Boolean(id))
+  return { plan: { ...made.render, design, usage, followed, followedIds } }
 }
 
 /** The style choice that makes images this way. */

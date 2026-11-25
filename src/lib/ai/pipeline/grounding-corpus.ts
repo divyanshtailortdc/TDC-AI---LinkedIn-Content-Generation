@@ -22,7 +22,7 @@ const NOT_A_PRODUCT_LINE = new Set([
  * account's, so the ideation guard accepts them as it accepts the evidence.
  * Goals that were not picked are left out, so their figures are not grounded.
  */
-function accountTextOf(ctx: GenerationContext): string {
+export function accountTextOf(ctx: GenerationContext): string {
   const a = ctx.account
   return [
     a.name,

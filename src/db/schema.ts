@@ -63,6 +63,33 @@ import {
 import type { IdentitySnapshot } from '../lib/identity-change'
 import type { ReferencePost } from '../lib/reference-post/types'
 import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
+import {
+  BLOG_GENERATION_STATUSES,
+  BLOG_KINDS,
+  BLOG_STATUSES,
+  SEARCH_INTENTS,
+  type BlogBrief,
+  type BlogGenerationStage,
+  type BlogGenerationStatus,
+  type BlogKind,
+  type BlogPlan,
+  type BlogReplacedBy,
+  type BlogSnapshot,
+  type BlogSource,
+  type BlogStatus,
+  type BlogVerification,
+  type FaqItem,
+  type FeaturedImage,
+  type InternalLink,
+  type SearchIntent
+} from '../lib/blogs/types'
+import type { BlogDoc } from '../lib/blogs/doc'
+import {
+  BLOG_DESTINATION_IDS,
+  type BlogDestinationId
+} from '../lib/blogs/destinations'
+import type { LintFinding } from '../lib/lint/run-linter'
+import type { CallUsage } from '../lib/ai/usage'
 import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
 import { authUsersTable } from './auth-schema'
 
@@ -814,7 +841,7 @@ export const postRevisionsTable = pgTable(
   {
     id: commonFieldDefs.id(),
     draftId: uuid('draft_id')
-      .notNull()
+      .notNull()    
       .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
     // 1, 2, 3… per post, oldest first.
     number: integer('number').notNull(),
@@ -1962,6 +1989,144 @@ export const onboardingProgressTable = pgTable('onboarding_progress', {
 })
 
 // ---------------------------------------------------------------------------
+// Blogs & articles (1:N with Account) — long-form, SEO-ready pieces
+// ---------------------------------------------------------------------------
+
+/**
+ * A blog post or article for the identity's own website (src/lib/blogs), kept
+ * apart from social posts: written from its brief by
+ * src/lib/ai/pipeline/blog-run.ts, edited in the document editor, then copied
+ * or exported by hand. While a generation runs, `generation_started_at` is its
+ * claim token (src/lib/blogs/claim.ts). `lock_version` goes up with every
+ * write, so a save from a stale tab is refused instead of overwriting.
+ */
+export const blogsTable = pgTable(
+  'blogs',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    // The idea it was started from, if any. Writing a blog never changes the
+    // idea's status, which belongs to the post pipeline.
+    ideaId: uuid('idea_id').references(() => ideasTable.id, {
+      onDelete: 'set null'
+    }),
+    // The goal whose action the call to action serves, if one was chosen.
+    goalId: uuid('goal_id').references(() => goalsTable.id, {
+      onDelete: 'set null'
+    }),
+    kind: varchar('kind', { length: 10 }).$type<BlogKind>().default('blog').notNull(),
+    // Publishing, set by the user: blogs go out by hand, outside the app.
+    status: varchar('status', { length: 20 })
+      .$type<BlogStatus>()
+      .default('draft')
+      .notNull(),
+    generationStatus: varchar('generation_status', { length: 20 })
+      .$type<BlogGenerationStatus>()
+      .default('generating')
+      .notNull(),
+    // What a running generation is doing, for the progress view.
+    generationStage: varchar('generation_stage', { length: 20 }).$type<BlogGenerationStage>(),
+    generationError: text('generation_error'),
+    generationStartedAt: commonFieldDefs.date('generation_started_at'),
+    generatedAt: commonFieldDefs.date('generated_at'),
+    // What was asked for: topic, keywords, length, style, reader, sources.
+    brief: jsonb('brief').$type<BlogBrief>().notNull(),
+    // The page's H1.
+    title: text('title').default('').notNull(),
+    slug: text('slug').default('').notNull(),
+    metaTitle: text('meta_title').default('').notNull(),
+    metaDescription: text('meta_description').default('').notNull(),
+    primaryKeyword: text('primary_keyword').default('').notNull(),
+    // Secondary keywords.
+    keywords: jsonb('keywords').$type<string[]>().default([]).notNull(),
+    // What the person searching wants; empty for blogs written before it existed.
+    searchIntent: varchar('search_intent', { length: 20 })
+      .$type<SearchIntent | ''>()
+      .default('')
+      .notNull(),
+    // The plan the text was written from (src/lib/ai/skills/blog-planning).
+    plan: jsonb('plan').$type<BlogPlan>(),
+    // The featured image (a storage key or data URL, with its alt text), or
+    // the reason the last attempt failed; null when there is none.
+    featuredImage: jsonb('featured_image').$type<FeaturedImage>(),
+    // The last check of its citations (src/lib/blogs/citations.ts).
+    verification: jsonb('verification').$type<BlogVerification>(),
+    // Pages of the identity's site the text links, or could.
+    internalLinks: jsonb('internal_links')
+      .$type<InternalLink[]>()
+      .default([])
+      .notNull(),
+    // The body as TipTap document JSON (src/lib/blogs/doc.ts): H2/H3 only.
+    content: jsonb('content')
+      .$type<BlogDoc>()
+      .default({ type: 'doc', content: [] })
+      .notNull(),
+    faq: jsonb('faq').$type<FaqItem[]>().default([]).notNull(),
+    // The evidence it was written from, the cited ones marked; reused when
+    // regenerating without new research.
+    sources: jsonb('sources').$type<BlogSource[]>().default([]).notNull(),
+    wordCount: integer('word_count').default(0).notNull(),
+    // The latest truth, writing and SEO checks, as of the last write.
+    checks: jsonb('checks').$type<LintFinding[]>().default([]).notNull(),
+    selfFlags: jsonb('self_flags').$type<string[]>().default([]).notNull(),
+    // What every generation and rewrite of it has cost, summed.
+    usage: jsonb('usage').$type<Partial<CallUsage>>().default({}).notNull(),
+    model: varchar('model', { length: 100 }),
+    lockVersion: integer('lock_version').default(1).notNull(),
+    publishedUrl: text('published_url'),
+    publishedAt: commonFieldDefs.date('published_at'),
+    // Where it went out: a website or CMS (src/lib/blogs/destinations.ts),
+    // never a social platform. Null for a draft, and for a blog marked
+    // published before the app asked where.
+    publishedTo: varchar('published_to', { length: 20 }).$type<BlogDestinationId>(),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('blogs_account_updated_idx').on(table.accountId, table.updatedAt),
+    check('blogs_kind_check', sql`${table.kind} in (${sqlList(BLOG_KINDS)})`),
+    check('blogs_status_check', sql`${table.status} in (${sqlList(BLOG_STATUSES)})`),
+    check(
+      'blogs_generation_status_check',
+      sql`${table.generationStatus} in (${sqlList(BLOG_GENERATION_STATUSES)})`
+    ),
+    check(
+      'blogs_published_to_check',
+      sql`${table.publishedTo} is null or ${table.publishedTo} in (${sqlList(BLOG_DESTINATION_IDS)})`
+    ),
+    check(
+      'blogs_search_intent_check',
+      sql`${table.searchIntent} = '' or ${table.searchIntent} in (${sqlList(SEARCH_INTENTS)})`
+    )
+  ]
+)
+
+/**
+ * An earlier version of a blog's text, kept so it can be restored: saved just
+ * before an edit, a regenerate, a section rewrite or a restore overwrites it.
+ */
+export const blogRevisionsTable = pgTable(
+  'blog_revisions',
+  {
+    id: commonFieldDefs.id(),
+    blogId: uuid('blog_id')
+      .notNull()
+      .references(() => blogsTable.id, { onDelete: 'cascade' }),
+    // 1, 2, 3… per blog, oldest first.
+    number: integer('number').notNull(),
+    replacedBy: varchar('replaced_by', { length: 20 }).$type<BlogReplacedBy>().notNull(),
+    // What the user asked for when regenerating or rewriting, if anything.
+    instruction: text('instruction'),
+    snapshot: jsonb('snapshot').$type<BlogSnapshot>().notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    uniqueIndex('blog_revisions_blog_number_uq').on(table.blogId, table.number)
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // Convenience aliases
 // ---------------------------------------------------------------------------
 
@@ -2078,3 +2243,6 @@ export type BufferChannelRow = typeof bufferChannelsTable.$inferSelect
 export type Publication = typeof publicationsTable.$inferSelect
 export type PlatformInsightRow = typeof platformInsightsTable.$inferSelect
 export type AiUsageRow = typeof aiUsageTable.$inferSelect
+export type Blog = typeof blogsTable.$inferSelect
+export type NewBlog = typeof blogsTable.$inferInsert
+export type BlogRevision = typeof blogRevisionsTable.$inferSelect

@@ -1,4 +1,5 @@
 import type { MediaBriefContext } from '@/lib/media/brief-context'
+import type { RecentLookInput } from '@/lib/visual-examples/recent'
 import { z } from 'zod'
 import type { CallUsage } from '../../usage'
 import type { PriorVisual } from '../media-brief/schema'
@@ -103,6 +104,8 @@ export type DesignLookInput = {
   direction?: string
   previousVersions?: PriorVisual[]
   rejectionReason?: string
+  /** The account's latest images and carousels on this platform, newest first. */
+  recentLooks?: RecentLookInput[]
 }
 
 export type DesignLookResult =

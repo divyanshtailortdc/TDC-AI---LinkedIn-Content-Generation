@@ -22,7 +22,10 @@ import {
   type LintOptions
 } from '~/lib/lint/run-linter'
 import { DEFAULT_BRAND_THEME, LIKE_MY_POSTS } from '@/lib/brand/theme'
-import { loadLookExamples } from '@/lib/visual-examples/store'
+import {
+  loadLookExamples,
+  loadRecentLooks
+} from '@/lib/visual-examples/store'
 import {
   createMediaPlan,
   planHasImage,
@@ -660,6 +663,14 @@ async function planPostImage(
             return []
           })
         : []
+    // The looks of the account's latest posts here, so this one differs
+    // from them; they stand in for previousVersions, which are other posts'.
+    const recentLooks = examples.length
+      ? await loadRecentLooks(ctx.account.id, platformId).catch(err => {
+          console.warn('The latest looks could not be loaded:', err)
+          return []
+        })
+      : []
     mediaPlan = await createMediaPlan({
       mode: mediaMode,
       postText,
@@ -673,7 +684,8 @@ async function planPostImage(
       brand: brandRendering,
       platform: platformId,
       examples,
-      previousVersions,
+      previousVersions: examples.length ? undefined : previousVersions,
+      recentLooks,
       // The post's own picture idea when it has one, else the idea's visual
       // direction, written at ideation.
       direction: visualIdea || suggested.brief || undefined

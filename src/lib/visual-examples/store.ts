@@ -1,7 +1,12 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { visualExamplesTable } from '@/db/schema'
+import {
+  postDraftsTable,
+  postMediaTable,
+  postSlidesTable,
+  visualExamplesTable
+} from '@/db/schema'
 import { imageSize } from '@/lib/media/brand-logo'
 import {
   deleteStoredImages,
@@ -11,9 +16,10 @@ import {
 } from '@/lib/media/image-store'
 import type { LookExample } from '@/lib/media/learned-look'
 import type { PlatformId } from '@/lib/platforms'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import { pickLookExamples, type StoredExample } from './pick'
+import { RECENT_LOOKS_SHOWN, recentLookOf, type RecentLook } from './recent'
 import {
   LEARNED_SOURCES,
   UPLOAD_TYPES,
@@ -245,8 +251,9 @@ export async function loadLookExamples(
   platform: PlatformId
 ): Promise<LookExample[]> {
   const t = visualExamplesTable
-  const rows: StoredExample[] = await db
+  const rows: Array<StoredExample & { id: string }> = await db
     .select({
+      id: t.id,
       platform: t.platform,
       source: t.source,
       imageUrl: t.imageUrl,
@@ -267,6 +274,7 @@ export async function loadLookExamples(
             ? { width: row.width, height: row.height }
             : await imageSize(bytes.buffer)
         return {
+          id: row.id,
           platform: row.platform,
           source: row.source,
           data: bytes.buffer,
@@ -280,5 +288,68 @@ export async function loadLookExamples(
       }
     })
   )
-  return loaded.filter((e): e is LookExample => e !== null)
+  return loaded.filter(e => e !== null)
+}
+
+/**
+ * The looks of the account's latest images and carousels made like its
+ * posts on `platform`, newest first: each image as it stands, each carousel
+ * by its cover. `excludeDraftId` leaves out the post being made again,
+ * whose own earlier images are told apart elsewhere.
+ */
+export async function loadRecentLooks(
+  accountId: string,
+  platform: PlatformId,
+  options: { excludeDraftId?: string; limit?: number } = {}
+): Promise<RecentLook[]> {
+  const limit = options.limit ?? RECENT_LOOKS_SHOWN
+  const d = postDraftsTable
+  const ofPlatform = and(
+    eq(d.accountId, accountId),
+    eq(d.platform, platform),
+    options.excludeDraftId ? ne(d.id, options.excludeDraftId) : undefined
+  )
+  const m = postMediaTable
+  const s = postSlidesTable
+  const [images, covers] = await Promise.all([
+    db
+      .select({
+        look: sql<unknown>`${m.metadata}->'look'`,
+        concept: m.promptOrQuery,
+        at: m.createdAt
+      })
+      .from(m)
+      .innerJoin(d, eq(m.draftId, d.id))
+      .where(
+        and(
+          ofPlatform,
+          eq(m.status, 'active'),
+          sql`${m.metadata}->'look' is not null`
+        )
+      )
+      .orderBy(desc(m.createdAt))
+      .limit(limit),
+    db
+      .select({ look: sql<unknown>`${s.metadata}->'look'`, at: s.createdAt })
+      .from(s)
+      .innerJoin(d, eq(s.draftId, d.id))
+      .where(
+        and(ofPlatform, eq(s.position, 1), sql`${s.metadata}->'look' is not null`)
+      )
+      .orderBy(desc(s.createdAt))
+      .limit(limit)
+  ])
+  return [
+    ...images.map(r => ({
+      at: r.at,
+      look: recentLookOf(r.look, { carousel: false, concept: r.concept })
+    })),
+    ...covers.map(r => ({
+      at: r.at,
+      look: recentLookOf(r.look, { carousel: true })
+    }))
+  ]
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .flatMap(r => (r.look ? [r.look] : []))
+    .slice(0, limit)
 }

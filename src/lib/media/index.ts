@@ -33,6 +33,7 @@ import {
   type PictureStyle
 } from '~/lib/brand/theme'
 import type { PlatformId } from '~/lib/platforms'
+import type { RecentLook } from '~/lib/visual-examples/recent'
 import type { BrandRendering } from './brand-assets'
 import {
   compositeLogo,
@@ -122,6 +123,11 @@ export interface MediaPlanRequest {
   allowedTypes?: readonly VisualType[]
   /** Earlier images for this post, newest first. */
   previousVersions?: PriorVisual[]
+  /**
+   * For Like my posts: the looks of the account's latest images and
+   * carousels on this platform (loadRecentLooks), so this one differs.
+   */
+  recentLooks?: RecentLook[]
   rejectionReason?: string
   /** Stock only: images already used, so a search returns something new. */
   excludeUrls?: string[]
@@ -196,6 +202,8 @@ export interface MediaPlanResult {
     styleNotes: string
     text: Array<{ part: string; text: string }>
     examplesFollowed: number
+    /** The examples followed (visual_examples ids), so later images can differ. */
+    exampleIds?: string[]
   }
 }
 
@@ -622,6 +630,7 @@ export async function createMediaPlan(
       direction: req.direction,
       previousVersions: req.previousVersions,
       rejectionReason: req.rejectionReason,
+      recentLooks: req.recentLooks,
       seed: req.seed,
       abortSignal: req.abortSignal
     })
@@ -670,7 +679,8 @@ function lookPlanResult(plan: LookPlan): MediaPlanResult {
       kind: design.kind,
       styleNotes: design.styleNotes,
       text: design.text,
-      examplesFollowed: plan.followed.length
+      examplesFollowed: plan.followed.length,
+      exampleIds: plan.followedIds
     }
   }
 }

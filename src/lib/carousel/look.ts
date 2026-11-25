@@ -18,6 +18,10 @@ import {
 import { shapeWords } from '~/lib/media/reference-prompt'
 import { ImageGenerationAbortedError } from '~/lib/media/render-image'
 import { PLATFORMS, type PlatformId } from '~/lib/platforms'
+import {
+  numberRecentLooks,
+  type RecentLook
+} from '~/lib/visual-examples/recent'
 import type { SlideLook } from './rows'
 import type { SlideContent } from './types'
 
@@ -197,6 +201,8 @@ export async function makeLookSlides(req: {
   context: MediaBriefContext
   accountName: string
   direction?: string | null
+  /** The account's latest looks on this platform, so this set differs. */
+  recentLooks?: RecentLook[]
   abortSignal?: AbortSignal
 }): Promise<
   { slides: LookSlide[]; usage: CallUsage } | { error: string; usage: CallUsage }
@@ -225,7 +231,8 @@ export async function makeLookSlides(req: {
         aspect: exampleAspect(e.width, e.height)
       })),
       logoFile: Boolean(req.brand.theme.showLogo && req.brand.logo),
-      direction: req.direction
+      direction: req.direction,
+      recentLooks: numberRecentLooks(req.recentLooks ?? [], req.examples)
     },
     { abortSignal: req.abortSignal }
   )
@@ -233,11 +240,15 @@ export async function makeLookSlides(req: {
   if (req.abortSignal?.aborted) throw new ImageGenerationAbortedError()
   if (!designed.series) return { error: designed.error, usage }
   const series = designed.series
+  const exampleIds = series.examples
+    .map(n => shown[n - 1]?.id)
+    .filter((id): id is string => Boolean(id))
 
   const looks: SlideLook[] = req.slides.map((slide, i) => ({
     kind: series.kind,
     styleNotes: series.styleNotes,
     examples: series.examples,
+    ...(exampleIds.length > 0 ? { exampleIds } : {}),
     logoCorner: series.logoCorner,
     wordmark: series.wordmark,
     scene: series.slides[i]?.scene || slide.imagePrompt,

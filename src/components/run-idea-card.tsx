@@ -13,6 +13,7 @@ import {
   Flame,
   Link2,
   Loader2,
+  NotebookPen,
   Sparkles,
   Target,
   X
@@ -211,6 +212,9 @@ export function RunIdeaCard({
   const detailTakeaway =
     summaryField !== 'audienceTakeaway' ? idea.audienceTakeaway : null
   const showViewPost = idea.status === 'drafted'
+  // A blog or article can be written from any idea still in play; it never
+  // changes the idea's own status (src/app/(app)/blogs).
+  const showWriteBlog = idea.status !== 'rejected'
   const collapsed = mode === 'view' && !showDetails
   const showCheckbox = !!onSelectChange && isSelectableIdea(idea.status)
   const goals = idea.goalTitles ?? []
@@ -567,7 +571,8 @@ export function RunIdeaCard({
             canReject ||
             canApprove ||
             showDraft ||
-            showViewPost) && (
+            showViewPost ||
+            showWriteBlog) && (
             // mt-auto pins the actions to the bottom edge of the fixed-height card.
             <div className="mt-auto pt-4">
               <div className="border-border flex flex-wrap items-center gap-2 border-t pt-3">
@@ -588,6 +593,18 @@ export function RunIdeaCard({
                   </button>
                 )}
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  {showWriteBlog && (
+                    <Link
+                      href={`/blogs/new?idea=${idea.id}`}
+                      title="Write a blog or article from this idea"
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                    >
+                      <NotebookPen className="h-3.5 w-3.5" />
+                      {/* Narrow cards (phones, two columns) drop "Write a". */}
+                      <span className="max-sm:hidden lg:max-xl:hidden">Write a</span>
+                      blog
+                    </Link>
+                  )}
                   {canReject && (
                     <ConfirmPopover
                       title="Reject this idea?"

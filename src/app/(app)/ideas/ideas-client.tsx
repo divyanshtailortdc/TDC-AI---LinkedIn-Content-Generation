@@ -13,7 +13,7 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, Link2, SquareCheck, Wand2, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, Link2, Play, SquareCheck, Wand2, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import { SimilarPostDialog } from '@/components/similar-post-dialog'
@@ -714,6 +714,16 @@ export function IdeasClient({
                   <span className="hidden sm:inline">From a link</span>
                 </button>
               )}
+              {/* Every run that made ideas: its research, steps and cost. */}
+              <Link
+                href="/runs"
+                title="Every run: its research, the ideas it made and what it cost"
+                className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
+              >
+                <Play className="text-accent h-3.5 w-3.5" />
+                {/* Icon only on phones, so the header's buttons stay on one row. */}
+                <span className="sr-only sm:not-sr-only">Run Details</span>
+              </Link>
               {picker && (
                 <button
                   type="button"

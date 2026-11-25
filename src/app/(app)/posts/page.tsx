@@ -15,7 +15,7 @@ export default async function PostsPage({
   const identity = await getIdentity()
 
   if (!identity) {
-    return <NoIdentity title="Posts" />
+    return <NoIdentity title="Social Media Posts" />
   }
 
   // Opened from a run (?runId=): that run's posts are loaded along with the

@@ -1,4 +1,4 @@
-import { accountsTable, ideasTable, runsTable } from '@/db/schema'
+import { accountsTable, blogsTable, ideasTable, runsTable } from '@/db/schema'
 import { and, eq, getTableColumns } from 'drizzle-orm'
 import type { IdentityDb } from './identity-write'
 import { isUuid } from './ids'
@@ -68,4 +68,24 @@ export async function findOwnedIdea(
     .where(and(eq(ideasTable.id, ideaId), ownedByUser(userId)))
     .limit(1)
   return row?.idea
+}
+
+/** A blog of the user's identity, with that identity's name. */
+export async function findOwnedBlog(
+  database: IdentityDb,
+  userId: string,
+  blogId: unknown
+) {
+  if (!isUuid(blogId)) return undefined
+  const [row] = await database
+    .select({
+      id: blogsTable.id,
+      accountId: blogsTable.accountId,
+      accountName: accountsTable.name
+    })
+    .from(blogsTable)
+    .innerJoin(accountsTable, eq(accountsTable.id, blogsTable.accountId))
+    .where(and(eq(blogsTable.id, blogId), ownedByUser(userId)))
+    .limit(1)
+  return row
 }

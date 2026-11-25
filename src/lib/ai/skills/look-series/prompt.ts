@@ -1,3 +1,4 @@
+import { recentLooksSection, varietyRule } from '../look-design/prompt'
 import type { DesignLookSeriesInput } from './schema'
 
 export const INSTRUCTIONS =
@@ -63,12 +64,16 @@ ${examples}${
       : ''
   }
 
-${section(
+${recentLooksSection(input.platform.name, input.recentLooks)}${section(
     'WHAT THE REVIEWER ASKED FOR — follow it where it is about the look',
     input.direction
   )}HOW TO DESIGN THEM
 - Pick the 1 to 3 examples, all of one kind, that suit slides carrying these words, and follow them closely: if the account's posts are text cards, text cards; if photos with words on them, photos; if illustrations, illustrations.
-- One design for every slide: the same background, colours, typefaces, type sizes and placement, so the slides read as one set. The cover may be the boldest.
+- One design for every slide: the same background, colours, typefaces, type sizes and placement, so the slides read as one set. The cover may be the boldest.${varietyRule(
+    input.recentLooks,
+    input.examples.length,
+    { made: 'the set', carrier: 'these slides' }
+  )}
 - Each slide's words are set exactly as given: the first is its main line, set large; any after it are smaller lines under it, each on its own line. Never add, drop or change words, and never add a heading, label, number or caption of your own. Describe only where the words sit and what is shown with them.
 - Take only the examples' look. Never their words, numbers, people, products, logos or specific objects.
 - A slide whose words carry it shows nothing more than the examples would beside them; do not crowd it with drawings.

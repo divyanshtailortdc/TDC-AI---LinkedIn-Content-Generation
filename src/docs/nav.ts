@@ -108,13 +108,6 @@ export const DOCS_NAV: DocNavSection[] = [
           'What your posts are for, and how goals steer the ideas you get.'
       },
       {
-        title: 'Ideas',
-        icon: 'lightbulb',
-        slug: 'account-setup/ideas',
-        description:
-          'Review, approve or reject the ideas a run proposes, and read their scorecards.'
-      },
-      {
         title: 'Brand Theme',
         icon: 'palette',
         slug: 'account-setup/brand-theme',
@@ -123,25 +116,14 @@ export const DOCS_NAV: DocNavSection[] = [
     ]
   },
   {
-    title: 'Publishing',
+    title: 'Content Creation',
     items: [
       {
-        title: 'Newsletters',
-        icon: 'newspaper',
-        items: [
-          {
-            title: 'Discover',
-            slug: 'publishing/newsletters/discover',
-            description:
-              'Find newsletters on your topics and subscribe your inbox to them.'
-          },
-          {
-            title: 'Inbox',
-            slug: 'publishing/newsletters/inbox',
-            description:
-              'Your identity’s own email address, and the stories read from what arrives.'
-          }
-        ]
+        title: 'Ideas',
+        icon: 'lightbulb',
+        slug: 'account-setup/ideas',
+        description:
+          'Review, approve or reject the ideas a run proposes, and read their scorecards.'
       },
       {
         title: 'Run Details',
@@ -151,8 +133,8 @@ export const DOCS_NAV: DocNavSection[] = [
           'Every run, its steps, the ideas it produced and what it cost.'
       },
       {
-        title: 'Posts',
-        icon: 'post',
+        title: 'Social Media Posts',
+        icon: 'social',
         items: [
           {
             title: 'Overview',
@@ -175,10 +157,47 @@ export const DOCS_NAV: DocNavSection[] = [
         ]
       },
       {
+        title: 'Blogs & Articles',
+        icon: 'pen',
+        slug: 'publishing/blogs',
+        description:
+          'Long-form, SEO-ready pieces for your website, researched and cited.'
+      }
+    ]
+  },
+  {
+    title: 'Publishing',
+    items: [
+      {
         title: 'Schedule',
         icon: 'calendar',
         slug: 'publishing/schedule',
         description: 'When each post goes out, and publishing it.'
+      },
+      {
+        title: 'Published Content',
+        icon: 'send',
+        slug: 'publishing/published-content',
+        description:
+          'Everything published, posts and blogs together, by type and destination.'
+      },
+      {
+        title: 'Newsletters',
+        icon: 'newspaper',
+        items: [
+          {
+            title: 'Discover',
+            slug: 'publishing/newsletters/discover',
+            description:
+              'Find newsletters on your topics and subscribe your inbox to them.'
+          },
+          {
+            title: 'Inbox',
+            slug: 'publishing/newsletters/inbox',
+            description:
+              'Your identity’s own email address, and the stories read from what arrives.'
+          }
+        ]
       }
     ]
   },

@@ -1153,7 +1153,7 @@ export function PostsClientInner({
               <div className="flex items-center gap-3">
                 <MobileNavButton />
                 <h1 className="text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
-                  Posts
+                  Social Media Posts
                 </h1>
                 <span
                   title={`${totalCount - deletedCount} posts in total`}
@@ -1310,7 +1310,7 @@ export function PostsClientInner({
               >
                 {VIEW_OPTIONS.map(({ value, label, Icon }) => (
                   <button
-                    key={value}
+                    key={value} 
                     type="button"
                     aria-pressed={view === value}
                     aria-label={`${label} view`}

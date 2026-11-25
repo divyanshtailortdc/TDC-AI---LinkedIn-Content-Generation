@@ -117,10 +117,16 @@ async function backfillMissingChunks(
 export async function retrieveKnowledgePassages(
   ctx: GenerationContext,
   docs: RetrievableDocument[],
-  options: { limit?: number; minSimilarity?: number } = {}
+  options: {
+    limit?: number
+    minSimilarity?: number
+    /** What to look for; the goals' texts (buildRetrievalQueries) when absent. */
+    queries?: string[]
+  } = {}
 ): Promise<KnowledgePassage[]> {
   const handle = getEmbeddingModel()
-  const queries = buildRetrievalQueries(ctx)
+  const queries =
+    options.queries?.map(q => q.trim()).filter(Boolean) ?? buildRetrievalQueries(ctx)
   if (!handle || docs.length === 0 || queries.length === 0) return []
 
   // Two passages for each goal, between 6 and 12 in all.
@@ -167,7 +173,7 @@ export async function retrieveKnowledgePassages(
     for (const row of interleave(perGoal)) {
       if (row.similarity < minSimilarity || seen.has(row.id)) continue
       seen.add(row.id)
-      passages.push({
+      passages.push({ 
         documentId: row.documentId,
         content: row.content,
         similarity: row.similarity

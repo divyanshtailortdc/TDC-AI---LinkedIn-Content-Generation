@@ -435,6 +435,27 @@
       "when": 1795437854054,
       "tag": "0061_visual_examples",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1795516775055,
+      "tag": "0062_blogs",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1795522566071,
+      "tag": "0063_blog_destination",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1795602038099,
+      "tag": "0064_blog_quality",
+      "breakpoints": true
     }
   ]
 }

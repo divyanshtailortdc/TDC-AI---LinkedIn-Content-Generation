@@ -141,8 +141,10 @@ export async function runSkill<S extends z.ZodType>(opts: {
   maxRetries?: number
   /** Stops the call early, e.g. when the user cancels. */
   abortSignal?: AbortSignal
+  /** Another model than the stage's, e.g. a fallback after it failed. */
+  modelId?: string
 }): Promise<SkillResult<z.infer<S>>> {
-  const handle = getLanguageModel(opts.stage)
+  const handle = getLanguageModel(opts.stage, opts.modelId)
   if (!handle) {
     throw new SkillError(
       'No AI provider configured. Add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY.',
