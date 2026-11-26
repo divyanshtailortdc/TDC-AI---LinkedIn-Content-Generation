@@ -65,7 +65,7 @@ const STEPS: Step[] = [
     summary: 'Designs images, carousels and videos',
     title: 'Images in your brand, not stock',
     detail:
-      'Images and swipeable carousels in your colours and typefaces, in the style you choose, plus 8-second videos for Instagram Reels, YouTube Shorts and Facebook Reels.',
+      'Images and swipeable carousels in your colours and typefaces, in the style you choose, plus short vertical videos of the script for Instagram Reels, YouTube Shorts and Facebook Reels.',
     icon: Images,
     picture: VisualsPicture
   },
@@ -117,7 +117,7 @@ export function WorkflowTabs() {
                       : 'border-border bg-surface text-muted'
                   }`}
                 >
-                  <Icon className="h-[18px] w-[18px]" />
+                  <Icon className="h-4.5 w-4.5" />
                 </span>
                 <span className="min-w-0">
                   <span
@@ -176,7 +176,7 @@ function ResearchPicture() {
         {rows.map(([text, note, done]) => (
           <li key={text} className="relative">
             <span
-              className={`absolute top-0.5 -left-[29px] flex h-4 w-4 items-center justify-center rounded-full ${
+              className={`absolute top-0.5 -left-7.25x h-4 w-4 items-center justify-center rounded-full ${
                 done
                   ? 'bg-emerald-600 text-white'
                   : 'bg-surface text-brand-strong'
@@ -281,7 +281,7 @@ function VisualsPicture() {
         Carousel · 7 slides
       </p>
       <div className="mt-3 grid grid-cols-3 gap-3">
-        <div className="bg-cta text-cta-text flex aspect-[4/5] flex-col justify-between rounded-lg p-3">
+        <div className="bg-cta text-cta-text flex aspect-4/5 flex-col justify-between rounded-lg p-3">
           <span className="text-[10px] font-medium opacity-80">
             NORTHWIND STUDIO
           </span>
@@ -290,7 +290,7 @@ function VisualsPicture() {
           </span>
           <span className="text-[10px] opacity-80">Swipe →</span>
         </div>
-        <div className="border-border bg-surface flex aspect-[4/5] flex-col justify-between rounded-lg border p-3">
+        <div className="border-border bg-surface flex aspect-4/5 flex-col justify-between rounded-lg border p-3">
           <span className="bg-brand/15 text-brand-strong flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold">
             1
           </span>
@@ -299,7 +299,7 @@ function VisualsPicture() {
           </span>
           <span className="bg-brand/20 h-1 w-8 rounded-full" />
         </div>
-        <div className="border-border bg-brand/10 flex aspect-[4/5] flex-col justify-between rounded-lg border p-3">
+        <div className="border-border bg-brand/10 flex aspect-4/5 flex-col justify-between rounded-lg border p-3">
           <span className="text-brand-strong text-[10px] font-medium">
             YOUR TURN
           </span>
@@ -323,11 +323,11 @@ function VisualsPicture() {
       </div>
       <div className="border-border mt-5 flex items-center gap-3 rounded-xl border p-3">
         <span className="from-brand/30 to-cta/60 relative flex h-14 w-9 shrink-0 items-end justify-center overflow-hidden rounded-md bg-linear-to-b">
-          <span className="mb-1 text-[8px] font-semibold text-white">0:08</span>
+          <span className="mb-1 text-[8px] font-semibold text-white">0:15</span>
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-foreground text-sm font-medium">Short video</p>
-          <p className="text-muted text-xs">8 seconds, vertical 9:16</p>
+          <p className="text-muted text-xs">About 15 seconds, vertical 9:16</p>
         </div>
         <span className="flex items-center gap-1.5">
           <PlatformMark platform="instagram" className="h-4 w-4" />

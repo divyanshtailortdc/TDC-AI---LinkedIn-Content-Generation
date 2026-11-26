@@ -20,7 +20,7 @@ import {
   latestPublications,
   type PublicationSummary
 } from '@/lib/publishing/engine'
-import { isImageStyle } from '@/lib/brand/theme'
+import { isImageStyleChoice } from '@/lib/brand/theme'
 import { FAILED_MEDIA_STATUS } from '@/lib/media/plan-record'
 import { LOAD_BATCH_SIZE, pageOf } from '@/lib/pagination'
 import { summarizePostUsage } from '@/lib/post-usage'
@@ -347,7 +347,7 @@ export async function loadPostsPage(
             hasLogo: Boolean((media.metadata as any)?.logo),
             reviewChecked: Boolean((media.metadata as any)?.review?.checked),
             usedReference: Boolean((media.metadata as any)?.usedReference),
-            imageStyle: isImageStyle((media.metadata as any)?.imageStyle)
+            imageStyle: isImageStyleChoice((media.metadata as any)?.imageStyle)
               ? (media.metadata as any).imageStyle
               : undefined
           }

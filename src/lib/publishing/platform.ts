@@ -14,7 +14,7 @@ export const PUBLISHING_PLATFORM_IDS = [
   'threads',
   'facebook',
   'instagram',
-  // Shorts only: the app's YouTube posts are its AI videos.
+  // Shorts only: the app's YouTube posts are its videos.
   'youtube'
 ] as const satisfies readonly PlatformId[]
 export type PublishingPlatformId = (typeof PUBLISHING_PLATFORM_IDS)[number]
@@ -62,7 +62,7 @@ export const PUBLISHING_PLATFORMS: readonly PlatformSpec[] =
 /**
  * The formats (src/lib/formats) each platform's provider publishes; a post in
  * any other is copied and posted by hand. A Reel or a Short goes out with its
- * AI video (src/lib/video), once that is made.
+ * video (src/lib/video), once that is recorded.
  */
 export const PUBLISHABLE_FORMATS: Record<PublishingPlatformId, FormatId[]> = {
   linkedin: ['linkedin.post'],

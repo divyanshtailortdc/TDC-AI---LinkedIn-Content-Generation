@@ -1,3 +1,10 @@
 allowBuilds:
   esbuild: true
+  # Downloads the ffmpeg binary that renders Reels and Shorts (src/lib/video/render).
+  ffmpeg-static: true
   unrs-resolver: true
+# The same list for pnpm 10, which reads this setting instead of allowBuilds.
+onlyBuiltDependencies:
+  - esbuild
+  - ffmpeg-static
+  - unrs-resolver

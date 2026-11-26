@@ -142,6 +142,31 @@ describe('copying from sources', () => {
     )
   })
 
+  it('names the lifted words as the post wrote them', () => {
+    const run = longestSharedRun(
+      'A Gartner survey found that 61% of B2B buyers prefer an overall rep-free buying experience.',
+      [
+        '61% of B2B buyers prefer an overall rep-free buying experience, according to a survey by Gartner, Inc.'
+      ]
+    )
+    assert.strictEqual(run.length, 11)
+    assert.strictEqual(
+      run.text,
+      '61% of B2B buyers prefer an overall rep-free buying experience'
+    )
+  })
+
+  it('skips quoted words and still names the rest as written', () => {
+    const run = longestSharedRun(
+      '“Teams are guessing,” one survey said. Without evaluation, teams are only guessing whether it works.',
+      [source]
+    )
+    assert.strictEqual(
+      run.text,
+      'Without evaluation, teams are only guessing whether'
+    )
+  })
+
   it('accepts a paraphrase', () => {
     assert.ok(
       !rules({

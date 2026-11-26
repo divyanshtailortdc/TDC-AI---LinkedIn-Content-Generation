@@ -6,7 +6,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '~/lib/ai/usage'
 import { loadBrandTheme } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
-import type { ImageStyle } from '~/lib/brand/theme'
+import { LIKE_MY_POSTS, type ImageStyleChoice } from '~/lib/brand/theme'
 import { FORMATS, formatOf } from '@/lib/formats'
 import { lockPost } from '@/lib/post-revisions'
 import { assertPostChangeable, PostLockedError } from '@/lib/publishing/post-lock'
@@ -18,6 +18,7 @@ import {
   viewableImageUrl
 } from './image-store'
 import { generateCustomImage } from './index'
+import { loadLookExamples } from '@/lib/visual-examples/store'
 
 export type PromptMediaOutcome =
   | { status: 'created'; media: PromptMediaRecord }
@@ -45,7 +46,7 @@ export interface PromptMediaRecord {
   issues: string[]
   reviewChecked: boolean
   /** The style a prompt alone was made in; unset for an edit or a reference. */
-  imageStyle?: ImageStyle
+  imageStyle?: ImageStyleChoice
 }
 
 /**
@@ -80,7 +81,7 @@ export async function createPromptMediaForDraft(input: {
    * The default look of an image made from a prompt alone (the brand
    * theme's when unset); an edit or a reference keeps its own.
    */
-  style?: ImageStyle
+  style?: ImageStyleChoice
   abortSignal?: AbortSignal
 }): Promise<PromptMediaOutcome> {
   // The same check every other post action makes: a post of someone else's
@@ -123,6 +124,19 @@ export async function createPromptMediaForDraft(input: {
     await loadBrandTheme(input.accountId)
   )
 
+  // Like my posts follows the identity's example posts for this platform.
+  const choice = input.style ?? brand.theme.visualStyle
+  const examples =
+    choice === LIKE_MY_POSTS && !editImage && !input.referenceImage
+      ? await loadLookExamples(
+          input.accountId,
+          FORMATS[formatOf(draft.formatId)].platform
+        ).catch(err => {
+          console.warn('The example posts could not be loaded:', err)
+          return []
+        })
+      : []
+
   // An uploaded image guides a new one; with "Use current image" it is unused.
   const referenceImage = editImage ? undefined : input.referenceImage
   const summary = referenceImage
@@ -140,6 +154,7 @@ export async function createPromptMediaForDraft(input: {
       referenceImage,
       brand,
       style: input.style,
+      examples,
       // No postText: the image is checked against what the reviewer asked
       // for, not the post.
       // The shape the post's platform shows (X 16:9, Instagram 4:5…).

@@ -23,9 +23,11 @@ const ROUTE_DOCS: Array<{ path: string; slug: string; exact?: boolean }> = [
   { path: '/newsletters/library', slug: 'account-setup/knowledge' },
   { path: '/newsletters', slug: 'publishing/newsletters/discover' },
   { path: '/runs', slug: 'publishing/run-details' },
+  { path: '/blogs', slug: 'publishing/blogs' },
   { path: '/posts/', slug: 'publishing/posts/editing' },
   { path: '/posts', slug: 'publishing/posts/overview' },
   { path: '/schedule', slug: 'publishing/schedule' },
+  { path: '/published', slug: 'publishing/published-content' },
   { path: '/settings/integrations', slug: 'settings/integrations' },
   { path: '/settings/theme', slug: 'settings/theme' },
   { path: '/settings', slug: 'settings/security' }

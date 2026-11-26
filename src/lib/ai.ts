@@ -40,6 +40,12 @@ export type AIStage =
   | 'goal_review'
   | 'profile_analysis'
   | 'reference_ideation'
+  | 'blog_planning'
+  | 'blog_drafting'
+  | 'blog_editing'
+  | 'blog_verification'
+  | 'blog_search_phrases'
+  | 'video_look'
 
 /**
  * Effort is the first quality/cost lever. Ideation and drafting carry the
@@ -80,7 +86,38 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   profile_analysis: { model: defaultModel, effort: 'medium' },
   // Turns a post someone shared into an idea for a post like it: reading
   // and judgment, while the user waits on the dialog.
-  reference_ideation: { model: defaultModel, effort: 'medium' }
+  reference_ideation: { model: defaultModel, effort: 'medium' },
+  // Deciding a blog's angle, structure, claims and sources before any prose.
+  // Measured 2026-11-25 on a medium blog: Sonnet 5.5 plans in ~33 s at
+  // medium; Opus 5.5 took 85 s and high effort 88 s, too slow beside
+  // research under the 300 s function limit (see blog-run.ts).
+  blog_planning: { model: defaultModel, effort: 'medium' },
+  // A whole blog or article in one structured call from its plan. Medium
+  // effort: ~34 s for a medium blog; at high effort a complete piece took
+  // 130-150 s and two of six live runs ran out of time (2026-11-25). The
+  // depth comes from the plan made first.
+  blog_drafting: { model: defaultModel, effort: 'medium' },
+  // Rewriting a section, or the sentences a check failed, while the piece
+  // keeps its voice.
+  blog_editing: { model: defaultModel, effort: 'medium' },
+  // Reading whether each cited source says what its sentence claims:
+  // careful reading, little reasoning.
+  blog_verification: { model: defaultModel, effort: 'low' },
+  // Two or three short search phrases for a topic briefed without a keyword,
+  // so "People also ask" is read for what readers type, not for a sentence.
+  // Runs beside research; a few seconds.
+  blog_search_phrases: { model: defaultModel, effort: 'low' },
+  // Looks at a few of an account's post images and their analysis to set a
+  // Reel's or Short's look: once per platform, reading more than reasoning.
+  video_look: { model: defaultModel, effort: 'low' }
+}
+
+/** The model and effort a stage runs at. */
+export function getStageSettings(stage: AIStage): {
+  model: string
+  effort: Effort
+} {
+  return STAGE_SETTINGS[stage]
 }
 
 export interface LanguageModelHandle {

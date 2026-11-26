@@ -7,6 +7,10 @@ import {
   STATE_TTL_MS
 } from '@/lib/publishing/oauth-state'
 import {
+  connectReturnPath,
+  RETURN_COOKIE
+} from '@/lib/publishing/return-path'
+import {
   BUFFER_FLOW,
   settingsRedirect,
   STATE_COOKIE,
@@ -24,16 +28,23 @@ import { NextResponse } from 'next/server'
  * challenge whose verifier only this server can derive from the state.
  * Separate from sign-in: it never touches the session or Better Auth's
  * accounts.
+ *
+ * `?next=` names the page to come back to (the onboarding checklist, say);
+ * without it, or when it is not a page of this app, the callback returns to
+ * Settings → Integrations.
  */
 export async function GET(request: Request) {
+  const back = connectReturnPath(new URL(request.url).searchParams.get('next'))
   const user = await getSessionUser()
   if (!user) {
     return NextResponse.redirect(
-      new URL(loginPathFor(INTEGRATIONS_SETTINGS_PATH), request.url)
+      new URL(loginPathFor(back ?? INTEGRATIONS_SETTINGS_PATH), request.url)
     )
   }
   const config = bufferConnectConfig()
-  if (!config) return settingsRedirect('not_configured', BUFFER_FLOW)
+  if (!config) {
+    return settingsRedirect('not_configured', BUFFER_FLOW, undefined, back ?? undefined)
+  }
 
   // The Buffer connection is the user's; the identity active now is the one
   // whose networks are set up with its channels.
@@ -61,5 +72,18 @@ export async function GET(request: Request) {
     path: STATE_COOKIE_PATH,
     maxAge: STATE_TTL_MS / 1000
   })
+  if (back) {
+    // Checked again when it is read: a cookie is only as good as its check.
+    response.cookies.set(RETURN_COOKIE, back, {
+      httpOnly: true,
+      secure: config.oauth.redirectUri.startsWith('https://'),
+      sameSite: 'lax',
+      path: STATE_COOKIE_PATH,
+      maxAge: STATE_TTL_MS / 1000
+    })
+  } else {
+    // Left by an earlier attempt that never came back.
+    response.cookies.delete({ name: RETURN_COOKIE, path: STATE_COOKIE_PATH })
+  }
   return response
 }

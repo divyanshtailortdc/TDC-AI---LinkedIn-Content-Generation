@@ -56,9 +56,42 @@ import {
   type ProfileInsights
 } from '../lib/profile-insights/types'
 import type { IdeaScorecard } from '../lib/idea-scorecard'
+import {
+  VISUAL_EXAMPLE_SOURCES,
+  type VisualExampleSource
+} from '../lib/visual-examples/types'
 import type { IdentitySnapshot } from '../lib/identity-change'
 import type { ReferencePost } from '../lib/reference-post/types'
 import { AI_SPEND_SOURCES, type AiSpendSource } from '../lib/ai/spend-sources'
+import {
+  BLOG_GENERATION_STATUSES,
+  BLOG_KINDS,
+  BLOG_STATUSES,
+  SEARCH_INTENTS,
+  type BlogBrief,
+  type BlogImage,
+  type BlogGenerationStage,
+  type BlogGenerationStatus,
+  type BlogKind,
+  type BlogPlan,
+  type BlogReplacedBy,
+  type BlogSnapshot,
+  type BlogSource,
+  type BlogStatus,
+  type BlogVerification,
+  type FaqItem,
+  type FeaturedImage,
+  type InternalLink,
+  type SearchIntent,
+  type SearchQuestion
+} from '../lib/blogs/types'
+import type { BlogDoc } from '../lib/blogs/doc'
+import {
+  BLOG_DESTINATION_IDS,
+  type BlogDestinationId
+} from '../lib/blogs/destinations'
+import type { LintFinding } from '../lib/lint/run-linter'
+import type { CallUsage } from '../lib/ai/usage'
 import type { SignalKind, SourceRating } from '../lib/research/source-credibility'
 import { authUsersTable } from './auth-schema'
 
@@ -810,7 +843,7 @@ export const postRevisionsTable = pgTable(
   {
     id: commonFieldDefs.id(),
     draftId: uuid('draft_id')
-      .notNull()
+      .notNull()    
       .references(() => postDraftsTable.id, { onDelete: 'cascade' }),
     // 1, 2, 3… per post, oldest first.
     number: integer('number').notNull(),
@@ -925,18 +958,17 @@ export const postSlidesTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// 14c. Post Videos (1:N with PostDraft) — AI clips made from a video script
+// 14c. Post Videos (1:N with PostDraft) — videos recorded from a video script
 // ---------------------------------------------------------------------------
 
 /**
- * One AI video generated for a Reel or Short (src/lib/video), newest the
- * one shown. Kept out of post_media, whose active row every image path
+ * One video recorded for a Reel or Short (src/lib/video), newest the one
+ * shown. Kept out of post_media, whose active row every image path
  * (publishing, thumbnails, image edits) reads as the post's image.
  *
- * A generation is started and then checked until its provider finishes
- * (start/status, so no request outlives a serverless function):
- * 'generating' → 'finishing' (one checker downloads and stores it) →
- * 'ready' | 'failed'. A newer ready video marks the older ones 'superseded'.
+ * 'generating' until it is recorded (a lease on last_checked_at keeps it to
+ * one recorder at a time), then 'ready' | 'failed'. A newer ready video marks
+ * the older ones 'superseded'.
  */
 export const postVideosTable = pgTable(
   'post_videos',
@@ -948,16 +980,14 @@ export const postVideosTable = pgTable(
     // 1, 2, 3… per post.
     version: integer('version').notNull(),
     status: varchar('status', { length: 20 })
-      .$type<'generating' | 'finishing' | 'ready' | 'failed' | 'superseded'>()
+      .$type<'generating' | 'ready' | 'failed' | 'superseded'>()
       .notNull(),
-    // Which provider and model made it (src/lib/video/providers).
+    // How it was made (src/lib/video/models.ts): 'recorder'; rows from
+    // before name the AI model that made them.
     provider: varchar('provider', { length: 40 }).notNull(),
     modelId: varchar('model_id', { length: 120 }).notNull(),
-    // The provider's opaque reference to the running job, for its status.
-    operation: jsonb('operation'),
-    // The prompt the video model was given, and what the reviewer asked for.
+    // What it is made from: the recording's plan, as JSON (render/plan.ts).
     prompt: text('prompt').notNull(),
-    direction: text('direction'),
     aspectRatio: varchar('aspect_ratio', { length: 10 }).notNull(),
     width: integer('width').notNull(),
     height: integer('height').notNull(),
@@ -967,10 +997,7 @@ export const postVideosTable = pgTable(
     mediaType: varchar('media_type', { length: 40 }),
     byteSize: integer('byte_size'),
     error: text('error'),
-    // What it was estimated to cost when started, and what was billed.
-    estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 4 }).notNull(),
-    costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
-    // Warnings and anything else the provider reported.
+    // The look it was recorded in, warnings, and how it was started.
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     lastCheckedAt: commonFieldDefs.date('last_checked_at'),
     completedAt: commonFieldDefs.date('completed_at'),
@@ -978,11 +1005,11 @@ export const postVideosTable = pgTable(
   },
   table => [
     index('post_videos_draft_created_idx').on(table.draftId, table.createdAt),
-    // One generation at a time per post: a second request (a double click,
-    // two tabs) fails here instead of paying for a second video.
+    // One recording at a time per post: a second request (a double click,
+    // two tabs) fails here instead of starting a second one.
     uniqueIndex('post_videos_one_running_uq')
       .on(table.draftId)
-      .where(sql`${table.status} in ('generating', 'finishing')`),
+      .where(sql`${table.status} = 'generating'`),
     uniqueIndex('post_videos_draft_version_uq').on(table.draftId, table.version)
   ]
 )
@@ -1829,6 +1856,44 @@ export const platformInsightsTable = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// 26b. Visual Examples — images an identity posts, which new images follow
+// ---------------------------------------------------------------------------
+
+// One row per image: from the profile analysis of a platform (replaced each
+// time it reads the profile again) or uploaded by the user (kept until
+// removed). The image itself is in storage (`storage://examples/...`) or, with
+// no bucket, a data URL. See src/lib/visual-examples.
+export const visualExamplesTable = pgTable(
+  'visual_examples',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    platform: varchar('platform', { length: 30 }).$type<PlatformId>().notNull(),
+    source: varchar('source', { length: 10 })
+      .$type<VisualExampleSource>()
+      .notNull(),
+    imageUrl: text('image_url').notNull(),
+    // The post it was found on; null for an upload.
+    postUrl: text('post_url'),
+    width: integer('width'),
+    height: integer('height'),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('visual_examples_account_platform_idx').on(
+      table.accountId,
+      table.platform
+    ),
+    check(
+      'visual_examples_source_check',
+      sql`${table.source} in (${sqlList(VISUAL_EXAMPLE_SOURCES)})`
+    )
+  ]
+)
+
+// ---------------------------------------------------------------------------
 // 27. AI Usage — every paid model call, in one ledger (src/lib/ai/spend.ts)
 // ---------------------------------------------------------------------------
 
@@ -1894,6 +1959,175 @@ export const aiUsageTable = pgTable(
       'ai_usage_source_check',
       sql`${table.source} in (${sqlList(AI_SPEND_SOURCES)})`
     )
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// Onboarding progress (1:1 with Account) — the guided first-post journey
+// ---------------------------------------------------------------------------
+
+// Only what saved data cannot show (src/lib/onboarding): the optional steps
+// the user chose to leave for later, the steps whose defaults they confirmed
+// (preferences, the channels Buffer picked), and whether the guide bar is
+// hidden. Everything else is read from the tables the steps write. No row
+// until the user skips, confirms or hides something.
+export const onboardingProgressTable = pgTable('onboarding_progress', {
+  accountId: uuid('account_id')
+    .primaryKey()
+    .references(() => accountsTable.id, { onDelete: 'cascade' }),
+  skipped: jsonb('skipped').$type<string[]>().default([]).notNull(),
+  confirmed: jsonb('confirmed').$type<string[]>().default([]).notNull(),
+  // The guide bar is hidden; the dashboard checklist stays until complete.
+  hiddenAt: commonFieldDefs.date('hidden_at'),
+  // When the first post went out, first noticed; kept for the record.
+  completedAt: commonFieldDefs.date('completed_at'),
+  ...commonFieldDefs.dates
+})
+
+// ---------------------------------------------------------------------------
+// Blogs & articles (1:N with Account) — long-form, SEO-ready pieces
+// ---------------------------------------------------------------------------
+
+/**
+ * A blog post or article for the identity's own website (src/lib/blogs), kept
+ * apart from social posts: written from its brief by
+ * src/lib/ai/pipeline/blog-run.ts, edited in the document editor, then copied
+ * or exported by hand. While a generation runs, `generation_started_at` is its
+ * claim token (src/lib/blogs/claim.ts). `lock_version` goes up with every
+ * write, so a save from a stale tab is refused instead of overwriting.
+ */
+export const blogsTable = pgTable(
+  'blogs',
+  {
+    id: commonFieldDefs.id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accountsTable.id, { onDelete: 'cascade' }),
+    // The idea it was started from, if any. Writing a blog never changes the
+    // idea's status, which belongs to the post pipeline.
+    ideaId: uuid('idea_id').references(() => ideasTable.id, {
+      onDelete: 'set null'
+    }),
+    // The goal whose action the call to action serves, if one was chosen.
+    goalId: uuid('goal_id').references(() => goalsTable.id, {
+      onDelete: 'set null'
+    }),
+    kind: varchar('kind', { length: 10 }).$type<BlogKind>().default('blog').notNull(),
+    // Publishing, set by the user: blogs go out by hand, outside the app.
+    status: varchar('status', { length: 20 })
+      .$type<BlogStatus>()
+      .default('draft')
+      .notNull(),
+    generationStatus: varchar('generation_status', { length: 20 })
+      .$type<BlogGenerationStatus>()
+      .default('generating')
+      .notNull(),
+    // What a running generation is doing, for the progress view.
+    generationStage: varchar('generation_stage', { length: 20 }).$type<BlogGenerationStage>(),
+    generationError: text('generation_error'),
+    generationStartedAt: commonFieldDefs.date('generation_started_at'),
+    generatedAt: commonFieldDefs.date('generated_at'),
+    // What was asked for: topic, keywords, length, style, reader, sources.
+    brief: jsonb('brief').$type<BlogBrief>().notNull(),
+    // The page's H1.
+    title: text('title').default('').notNull(),
+    slug: text('slug').default('').notNull(),
+    metaTitle: text('meta_title').default('').notNull(),
+    metaDescription: text('meta_description').default('').notNull(),
+    primaryKeyword: text('primary_keyword').default('').notNull(),
+    // Secondary keywords.
+    keywords: jsonb('keywords').$type<string[]>().default([]).notNull(),
+    // What the person searching wants; empty for blogs written before it existed.
+    searchIntent: varchar('search_intent', { length: 20 })
+      .$type<SearchIntent | ''>()
+      .default('')
+      .notNull(),
+    // The plan the text was written from (src/lib/ai/skills/blog-planning).
+    plan: jsonb('plan').$type<BlogPlan>(),
+    // The featured image (a storage key or data URL, with its alt text), or
+    // the reason the last attempt failed; null when there is none.
+    featuredImage: jsonb('featured_image').$type<FeaturedImage>(),
+    // The last check of its citations (src/lib/blogs/citations.ts).
+    verification: jsonb('verification').$type<BlogVerification>(),
+    // Pages of the identity's site the text links, or could.
+    internalLinks: jsonb('internal_links')
+      .$type<InternalLink[]>()
+      .default([])
+      .notNull(),
+    // Questions people search about the topic ("People also ask", related
+    // searches), gathered with the research; reused without new research.
+    searchQuestions: jsonb('search_questions')
+      .$type<SearchQuestion[]>()
+      .default([])
+      .notNull(),
+    // The section pictures, append-only: image nodes in the text name them
+    // by id (src/lib/blogs/types.ts, BlogImage).
+    images: jsonb('images').$type<BlogImage[]>().default([]).notNull(),
+    // The body as TipTap document JSON (src/lib/blogs/doc.ts): H2/H3 only.
+    content: jsonb('content')
+      .$type<BlogDoc>()
+      .default({ type: 'doc', content: [] })
+      .notNull(),
+    faq: jsonb('faq').$type<FaqItem[]>().default([]).notNull(),
+    // The evidence it was written from, the cited ones marked; reused when
+    // regenerating without new research.
+    sources: jsonb('sources').$type<BlogSource[]>().default([]).notNull(),
+    wordCount: integer('word_count').default(0).notNull(),
+    // The latest truth, writing and SEO checks, as of the last write.
+    checks: jsonb('checks').$type<LintFinding[]>().default([]).notNull(),
+    selfFlags: jsonb('self_flags').$type<string[]>().default([]).notNull(),
+    // What every generation and rewrite of it has cost, summed.
+    usage: jsonb('usage').$type<Partial<CallUsage>>().default({}).notNull(),
+    model: varchar('model', { length: 100 }),
+    lockVersion: integer('lock_version').default(1).notNull(),
+    publishedUrl: text('published_url'),
+    publishedAt: commonFieldDefs.date('published_at'),
+    // Where it went out: a website or CMS (src/lib/blogs/destinations.ts),
+    // never a social platform. Null for a draft, and for a blog marked
+    // published before the app asked where.
+    publishedTo: varchar('published_to', { length: 20 }).$type<BlogDestinationId>(),
+    ...commonFieldDefs.dates
+  },
+  table => [
+    index('blogs_account_updated_idx').on(table.accountId, table.updatedAt),
+    check('blogs_kind_check', sql`${table.kind} in (${sqlList(BLOG_KINDS)})`),
+    check('blogs_status_check', sql`${table.status} in (${sqlList(BLOG_STATUSES)})`),
+    check(
+      'blogs_generation_status_check',
+      sql`${table.generationStatus} in (${sqlList(BLOG_GENERATION_STATUSES)})`
+    ),
+    check(
+      'blogs_published_to_check',
+      sql`${table.publishedTo} is null or ${table.publishedTo} in (${sqlList(BLOG_DESTINATION_IDS)})`
+    ),
+    check(
+      'blogs_search_intent_check',
+      sql`${table.searchIntent} = '' or ${table.searchIntent} in (${sqlList(SEARCH_INTENTS)})`
+    )
+  ]
+)
+
+/**
+ * An earlier version of a blog's text, kept so it can be restored: saved just
+ * before an edit, a regenerate, a section rewrite or a restore overwrites it.
+ */
+export const blogRevisionsTable = pgTable(
+  'blog_revisions',
+  {
+    id: commonFieldDefs.id(),
+    blogId: uuid('blog_id')
+      .notNull()
+      .references(() => blogsTable.id, { onDelete: 'cascade' }),
+    // 1, 2, 3… per blog, oldest first.
+    number: integer('number').notNull(),
+    replacedBy: varchar('replaced_by', { length: 20 }).$type<BlogReplacedBy>().notNull(),
+    // What the user asked for when regenerating or rewriting, if anything.
+    instruction: text('instruction'),
+    snapshot: jsonb('snapshot').$type<BlogSnapshot>().notNull(),
+    createdAt: commonFieldDefs.dates.createdAt
+  },
+  table => [
+    uniqueIndex('blog_revisions_blog_number_uq').on(table.blogId, table.number)
   ]
 )
 
@@ -2014,3 +2248,6 @@ export type BufferChannelRow = typeof bufferChannelsTable.$inferSelect
 export type Publication = typeof publicationsTable.$inferSelect
 export type PlatformInsightRow = typeof platformInsightsTable.$inferSelect
 export type AiUsageRow = typeof aiUsageTable.$inferSelect
+export type Blog = typeof blogsTable.$inferSelect
+export type NewBlog = typeof blogsTable.$inferInsert
+export type BlogRevision = typeof blogRevisionsTable.$inferSelect

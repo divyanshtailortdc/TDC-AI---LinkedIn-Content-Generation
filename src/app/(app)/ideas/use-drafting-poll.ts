@@ -5,7 +5,8 @@ import { fetchIdeaStatuses } from './actions'
 
 const POLL_INTERVAL_MS = 5000
 
-export type IdeaStatus = { id: string; status: string }
+/** An idea's status, and how many posts it has. */
+export type IdeaStatus = { id: string; status: string; posts?: number }
 
 /**
  * Follows ideas being drafted in the background (see the drafting queue):

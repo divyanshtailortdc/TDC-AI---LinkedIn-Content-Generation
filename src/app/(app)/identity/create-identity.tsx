@@ -51,7 +51,12 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  createProgressKey,
+  parseCreateProgress,
+  serializeCreateProgress
+} from '@/lib/onboarding/create-progress'
 import { createAccount } from './actions'
 
 /**
@@ -126,6 +131,69 @@ export function CreateIdentity({
   const [aiFilled, setAiFilled] = useState<Set<string>>(new Set())
   const [aiStyles, setAiStyles] = useState<Set<PlatformId>>(new Set())
   const [usedAi, setUsedAi] = useState(false)
+
+  // What the person entered is kept in this browser until the identity is
+  // created, so leaving half way resumes here (src/lib/onboarding/create-progress).
+  // Restored after the first render: the server has no storage to read.
+  const progressKey = createProgressKey(another)
+  const [resumed, setResumed] = useState(false)
+  const restored = useRef(false)
+  useEffect(() => {
+    if (restored.current) return
+    restored.current = true
+    let saved = null
+    try {
+      saved = parseCreateProgress(window.localStorage.getItem(progressKey))
+    } catch {
+      // Storage blocked: nothing to resume.
+    }
+    if (!saved || (saved.platforms.length === 0 && !saved.about.description)) return
+    setPlatforms(saved.platforms)
+    setAbout(saved.about)
+    setValues(saved.values)
+    setLinks(saved.links)
+    setAccountType(saved.accountType)
+    setStyles(saved.styles)
+    setNotes(saved.notes)
+    setUsedAi(saved.usedAi)
+    setStep(saved.step)
+    setResumed(true)
+  }, [progressKey])
+  useEffect(() => {
+    // Not before the restore has run, or it would overwrite what it reads.
+    if (!restored.current) return
+    if (platforms.length === 0 && !about.description.trim()) return
+    try {
+      window.localStorage.setItem(
+        progressKey,
+        serializeCreateProgress({ step, platforms, about, values, links, accountType, styles, notes, usedAi })
+      )
+    } catch {
+      // Storage full or blocked: the wizard still works, it just won't resume.
+    }
+  }, [progressKey, step, platforms, about, values, links, accountType, styles, notes, usedAi])
+  const forgetProgress = () => {
+    try {
+      window.localStorage.removeItem(progressKey)
+    } catch {
+      // Nothing kept.
+    }
+  }
+  const startOver = () => {
+    forgetProgress()
+    setPlatforms([])
+    setAbout({ description: '', links: {}, websiteUrl: '' })
+    setValues(EMPTY_PROFILE)
+    setLinks({})
+    setAccountType('personal')
+    setStyles({})
+    setNotes({})
+    setAiFilled(new Set())
+    setAiStyles(new Set())
+    setUsedAi(false)
+    setStep('where')
+    setResumed(false)
+  }
 
   /** The person skipped the AI: their own words and links start the form. */
   const fillMyself = () => {
@@ -246,6 +314,25 @@ export function CreateIdentity({
           })}
         </ol>
 
+        {resumed && (
+          <p
+            role="status"
+            className="border-border bg-surface-hover/50 text-muted flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3.5 py-2.5 text-sm"
+          >
+            <span>
+              <span className="text-foreground font-medium">Welcome back.</span> We kept what you
+              entered last time, so you can carry on where you left off.
+            </span>
+            <button
+              type="button"
+              onClick={startOver}
+              className="text-foreground font-medium underline underline-offset-2 hover:no-underline"
+            >
+              Start over
+            </button>
+          </p>
+        )}
+
         {step === 'where' && (
           <WhereStep
             platforms={platforms}
@@ -302,6 +389,7 @@ export function CreateIdentity({
             usedAi={usedAi}
             onChangePlatforms={() => setStep('where')}
             onRedo={() => setStep('about')}
+            onCreated={forgetProgress}
           />
         )}
       </div>
@@ -666,7 +754,8 @@ function ReviewStep({
   aiStyles,
   usedAi,
   onChangePlatforms,
-  onRedo
+  onRedo,
+  onCreated
 }: {
   platforms: PlatformId[]
   values: IdentityValues
@@ -686,6 +775,8 @@ function ReviewStep({
   usedAi: boolean
   onChangePlatforms: () => void
   onRedo: () => void
+  /** The identity was created: what was kept for resuming can go. */
+  onCreated: () => void
 }) {
   const router = useRouter()
   const formRef = useRef<HTMLFormElement>(null)
@@ -726,6 +817,7 @@ function ReviewStep({
     setSaving(true)
     try {
       const { redirectTo } = await createAccount(new FormData(formRef.current))
+      onCreated()
       // Stays busy until the next page replaces this one. When the identity
       // already existed that is this same URL, so refresh to render it.
       router.push(redirectTo)

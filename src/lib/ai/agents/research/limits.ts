@@ -5,3 +5,11 @@ export const MAX_PAGE_READS = 4
 export const MAX_FINDINGS = 10
 /** Page text handed back to the model per read. */
 export const PAGE_CHARS = 6000
+
+/** How far the agent may go: model steps, searches, pages read, findings kept. */
+export type ResearchLimits = {
+  maxSteps: number
+  maxSearches: number
+  maxPageReads: number
+  maxFindings: number
+}

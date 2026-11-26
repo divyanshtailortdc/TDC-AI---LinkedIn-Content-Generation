@@ -155,7 +155,9 @@ export async function fitToSize(
  */
 export async function coverToSize(
   buffer: Buffer,
-  target: { width: number; height: number }
+  target: { width: number; height: number },
+  /** Where the cut falls: around the subject, or evenly from both sides. */
+  position: 'attention' | 'centre' = 'attention'
 ): Promise<{
   buffer: Buffer
   width: number
@@ -170,12 +172,57 @@ export async function coverToSize(
   const resized = await sharp(buffer)
     .resize(target.width, target.height, {
       fit: 'cover',
-      position: sharp.strategy.attention
+      position: position === 'centre' ? 'centre' : sharp.strategy.attention
     })
     .jpeg({ quality: 92, mozjpeg: true })
     .toBuffer()
   return {
     buffer: resized,
+    width: target.width,
+    height: target.height,
+    resized: true
+  }
+}
+
+/**
+ * A design brought to exactly `target` without cutting any of it: scaled to
+ * fit inside, and the margins filled by continuing its edges outward, which
+ * reads as more of the same background on a flat or banded design. For a
+ * whole designed image whose words reach its edges; a photograph is cut
+ * (coverToSize) instead.
+ */
+export async function padToSize(
+  buffer: Buffer,
+  target: { width: number; height: number }
+): Promise<{
+  buffer: Buffer
+  width: number
+  height: number
+  resized: boolean
+} | null> {
+  const meta = await sharp(buffer).metadata()
+  if (!meta.width || !meta.height) return null
+  if (meta.width === target.width && meta.height === target.height) {
+    return { buffer, width: meta.width, height: meta.height, resized: false }
+  }
+  const scale = Math.min(target.width / meta.width, target.height / meta.height)
+  const width = Math.min(target.width, Math.round(meta.width * scale))
+  const height = Math.min(target.height, Math.round(meta.height * scale))
+  const left = Math.floor((target.width - width) / 2)
+  const top = Math.floor((target.height - height) / 2)
+  const padded = await sharp(buffer)
+    .resize(width, height, { fit: 'fill' })
+    .extend({
+      left,
+      right: target.width - width - left,
+      top,
+      bottom: target.height - height - top,
+      extendWith: 'copy'
+    })
+    .jpeg({ quality: 92, mozjpeg: true })
+    .toBuffer()
+  return {
+    buffer: padded,
     width: target.width,
     height: target.height,
     resized: true

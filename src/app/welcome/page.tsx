@@ -154,7 +154,7 @@ const FAQS: { question: string; answer: ReactNode }[] = [
   {
     question: 'Which platforms does it write for?',
     answer:
-      'LinkedIn, X (single posts and threads), Threads, Facebook and Instagram, with text, image and carousel posts. It also makes 8-second AI videos for Instagram Reels, YouTube Shorts and Facebook Reels.'
+      'LinkedIn, X (single posts and threads), Threads, Facebook and Instagram, with text, image and carousel posts. It also makes short vertical videos of the script, in your brand, for Instagram Reels, YouTube Shorts and Facebook Reels.'
   },
   {
     question: 'Where do the ideas come from?',
@@ -200,7 +200,7 @@ export default async function WelcomePage() {
           NEW
         </span>
         <span className="truncate">
-          Short AI videos for Instagram Reels, YouTube Shorts and Facebook Reels
+          Short videos for Instagram Reels, YouTube Shorts and Facebook Reels
         </span>
         <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
       </Link>

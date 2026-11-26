@@ -3,6 +3,11 @@
 import { PlatformMark } from '@/components/platform-mark'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
+  refreshOnboarding,
+  useOnboarding
+} from '@/components/onboarding/onboarding-provider'
+import { PublishReviewDialog } from '@/components/onboarding/publish-review-dialog'
+import {
   usePlatformPublishing,
   type PlatformPublishingStatus
 } from '@/components/publishing-header-button'
@@ -123,8 +128,15 @@ function PublishControlsInner({
   media = 'image',
   slideCount = 0,
   unsavedEdits = false,
-  textReplacing = false
+  textReplacing = false,
+  review
 }: {
+  /**
+   * The saved text (and image) as it would go out. While the identity has
+   * never published, Publish now and Schedule show it in a final review the
+   * user must tick before anything is sent (PublishReviewDialog).
+   */
+  review?: { text: string; imageUrl?: string | null }
   /**
    * Set while the page's editor holds edits not saved yet. Publish now and
    * Schedule send the saved text, so they wait until the edits are saved or
@@ -154,6 +166,15 @@ function PublishControlsInner({
   const publishing = usePlatformPublishing(platformId)
   const platform = getPlatform(platformId)
   const name = platform.name
+  // What goes out with the text, in words.
+  const attachments =
+    media === 'carousel'
+      ? `with its ${slideCount} slides`
+      : media === 'text'
+        ? 'text only'
+        : media === 'video'
+          ? 'with its video'
+          : 'with its image'
   const router = useRouter()
   const mounted = useHasMounted()
   const scheduleId = useId()
@@ -161,8 +182,18 @@ function PublishControlsInner({
   // The open dialog. "unknown-…": the last attempt may have reached the platform;
   // "It's not there" goes on to publish now, or to schedule.
   const [dialog, setDialog] = useState<
-    null | 'publish' | 'unknown-publish' | 'unknown-schedule' | 'delete'
+    | null
+    | 'publish'
+    | 'unknown-publish'
+    | 'unknown-schedule'
+    | 'delete'
+    | 'review-publish'
+    | 'review-schedule'
   >(null)
+  // The first post of the identity: the full review instead of the short
+  // confirmation (the getting-started guide is not complete until it is out).
+  const onboarding = useOnboarding()
+  const firstPost = Boolean(review && onboarding && !onboarding.view.progress.complete)
   const [scheduling, setScheduling] = useState(false)
   const [scheduleAt, setScheduleAt] = useState('')
 
@@ -223,6 +254,8 @@ function PublishControlsInner({
         return false
       }
       onChange(res.publication)
+      // The getting-started guide follows the post going out.
+      refreshOnboarding()
       if (
         res.publication.errorCode &&
         CONNECTION_LOST.has(res.publication.errorCode)
@@ -514,7 +547,11 @@ function PublishControlsInner({
           <form
             onSubmit={e => {
               e.preventDefault()
-              schedule()
+              if (firstPost) {
+                if (blockedByTextOnScreen()) return
+                if (Number.isNaN(new Date(scheduleAt).getTime())) return
+                setDialog('review-schedule')
+              } else schedule()
             }}
             // Keys typed here must not trigger the review shortcuts.
             onKeyDown={e => {
@@ -563,7 +600,9 @@ function PublishControlsInner({
                 setDialog(
                   lastFailed && publication.errorCode === 'unknown_outcome'
                     ? 'unknown-publish'
-                    : 'publish'
+                    : firstPost
+                      ? 'review-publish'
+                      : 'publish'
                 )
               }}
               className={`${SMALL_BUTTON} bg-platform hover:bg-platform-hover text-white shadow-xs`}
@@ -599,13 +638,7 @@ function PublishControlsInner({
           description={
             <>
               This {FORMATS[formatId].structure === 'thread' ? 'thread' : 'post'}
-              {media === 'carousel'
-                ? `, with its ${slideCount} slides`
-                : media === 'text'
-                  ? ' (text only)'
-                  : media === 'video'
-                    ? ', with its video'
-                    : ', with its image'}
+              {media === 'text' ? ` (${attachments})` : `, ${attachments}`}
               {SENDS_FIRST_COMMENT.has(platform.id)
                 ? ` and ${FORMATS[formatId].commentLabel.toLowerCase()}`
                 : ''}, is published
@@ -623,6 +656,27 @@ function PublishControlsInner({
           onConfirm={() => void publishNow()}
         />
       )}
+      {(dialog === 'review-publish' || dialog === 'review-schedule') &&
+        review && (
+          <PublishReviewDialog
+            platform={platform.id}
+            platformName={name}
+            accountName={publishing?.name ?? null}
+            when={dialog === 'review-publish' ? 'now' : new Date(scheduleAt)}
+            text={review.text}
+            imageUrl={media === 'image' ? review.imageUrl : null}
+            attachments={`${FORMATS[formatId].structure === 'thread' ? 'a thread' : 'a post'}, ${attachments}${
+              SENDS_FIRST_COMMENT.has(platform.id)
+                ? ` and ${FORMATS[formatId].commentLabel.toLowerCase()}`
+                : ''
+            }`}
+            pending={busy}
+            onCancel={() => setDialog(null)}
+            onConfirm={() =>
+              dialog === 'review-publish' ? void publishNow() : schedule()
+            }
+          />
+        )}
       {(dialog === 'unknown-publish' || dialog === 'unknown-schedule') && (
         <ConfirmDialog
           title={`Is it already on ${name}?`}

@@ -3,9 +3,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import { chromium } from 'playwright-core'
+import { SESSION_FILE } from './demo-user.mjs'
 
+export { SESSION_FILE }
 export const BASE = (process.env.DOCS_BASE_URL ?? 'http://localhost:3000').replace(/\/$/, '')
-export const SESSION_FILE = '/tmp/docs-shots/session.json'
 export const CHROME_PATH =
   process.env.CHROME_PATH ?? `${os.homedir()}/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome`
 
@@ -27,7 +28,9 @@ export async function openBrowser({ width = 1440, height = 900, deviceScaleFacto
     colorScheme: 'light',
     reducedMotion: 'reduce',
     locale: 'en-GB',
-    timezoneId: 'Europe/London'
+    // The dev server's own zone (it runs on this machine), so dates the
+    // server renders match the browser's and React hydrates without errors.
+    timezoneId: process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone
   })
   // The cookie's name follows BETTER_AUTH_URL's scheme; set both spellings so
   // either server setup accepts it (Chrome keeps Secure cookies on localhost).

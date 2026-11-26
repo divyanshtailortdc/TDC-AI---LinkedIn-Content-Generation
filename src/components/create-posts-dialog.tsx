@@ -14,6 +14,7 @@ import {
   type FormatId,
   type PlatformId
 } from '@/lib/formats'
+import { hasPostFor } from '@/lib/formats/drafted'
 import { canPublishFormat } from '@/lib/publishing/platform'
 import {
   describeVideoSpec,
@@ -50,6 +51,7 @@ export function CreatePostsDialog({
   enabledFormats,
   initialPlatforms,
   imageByDefault = true,
+  drafted,
   confirmLabel,
   onCancel,
   onConfirm
@@ -58,6 +60,13 @@ export function CreatePostsDialog({
   description: React.ReactNode
   /** The formats ideation judged the ideas suit, marked as suggested. */
   suggested?: readonly string[]
+  /**
+   * For each idea posts are made from, the formats it already has posts in
+   * (empty for one not drafted yet). A platform every one of them has a post
+   * on is shown drafted and cannot be picked; one only some have is picked
+   * for the others (src/lib/formats/drafted.ts).
+   */
+  drafted?: ReadonlyArray<readonly string[]>
   /** The formats the identity writes (resolveChannels): the only ones offered. */
   enabledFormats: readonly FormatId[]
   /** Picked when it opens (the platform whose ideas are shown); still changeable. */
@@ -88,12 +97,23 @@ export function CreatePostsDialog({
     offered.filter(f => FORMATS[f].platform === platform)
   const isSuggested = (id: string) => suggested?.includes(id) ?? false
 
+  // How many of the ideas already have a post of this format (a platform:
+  // any post there that is not a video), and whether all of them do.
+  const ideaCount = drafted?.length ?? 0
+  const draftedCount = (format: FormatId) =>
+    (drafted ?? []).filter(has => hasPostFor(format, has)).length
+  const platformDraftedCount = (platform: PlatformId) =>
+    draftedCount(formatsOf(platform)[0]!)
+  const allDrafted = (count: number) => ideaCount > 0 && count === ideaCount
+
   // Picked at the start: the platform being viewed, or the only one there is.
-  // One the identity no longer posts on is not offered, so not picked.
-  const picked =
+  // One the identity no longer posts on is not offered, so not picked; nor
+  // is one every idea already has a post on.
+  const picked = (
     platforms.length === 1
       ? platforms
       : platforms.filter(p => initialPlatforms?.includes(p))
+  ).filter(p => !allDrafted(platformDraftedCount(p)))
   const [chosen, setChosen] = useState<PlatformId[]>(picked)
   // A platform picked at the start with one type has it chosen too.
   const [types, setTypes] = useState<Partial<Record<PlatformId, FormatId>>>(() =>
@@ -202,7 +222,12 @@ export function CreatePostsDialog({
             <KindChoice value={kind} onChange={setKind} />
           )}
           {kind === 'video' ? (
-            <VideoChoice chosen={videos} onToggle={toggleVideo} />
+            <VideoChoice
+              chosen={videos}
+              onToggle={toggleVideo}
+              draftedCount={draftedCount}
+              ideaCount={ideaCount}
+            />
           ) : (
           <>
           <fieldset>
@@ -212,15 +237,23 @@ export function CreatePostsDialog({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {platforms.map(platform => {
                 const on = chosen.includes(platform)
+                const draftedHere = platformDraftedCount(platform)
+                const done = allDrafted(draftedHere)
                 return (
                   <button
                     key={platform}
                     type="button"
                     aria-pressed={on}
+                    disabled={done}
                     onClick={() => togglePlatform(platform)}
                     data-platform={platform}
+                    title={
+                      done
+                        ? `Already drafted for ${PLATFORMS[platform].label}`
+                        : undefined
+                    }
                     className={cn(
-                      'relative flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                      'relative flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                       on
                         ? 'border-brand/50 bg-brand/5'
                         : 'border-border hover:bg-surface-hover'
@@ -237,10 +270,20 @@ export function CreatePostsDialog({
                       <span className="text-foreground block text-sm font-medium">
                         {PLATFORMS[platform].label}
                       </span>
-                      {formatsOf(platform).some(isSuggested) && (
-                        <span className="text-accent block text-[10px] font-semibold uppercase">
-                          Suggested
+                      {done ? (
+                        <span className="text-muted block text-[10px] font-semibold uppercase">
+                          Already drafted
                         </span>
+                      ) : draftedHere > 0 ? (
+                        <span className="text-muted block text-[10px] font-semibold">
+                          Drafted for {draftedHere} of {ideaCount}
+                        </span>
+                      ) : (
+                        formatsOf(platform).some(isSuggested) && (
+                          <span className="text-accent block text-[10px] font-semibold uppercase">
+                            Suggested
+                          </span>
+                        )
                       )}
                     </span>
                     {on && (
@@ -252,7 +295,7 @@ export function CreatePostsDialog({
             </div>
             <p className="text-muted mt-2 text-[11px] leading-relaxed">
               {platforms.length > 1
-                ? 'Pick one or more. Each idea gets a post on every platform you pick. '
+                ? 'Pick one or more. Each idea gets a post on every platform you pick that it has no post on yet. '
                 : ''}
               Other platforms are turned on under{' '}
               <Link
@@ -456,35 +499,22 @@ function KindChoice({
 }
 
 /**
- * Short video: where it goes. Each pick drafts a script now; its 8-second
- * vertical video is generated on the post page, on request, after its cost
- * is shown. Offered whatever the identity turned on in Preferences.
+ * Short video: where it goes. Each pick drafts a script now, and its
+ * vertical video is recorded from the script as soon as it is written.
+ * Offered whatever the identity turned on in Preferences.
  */
 function VideoChoice({
   chosen,
-  onToggle
+  onToggle,
+  draftedCount,
+  ideaCount
 }: {
   chosen: readonly VideoFormatId[]
   onToggle: (id: VideoFormatId) => void
+  /** How many of the ideas already have this Reel or Short. */
+  draftedCount: (id: VideoFormatId) => number
+  ideaCount: number
 }) {
-  // What one video costs with the server's model: each Reel and Short drafted
-  // starts its video at once, so the cost is shown before Create.
-  const [estimate, setEstimate] = useState<{
-    estimateUsd: number | null
-    modelLabel: string | null
-    unavailable: string | null
-  } | null>(null)
-  useEffect(() => {
-    const controller = new AbortController()
-    void fetch('/api/video/estimate', { signal: controller.signal, cache: 'no-store' })
-      .then(res => res.json())
-      .then(data => {
-        if (data?.success) setEstimate(data)
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [])
-
   return (
     <fieldset>
       <legend className="text-foreground mb-2 text-xs font-semibold">
@@ -494,15 +524,18 @@ function VideoChoice({
         {VIDEO_FORMATS.map(id => {
           const spec = VIDEO_SPECS[id]
           const on = chosen.includes(id)
+          const draftedHere = draftedCount(id)
+          const done = ideaCount > 0 && draftedHere === ideaCount
           return (
             <button
               key={id}
               type="button"
               aria-pressed={on}
+              disabled={done}
               onClick={() => onToggle(id)}
               data-platform={spec.platform}
               className={cn(
-                'flex w-full cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-colors',
+                'flex w-full cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                 on ? 'border-brand/50 bg-brand/5' : 'border-border hover:bg-surface-hover'
               )}
             >
@@ -512,7 +545,13 @@ function VideoChoice({
               />
               <span className="min-w-0 flex-1">
                 <span className="text-foreground block text-sm font-medium">{spec.label}</span>
-                <span className="text-muted block text-[11px]">{describeVideoSpec(spec)}</span>
+                <span className="text-muted block text-[11px]">
+                  {done
+                    ? 'Already drafted'
+                    : draftedHere > 0
+                      ? `Drafted for ${draftedHere} of ${ideaCount} · ${describeVideoSpec(spec)}`
+                      : describeVideoSpec(spec)}
+                </span>
               </span>
               {on && <Check aria-hidden className="text-brand h-4 w-4 shrink-0" />}
             </button>
@@ -521,30 +560,14 @@ function VideoChoice({
       </div>
       <p className="text-muted mt-2 text-[11px] leading-relaxed">
         Pick one or more. Each idea gets a short script for every platform you
-        pick, and its {VIDEO_SPECS['instagram.reel'].seconds}-second AI video
-        starts as soon as the script is written. Approve the post, then
-        publish it from its page.
+        pick, and its video, the script as slides, starts as soon as the script
+        is written. Approve the post, then publish it from its page.
       </p>
-      {estimate?.estimateUsd != null ? (
-        <p className="text-foreground mt-2 text-[11px] leading-relaxed">
-          <span className="font-semibold">
-            About ${estimate.estimateUsd.toFixed(2)} per video
-          </span>
-          <span className="text-muted">
-            {' '}
-            with {estimate.modelLabel}, from your AI spending limit
-            {chosen.length > 1
-              ? ` (${chosen.length} videos per idea)`
-              : ''}
-            .
-          </span>
-        </p>
-      ) : estimate?.unavailable ? (
-        <p className="text-muted mt-2 text-[11px] leading-relaxed">
-          Videos cannot be made right now ({estimate.unavailable}); the scripts
-          are still written.
-        </p>
-      ) : null}
+      <p className="text-muted mt-2 text-[11px] leading-relaxed">
+        Recorded on the server in your Brand Theme and, where it leaves
+        something unset, the look of your own posts. Matching that look costs
+        about a cent, once per platform.
+      </p>
     </fieldset>
   )
 }

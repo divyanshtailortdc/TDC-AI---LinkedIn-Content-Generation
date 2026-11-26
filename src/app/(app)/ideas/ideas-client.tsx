@@ -13,7 +13,7 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, Link2, SquareCheck, Wand2, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, Link2, Play, SquareCheck, Wand2, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import { SimilarPostDialog } from '@/components/similar-post-dialog'
@@ -52,6 +52,8 @@ type ClientIdeaData = IdeaCardData & {
   runGoalTitles?: string[] | null
   /** The public post it was made from ("From a link"). */
   reference?: SharedPostRef | null
+  /** The formats it has posts in, for a drafted idea. */
+  postFormats?: string[]
 }
 
 const statusLabel = (status: StatusFilter) =>
@@ -199,7 +201,7 @@ export function IdeasClient({
     startFiltering(() => {
       setSelectedPlatform(next)
       // A selection made on one platform's ideas does not carry over.
-      setTicked([])
+      clearSelection()
       pushFilters({ status, platform: next })
     })
   const platformLabel = platform ? PLATFORMS[platform].label : null
@@ -219,6 +221,8 @@ export function IdeasClient({
     initialIdeas.filter((i) => i.status === 'drafting').map((i) => i.id)
   )
   const [openPostsWhenDone, setOpenPostsWhenDone] = useState(false)
+  // How many posts each idea had when it was queued, to count the new ones.
+  const [postsBefore, setPostsBefore] = useState<Record<string, number>>({})
   const isDrafting = draftStatus === 'processing'
   // While posts are being generated (and until we navigate to them), only the
   // progress panel is shown — the ideas list would just be noise.
@@ -226,16 +230,43 @@ export function IdeasClient({
 
   // The ideas ticked for posts. Kept across pages and filters; only ideas
   // still to review or approved count, so one drafted or rejected since
-  // drops out on its own.
+  // drops out on its own. A drafted idea ticked for more platforms counts
+  // too: it is remembered with the formats it has posts in, so the dialog
+  // can say which platforms it is drafted for whatever page it was on.
   const [ticked, setTicked] = useState<string[]>([])
+  const [draftedTicks, setDraftedTicks] = useState<Record<string, string[]>>({})
+  const isDraftedTick = (id: string) => Object.hasOwn(draftedTicks, id)
   const selection = ticked.filter(
-    (id) => proposedIds.includes(id) || approvedIds.includes(id)
+    (id) => proposedIds.includes(id) || approvedIds.includes(id) || isDraftedTick(id)
   )
   const selectedApproved = selection.filter((id) => approvedIds.includes(id))
   const selectedProposed = selection.filter((id) => proposedIds.includes(id))
-  const setTick = (id: string, on: boolean) =>
-    setTicked((prev) => (on ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)))
-  const clearSelection = () => setTicked([])
+  const selectedDrafted = selection.filter(isDraftedTick)
+  // What Create posts drafts: the approved ideas and the drafted ones.
+  const selectedToDraft = [...selectedApproved, ...selectedDrafted]
+  const tickMany = (ids: string[], on: boolean) => {
+    setTicked((prev) =>
+      on ? [...new Set([...prev, ...ids])] : prev.filter((x) => !ids.includes(x))
+    )
+    setDraftedTicks((prev) => {
+      const next = { ...prev }
+      for (const id of ids) {
+        const idea = ideas.find((i) => i.id === id)
+        if (on && idea?.status === 'drafted') next[id] = idea.postFormats ?? []
+        else delete next[id]
+      }
+      return next
+    })
+  }
+  const setTick = (id: string, on: boolean) => tickMany([id], on)
+  const clearSelection = () => {
+    setTicked([])
+    setDraftedTicks({})
+  }
+  // The formats each idea already has posts in, for the dialog.
+  const postFormatsOf = (id: string): string[] =>
+    draftedTicks[id] ??
+    (ideas.find((i) => i.id === id && i.status === 'drafted')?.postFormats ?? [])
 
   // All ideas here already belong to the active account (scoped server-side)
   // and match the filter; this hides ones an action has just moved out of it
@@ -244,9 +275,14 @@ export function IdeasClient({
     (idea) => status === 'all' || idea.status === status
   )
 
-  // The ideas on screen that can be ticked, for "Select shown".
+  // The ideas on screen that can be ticked, for "Select shown": drafted ones
+  // only on the Drafted tab, so selecting a mixed list never adds posts to
+  // ideas that have theirs without that being the point.
   const selectableShown = filteredIdeas
-    .filter((i) => isSelectableIdea(i.status))
+    .filter(
+      (i) =>
+        isSelectableIdea(i.status) || (status === 'drafted' && i.status === 'drafted')
+    )
     .map((i) => i.id)
   const allShownTicked =
     selectableShown.length > 0 && selectableShown.every((id) => selection.includes(id))
@@ -396,6 +432,20 @@ export function IdeasClient({
     setDraftStatus('processing')
     setDraftError(null)
     setDraftTargetIds(targetIds)
+    // Where an idea goes back to when nothing is queued for it: drafted if it
+    // has posts already, else approved (one still to review was approved
+    // just before this).
+    const wasDrafted = new Set(
+      ideas.filter((i) => targetIds.includes(i.id) && i.status === 'drafted').map((i) => i.id)
+    )
+    const putBack = (ids: string[]) =>
+      setIdeas((prev) =>
+        prev.map((i) =>
+          ids.includes(i.id)
+            ? { ...i, status: wasDrafted.has(i.id) ? 'drafted' : 'approved' }
+            : i
+        )
+      )
     setIdeas((prev) => prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'drafting' } : i)))
 
     try {
@@ -406,18 +456,20 @@ export function IdeasClient({
         carouselFormats: formats ? carouselFormatsRef.current : undefined
       })
       if (res.success) {
-        setTicked((prev) => prev.filter((id) => !targetIds.includes(id)))
+        tickMany(targetIds, false)
         if (res.note) {
           showToast({ title: 'Some ideas were skipped', message: res.note, type: 'info' })
         }
+        const queued = res.queuedIds ?? []
+        // The ones skipped are not being drafted: as they were.
+        putBack(targetIds.filter((id) => !queued.includes(id)))
+        setPostsBefore(res.postsBefore ?? {})
         setOpenPostsWhenDone(true)
-        setPollIds(res.queuedIds ?? [])
+        setPollIds(queued)
       } else {
-        // Roll the optimistic update back — drafting failed, so these ideas
-        // are still just approved, not drafted.
-        setIdeas((prev) =>
-          prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'approved' } : i))
-        )
+        // Roll the optimistic update back: nothing is being drafted, so these
+        // ideas are as they were (approved, or drafted with their posts).
+        putBack(targetIds)
         setDraftStatus('error')
         setDraftError(res.error || 'Drafting failed. Please try again.')
         showToast({
@@ -427,9 +479,7 @@ export function IdeasClient({
         })
       }
     } catch (err: any) {
-      setIdeas((prev) =>
-        prev.map((i) => (targetIds.includes(i.id) ? { ...i, status: 'approved' } : i))
-      )
+      putBack(targetIds)
       setDraftStatus('error')
       setDraftError(err?.message || 'Something went wrong while drafting posts.')
       showToast({
@@ -452,15 +502,20 @@ export function IdeasClient({
       ),
     onDone: (rows) => {
       setPollIds([])
-      const drafted = rows.filter((r) => r.status === 'drafted').length
-      const notDrafted = rows.length - drafted
+      // New posts per idea: an idea drafted again for more platforms ends
+      // "drafted" whether or not any new one was written.
+      const newPosts = (r: (typeof rows)[number]) =>
+        r.status === 'drafted' ? Math.max(0, (r.posts ?? 0) - (postsBefore[r.id] ?? 0)) : 0
+      const made = rows.filter((r) => newPosts(r) > 0)
+      const postCount = made.reduce((n, r) => n + newPosts(r), 0)
+      const notDrafted = rows.length - made.length
       if (!openPostsWhenDone) {
         // A batch started elsewhere: the page's lists and counts catch up.
         router.refresh()
         return
       }
-      if (drafted === 0) {
-        const message = 'No post could be drafted. The ideas are back to approved; try again.'
+      if (made.length === 0) {
+        const message = 'No post could be drafted. The ideas are as they were; try again.'
         setDraftStatus('error')
         setDraftError(message)
         showToast({ title: 'Drafting failed', message, type: 'error' })
@@ -470,9 +525,9 @@ export function IdeasClient({
       setDraftStatus('success')
       showToast({
         title: 'Posts generated',
-        message: `${drafted} post${drafted === 1 ? '' : 's'} drafted and ready for review.${
+        message: `${postCount} post${postCount === 1 ? '' : 's'} drafted and ready for review.${
           notDrafted > 0
-            ? ` ${notDrafted} idea${notDrafted === 1 ? '' : 's'} could not be drafted and ${notDrafted === 1 ? 'is' : 'are'} back to approved.`
+            ? ` ${notDrafted} idea${notDrafted === 1 ? '' : 's'} got no new post and ${notDrafted === 1 ? 'is' : 'are'} as before.`
             : ''
         }`,
         type: 'success'
@@ -481,9 +536,10 @@ export function IdeasClient({
     }
   })
 
-  // Posts are made only from the selected ideas that are approved.
+  // Posts are made only from the selected ideas that are approved, or
+  // drafted (for the platforms they have no post on).
   const handleDraftSelected = async (formats: FormatId[]) => {
-    await draftIdeas(selectedApproved, formats)
+    await draftIdeas(selectedToDraft, formats)
   }
 
   // A post like a shared one. The action reads the post and makes its idea
@@ -546,10 +602,10 @@ export function IdeasClient({
   }
 
   // One click: approve the selected ideas still waiting for review, then draft
-  // posts for every selected idea that is now approved. Nothing outside the
-  // selection is approved or drafted.
+  // posts for every selected idea that is now approved, and for the selected
+  // drafted ones. Nothing outside the selection is approved or drafted.
   const handleApproveSelectedAndDraft = async (formats: FormatId[]) => {
-    const alreadyApprovedIds = selectedApproved
+    const alreadyApprovedIds = selectedToDraft
     const toApprove = selectedProposed
     if (toApprove.length === 0 || draftingRef.current) return
     draftingRef.current = true
@@ -610,7 +666,7 @@ export function IdeasClient({
       ? [createDialog.id]
       : createDialog?.kind === 'approve'
         ? selection
-        : selectedApproved
+        : selectedToDraft
   const dialogPosts = `${dialogTargetIds.length} post${dialogTargetIds.length === 1 ? '' : 's'}`
   const confirmCreate = (
     formats: FormatId[],
@@ -682,7 +738,7 @@ export function IdeasClient({
                   className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  <span>{`Create ${selectedApproved.length} post${selectedApproved.length === 1 ? '' : 's'}`}</span>
+                  <span>{`Create ${selectedToDraft.length} post${selectedToDraft.length === 1 ? '' : 's'}`}</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               ) : (
@@ -714,6 +770,16 @@ export function IdeasClient({
                   <span className="hidden sm:inline">From a link</span>
                 </button>
               )}
+              {/* Every run that made ideas: its research, steps and cost. */}
+              <Link
+                href="/runs"
+                title="Every run: its research, the ideas it made and what it cost"
+                className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
+              >
+                <Play className="text-accent h-3.5 w-3.5" />
+                {/* Icon only on phones, so the header's buttons stay on one row. */}
+                <span className="sr-only sm:not-sr-only">Run Details</span>
+              </Link>
               {picker && (
                 <button
                   type="button"
@@ -756,7 +822,10 @@ export function IdeasClient({
                 // Picks the approved ideas; posts are created from the selection.
                 <button
                   type="button"
-                  onClick={() => setTicked(approvedIds)}
+                  onClick={() => {
+                    clearSelection()
+                    tickMany(approvedIds, true)
+                  }}
                   disabled={isActionBusy}
                   className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -790,11 +859,7 @@ export function IdeasClient({
                 {selectableShown.length > 0 && (
                   <button
                     type="button"
-                    onClick={() =>
-                      allShownTicked
-                        ? setTicked((prev) => prev.filter((id) => !selectableShown.includes(id)))
-                        : setTicked((prev) => [...new Set([...prev, ...selectableShown])])
-                    }
+                    onClick={() => tickMany(selectableShown, !allShownTicked)}
                     className="text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors"
                   >
                     <SquareCheck className="h-3.5 w-3.5" />
@@ -914,6 +979,7 @@ export function IdeasClient({
                     showStatus={status === 'all'}
                     selected={selection.includes(idea.id)}
                     onSelectChange={setTick}
+                    canAddPosts
                   />
                 </Fragment>
               ))}
@@ -982,11 +1048,16 @@ export function IdeasClient({
           description={
             createDialog.kind === 'approve'
               ? `The ${selectedProposed.length} selected idea${selectedProposed.length === 1 ? ' still to review is' : 's still to review are'} approved first. Choose where the posts go and what type of post to write. Ideas you did not select are left alone.`
-              : `Choose where the post${dialogTargetIds.length === 1 ? '' : 's'} go and what type of post to write.`
+              : `Choose where the post${dialogTargetIds.length === 1 ? '' : 's'} go and what type of post to write.${
+                  dialogTargetIds.some((id) => postFormatsOf(id).length > 0)
+                    ? ' Platforms an idea already has a post on are marked drafted; it gets posts on the others.'
+                    : ''
+                }`
           }
           suggested={ideas
             .filter((i) => dialogTargetIds.includes(i.id))
             .flatMap((i) => i.formatFit ?? [])}
+          drafted={dialogTargetIds.map(postFormatsOf)}
           enabledFormats={enabledFormats}
           initialPlatforms={platform ? [platform] : undefined}
           confirmLabel={

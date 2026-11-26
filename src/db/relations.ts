@@ -2,6 +2,8 @@ import { relations } from 'drizzle-orm'
 import {
   accountsTable,
   audiencesTable,
+  blogRevisionsTable,
+  blogsTable,
   brandThemesTable,
   documentChunksTable,
   feedbackTable,
@@ -245,5 +247,28 @@ export const newslettersRelations = relations(newslettersTable, ({ one }) => ({
   account: one(accountsTable, {
     fields: [newslettersTable.accountId],
     references: [accountsTable.id]
+  })
+}))
+
+export const blogsRelations = relations(blogsTable, ({ one, many }) => ({
+  account: one(accountsTable, {
+    fields: [blogsTable.accountId],
+    references: [accountsTable.id]
+  }),
+  idea: one(ideasTable, {
+    fields: [blogsTable.ideaId],
+    references: [ideasTable.id]
+  }),
+  goal: one(goalsTable, {
+    fields: [blogsTable.goalId],
+    references: [goalsTable.id]
+  }),
+  revisions: many(blogRevisionsTable)
+}))
+
+export const blogRevisionsRelations = relations(blogRevisionsTable, ({ one }) => ({
+  blog: one(blogsTable, {
+    fields: [blogRevisionsTable.blogId],
+    references: [blogsTable.id]
   })
 }))

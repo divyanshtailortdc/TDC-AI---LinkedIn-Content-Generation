@@ -134,9 +134,9 @@ const ddl = [
   ...statementsOf('0057_ai_usage_draft.sql')
 ]
 // 0054 re-adds its source constraint, which rows of a source added later
-// ('help', from 0055) would break: they are set aside first, inside the
-// transaction that is rolled back.
-const LATER_SOURCES = sql`delete from ai_usage where source = 'help'`
+// ('help' from 0055, 'blogs' from 0062) would break: they are set aside
+// first, inside the transaction that is rolled back.
+const LATER_SOURCES = sql`delete from ai_usage where source in ('help', 'blogs')`
 
 const usage = (costUsd: number, more: Partial<CallUsage> = {}): CallUsage => ({
   ...EMPTY_USAGE,

@@ -523,24 +523,43 @@ export const isSearchThumbnail = (url: string) => {
 
 /**
  * Image results that belong to the account's posts: an image search does
- * not check who posted, so only images on a post already known to be the
- * account's are kept. Each post gets its image's shape.
+ * not check who posted, so an image counts only on a post already known to
+ * be the account's, or on a page the platform's own markings give to it
+ * (the post's address names the account, or its title does: "… (@zomato)"),
+ * read by the same rules as the posts. A known post gets its image's shape.
  */
 export function imagesForPosts(
   ref: ProfileRef,
   posts: InsightPost[],
-  images: readonly ImageResult[]
+  images: readonly ImageResult[],
+  displayName = ''
 ): Array<{ postUrl: string; thumbnailUrl: string }> {
   const byKey = new Map(
     posts.map(p => [postKey(ref.platform, p.url) ?? p.url, p])
   )
+  const read = READERS[ref.platform]
   const out: Array<{ postUrl: string; thumbnailUrl: string }> = []
   const used = new Set<string>()
   for (const image of images) {
     const key = postKey(ref.platform, image.pageUrl) ?? image.pageUrl
+    if (used.has(key) || !isSearchThumbnail(image.thumbnailUrl)) continue
     const post = byKey.get(key)
-    if (!post || used.has(key) || !isSearchThumbnail(image.thumbnailUrl))
+    if (!post) {
+      // A post the text searches did not find: kept only when its own page
+      // says it is the account's, and never through a redirect link.
+      const owned =
+        !isSearchRedirect(image.pageUrl) &&
+        postKey(ref.platform, image.pageUrl) !== null &&
+        read?.(
+          { url: image.pageUrl, title: image.title, snippet: '' },
+          ref,
+          displayName
+        )
+      if (!owned) continue
+      used.add(key)
+      out.push({ postUrl: image.pageUrl, thumbnailUrl: image.thumbnailUrl })
       continue
+    }
     used.add(key)
     const aspect = aspectOf(image.width, image.height)
     if (aspect) post.aspect = aspect

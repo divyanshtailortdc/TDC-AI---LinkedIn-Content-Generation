@@ -2,7 +2,11 @@ import 'server-only'
 
 import type { Idea } from '@/db/schema'
 import { isPictureStyle, type ImageStyle } from '@/lib/brand/theme'
-import { PICTURE_LAYOUTS, type SlideContent } from '@/lib/carousel/types'
+import {
+  lookDesign,
+  PICTURE_LAYOUTS,
+  type SlideContent
+} from '@/lib/carousel/types'
 import {
   carouselSpecOf,
   FORMATS,
@@ -56,6 +60,11 @@ export async function writeSlides(input: {
   imageStyle: ImageStyle
   /** What the reviewer wants, when the carousel is written again. */
   instruction?: string | null
+  /**
+   * Every slide is made like the author's own posts (src/lib/carousel/
+   * look.ts): words written for that, and no drawn layouts or pictures.
+   */
+  likeTheirPosts?: boolean
 }): Promise<WrittenSlides> {
   const spec = carouselSpecOf(input.formatId)
   if (!spec) {
@@ -68,7 +77,11 @@ export async function writeSlides(input: {
   const count = slideCountRange(input.formatId)
   const { output, usage, modelId } = await runSkill({
     stage: 'drafting',
-    instructions: buildSlidesInstructions(ctx, input.imageStyle),
+    instructions: buildSlidesInstructions(
+      ctx,
+      input.imageStyle,
+      input.likeTheirPosts
+    ),
     cacheInstructions: true,
     prompt: buildSlidesPrompt(
       ctx,
@@ -87,9 +100,12 @@ export async function writeSlides(input: {
     const figureSources = collectFigureSources(ctx, input.idea)
     const slides = toCarousel(output?.slides ?? [], {
       maxSlides: spec.maxSlides,
-      pictures: isPictureStyle(input.imageStyle),
+      pictures: !input.likeTheirPosts && isPictureStyle(input.imageStyle),
       figureSources
     })
+    if (input.likeTheirPosts) {
+      for (const slide of slides) slide.design = lookDesign(slide.role)
+    }
     return {
       slides,
       issues: carouselIssues(input.caption, slides),
@@ -120,6 +136,8 @@ export async function rewriteSlide(input: {
   index: number
   instruction: string | null
   imageStyle: ImageStyle
+  /** The carousel is made like the author's own posts (see writeSlides). */
+  likeTheirPosts?: boolean
 }): Promise<{
   slide: SlideContent
   /** Its figures and quote that no source states. */
@@ -132,7 +150,11 @@ export async function rewriteSlide(input: {
   if (!current) throw new SkillError('That slide no longer exists.', 'failed')
   const { output, usage, modelId } = await runSkill({
     stage: 'drafting',
-    instructions: buildSlidesInstructions(ctx, input.imageStyle),
+    instructions: buildSlidesInstructions(
+      ctx,
+      input.imageStyle,
+      input.likeTheirPosts
+    ),
     cacheInstructions: true,
     prompt: buildSlidePrompt(
       ctx,
@@ -141,7 +163,8 @@ export async function rewriteSlide(input: {
       input.caption,
       input.slides,
       input.index,
-      input.instruction
+      input.instruction,
+      input.likeTheirPosts
     ),
     schema: OneSlideOutputSchema,
     timeoutMs: SLIDES_TIMEOUT_MS,
@@ -159,11 +182,15 @@ export async function rewriteSlide(input: {
       usage
     })
   }
-  // Kept as it was where the new layout shows a picture: a rewrite never
-  // adds a picture (an image-model call) the reviewer did not ask for.
-  slide.design.picture =
-    current.design.picture === true &&
-    PICTURE_LAYOUTS.includes(slide.design.layout)
+  if (input.likeTheirPosts) {
+    slide.design = lookDesign(slide.role)
+  } else {
+    // Kept as it was where the new layout shows a picture: a rewrite never
+    // adds a picture (an image-model call) the reviewer did not ask for.
+    slide.design.picture =
+      current.design.picture === true &&
+      PICTURE_LAYOUTS.includes(slide.design.layout)
+  }
   return {
     slide,
     factIssues: slideFactIssues(slide, figureSources),

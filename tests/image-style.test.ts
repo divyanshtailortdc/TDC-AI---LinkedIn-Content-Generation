@@ -19,6 +19,7 @@ import {
   DEFAULT_BRAND_THEME,
   DEFAULT_IMAGE_STYLE,
   resolveBrandTheme,
+  renderingStyleOf,
   resolveImageStyle,
   type ResolvedBrandTheme
 } from '../src/lib/brand/theme'
@@ -48,27 +49,35 @@ const brand: ResolvedBrandTheme = {
 }
 
 describe('the image style a brand is drawn in', () => {
-  it('is photorealistic unless the brand chose otherwise', () => {
+  it('follows the identity\'s own posts unless the brand chose a style, drawing photographs until it has examples', () => {
     assert.equal(DEFAULT_IMAGE_STYLE, 'photorealistic')
-    assert.equal(DEFAULT_BRAND_THEME.visualStyle, 'photorealistic')
-    assert.equal(resolveBrandTheme(null).visualStyle, 'photorealistic')
+    assert.equal(DEFAULT_BRAND_THEME.visualStyle, 'my_posts')
+    assert.equal(resolveBrandTheme(null).visualStyle, 'my_posts')
+    assert.equal(renderingStyleOf('my_posts'), 'photorealistic')
+    assert.equal(renderingStyleOf('illustration'), 'illustration')
   })
 
   it('reads the values saved before image styles existed', () => {
     // 'auto' was the column default and never offered in the form.
-    assert.equal(resolveImageStyle('auto'), 'photorealistic')
+    assert.equal(resolveImageStyle('auto'), 'my_posts')
     assert.equal(resolveImageStyle('diagram'), 'minimal_graphic')
     assert.equal(resolveImageStyle('illustration'), 'illustration')
-    assert.equal(resolveImageStyle(null), 'photorealistic')
-    assert.equal(resolveImageStyle('watercolour'), 'photorealistic')
+    // A brand that chose a style keeps it.
+    assert.equal(resolveImageStyle('photorealistic'), 'photorealistic')
+    assert.equal(resolveImageStyle(null), 'my_posts')
+    assert.equal(resolveImageStyle('watercolour'), 'my_posts')
     assert.equal(resolveBrandTheme({ visualStyle: '3d_render' }).visualStyle, '3d_render')
   })
 
-  it('saves one of the listed styles, photorealistic when none is sent', () => {
-    assert.equal(BrandThemePayloadSchema.parse({}).visualStyle, 'photorealistic')
+  it('saves one of the listed styles, Like my posts when none is sent', () => {
+    assert.equal(BrandThemePayloadSchema.parse({}).visualStyle, 'my_posts')
     assert.equal(
       BrandThemePayloadSchema.parse({ visualStyle: 'minimal_graphic' }).visualStyle,
       'minimal_graphic'
+    )
+    assert.equal(
+      BrandThemePayloadSchema.parse({ visualStyle: 'my_posts' }).visualStyle,
+      'my_posts'
     )
     assert.equal(
       BrandThemePayloadSchema.safeParse({ visualStyle: 'auto' }).success,

@@ -14,7 +14,15 @@ import { assertPostChangeable, PostLockedError } from '@/lib/publishing/post-loc
 import { and, desc, eq } from 'drizzle-orm'
 import { loadGenerationContext, loadIdeaContext } from '~/lib/ai/context'
 import { recordReviewMediaSpend } from '~/lib/ai/run-accounting'
-import { DEFAULT_BRAND_THEME, type ImageStyle } from '~/lib/brand/theme'
+import {
+  DEFAULT_BRAND_THEME,
+  LIKE_MY_POSTS,
+  type ImageStyleChoice
+} from '~/lib/brand/theme'
+import {
+  loadLookExamples,
+  loadRecentLooks
+} from '@/lib/visual-examples/store'
 import type { DiagramForm } from './canvas/spec'
 import { loadBrandRendering } from './brand-assets'
 import { buildMediaBriefContext } from './brief-context'
@@ -89,7 +97,7 @@ export async function createPostMedia(input: {
   /** An image the reviewer attached to guide composition and style. */
   referenceImage?: Buffer
   /** AI: the image style the reviewer picked; the brand theme's when unset. */
-  style?: ImageStyle
+  style?: ImageStyleChoice
   /** AI, minimal graphic design: the diagram form; the art director chooses when unset. */
   diagramType?: DiagramForm
   abortSignal?: AbortSignal
@@ -137,6 +145,27 @@ export async function createPostMedia(input: {
   const previousVersions = priorVisualsOf(history)
 
   const { idea, context, brand } = await loadMediaInputs(draft)
+  // Like my posts follows the identity's example posts for this platform;
+  // loaded only for it, and never with a reference image, which brings its own look.
+  const platform = FORMATS[formatOf(draft.formatId)].platform
+  const examples =
+    mode === 'ai_generated' &&
+    !input.referenceImage &&
+    (input.style ?? brand.theme.visualStyle) === LIKE_MY_POSTS
+      ? await loadLookExamples(draft.accountId, platform).catch(err => {
+          console.warn('The example posts could not be loaded:', err)
+          return []
+        })
+      : []
+  // Other posts' latest looks here; this post's own are previousVersions.
+  const recentLooks = examples.length
+    ? await loadRecentLooks(draft.accountId, platform, {
+        excludeDraftId: draft.id
+      }).catch(err => {
+        console.warn('The latest looks could not be loaded:', err)
+        return []
+      })
+    : []
   const ideaDirection = (idea?.suggestedMedia as { brief?: string } | null)
     ?.brief
 
@@ -185,6 +214,9 @@ export async function createPostMedia(input: {
     version: latestVersion,
     excludeUrls,
     referenceImage: mode === 'ai_generated' ? input.referenceImage : undefined,
+    platform,
+    examples,
+    recentLooks,
     abortSignal: input.abortSignal
   })
 

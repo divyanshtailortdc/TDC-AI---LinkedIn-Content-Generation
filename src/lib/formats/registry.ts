@@ -78,11 +78,12 @@ export const PLATFORMS: Record<PlatformId, PlatformInfo> = {
   }
 }
 
-// The video formats' shared rules: their script becomes one AI-generated clip.
+// The video formats' shared rules: their script is recorded as a text video
+// (src/lib/video/render): title cards and slides, no footage, no voiceover.
 const VIDEO_SCRIPT_RULE =
-  'A vertical video script, shot by shot, that an AI video model turns into one 8-second clip with a voiceover: what is said, and what is on screen. The clip has no text overlays, so the picture and the words must make the point without them.'
+  "A vertical video script, shot by shot, that the app records as a text video: the first shot on a title card, each later shot on a slide in the brand's colours with its on-screen text in big type and its line as the caption under it, and the call to action on a closing card. There is no footage and no voiceover, and most people watch with the sound off, so the words on screen must make the point on their own."
 const VIDEO_SPOKEN_RULE =
-  'Write the spoken words to be said aloud in 8 seconds: one or two short sentences, about 15 words in all, with contractions. No lists, no numbers that need reading slowly.'
+  "Write each shot's line (say) as one short, natural sentence of about 6 to 14 words, with contractions, read in a few seconds. Give every shot onScreenText: 2 to 6 words, the shot's point in big type, not a copy of its line. No lists inside a shot, no URLs, no emoji."
 
 const X_LINK_NOTE =
   'Posts with links usually reach fewer people on X. Leave links out of the post unless the goal needs one, and then put it in the reply, which is published under the post.'
@@ -252,38 +253,38 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     commentLabel: 'Link-in-bio note',
     withImage: true
   },
-  // A Reel, a Short and a Facebook Reel: a script an AI video model turns into
-  // one 8-second vertical clip (src/lib/video), so the spoken words fit in 8
-  // seconds. 2: written for that clip; version 1 scripts were for filming.
+  // A Reel, a Short and a Facebook Reel: a script the app records as a
+  // vertical text video (src/lib/video/render), each shot a slide. 3: written
+  // for those slides; 2 was for an 8-second AI clip, 1 for filming.
   'instagram.reel': {
     id: 'instagram.reel',
     media: { formats: ['video'] },
     imageShape: '4:5',
     platform: 'instagram',
     label: 'Instagram Reel',
-    version: 2,
+    version: 3,
     structure: 'script',
     limits: {
       count: 'utf16',
       maxChars: 2200,
       targetChars: 300,
       foldChars: 125,
-      seconds: { target: 6, max: 8 },
-      shots: { min: 1, max: 3 }
+      seconds: { target: 15, max: 30 },
+      shots: { min: 3, max: 6 }
     },
     hashtags: { min: 1, max: 5 },
     links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
     rules: [
       VIDEO_SCRIPT_RULE,
-      'The first shot is the hook: it earns the next second, in words and in picture.',
+      'The first shot is the hook: its words on screen earn the next second.',
       VIDEO_SPOKEN_RULE,
       'The caption goes with the video: its first 125 characters show before "more". Never write a URL; say the link is in the bio.'
     ],
     commentLabel: 'Pinned comment',
     register:
-      'Spoken, personal and quick, to one viewer. Short sentences that sound natural out loud; the picture carries as much as the words.',
+      "Spoken, personal and quick, to one viewer. Short sentences that sound natural out loud; each slide's few big words carry the point.",
     opening:
-      'A spoken first line, within two seconds, that makes the viewer want the rest, while the picture already shows something worth watching.'
+      'A first line, on screen within a second, that makes the viewer want the rest.'
   },
   'youtube.short': {
     id: 'youtube.short',
@@ -291,15 +292,15 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     imageShape: '4:5',
     platform: 'youtube',
     label: 'YouTube Short',
-    version: 2,
+    version: 3,
     structure: 'script',
     limits: {
       count: 'utf16',
       maxChars: 5000,
       targetChars: 300,
       foldChars: null,
-      seconds: { target: 6, max: 8 },
-      shots: { min: 1, max: 3 }
+      seconds: { target: 15, max: 30 },
+      shots: { min: 3, max: 6 }
     },
     hashtags: { min: 1, max: 3 },
     links: { inBody: 'not_clickable', fallback: 'link_in_bio' },
@@ -317,29 +318,29 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
     imageShape: '4:5',
     platform: 'facebook',
     label: 'Facebook Reel',
-    version: 1,
+    version: 2,
     structure: 'script',
     limits: {
       count: 'utf16',
       maxChars: 2000,
       targetChars: 250,
       foldChars: 125,
-      seconds: { target: 6, max: 8 },
-      shots: { min: 1, max: 3 }
+      seconds: { target: 15, max: 30 },
+      shots: { min: 3, max: 6 }
     },
     hashtags: { min: 0, max: 3 },
     links: { inBody: 'not_clickable', fallback: 'first_comment' },
     rules: [
       VIDEO_SCRIPT_RULE,
-      'The first shot is the hook: something followers recognise from their own life or work, in words and in picture.',
+      'The first shot is the hook: something followers recognise from their own life or work, in its first few words on screen.',
       VIDEO_SPOKEN_RULE,
       'The caption goes with the video and shows only its first line or two before "See more". Links in a Reel caption are not clickable; put one in the first comment.'
     ],
     commentLabel: 'First comment',
     register:
-      'Warm, spoken and quick, to one viewer who follows the brand. Plain words that sound natural out loud; the picture carries as much as the words.',
+      "Warm, spoken and quick, to one viewer who follows the brand. Plain words that sound natural out loud; each slide's few big words carry the point.",
     opening:
-      'A spoken first line, within a second, that names something the viewer recognises, while the picture already shows it.'
+      'A first line, on screen at once, that names something the viewer recognises.'
   }
 }
 
@@ -415,7 +416,7 @@ export function formatHint(id: FormatId): string {
   if (structure === 'thread' && limits.parts) {
     return `${limits.parts.min}–${limits.parts.max} posts, each up to ${limits.maxChars} characters`
   }
-  if (structure === 'script') return 'An 8-second vertical AI video and its caption'
+  if (structure === 'script') return 'A vertical video of the script, as slides, and its caption'
   return `One post, up to ${limits.maxChars.toLocaleString('en-US')} characters`
 }
 

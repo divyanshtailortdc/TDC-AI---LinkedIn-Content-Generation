@@ -13,6 +13,7 @@ import {
   Flame,
   Link2,
   Loader2,
+  NotebookPen,
   Sparkles,
   Target,
   X
@@ -78,6 +79,8 @@ export interface RunIdeaCardData {
   unsupportedClaims?: string[] | null
   /** The public post it was made from ("From a link"); null for ideas from a run. */
   reference?: SharedPostRef | null
+  /** The formats it has posts in (a drafted idea): "Drafted LinkedIn post". */
+  postFormats?: string[] | null
   status: string
 }
 
@@ -97,6 +100,11 @@ interface RunIdeaCardProps {
   /** Ticked for "Create posts"; with onSelectChange, the card shows a checkbox. */
   selected?: boolean
   onSelectChange?: (id: string, selected: boolean) => void
+  /**
+   * A drafted idea can be ticked and drafted again, for the platforms it has
+   * no post on (the Ideas page). Off where the page does not support it.
+   */
+  canAddPosts?: boolean
 }
 
 /** Only ideas still at the gate can be picked for posts. */
@@ -176,7 +184,8 @@ export function RunIdeaCard({
   isBusy,
   showStatus = true,
   selected = false,
-  onSelectChange
+  onSelectChange,
+  canAddPosts = false
 }: RunIdeaCardProps) {
   const actionsDisabled = isBusy
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -186,7 +195,9 @@ export function RunIdeaCard({
   const { canReject, canEdit, canApprove, canDraft } = gateActionsFor(
     idea.status
   )
-  const showDraft = canDraft && !!onDraft
+  // A drafted idea, drafted again for more platforms (never while drafting).
+  const addsPosts = canAddPosts && idea.status === 'drafted'
+  const showDraft = (canDraft || addsPosts) && !!onDraft
   // The face is the title plus what the idea is for, shown in full;
   // everything else sits behind Details. Rejected and drafted ideas are done,
   // so they're muted.
@@ -211,8 +222,12 @@ export function RunIdeaCard({
   const detailTakeaway =
     summaryField !== 'audienceTakeaway' ? idea.audienceTakeaway : null
   const showViewPost = idea.status === 'drafted'
+  // A blog or article can be written from any idea still in play; it never
+  // changes the idea's own status (src/app/(app)/blogs).
+  const showWriteBlog = idea.status !== 'rejected'
   const collapsed = mode === 'view' && !showDetails
-  const showCheckbox = !!onSelectChange && isSelectableIdea(idea.status)
+  const showCheckbox =
+    !!onSelectChange && (isSelectableIdea(idea.status) || addsPosts)
   const goals = idea.goalTitles ?? []
 
   const evidence = Array.isArray(idea.supportingEvidence)
@@ -267,7 +282,7 @@ export function RunIdeaCard({
         selected && showCheckbox
           ? 'border-brand/60 ring-brand/20 ring-2'
           : 'border-border hover:border-foreground/15',
-        collapsed ? 'min-h-[17rem]' : 'min-h-64'
+        collapsed ? 'min-h-68' : 'min-h-64'
       )}
     >
       {(showCheckbox ||
@@ -453,6 +468,15 @@ export function RunIdeaCard({
               <FormatChips formats={idea.formatFit} />
             </div>
           )}
+          {(idea.postFormats?.length ?? 0) > 0 && (
+            <div className="mt-1.5">
+              <FormatChips
+                formats={idea.postFormats}
+                label="Drafted"
+                withVideos
+              />
+            </div>
+          )}
 
           {showDetails && (
             <div className="border-border mt-4 space-y-3 border-t pt-4 text-sm">
@@ -567,7 +591,8 @@ export function RunIdeaCard({
             canReject ||
             canApprove ||
             showDraft ||
-            showViewPost) && (
+            showViewPost ||
+            showWriteBlog) && (
             // mt-auto pins the actions to the bottom edge of the fixed-height card.
             <div className="mt-auto pt-4">
               <div className="border-border flex flex-wrap items-center gap-2 border-t pt-3">
@@ -588,6 +613,18 @@ export function RunIdeaCard({
                   </button>
                 )}
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  {showWriteBlog && (
+                    <Link
+                      href={`/blogs/new?idea=${idea.id}`}
+                      title="Write a blog or article from this idea"
+                      className="border-border text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors"
+                    >
+                      <NotebookPen className="h-3.5 w-3.5" />
+                      {/* Narrow cards (phones, two columns) drop "Write a". */}
+                      <span className="max-sm:hidden lg:max-xl:hidden">Write a</span>
+                      blog
+                    </Link>
+                  )}
                   {canReject && (
                     <ConfirmPopover
                       title="Reject this idea?"
@@ -634,19 +671,35 @@ export function RunIdeaCard({
                       type="button"
                       disabled={actionsDisabled}
                       onClick={() => onDraft?.(idea.id)}
-                      aria-label="Generate Post"
-                      className="bg-accent text-background hover:bg-accent-hover inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60"
+                      aria-label={
+                        addsPosts
+                          ? 'Create posts for more platforms'
+                          : 'Generate Post'
+                      }
+                      className={cn(
+                        'inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-60',
+                        // An idea that has its posts: a quieter way to add more.
+                        addsPosts
+                          ? 'border-border text-foreground hover:bg-surface-hover border'
+                          : 'bg-accent text-background hover:bg-accent-hover'
+                      )}
                     >
                       {isBusy ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Sparkles className="h-3.5 w-3.5" />
                       )}
-                      {/* Narrow cards (phones, two columns) drop "Generate". */}
-                      <span className="max-sm:hidden lg:max-xl:hidden">
-                        Generate
-                      </span>
-                      Post
+                      {addsPosts ? (
+                        'More posts'
+                      ) : (
+                        <>
+                          {/* Narrow cards (phones, two columns) drop "Generate". */}
+                          <span className="max-sm:hidden lg:max-xl:hidden">
+                            Generate
+                          </span>
+                          Post
+                        </>
+                      )}
                     </button>
                   )}
                   {showViewPost && (

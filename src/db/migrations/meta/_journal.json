@@ -421,6 +421,55 @@
       "when": 1795238795300,
       "tag": "0059_identity_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1795413315464,
+      "tag": "0060_onboarding_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1795437854054,
+      "tag": "0061_visual_examples",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1795578973386,
+      "tag": "0062_blogs",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1795578973387,
+      "tag": "0063_blog_destination",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1795602038099,
+      "tag": "0064_blog_quality",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795607286058,
+      "tag": "0065_post_videos_recorder_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795666634525,
+      "tag": "0066_blog_engine",
+      "breakpoints": true
     }
   ]
 }

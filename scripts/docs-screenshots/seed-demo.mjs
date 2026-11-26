@@ -12,10 +12,10 @@
 // brand, run, review, posts, approve.
 //
 // COST (real AI through the gateway, recorded in ai_usage for the demo user):
-// about $0.60–$1.00 on a fresh database. The paid parts are the knowledge
-// item's summary (~$0.01), one idea run for two goals (web research + ideas,
-// ~$0.25–$0.40), writing the posts (~$0.03 each), one LinkedIn image
-// (~$0.13) and one carousel (~$0.15). The identity is filled in by hand
+// about $0.40 on a fresh database (measured 2026-11-23). The paid parts are
+// the knowledge item's summary (~$0.003), one idea run for two goals (web
+// research is Serper; ideas and their review ~$0.15), writing two posts and
+// one LinkedIn image (~$0.25). The identity is filled in by hand
 // ("I'll fill it in myself"), no profile links or website are given (so no
 // public page is fetched or analysed), and Buffer is left unconnected. The
 // script stops before a paid phase once the user has spent SPEND_CAP_USD
@@ -240,7 +240,125 @@ const phases = {
     if (!['awaiting_idea_approval', 'completed'].includes(run.status)) throw new Error(`The run ended ${run.status} (${run.id})`)
     const [{ n }] = await sql`select count(*)::int as n from ideas where run_id = ${run.id}`
     console.log(`  run ${run.id} ${run.status}, ${n} ideas`)
+  },
+
+  // Approve two ideas that suit LinkedIn, reject the weakest, and leave the
+  // rest to review. The screenshots need an idea still waiting (Approve and
+  // Reject on its card) and an approved idea with no posts yet (the "Create
+  // 1 post" dialog), besides the one the posts are made from.
+  async review() {
+    const id = await identityId()
+    const ideas = await sql`
+      select id, title, status, target_formats
+      from ideas where account_id = ${id} order by score desc nulls last, created_at`
+    if (ideas.some(i => i.status !== 'proposed')) return console.log('  ideas reviewed before, skipped')
+    if (ideas.length < 4) throw new Error(`Only ${ideas.length} ideas; the screenshots need 4`)
+    const linkedin = ideas.filter(i => (i.target_formats ?? []).includes('linkedin.post'))
+    const best = linkedin[0] ?? ideas[0]
+    const spare = linkedin.filter(i => i !== best).at(-1) ?? ideas.filter(i => i !== best).at(-1)
+    const reject = ideas.filter(i => i !== best && i !== spare).at(-1)
+    await page.goto(`${BASE}/ideas`)
+    await settle()
+    const card = idea => page.locator('article').filter({ hasText: idea.title.slice(0, 40) }).first()
+    for (const idea of [best, spare]) {
+      await card(idea).getByRole('button', { name: 'Approve', exact: true }).click()
+      await waitForRow(() => sql`select id from ideas where id = ${idea.id} and status = 'approved'`)
+      console.log(`  approved "${idea.title}"`)
+    }
+    await card(reject).getByRole('button', { name: 'Reject', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Reject', exact: true }).click()
+    await waitForRow(() => sql`select id from ideas where id = ${reject.id} and status = 'rejected'`)
+    console.log(`  rejected "${reject.title}"`)
+  },
+
+  // Posts from the best approved idea: a LinkedIn post with an image and an
+  // X post (text only). The other approved idea is left without posts.
+  async posts() {
+    const id = await identityId()
+    const [idea] = await sql`
+      select i.id, i.title from ideas i
+      where i.account_id = ${id} and i.status <> 'proposed' and i.status <> 'rejected'
+      order by i.score desc nulls last, i.created_at limit 1`
+    if (!idea) throw new Error('Run the review phase first')
+    const [existing] = await sql`select id from post_drafts where idea_id = ${idea.id} limit 1`
+    if (!existing) {
+      await guardSpend('the posts')
+      await createPosts(idea, { linkedin: { image: true }, x: { image: false } })
+      await waitForPosts(idea.id, 2)
+    } else console.log(`  posts for "${idea.title}" exist`)
+    await waitForImage(idea.id)
+    await settle(2000)
+    await shot('posts-written')
+  },
+
+  // Approve the X post; the LinkedIn posts stay awaiting review.
+  async approve() {
+    const id = await identityId()
+    const [post] = await sql`
+      select id, status from post_drafts where account_id = ${id} and platform = 'x' order by created_at limit 1`
+    if (!post) throw new Error('No X post to approve; run the posts phase first')
+    if (post.status === 'approved') return console.log('  X post approved before, skipped')
+    await page.goto(`${BASE}/posts/${post.id}`)
+    await settle()
+    await page.getByRole('button', { name: /^Approve/ }).first().click()
+    await waitForRow(() => sql`select id from post_drafts where id = ${post.id} and status = 'approved'`)
+    await settle()
+    await shot('approved')
+    console.log('  approved the X post')
   }
+}
+
+/** Ticks the idea on Ideas and makes posts on the given platforms. */
+async function createPosts(idea, platforms) {
+  await page.goto(`${BASE}/ideas`)
+  await settle()
+  await page.getByRole('checkbox', { name: `Select "${idea.title}" for posts` }).check()
+  await page.getByRole('button', { name: /^Create 1 post/ }).click()
+  const dialog = page.getByRole('dialog', { name: /Create/ })
+  await dialog.waitFor()
+  for (const platform of ['LinkedIn', 'X', 'Threads']) {
+    const key = platform.toLowerCase()
+    const button = dialog.getByRole('button', { name: new RegExp(`^${platform}`) })
+    if (!(await button.count())) continue
+    const on = (await button.getAttribute('aria-pressed')) === 'true'
+    if (on !== Boolean(platforms[key])) await button.click()
+  }
+  for (const [key, { image }] of Object.entries(platforms)) {
+    const label = key === 'x' ? 'X' : key[0].toUpperCase() + key.slice(1)
+    const group = dialog.getByRole('radiogroup', { name: `${label} post type` })
+    const radios = group.getByRole('radio')
+    if ((await radios.count()) > 1) await radios.first().check()
+    const box = group.locator('xpath=..').getByRole('checkbox', { name: /Add an image/ })
+    if (await box.count()) await box.setChecked(image)
+  }
+  await page.waitForTimeout(300)
+  await shot(`create-${idea.id.slice(0, 8)}`)
+  await dialog.getByRole('button', { name: /^Create/ }).last().click()
+  await dialog.waitFor({ state: 'detached', timeout: 30_000 })
+  console.log(`  creating posts for "${idea.title}" on ${Object.keys(platforms).join(', ')}`)
+}
+
+async function waitForPosts(ideaId, count) {
+  const start = Date.now()
+  while (Date.now() - start < 6 * 60_000) {
+    const rows = await sql`select platform, status, length(body) as len from post_drafts where idea_id = ${ideaId}`
+    if (rows.length >= count && rows.every(r => r.len > 0)) {
+      console.log('  written:', rows.map(r => `${r.platform} ${r.status}`).join(', '))
+      return
+    }
+    await page.waitForTimeout(3000)
+  }
+  throw new Error('Posts were not written within 6 minutes')
+}
+
+async function waitForImage(ideaId) {
+  await waitForRow(
+    () => sql`
+      select m.id from post_media m join post_drafts d on d.id = m.draft_id
+      where d.idea_id = ${ideaId} and d.platform = 'linkedin' and m.status = 'active' and m.image_url is not null`,
+    6 * 60_000
+  )
+  console.log('  LinkedIn image ready')
 }
 
 async function waitForRow(query, timeout = 30_000) {

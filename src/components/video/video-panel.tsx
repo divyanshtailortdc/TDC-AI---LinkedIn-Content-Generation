@@ -4,7 +4,6 @@ import { showToast } from '@/components/toast-notification'
 import { cn } from '@/lib/cn'
 import {
   describeVideoSpec,
-  formatUsd,
   videoSpecOf,
   type VideoFormatId
 } from '@/lib/video/formats'
@@ -14,22 +13,24 @@ import {
   Clapperboard,
   Download,
   Loader2,
-  RefreshCw,
-  Sparkles
+  RefreshCw
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * A Reel's or Short's video on the post page, in place of the image tools:
- * Generate (after confirming the estimated cost), progress while the clip is
- * made, then the video to watch, download or make again. The state lives on
- * the server (GET /api/posts/[id]/video), so leaving the page does not stop
- * a generation, and coming back picks it up.
+ * Record video (recorded from the script on the server), progress while it
+ * is made, then the video to watch, download or record again. The state
+ * lives on the server (GET /api/posts/[id]/video), so leaving the page does
+ * not stop a recording, and coming back picks it up.
  */
 
 const POLL_MS = 5_000
-/** What Veo usually takes, for the estimated progress bar. */
-const TYPICAL_SECONDS = 90
+/**
+ * What a video usually takes, for the progress bar: pictures for a few of
+ * its scenes are made first, then it is recorded.
+ */
+const TYPICAL_SECONDS = 150
 
 const primaryButton =
   'bg-accent text-background hover:bg-accent-hover inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50'
@@ -52,11 +53,9 @@ export function VideoPanel({
   const spec = videoSpecOf(formatId)
   const [state, setState] = useState<VideoState | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState(false)
   const [starting, setStarting] = useState(false)
-  const [direction, setDirection] = useState('')
   const [now, setNow] = useState(() => Date.now())
-  // Set the moment Generate is confirmed, before React re-renders, so a
+  // Set the moment Record video is clicked, before React re-renders, so a
   // second click cannot send a second request.
   const startingRef = useRef(false)
 
@@ -153,43 +152,30 @@ export function VideoPanel({
     } else if (failedId === id) {
       showToast({
         type: 'error',
-        title: 'Video not generated',
+        title: 'Video not recorded',
         message: state?.failed?.error || 'Try again.'
       })
     }
   }, [running, readyId, failedId, state?.failed?.error])
 
   const start = async () => {
-    if (!state?.estimateUsd || startingRef.current) return
+    if (!state || startingRef.current) return
     startingRef.current = true
     setStarting(true)
     try {
       const res = await fetch(`/api/posts/${postId}/video`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          confirmedEstimateUsd: state.estimateUsd,
-          direction: direction.trim() || undefined
-        })
+        method: 'POST'
       })
       const data = await res.json().catch(() => null)
       if (res.ok && data?.success) {
-        setConfirming(false)
-        setDirection('')
+        // Started: the poll follows it.
       } else if (data?.alreadyRunning) {
         // Started elsewhere (another tab): follow that one.
-        setConfirming(false)
         showToast({
           type: 'info',
-          title: 'Already generating',
+          title: 'Already recording',
           message: data.error
         })
-      } else if (typeof data?.estimateUsd === 'number') {
-        // The cost changed: show the new one and ask again.
-        setState(prev =>
-          prev ? { ...prev, estimateUsd: data.estimateUsd } : prev
-        )
-        showToast({ type: 'error', title: 'Cost changed', message: data.error })
       } else {
         showToast({
           type: 'error',
@@ -213,8 +199,8 @@ export function VideoPanel({
   const blocked = locked ?? state?.locked ?? null
   const ready = state?.ready ?? null
   const failed = state?.failed ?? null
-  const canGenerate =
-    Boolean(state?.estimateUsd) &&
+  const canRecord =
+    Boolean(state) &&
     !state?.unavailable &&
     !blocked &&
     !state?.noScript &&
@@ -259,15 +245,15 @@ export function VideoPanel({
           ) : (
             <div className="bg-surface-hover text-muted mx-auto flex aspect-9/16 max-h-80 flex-col items-center justify-center gap-2 rounded-xl px-6 text-center text-xs">
               <Clapperboard className="h-6 w-6 opacity-50" />
-              No video yet. Generate an {spec.seconds}-second vertical clip from
-              this script.
+              No video yet. Record a vertical video of this script, as slides
+              in your brand and the look of your posts.
             </div>
           )}
 
           {failed && !running && (
             <Notice tone="error">
               <span className="font-semibold">
-                The last video was not generated.
+                The last video was not recorded.
               </span>{' '}
               {failed.error}
             </Notice>
@@ -301,93 +287,33 @@ export function VideoPanel({
             </a>
           )}
 
-          {canGenerate &&
-            (confirming ? (
-              <div className="border-accent/30 bg-accent/5 space-y-3 rounded-xl border p-3">
-                {ready && (
-                  <label className="block">
-                    <span className="text-foreground text-xs font-medium">
-                      What should change?{' '}
-                      <span className="text-muted font-normal">(optional)</span>
-                    </span>
-                    <textarea
-                      value={direction}
-                      onChange={e => setDirection(e.target.value)}
-                      maxLength={500}
-                      rows={2}
-                      placeholder="e.g. a brighter office setting, a calmer voice"
-                      className="border-border bg-surface text-foreground mt-1 w-full resize-none rounded-lg border px-2.5 py-2 text-xs"
-                    />
-                  </label>
-                )}
-                <p className="text-foreground text-xs leading-relaxed">
-                  This makes one {spec.seconds}-second {spec.aspectRatio} video
-                  with {state.modelLabel}, with a voiceover of the script.
-                  <br />
-                  <span className="font-semibold">
-                    Estimated cost: {formatUsd(state.estimateUsd!)}
-                  </span>
-                  <span className="text-muted">
-                    {' '}
-                    · counts toward your AI spending limit · takes about 1–3
-                    minutes
-                  </span>
-                </p>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirming(false)}
-                    disabled={starting}
-                    className={secondaryButton}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void start()}
-                    disabled={starting}
-                    className={primaryButton}
-                  >
-                    {starting ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3.5 w-3.5" />
-                    )}
-                    {starting
-                      ? 'Starting…'
-                      : `Generate · ${formatUsd(state.estimateUsd!)}`}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirming(true)}
-                className={cn(
-                  ready ? secondaryButton : primaryButton,
-                  'w-full'
-                )}
-              >
-                {ready || failed ? (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                {ready
-                  ? 'Regenerate video'
+          {canRecord && (
+            <button
+              type="button"
+              onClick={() => void start()}
+              disabled={starting}
+              className={cn(ready ? secondaryButton : primaryButton, 'w-full')}
+            >
+              {starting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : ready || failed ? (
+                <RefreshCw className="h-3.5 w-3.5" />
+              ) : (
+                <Clapperboard className="h-3.5 w-3.5" />
+              )}
+              {starting
+                ? 'Starting…'
+                : ready
+                  ? 'Record again'
                   : failed
                     ? 'Try again'
-                    : 'Generate video'}
-                <span className="opacity-75">
-                  · est. {formatUsd(state.estimateUsd!)}
-                </span>
-              </button>
-            ))}
+                    : 'Record video'}
+            </button>
+          )}
 
           {ready && !running && (
             <p className="text-muted text-[11px] leading-relaxed">
-              Made with {ready.modelLabel}
-              {ready.costUsd !== null ? ` · ${formatUsd(ready.costUsd)}` : ''}.
+              {`Recorded from this script${ready.lookFrom ? `, in the look of your ${ready.lookFrom} posts` : ''}. Edit the script, then Record again to change it. `}
               Approve the post, then Publish posts this video with its caption
               to {spec.label}; or download it and post it yourself.
             </p>
@@ -400,8 +326,8 @@ export function VideoPanel({
 
 function Progress({ view, now }: { view: VideoView; now: number }) {
   const elapsed = Math.max(0, (now - Date.parse(view.startedAt)) / 1000)
-  // Providers report no percentage: an estimate from the usual time, which
-  // slows down near the end rather than claiming to be done.
+  // No percentage is reported: an estimate from the usual time, which slows
+  // down near the end rather than claiming to be done.
   const estimate = Math.min(
     95,
     Math.round((1 - Math.exp(-elapsed / TYPICAL_SECONDS)) * 100)
@@ -411,10 +337,10 @@ function Progress({ view, now }: { view: VideoView; now: number }) {
       <Loader2 className="text-accent h-7 w-7 animate-spin" />
       <div>
         <p className="text-foreground text-sm font-semibold">
-          Generating your video…
+          Making your video…
         </p>
         <p className="text-muted mt-1 text-xs">
-          {clock(elapsed)} elapsed · usually 1–3 minutes
+          {clock(elapsed)} elapsed · usually two to three minutes
         </p>
       </div>
       <div
@@ -446,7 +372,7 @@ function Player({ view, label }: { view: VideoView; label: string }) {
       playsInline
       preload="metadata"
       aria-label={`${label} video, version ${view.version}`}
-      className="mx-auto aspect-9/16 max-h-[28rem] rounded-xl bg-black"
+      className="mx-auto aspect-9/16 max-h-112 rounded-xl bg-black"
     />
   )
 }

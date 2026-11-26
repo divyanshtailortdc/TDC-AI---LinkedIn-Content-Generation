@@ -509,6 +509,71 @@ describe('images of the posts found', () => {
     )
   })
 
+  it("keeps images of posts the text search missed when their own page names the account", () => {
+    const images = imagesForPosts(zomatoIg, [], [
+      // Seen live: the image search finds posts the text search could not.
+      {
+        pageUrl: 'https://www.instagram.com/p/CxsfJKiMWCl/',
+        title: 'poorly drawn comics - Zomato (@zomato)',
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:aaa&s'
+      },
+      {
+        pageUrl: 'https://www.instagram.com/p/DYMxec0k9Dg/',
+        title: 'Life S12E23 - Zomato (@zomato)',
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:bbb&s'
+      },
+      // Another account whose handle only contains the name.
+      {
+        pageUrl: 'https://www.instagram.com/p/DdLIZBPjXmY/',
+        title: 'Photo by Zomato (@guidezomato) · September 12, 2026',
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ccc&s'
+      },
+      // Nothing on the page says whose post it is.
+      {
+        pageUrl: 'https://www.instagram.com/p/CYDvFFcpUG9/',
+        title: "surprised that this wasn't the biggest order in india 😂",
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ddd&s'
+      },
+      // The same post twice.
+      {
+        pageUrl: 'https://www.instagram.com/p/DYMxec0k9Dg/',
+        title: 'Life S12E23 - Zomato (@zomato)',
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:eee&s'
+      }
+    ])
+    assert.deepStrictEqual(
+      images.map(i => i.postUrl),
+      [
+        'https://www.instagram.com/p/CxsfJKiMWCl/',
+        'https://www.instagram.com/p/DYMxec0k9Dg/'
+      ]
+    )
+  })
+
+  it("keeps a LinkedIn image whose post address names the account, and no one else's", () => {
+    const ref = profileRefOf(
+      'linkedin',
+      'https://www.linkedin.com/company/tdccommerce',
+      'TDCCommerce'
+    )
+    const images = imagesForPosts(ref, [], [
+      {
+        pageUrl:
+          'https://www.linkedin.com/posts/tdccommerce_ai-artificialintelligence-erp-activity-7467186823430066176-nqsr',
+        title: 'TDCcommerce AI-native ERP for Unified Commerce Operations',
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:fff&s'
+      },
+      {
+        pageUrl:
+          'https://www.linkedin.com/posts/hanzala-inayat-b3702a181_topaileaders-aiinretail-ai-activity-7484865872902336512-abcd',
+        title: 'topaileaders #aiinretail #ai #erp #ecommerce',
+        thumbnailUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ggg&s'
+      }
+    ])
+    assert.strictEqual(images.length, 1)
+    assert.match(images[0]!.postUrl, /tdccommerce_ai-/)
+  })
+
   it('names common shapes and nothing else', () => {
     assert.strictEqual(aspectOf(1080, 1080), '1:1')
     assert.strictEqual(aspectOf(1080, 1920), '9:16')

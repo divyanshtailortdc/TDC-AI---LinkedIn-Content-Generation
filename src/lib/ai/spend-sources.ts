@@ -7,6 +7,8 @@
  * - posts: work on a post after its run: another version, a rewrite, an
  *   image, a carousel; and reading a shared post into the idea for a post
  *   like it ("From a link", whose post is then drafted under runs);
+ * - blogs: writing a blog or article, its research, regenerations and
+ *   section rewrites (src/lib/ai/pipeline/blog-run.ts);
  * - newsletters: discovering newsletters to subscribe to;
  * - inbox: reading received email and the articles it links to. Anyone who
  *   knows an inbox address can start this work, so it has limits of its own
@@ -21,6 +23,7 @@
 export const AI_SPEND_SOURCES = [
   'runs',
   'posts',
+  'blogs',
   'newsletters',
   'inbox',
   'identity',
@@ -33,6 +36,7 @@ export type AiSpendSource = (typeof AI_SPEND_SOURCES)[number]
 export const AI_SPEND_SOURCE_LABELS: Record<AiSpendSource, string> = {
   runs: 'Runs',
   posts: 'Post editing',
+  blogs: 'Blogs & articles',
   newsletters: 'Newsletter discovery',
   inbox: 'Inbox',
   identity: 'Identity & goals',

@@ -55,16 +55,40 @@ function platformCarousel(formatId: FormatId): string {
   return `${label} shows the cover in the feed and the rest one swipe at a time. The cover stops the scroll; each slide earns the next swipe; people save carousels that teach something.`
 }
 
+/**
+ * How the slides of a carousel made like the author's own posts look: each
+ * one image in their look, its words set into it (src/lib/carousel/look.ts).
+ */
+function likeTheirPostsSection(platformName: string): string {
+  return `HOW THE SLIDES LOOK
+Each slide is made as one image like the author's own ${platformName} posts (described above where known): their kind of image, colours and type, with the slide's words set into it. Write the words the way their posts carry words:
+- headline: the slide's main line, set large: at most 8 words, in the casing and voice their posts use.
+- body: at most one smaller line under it, at most 15 words; or, for a few short points, two to four lines of at most six words, one per line. Empty when the headline says it all.
+- A figure goes in the headline or body itself, exactly as the evidence states it.
+- layout: cover for the first slide, cta for the last, statement for every other. No icon, stat or emphasis; picture is false.
+- imagePrompt: what the slide shows beside its words, in their kind of image, in one or two sentences: for text-led posts, any simple drawing or shape beside the words, or "just the words"; for photo posts, a real scene. Never writing, signs, logos or screens with words in it.
+- altText: what the slide shows and says, for someone who cannot see it.`
+}
+
 export function buildSlidesInstructions(
   ctx: GenerationContext,
-  imageStyle: ImageStyle
+  imageStyle: ImageStyle,
+  /** Each slide is made like the author's own posts, not drawn in the brand. */
+  likeTheirPosts = false
 ): string {
   const casual = isCasualStyle(styleFor(ctx, ctx.platform?.id ?? 'linkedin'))
   const guardrails = renderGuardrailsBlock(ctx)
   const pictures = isPictureStyle(imageStyle)
   // How the author's posts on this platform read and look, when known.
   const platform = platformOf(ctx).id
-  const profile = renderInsightsForSlides(ctx.platformInsights?.[platform], platform)
+  const profile = renderInsightsForSlides(
+    ctx.platformInsights?.[platform],
+    platform,
+    likeTheirPosts
+  )
+  const body = likeTheirPosts
+    ? 'at most one short line under it, at most 15 words'
+    : 'a body of one or two short sentences, at most 30 words'
   return `You design the slides of carousel posts for one specific author: what each slide says and how it looks. The caption posted beside the carousel is written separately and given to you; the slides never repeat it. You write in the author's voice, and you never invent facts.
 
 AUTHOR
@@ -81,13 +105,18 @@ ${casual ? CASUAL_TRUTH_RULES : TRUTH_RULES}
 
 HOW A CAROUSEL WORKS
 - Slide 1 is the cover (role cover, layout cover): the carousel's promise in a headline of at most 8 words, the reason to swipe. Its body is empty or one short line under it.
-- Every slide between is one point (role content): one step, one reason, one example or one figure. A headline of at most 8 words and a body of one or two short sentences, at most 30 words. Never two points on one slide.
+- Every slide between is one point (role content): one step, one reason, one example or one figure. A headline of at most 8 words and ${body}. Never two points on one slide.
 - The last slide is the call to action (role cta, layout cta): the ask in the headline, and in the body one short line on what the reader gets from doing it.
 - The slides together carry the substance: the steps, points and evidence. The caption carries the context, the story and the hashtags. Do not write the caption's sentences on the slides, and do not put the whole post on them.
 - Read in order, the slides tell one connected argument, each picking up where the last stopped.
-- Plain words. No emoji, hashtags, links or markdown on any slide: they cannot be clicked or drawn. Do not number the slides or write "swipe" on them; the design adds the slide number and an arrow.
+- Plain words. No emoji, hashtags, links or markdown on any slide: they cannot be clicked or drawn. Do not number the slides or write "swipe" on them${likeTheirPosts ? '' : '; the design adds the slide number and an arrow'}.
 
-LAYOUTS FOR CONTENT SLIDES
+${likeTheirPosts ? likeTheirPostsSection(PLATFORMS[platform].label) : drawnSlidesSection(imageStyle, pictures)}`
+}
+
+/** How drawn slides are laid out and pictured, in the brand's colours. */
+function drawnSlidesSection(imageStyle: ImageStyle, pictures: boolean): string {
+  return `LAYOUTS FOR CONTENT SLIDES
 - statement: one point, headline large with the body under it. The default.
 - icon: the same, under an icon; set icon to one of: ${ICON_NAMES.join(', ')}.
 - stat: one figure, very large, with what it means. Only for a figure the evidence states; set stat to that figure exactly as written there (e.g. "43%"), never a figure of your own.
@@ -152,13 +181,17 @@ export function buildSlidePrompt(
   caption: string,
   slides: SlideContent[],
   index: number,
-  instruction: string | null
+  instruction: string | null,
+  /** The carousel is made like the author's own posts. */
+  likeTheirPosts = false
 ): string {
   const slide = slides[index]!
   const layouts =
-    slide.role === 'content'
-      ? `one of ${CONTENT_LAYOUTS.join(', ')}`
-      : slide.role
+    slide.role !== 'content'
+      ? slide.role
+      : likeTheirPosts
+        ? 'statement'
+        : `one of ${CONTENT_LAYOUTS.join(', ')}`
   return `Write slide ${index + 1} of this ${FORMATS[formatId].label} carousel again.
 
 PLATFORM

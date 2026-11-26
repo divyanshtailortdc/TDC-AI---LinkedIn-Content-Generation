@@ -21,7 +21,11 @@ import {
   type LintFinding,
   type LintOptions
 } from '~/lib/lint/run-linter'
-import { DEFAULT_BRAND_THEME } from '@/lib/brand/theme'
+import { DEFAULT_BRAND_THEME, LIKE_MY_POSTS } from '@/lib/brand/theme'
+import {
+  loadLookExamples,
+  loadRecentLooks
+} from '@/lib/visual-examples/store'
 import {
   createMediaPlan,
   planHasImage,
@@ -56,6 +60,7 @@ import {
 } from '../context'
 import { refreshRunTotals } from '../run-accounting'
 import { markIdeaDrafted, releaseDraftingClaim } from './drafting-claim'
+import { existingPostFormats } from './idea-posts'
 import { SkillError } from '../run-skill'
 import { withAiSpend, withDraftSpend } from '../spend'
 import { collectLinkSources } from '../skills/post-drafting/guard'
@@ -644,6 +649,29 @@ async function planPostImage(
   // the reason shown on the review screen.
   let mediaPlan: MediaPlanResult
   try {
+    const brandRendering = await loadBrandRendering(
+      ctx.account.id,
+      ctx.brand ?? DEFAULT_BRAND_THEME
+    )
+    // Like my posts follows the identity's example posts for this platform;
+    // without them it draws in the default style.
+    const platformId = FORMATS[formatId].platform
+    const examples =
+      mediaMode === 'ai_generated' &&
+      brandRendering.theme.visualStyle === LIKE_MY_POSTS
+        ? await loadLookExamples(ctx.account.id, platformId).catch(err => {
+            console.warn('The example posts could not be loaded:', err)
+            return []
+          })
+        : []
+    // The looks of the account's latest posts here, so this one differs
+    // from them; they stand in for previousVersions, which are other posts'.
+    const recentLooks = examples.length
+      ? await loadRecentLooks(ctx.account.id, platformId).catch(err => {
+          console.warn('The latest looks could not be loaded:', err)
+          return []
+        })
+      : []
     mediaPlan = await createMediaPlan({
       mode: mediaMode,
       postText,
@@ -654,11 +682,11 @@ async function planPostImage(
         { ...ctx, platform: getPlatform(FORMATS[formatId].platform) },
         idea
       ),
-      brand: await loadBrandRendering(
-        ctx.account.id,
-        ctx.brand ?? DEFAULT_BRAND_THEME
-      ),
-      previousVersions,
+      brand: brandRendering,
+      platform: platformId,
+      examples,
+      previousVersions: examples.length ? undefined : previousVersions,
+      recentLooks,
       // The post's own picture idea when it has one, else the idea's visual
       // direction, written at ideation.
       direction: visualIdea || suggested.brief || undefined
@@ -938,12 +966,18 @@ const settle = (formatId: FormatId, work: Promise<PreparedPost>): Promise<Settle
  * Every requested format of one idea. LinkedIn runs alongside the others;
  * of the others, the first is written alone so the shared part of their
  * prompt is in the model's cache before the rest are written together.
+ * `existing` is what the idea's posts from before say (drafted again for
+ * more platforms), so the new ones open differently and keep what the
+ * reviewer approved, as "Add a version" does.
  */
 async function prepareFormats(
   ctx: GenerationContext,
   idea: Idea,
   formats: FormatId[],
-  recordStep: RecordStep
+  recordStep: RecordStep,
+  existing?: Required<
+    Pick<PrepareOptions, 'siblingOpenings' | 'approvedSiblings'>
+  >
 ): Promise<Settled[]> {
   const linkedIn = formats.includes(DEFAULT_FORMAT)
     ? settle(
@@ -968,6 +1002,7 @@ async function prepareFormats(
       first!,
       asNewPost(draftId =>
         prepareFormatPost(ctx, idea, first!, recordStep, {
+          ...existing,
           withMedia: imageChosenFor(idea, first!),
           chosenMedia: mediaChosenFor(idea, first!),
           draftId
@@ -982,7 +1017,11 @@ async function prepareFormats(
           f,
           asNewPost(draftId =>
             prepareFormatPost(ctx, idea, f, recordStep, {
-              siblingOpenings: firstOpening,
+              ...(existing && { approvedSiblings: existing.approvedSiblings }),
+              siblingOpenings: [
+                ...(existing?.siblingOpenings ?? []),
+                ...firstOpening
+              ],
               withMedia: imageChosenFor(idea, f),
               chosenMedia: mediaChosenFor(idea, f),
               draftId
@@ -998,11 +1037,10 @@ async function prepareFormats(
 }
 
 /**
- * Starts the AI video of each Reel or Short just saved (src/lib/video), charged
- * like the drafting itself. Only started: the video is made over the next
- * minutes and stored by whoever looks next, the post page or the job timers.
- * A video that cannot start (a spending limit, no provider) fails no post:
- * its post offers Generate video instead.
+ * Starts the video of each Reel or Short just saved (src/lib/video). Only
+ * started: it is recorded after the response, or by whoever looks next, the
+ * post page or the job timers. A video that cannot start (no bucket) fails
+ * no post: its post offers Record video instead.
  */
 async function startDraftedVideos(
   accountId: string,
@@ -1021,7 +1059,7 @@ async function startDraftedVideos(
         const outcome = await startPostVideo({
           accountId,
           draftId: post.values.id!,
-          confirmedEstimateUsd: null
+          trigger: 'drafting'
         })
         if (outcome.status !== 'started') {
           console.warn(
@@ -1120,7 +1158,17 @@ async function draftLoadedIdea(idea: Idea): Promise<DraftPostResult> {
   // was made for.
   const ctx = await loadIdeaContext(idea)
   const recordStep = stepRecorder(runId)
-  const formats = formatsToDraft(idea)
+  // Drafted before (selected again for more platforms): only the formats it
+  // has no post in. LinkedIn has no unique index to stop a second post, so
+  // this is what does.
+  const existing = (await existingPostFormats(db, [ideaId])).get(ideaId) ?? []
+  const formats = formatsToDraft(idea).filter(f => !existing.includes(f))
+  if (formats.length === 0) {
+    // Released after this: the idea is drafted again, with the posts it had.
+    throw new Error('Every chosen platform already has a post of this idea.')
+  }
+  const siblings =
+    existing.length > 0 ? await siblingsOf(ideaId, formats[0]!) : undefined
 
   if (!getLanguageModel('drafting')) {
     const message =
@@ -1140,11 +1188,11 @@ async function draftLoadedIdea(idea: Idea): Promise<DraftPostResult> {
     throw new Error(message)
   }
 
-  const results = await prepareFormats(ctx, idea, formats, recordStep)
-  const posts = results.flatMap(r => ('post' in r ? [r.post] : []))
+  const results = await prepareFormats(ctx, idea, formats, recordStep, siblings)
+  const written = results.flatMap(r => ('post' in r ? [r.post] : []))
   const failures = results.flatMap(r => ('error' in r ? [r] : []))
   // Nothing written: the claim is released and the idea can be drafted again.
-  if (posts.length === 0) {
+  if (written.length === 0) {
     throw new Error(failures[0]?.error || 'Draft generation failed')
   }
   // Some formats failed: the others are kept, and a missing one can be added
@@ -1159,9 +1207,19 @@ async function draftLoadedIdea(idea: Idea): Promise<DraftPostResult> {
   // missing its citations while the idea stayed approved, so drafting it
   // again produced a second copy. The idea is marked drafted first: that
   // locks its row, so a second save for the same idea fails and rolls back.
-  await db.transaction(async tx => {
+  // Under that lock, a format "Add a version" saved meanwhile is dropped
+  // rather than repeated (which would roll the whole save back).
+  const posts = await db.transaction(async tx => {
     await markIdeaDrafted(tx, ideaId)
-    await savePreparedPosts(tx, idea, posts)
+    const taken = (await existingPostFormats(tx, [ideaId])).get(ideaId) ?? []
+    const fresh = written.filter(
+      p => !taken.includes(p.values.formatId ?? DEFAULT_FORMAT)
+    )
+    if (fresh.length === 0) {
+      throw new Error('Every chosen platform already has a post of this idea.')
+    }
+    await savePreparedPosts(tx, idea, fresh)
+    return fresh
   })
 
   // A Reel or a Short: its video starts now, made while the reviewer reads.
@@ -1238,8 +1296,10 @@ export async function draftAdditionalFormat(
   )
 
   await db.transaction(async tx => {
-    await tx
-      .select({ id: ideasTable.id })
+    // Locked, and read again: the platforms may have changed while the post
+    // was written (the idea drafted again for more of them).
+    const [locked] = await tx
+      .select({ targetFormats: ideasTable.targetFormats })
       .from(ideasTable)
       .where(eq(ideasTable.id, ideaId))
       .for('update')
@@ -1250,7 +1310,10 @@ export async function draftAdditionalFormat(
     await tx
       .update(ideasTable)
       .set({
-        targetFormats: cleanFormats([...(idea.targetFormats ?? []), formatId]),
+        targetFormats: cleanFormats([
+          ...(locked?.targetFormats ?? idea.targetFormats ?? []),
+          formatId
+        ]),
         updatedAt: new Date()
       })
       .where(eq(ideasTable.id, ideaId))

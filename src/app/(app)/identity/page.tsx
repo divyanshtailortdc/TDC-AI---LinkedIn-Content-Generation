@@ -13,6 +13,7 @@ import { resolveChannels } from '@/lib/formats'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
 import { unrelatedLinks } from '@/lib/identity-change'
 import { profileInsightViews } from '@/lib/profile-insights/analyze'
+import { exampleViews } from '@/lib/visual-examples/store'
 import { usesLearnedLink } from '@/lib/profile-insights/in-use'
 import { profileLinksOf } from '@/lib/profile-links'
 import { asc, eq } from 'drizzle-orm'
@@ -41,7 +42,8 @@ export default async function IdentityPage() {
     preference,
     offerings,
     audiences,
-    insights
+    insights,
+    examples
   ] = await Promise.all([
       db.query.voiceConfigsTable.findFirst({
         columns: { id: true },
@@ -68,7 +70,9 @@ export default async function IdentityPage() {
         orderBy: [asc(audiencesTable.createdAt)]
       }),
       // What each profile link's public posts showed.
-      profileInsightViews(id)
+      profileInsightViews(id),
+      // The example posts new images follow.
+      exampleViews(id)
     ])
 
   const allDone = Boolean(voiceConfig && knowledgeDoc && goal && preference)
@@ -188,6 +192,7 @@ export default async function IdentityPage() {
         initialAudiences={audiences}
         platforms={resolveChannels(preference).platforms}
         insights={insights}
+        examples={examples}
       />
     </SetupShell>
   )

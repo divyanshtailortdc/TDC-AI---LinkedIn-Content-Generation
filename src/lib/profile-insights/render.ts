@@ -1,4 +1,5 @@
 import { PLATFORM_IDS, PLATFORMS, type PlatformId } from '@/lib/platforms'
+import { scriptInsightsSource } from '@/lib/video/render/look'
 import type { ProfileInsights } from './types'
 
 /**
@@ -153,12 +154,42 @@ export function renderInsightsForResearch(all: PlatformInsights | undefined): st
 }
 
 /**
+ * For writing a Reel's or Short's script: how the author's posts read and
+ * look, from the video's own platform or, where that was not studied, their
+ * nearest short-video account (YouTube is never analyzed, so a Short reads
+ * their Instagram, else their Facebook). The video is made in that look
+ * (src/lib/video/look-source.ts), so its on-screen words should be set the
+ * way their posts set words. Empty when nothing was learned.
+ */
+export function renderInsightsForVideo(
+  all: PlatformInsights | undefined,
+  platform: PlatformId
+): string {
+  const source = scriptInsightsSource(all, platform)
+  if (!source) return ''
+  const { insights } = source
+  const extra = [
+    source.platform !== platform &&
+      `- These are their ${PLATFORMS[source.platform].name} posts: their ${PLATFORMS[platform].name} was not studied, and this is their nearest account of short videos.`,
+    insights.formats.length > 0 &&
+      `- What they post there: ${insights.formats.map(f => `${f.format} (${f.note})`).join('; ')}`,
+    insights.visualIdentity &&
+      `- How their posts look: ${insights.visualIdentity} This video is made in that look: write each shot's on-screen text the way their posts put words on images (how many words, capitals, numbers).`
+  ].filter(Boolean)
+  return [renderInsightsForDrafting(insights, source.platform), ...extra].join(
+    '\n'
+  )
+}
+
+/**
  * For designing a carousel's slides on `platform`: how the author's posts
  * there read and look. Empty when nothing was learned there.
  */
 export function renderInsightsForSlides(
   insights: ProfileInsights | null | undefined,
-  platform: PlatformId
+  platform: PlatformId,
+  /** The slides are made like these posts (Like my posts), not drawn in the brand. */
+  likeTheirPosts = false
 ): string {
   if (!insights) return ''
   const label = PLATFORMS[platform].name
@@ -166,7 +197,11 @@ export function renderInsightsForSlides(
     insights.tone && `- Tone: ${insights.tone}`,
     insights.writingStyle && `- How they write: ${insights.writingStyle}`,
     insights.visualIdentity &&
-      `- How their posts look: ${insights.visualIdentity} (for the pictures; the slides' colours and fonts are the brand's)`
+      `- How their posts look: ${insights.visualIdentity} ${
+        likeTheirPosts
+          ? '(every slide is made in this look)'
+          : "(for the pictures; the slides' colours and fonts are the brand's)"
+      }`
   ].filter(Boolean)
   if (lines.length === 0) return ''
   return [

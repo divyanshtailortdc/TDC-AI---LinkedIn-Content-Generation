@@ -1,9 +1,10 @@
 import 'server-only'
 
 import { db } from '@/db'
-import { goalsTable, ideasTable, runsTable } from '@/db/schema'
+import { goalsTable, ideasTable, postDraftsTable, runsTable } from '@/db/schema'
 import { ideaGoalTitles } from '@/lib/ai/context-blocks'
 import { formatsOfPlatform, PLATFORM_IDS, type PlatformId } from '@/lib/formats'
+import { inKnownFormat } from '@/lib/known-formats'
 import { loadPage, PAGE_SIZE } from '@/lib/pagination'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { accountNameAtRunSql, runGoalTitlesSql } from '../runs/runs-data'
@@ -131,6 +132,23 @@ export async function loadIdeasPage(
       .where(eq(goalsTable.accountId, accountId))
   ])
 
+  // The formats each drafted idea on the page has posts in: shown on its
+  // card, and Create posts offers it the other platforms.
+  const draftedIds = rows.filter(i => i.status === 'drafted').map(i => i.id)
+  const postFormats = new Map<string, string[]>()
+  if (draftedIds.length > 0) {
+    const posts = await db
+      .select({ ideaId: postDraftsTable.ideaId, formatId: postDraftsTable.formatId })
+      .from(postDraftsTable)
+      .where(and(inArray(postDraftsTable.ideaId, draftedIds), inKnownFormat()))
+    for (const post of posts) {
+      if (!post.ideaId) continue
+      const formats = postFormats.get(post.ideaId) ?? []
+      if (!formats.includes(post.formatId)) formats.push(post.formatId)
+      postFormats.set(post.ideaId, formats)
+    }
+  }
+
   // The platform tabs count the ideas under the status filter.
   const underStatus = statusRows.filter(
     row => status === 'all' || row.status === status
@@ -150,7 +168,8 @@ export async function loadIdeasPage(
     ideas: rows.map(({ goalId, goalIds, goalSnapshot, ...idea }) => ({
       ...idea,
       // Every goal the idea serves, its main goal first.
-      goalTitles: ideaGoalTitles({ goalId, goalIds, goalSnapshot }, goals)
+      goalTitles: ideaGoalTitles({ goalId, goalIds, goalSnapshot }, goals),
+      postFormats: postFormats.get(idea.id) ?? []
     })),
     pageInfo,
     statusCounts,
