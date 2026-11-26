@@ -8,7 +8,8 @@ export const JUDGED_ISSUES = [
   'sample_data_as_real',
   'opinion_as_fact',
   'generic_passage',
-  'repeats_earlier_point'
+  'repeats_earlier_point',
+  'research_narration'
 ] as const
 
 /** What the citation check returns: a verdict per claim, and issues found reading the piece. */

@@ -45,7 +45,18 @@ export const SEARCH_PHRASE =
  * could not do.
  */
 export const WEB_PAGE_CTA =
-  'A reader of a web page cannot tag, mention or comment the way they would on a social post: ask for something they can do from the page, such as read, try, book, sign up, download or get in touch.'
+  'A reader of a web page cannot tag, mention or comment the way they would on a social post: ask for something they can do from the page, such as read, try, book, sign up, download or get in touch. The piece ends on that step, never on a question to the reader.'
+
+/**
+ * When the author's products, pages and call to action belong in a piece.
+ * Left to "mention them where they help", a live article on grocery
+ * shopping habits sent its readers to a restaurant-expansion service, a
+ * supplier business and an investor-relations page "though no figures from
+ * it are used here".
+ */
+export const BRAND_RELEVANCE = `- A product, service or page of the author's belongs in the piece only when a reader of this exact topic would use it for the problem the piece discusses. One that serves a different reader or a different problem is left out entirely, however much the author would like it seen.
+- Introduce a product once, plainly, as the author's ("our …"): that is the disclosure. Never hedge it ("we make it, so weigh that accordingly"), never mention a page to say it is not used, and never stack several products in one paragraph.
+- The call to action continues the reader's task: the page, tool, download or conversation that helps with the next step the piece has just described. When the goal's action does not follow from this topic, use the version of it that does (a related page, a guide, a contact) rather than forcing it. When no page of the author's continues the reader's task, the call to action is the step itself, with no link; a support or help page is never a call to action.`
 
 /**
  * The blog and article prompts. One block of instructions (author, reader,
@@ -76,8 +87,20 @@ export const NO_SOURCES =
  * How sections open, so a search or answer engine can lift each one: the
  * answer first, standing on its own, then the depth.
  */
-export const ANSWER_FIRST_RULES = `- Every section starts with its lead: 1-3 sentences (about 30-70 words) that answer the heading directly, or for a step say what it achieves. The lead stands on its own if quoted alone: it names its subject instead of pointing back ("it", "this", "as mentioned above"), and carries its source's link when it states a fact. Then the section goes deeper.
+export const ANSWER_FIRST_RULES = `- Every section starts with its lead: 1-3 sentences (about 30-70 words) that answer the heading directly, or for a step say what it achieves. The lead's first sentence is the answer itself: yes or no, the number, the name, the definition, the rule or the recommendation; never a sentence about the evidence or the section ("The evidence ranges from…", "There are several factors…", "This section looks at…"). The lead stands on its own if quoted alone: it names its subject instead of pointing back ("it", "this", "as mentioned above"), and carries its source's link when it states a fact. Then the section goes deeper: the why, the how, the example, the exception.
 - The introduction's first paragraph answers the reader's need in 2-3 sentences; context comes after it.`
+
+/**
+ * How a confident expert writes, as against a nervous one. Without these a
+ * live article spent a sentence in four on its evidence ("we saw only the
+ * abstract snippet", "no source we can cite…", "this section is our analysis,
+ * not sourced fact") and qualified every judgment with "in our view".
+ */
+export const CONFIDENT_RULES = `- State what the sources establish plainly, with its link. Say who measured a figure and when once, at its first use; after that, refer to it without explaining its provenance again.
+- Explain mechanisms, trade-offs and practical judgment from the author's expertise directly: a judgment needs its reason, not a disclaimer. Mark a judgment as the author's ("we think", "in our view") only when informed people genuinely disagree about it, at most twice in the piece.
+- Never narrate the research or the writing: what could or could not be found or confirmed, which source was a snippet, an abstract or cut off, what is "not available to us", that a chart was skipped, that a passage "is our analysis, not sourced fact", or "no source we can cite". What cannot be supported is simply left out.
+- Mention a gap in the evidence only when it changes what the reader should do or believe, once, in one sentence about the subject ("No independent count of closures exists, so the 200,000 figure is a trade body's estimate"). Never a section, paragraph or list of caveats.
+- Insight over inventory: say what the facts mean for this reader, what most people get wrong, what to do differently, and why. A paragraph that only lists who said what has not done its job.`
 
 /** What makes facts and named things easy to understand, reference and cite. */
 export const CITABLE_RULES = `- A sentence with a figure says who measured it, among whom when the source says, and when, so it stands alone when quoted: "In Sana's 2024 survey of 750 B2B buyers, 46% said …", not "46% of buyers say …".
@@ -140,7 +163,7 @@ export function buildBlogInstructions(
       ? 'Emoji only where the author would use them, never in headings.'
       : 'No emoji.'
 
-  return `You are a senior writer and editor producing a finished, publishable ${pieceName(kind)} for one specific author's website. You write in their voice, not yours. The standard is a piece a knowledgeable reader would trust and share: specific, accurate, useful, and honest about what is known and what is not. You never invent facts.
+  return `You are a senior writer and editor producing a finished, publishable ${pieceName(kind)} for one specific author's website. You write in their voice, not yours. The standard is a piece a knowledgeable reader would trust and share: specific, accurate, useful and genuinely insightful, written with the confidence of someone who knows the field. You never invent facts, and you never pad the text with doubts about them.
 
 AUTHOR
 ${renderIdentityBlock(ctx)}
@@ -169,10 +192,13 @@ SEO
 - Slug: 3-6 lowercase words from the primary keyword, joined by hyphens.
 - Use the primary keyword in the first 100 words and in at least one section heading, then only where it fits naturally: never more than about 2.5% of the words, never in more than half the headings, never in sentences one after another. Use each secondary keyword at least once, naturally; vary the wording with the secondary keywords and plain synonyms rather than repeating the exact phrase.
 - Headings say what the section covers. Where the plan gives a section a searched question, the heading is that question.
-- FAQ, when asked for: 4-6 questions people search about this topic that the sections do not already answer. Each answer opens with the direct answer in its first sentence, runs 40-80 self-contained words, and never repeats a section's sentences.
+- FAQ, when asked for: 4-6 questions people search about this topic that the sections do not already answer and this piece can answer with substance. Each answer opens with the direct answer in its first sentence (yes or no, a number or range, a name, a definition, a recommendation), runs 40-80 self-contained words, and never repeats a section's sentences. "It depends" is never an answer on its own: name what it depends on and what each case looks like. Never answer "we can't say" or "no source settles it": replace such a question with one the piece can answer.
 
 ANSWERS FIRST
 ${ANSWER_FIRST_RULES}
+
+CONFIDENT, NOT CAUTIOUS
+${CONFIDENT_RULES}
 
 EASY TO UNDERSTAND, REFERENCE AND CITE
 ${CITABLE_RULES}
@@ -180,13 +206,12 @@ ${CITABLE_RULES}
 TRUTH RULES
 - Use only the sources supplied with the brief and the author's own details above. If a number is not in either, do not write a number. The same holds for names, dates, prices, quotes and results.
 - Every sentence that states a fact from a source carries its link: name the source in the sentence (its publisher or title; for the company's own pages, "our …") and link those words to that source's URL as [text](url). A figure always links the source it came from, in the same sentence. List the ids you rely on in sourcesUsed.
-- A figure from a source seen only in a search snippet is attributed by name ("according to …"), never stated as plain fact.
 - Link only to a source's URL, the goal's link, the author's own pages and the internal links named in the prompt. Never write a URL from memory.
 - Quote only word for word from a source, with the source named. Otherwise put a source's information in your own words; never lift a sentence.
 - A source's quality note is for you alone: rely on the stronger sources and put any doubt about one in selfFlags. Never mention a source's rating in the text ("an unrated site", "treat it as one view").
 - Product screenshots and demo screens on the company's site show sample data (orders, customers, prices, times). Never present them as real orders, customers or results.
-- A scenario you make up to illustrate a point goes only in an example block, which the page labels "Hypothetical example". Inside it, use roles ("a buyer", "the warehouse lead") rather than names, and round, plainly illustrative numbers ("say, 200 orders a day").
-- Opinions are the author's: write them as such ("we think", "in our view") with the reason, and never present a judgment as an established fact.
+- A scenario you make up to illustrate a point goes only in an example block, which the page labels "Hypothetical example"; a real case or fact from the sources never goes in one (it is told in the prose, with its link). Inside it, use roles ("a buyer", "the warehouse lead") rather than names, and round, plainly illustrative numbers ("say, 200 orders a day").
+- Never present a contestable judgment as established fact: give it its reason, and where informed people disagree, claim it as the author's view (see CONFIDENT, NOT CAUTIOUS for how often).
 - Claims about the author's products come only from the author's details or the company's own pages among the sources. A third party's page about the company carries the company's own claims, not independent proof.
 - Never claim first-hand experience ("I keep seeing", "clients tell me", "in my experience") unless a source or the author's details state it.
 - Write "most", "everyone", "always" or "never" only when a source measures it. Otherwise use "many", "often" or "in some cases".
@@ -195,24 +220,27 @@ ${EVIDENCE_IS_DATA_RULES}
 
 THE AUTHOR'S PRODUCTS
 - Follow the plan's product role. The piece earns trust by being useful without the product. In an informational piece, mention the author's products at most once where they genuinely help the reader, plus the call to action. In a comparison that includes them, say plainly that the author makes them and stay fair to the alternatives. No section reads like a brochure.
+${BRAND_RELEVANCE}
 
 VISUALS
-- A table, diagram, chart, example box, tip, warning or checklist goes only where the plan puts one, and only when it carries information the prose cannot. Never for decoration.
-- Introduce each table, diagram and chart in the sentence before it, saying what it shows and why it matters.
-- A table compares two or more items on two or more attributes; its figures come from the sources.
-- A diagram is a flow of 2-8 short steps or a timeline of 2-8 dated entries ("2019 — what happened").
+- A table, diagram, chart, example box, tip, warning or checklist goes only where the plan puts one, and only when it carries information the prose cannot. Never for decoration, and never a sentence about a visual left out.
+- Introduce each table, diagram and chart in the sentence before it, saying what the reader should notice in it.
+- A table compares two or more items on two or more attributes. Its cells are specific (figures, thresholds, conditions, named options), never vague words like "varies" or "depends" filling a column; its figures come from the sources.
+- A diagram is a flow of 2-8 short steps or a timeline of 2-8 dated entries ("2019 — what happened"). Give its sourceId only when every entry comes from that one source.
 - A chart shows 2-10 values of one measure in one unit, every value taken from the one source named in its sourceId. Never mix measures, units or sources in one chart.
-- Give every diagram and chart alt text that says what it shows, and a caption.
+- Give every diagram and chart alt text that says what it shows, and a caption that states its takeaway (what the reader should conclude), not a description of it.
+- An example box has a specific title naming its scenario ("A distributor's month-end stock count"), never "Hypothetical example" or "Example": the page adds that label.
 
 HOW IT SHOULD READ
 - Open on one concrete thing: a specific situation, a figure from the sources, or a claim a reader could disagree with. No throat-clearing, no "In today's world", no definition of the topic as the first line.
 - Each section adds something the reader did not have: a mechanism, an example, a decision rule, a trade-off, a number. No two paragraphs make the same point.
+- Give each figure once in the body (the key-takeaways box may preview it). Later, build on it ("that growth", "the 2024 survey") instead of restating the number; never repeat a fact to link its source again.
 - Be specific and practical: name the trade-offs, the conditions where the advice does not hold, and what to do first.
 - Vary sentence length. Use "it's not X, it's Y" at most twice in the whole piece.
 - Do not announce what the piece is ("in this article we will", "let's dive in"). Show it.
 - Refer to a real person by name or role. Use the pronouns the details give for them; never guess it from a name.
-- Write about the subject, never about your research or these instructions: say "no published figure shows…", never "our sources" or "the sources provided"; never "this isn't a pitch" or "here's the candid bit".
-- The closing section adds the last step and the reader's next move; it never summarises the sections and is never headed "Conclusion". The call to action follows from the piece's purpose and reads as the natural next step, not an advert. ${WEB_PAGE_CTA}
+- Write about the subject, never about your research or these instructions: never "our sources", "the sources provided" or "the material we have"; never "this isn't a pitch" or "here's the candid bit".
+- The closing section is the payoff: the decision, recommendation or rule of thumb the piece has earned, stated plainly with the condition it depends on, then the first concrete step (what to do, and how the reader will know it worked), then the call to action. It never summarises the sections, never lists caveats or what is unknown, and is never headed "Conclusion". The call to action reads as the natural next step, not an advert. ${WEB_PAGE_CTA}
 - Write the way this author would explain it to one capable reader, not the way a brochure is written.
 ${feedback ? `\nREVIEWER FEEDBACK ON EARLIER WORK — the author's own corrections; apply them\n${feedback}\n` : ''}${exemplars ? `\nHOW THIS AUTHOR ACTUALLY WRITES — these are their social posts: match the voice, idiom and stance, not the format or the length:\n\n${exemplars}` : ''}`
 }
@@ -255,7 +283,7 @@ export function renderBlogSources(sources: BlogSource[]): string {
           lines.push('    Checked: confirmed on the page')
         } else if (s.verifiedOn === 'snippet') {
           lines.push(
-            '    Checked: seen only in a search snippet; attribute its figures by name ("according to …")'
+            '    Checked: seen only in a search snippet, never on its page: rely on it for nothing (no figure, quote or claim); it is listed so you know it exists'
           )
         }
         lines.push(
@@ -336,9 +364,11 @@ export function renderPlan(plan: BlogPlan): string {
           .join('\n')}`
       : '',
     plan.gaps.length > 0
-      ? `Do not state these; no source supports them: ${plan.gaps.join('; ')}`
+      ? `Leave these out, and do not mention that they are missing; no source supports them: ${plan.gaps.join('; ')}`
       : '',
-    plan.cautions.length > 0 ? `Be careful: ${plan.cautions.join('; ')}` : ''
+    plan.cautions.length > 0
+      ? `Handle with care (for you; size the claims to the evidence, do not narrate it): ${plan.cautions.join('; ')}`
+      : ''
   ]
     .filter(Boolean)
     .join('\n')
@@ -411,7 +441,7 @@ export function buildBlogPrompt(input: BlogPromptInput): string {
     renderBlogSources(sources),
     '',
     brief.faq
-      ? 'Write the FAQ: 4-6 questions that the sections do not already answer.'
+      ? 'Write the FAQ: 4-6 questions that the sections do not already answer, each answered with substance in its first sentence.'
       : 'Return an empty faq list.',
     'Every section opens with its lead (the answer first). The last section closes the piece with the call to action. Return every field of the schema.'
   ]
@@ -500,7 +530,8 @@ export function buildFixPrompt(input: {
     '',
     'For each problem, return its id and the replacement:',
     '- Keep what is true and supported. Change the claim so the cited source supports it, link the source that does support it, or remove the unsupported part.',
-    '- When no source supports the sentence, return an empty replacement to drop it, or reword it as the author\'s view without the unsupported fact.',
+    '- When no source supports the sentence, return an empty replacement to drop it, or keep only the part that needs no source (the reasoning, the advice) without the unsupported fact.',
+    '- Never patch a sentence with a hedge or a note about the evidence ("no source shows…", "we could not confirm…", "according to a search snippet", "in our view"): say the supported thing plainly, or drop it.',
     '- A replacement is one or two sentences in the same voice, with inline [text](url) links only to the URLs of the sources below.',
     '- Never add a fact, figure, name or link that is not in the sources.',
     '',

@@ -23,7 +23,13 @@ import {
 } from '../src/lib/blogs/pictures'
 import {
   checkGroup,
+  closingQuestion,
   findDatedClaims,
+  findEchoedSentences,
+  findFaqNonAnswers,
+  findRepeatedFigures,
+  findResearchNarration,
+  findStackedQualifiers,
   findGenericWording,
   findInventedAttributions,
   findRepeatedOpeners,
@@ -847,6 +853,37 @@ describe('the fix pass', () => {
     ])
     assert.deepStrictEqual(fixes.map(f => f.id), ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7'])
   })
+
+  it('rewrites research narration, FAQ non-answers, restated figures, extra qualifiers and a closing question', async () => {
+    const { fixesFor } = await import('../src/lib/ai/pipeline/blog-run')
+    const fixes = fixesFor({
+      judged: null,
+      problems: [],
+      invented: [],
+      copied: [],
+      quality: {
+        attributions: [],
+        quotes: [],
+        weak: [],
+        generic: [],
+        stuffed: [],
+        narration: [{ sentence: 'We saw only the abstract snippet.', phrases: ['we saw only the abstract'] }],
+        nonAnswers: [{ question: 'Will it last?', sentence: "We can't say." }],
+        restated: [{ sentence: 'The $13 billion figure again.', figure: '$13b', first: 'GMV was $13 billion.' }],
+        qualifiers: [{ sentence: 'In our view, speed wins.', phrase: 'in our view' }],
+        closingQuestion: 'What does your count show?'
+      }
+    })
+    assert.deepStrictEqual(fixes.map(f => f.sentence), [
+      'We saw only the abstract snippet.',
+      "We can't say.",
+      'The $13 billion figure again.',
+      'In our view, speed wins.',
+      'What does your count show?'
+    ])
+    assert.match(fixes[1]!.problem, /direct answer/)
+    assert.match(fixes[3]!.problem, /without the qualifier/)
+  })
 })
 
 describe('matching figures and terms the way sources write them', () => {
@@ -905,5 +942,218 @@ describe('names written as one word in a site address', () => {
       authorText: ''
     })
     assert.deepStrictEqual(found, [])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Confidence, repetition and endings (2026-11-26 review of live pieces)
+// ---------------------------------------------------------------------------
+
+describe('a confident piece about its subject', () => {
+  it('finds sentences about the research instead of the subject', () => {
+    const found = findResearchNarration([
+      'We saw only the abstract snippet of the study.',
+      'The Economic Times item is available only as a search snippet, so its detail is limited.',
+      'No source we can cite gives order frequency per user.',
+      'The quotation is cut off at that point on the page, so we use only what is shown.',
+      'We skip a chart here.',
+      'This section is our analysis, not sourced fact.',
+      'Dark stores are small warehouses close to dense neighbourhoods.',
+      'We could not confirm the original release.'
+    ])
+    assert.deepStrictEqual(
+      found.map(f => f.sentence.slice(0, 20)),
+      [
+        'We saw only the abst',
+        'The Economic Times i',
+        'No source we can cit',
+        'The quotation is cut',
+        'We skip a chart here',
+        'This section is our ',
+        'We could not confirm'
+      ]
+    )
+  })
+
+  it('allows two "in our view"s and flags the rest', () => {
+    const stacked = findStackedQualifiers([
+      'In our view, speed is the habit.',
+      'We think discounts are an accelerant.',
+      'Kirana owners copied delivery.',
+      'In our view, the test is simple.',
+      'This is our judgment, since prices differ.'
+    ])
+    assert.deepStrictEqual(
+      stacked.map(s => s.phrase),
+      ['in our view', 'this is our judgment']
+    )
+  })
+
+  it('flags a statistic stated a third time, not the takeaways box', () => {
+    const body = doc({
+      keyTakeaways: ['GMV was about $13 billion in FY26.'],
+      introduction: ['India\'s quick commerce GMV was about $13 billion in FY26.'],
+      sections: [
+        {
+          heading: 'The scale',
+          lead: 'The $13 billion figure counts orders, not revenue.',
+          blocks: [
+            paragraph('Monthly users rose 95% year on year.'),
+            paragraph('A $13 billion GMV figure therefore describes what shoppers ordered.')
+          ]
+        }
+      ]
+    })
+    const found = findRepeatedFigures(body)
+    assert.strictEqual(found.length, 1)
+    assert.ok(found[0]!.sentence.startsWith('A $13 billion GMV'), found[0]!.sentence)
+    assert.ok(found[0]!.first.startsWith("India's quick commerce"), found[0]!.first)
+  })
+
+  it('finds FAQ answers that open without an answer', () => {
+    const found = findFaqNonAnswers([
+      { question: 'Will ERP be replaced by AI?', answer: "We can't say, and no source we know of settles it. AI features are being added." },
+      { question: 'What does it cost?', answer: 'It varies, and we have no reliable published figure to give. Cost depends on the ERP.' },
+      { question: 'Can ERP manage inventory?', answer: 'Yes. Inventory is a core ERP function.' },
+      { question: 'How long does it take?', answer: 'It depends on three things: the ERP, the store and the data mapped.' }
+    ])
+    assert.deepStrictEqual(
+      found.map(f => f.question),
+      ['Will ERP be replaced by AI?', 'What does it cost?']
+    )
+  })
+
+  it('finds a piece that ends on a question to the reader', () => {
+    const asking = doc({
+      sections: [
+        {
+          heading: 'What to check this week',
+          lead: 'Compare site and ERP counts on your five fastest-moving products.',
+          blocks: [paragraph('See how TDCCommerce runs both on one record. What does your own count show?')]
+        }
+      ]
+    })
+    assert.strictEqual(closingQuestion(asking), 'What does your own count show?')
+    const telling = doc({
+      sections: [{ heading: 'Next', lead: 'Start with the five products that sell fastest this week.', blocks: [] }]
+    })
+    assert.strictEqual(closingQuestion(telling), null)
+  })
+
+  it('puts the new findings in the checks panel', () => {
+    const findings = runQualityChecks({
+      kind: 'article',
+      content: doc({
+        introduction: ['Quick commerce GMV reached about $13 billion in FY26, according to Redseer.'],
+        sections: [
+          {
+            heading: 'The scale',
+            lead: 'The $13 billion figure counts orders, not revenue. We saw only the abstract snippet of the study.',
+            blocks: [paragraph('A $13 billion GMV figure describes what shoppers ordered. Is that growth durable?')]
+          }
+        ]
+      }),
+      faq: [{ question: 'Will it last?', answer: "We can't say. Discounts may fall." }],
+      sources: [],
+      primaryKeyword: '',
+      keywords: [],
+      searchIntent: 'informational',
+      authorText: '',
+      researchUsed: false
+    })
+    const failed = new Set(findings.filter(f => !f.passed).map(f => f.rule))
+    for (const rule of ['research_narration', 'repeated_figure', 'faq_non_answer', 'closing_question']) {
+      assert.ok(failed.has(rule), `missing ${rule}`)
+    }
+    assert.strictEqual(checkGroup('faq_non_answer'), 'search')
+    assert.strictEqual(checkGroup('research_narration'), 'writing')
+  })
+})
+
+describe('labelled boxes', () => {
+  it("drops a box title that only repeats the box's label", () => {
+    const body = doc({
+      sections: [
+        {
+          heading: 'A section',
+          lead: 'A lead that answers the heading in a sentence or two of plain words.',
+          blocks: [
+            { type: 'example', title: 'Hypothetical example', paragraphs: ['A household runs out of milk at 8 pm.'] },
+            { type: 'example', title: "A distributor's month-end count", paragraphs: ['Say, 200 orders a day.'] },
+            { type: 'callout', variant: 'tip', title: 'Tip:', text: 'Count the five fastest movers.' }
+          ]
+        }
+      ]
+    })
+    const boxes = body.content.filter(block => block.type === 'callout')
+    const firstLine = (box: (typeof boxes)[number]) =>
+      box.type === 'callout' && box.content[0]?.type === 'paragraph'
+        ? (box.content[0].content ?? []).map(n => (n.type === 'text' ? n.text : '')).join('')
+        : ''
+    assert.deepStrictEqual(boxes.map(firstLine), [
+      'A household runs out of milk at 8 pm.',
+      "A distributor's month-end count",
+      'Count the five fastest movers.'
+    ])
+  })
+})
+
+describe('fixes from the second live review', () => {
+  it('writes a currency unit before the number', async () => {
+    const { formatValue } = await import('../src/lib/blogs/diagram')
+    assert.strictEqual(formatValue(11821, '₹ crore'), '₹11,821 crore')
+    assert.strictEqual(formatValue(13, '$'), '$13')
+    assert.strictEqual(formatValue(13, '$ billion'), '$13 billion')
+    assert.strictEqual(formatValue(45, '%'), '45%')
+    assert.strictEqual(formatValue(3, 'days'), '3 days')
+  })
+
+  it('keeps a fixed FAQ answer plain text, "$" and all', async () => {
+    const { applySentenceFixes } = await import('../src/lib/blogs/citations')
+    const { faq } = applySentenceFixes(
+      {
+        doc: doc({}),
+        faq: [{ question: 'Has the CCI ruled?', answer: "We can't say. It is a complaint." }]
+      },
+      [
+        {
+          sentence: "We can't say.",
+          replacement: 'No: [Blooprint reports](https://blooprint.in/x) the CCI asked for $13 of evidence.'
+        }
+      ],
+      null
+    )
+    assert.strictEqual(
+      faq[0]!.answer,
+      'No: Blooprint reports the CCI asked for $13 of evidence. It is a complaint.'
+    )
+  })
+
+  it('finds a sentence that says again what the one before it said', () => {
+    const body = doc({
+      sections: [
+        {
+          heading: 'The counter-view',
+          lead: 'The Economic Times report gives the other side of the argument in plain terms.',
+          blocks: [
+            paragraph(
+              'The report quotes a view that a price floor may hurt investment in e-commerce and startups and works against containing inflation. It quotes a view that a floor on prices may affect investment in e-commerce and startup activity and is counter-intuitive to containing inflation. Similar allegations were raised when e-commerce first entered India.'
+            )
+          ]
+        }
+      ]
+    })
+    const found = findEchoedSentences(body)
+    assert.strictEqual(found.length, 1)
+    assert.ok(found[0]!.sentence.startsWith('It quotes a view'), found[0]!.sentence)
+  })
+
+  it('counts "our reading is" and "our judgment is" as qualifiers', () => {
+    const stacked = findStackedQualifiers([
+      'Our reading of the mechanism is that access lowers the cost.',
+      'Our judgment is that kirana owners should read it as competition.',
+      'Our reading is that branding is separable from the network.'
+    ])
+    assert.deepStrictEqual(stacked.map(s => s.phrase), ['our reading is'])
   })
 })

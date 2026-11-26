@@ -111,6 +111,14 @@ export function formatValue(value: number, unit: string): string {
     ? value.toLocaleString('en-US')
     : value.toLocaleString('en-US', { maximumFractionDigits: 2 })
   if (!unit) return number
+  // A currency comes first, with any word after it after the number:
+  // "₹ crore" reads "₹11,821 crore", "$" reads "$13", "$ billion" reads
+  // "$13 billion" (a live chart wrote "11,821₹ crore", which no source says).
+  const currency = /^([$£€₹¥₩])\s*(.*)$/u.exec(unit.trim())
+  if (currency) {
+    const rest = currency[2]!.trim()
+    return `${currency[1]}${number}${rest ? ` ${rest}` : ''}`
+  }
   // "%" and other symbols sit against the number; words get a space.
   return /^\p{L}/u.test(unit) ? `${number} ${unit}` : `${number}${unit}`
 }

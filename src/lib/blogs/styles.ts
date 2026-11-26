@@ -66,7 +66,7 @@ export const STYLE_BLUEPRINTS: Record<BlogStyle, StyleBlueprint> = {
   },
   industry_analysis: {
     structure:
-      'Open with the key findings in a takeaways box. Then the data, dated and sourced, saying what each figure measures; the drivers behind it; what it means for this reader\'s decisions; what to watch next. End with a short note on the limits of the data (sample, region, date).',
+      'Open with the key findings in a takeaways box. Then the data, dated and sourced, saying what each figure measures; the drivers behind it; what it means for this reader\'s decisions; what to watch next. Where a figure\'s sample, region or date limits what it shows, say so in a clause where the figure is used, never in a closing section of caveats. Close with what the reader should decide or do now, given the data.',
     elements:
       'a bar chart when three or more comparable figures come from the sources; a timeline of developments; a table of figures with their sources',
     research:
@@ -86,7 +86,7 @@ export const STYLE_BLUEPRINTS: Record<BlogStyle, StyleBlueprint> = {
   },
   opinion: {
     structure:
-      'Take the position in the first paragraph, in the author\'s voice. Give the reasons in order of strength, each with its evidence. Represent the main counter-argument fairly and answer it. Close on what follows from the position. Opinions are written as the author\'s view ("I think", "we believe"); the facts inside them are sourced.',
+      'Take the position in the first paragraph, in the author\'s voice. Give the reasons in order of strength, each with its evidence. Represent the main counter-argument fairly and answer it. Close on what follows from the position. The position is claimed as the author\'s once ("we believe"); the reasons then argue it directly, without repeating the qualifier; the facts inside them are sourced.',
     elements: 'prose; at most one hypothetical example box',
     research:
       'the facts the argument rests on, and the best evidence for the opposing view',

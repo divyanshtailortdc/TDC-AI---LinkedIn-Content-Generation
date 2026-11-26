@@ -146,6 +146,35 @@ export const GENERIC_PHRASE_PATTERNS: RegExp[] = [
   /\b(?:the|our)\s+sources\s+(?:provided|available|given)\b/i
 ]
 
+/**
+ * Sentences about the research or the writing instead of the subject: a
+ * live article told its readers which sources it "saw only as a search
+ * snippet", that a quotation "is cut off", and that "we skip a chart here".
+ * A reader wants the subject; what could not be supported is left out.
+ */
+export const RESEARCH_NARRATION_PATTERNS: RegExp[] = [
+  /\bsearch\s+snippets?\b/i,
+  /\b(?:seen|saw|available|visible)\s+only\s+(?:as|in)\s+(?:a|an|the)\s+(?:search\s+)?(?:snippet|abstract|excerpt|preview)\b/i,
+  /\b(?:we|i)\s+(?:saw|read|had|have)\s+only\s+(?:the|an?)\s+(?:abstract|snippet|excerpt|headline|preview)\b/i,
+  /\bno\s+(?:source|study|data|figure|evidence|report)\s+(?:that\s+)?(?:we|i)\s+(?:can|could)\s+(?:cite|point\s+to|find|use|check)\b/i,
+  /\b(?:material|sources?|evidence|pages?|data)\s+(?:that\s+)?(?:we|i)\s+(?:can|could)\s+(?:cite|point\s+to|see|access)\b/i,
+  /\b(?:is|are|was|were)\s+not\s+available\s+to\s+(?:us|me)\b/i,
+  /\b(?:we|i)\s+(?:could\s+not|couldn't|couldn’t)\s+(?:find|confirm|verify|locate|access)\b/i,
+  /\b(?:quote|quotation|passage|text)\s+is\s+cut\s+off\b/i,
+  /\bwe\s+(?:skip|skipped|leave\s+out|left\s+out)\s+(?:a|the)\s+(?:chart|table|diagram|graph)\b/i,
+  /\b(?:this|the)\s+(?:section|part|paragraph|rule)\s+is\s+(?:our|my)\s+(?:analysis|judgment|judgement|opinion|view)\b/i,
+  /\bnot\s+(?:a\s+)?sourced\s+fact\b/i,
+  /\bwe\s+hold\s+(?:that|this|it)\s+as\s+(?:an\s+)?opinion\b/i,
+  /\bwe\s+use\s+only\s+what\s+(?:is|was)\s+shown\b/i
+]
+
+/**
+ * Marking a judgment as the author's. Right for a contested call; stacked on
+ * every judgment it reads as nerves, not care (a live article had six).
+ */
+export const VIEW_QUALIFIER_PATTERN =
+  /\b(?:in\s+(?:our|my)\s+(?:view|opinion|judgment|judgement)|(?:we|i)\s+(?:think|believe|suspect|would\s+argue)|(?:this|that)\s+is\s+(?:our|my)\s+(?:judgment|judgement|view|reading)|(?:our|my)\s+(?:reading|judgment|judgement|view|take)\s+(?:is|of)\b)\b/gi
+
 /** Openings that clear the throat instead of saying something. */
 export const GENERIC_OPENING_PATTERNS: RegExp[] = [
   /^in\s+today'?s\b/i,

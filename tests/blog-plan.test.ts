@@ -226,6 +226,35 @@ describe('planning a blog', () => {
     }
   })
 
+  it('plans question headings, answerable FAQs, relevant links and a payoff close', () => {
+    // A live article on grocery habits linked a restaurant-expansion service
+    // and investor relations, closed on a list of caveats and answered FAQs
+    // with "we can't say".
+    const prompt = buildPlanPrompt({
+      ctx: ctx(),
+      kind: 'article',
+      brief: brief({ faq: true }),
+      sources: SOURCES,
+      idea: null,
+      candidates: CANDIDATES,
+      allowedLinks: ownLinksOf(ctx())
+    })
+    for (const part of [
+      'at least two sections answer one',
+      'Only questions this piece can answer with substance',
+      'None is better than a loose fit',
+      'never investor relations',
+      'Choose none when no product of the author',
+      'would use it for the problem the piece discusses',
+      'The last section is the payoff',
+      'a picture that only sets a mood is not worth one',
+      'leaves them out without mentioning them'
+    ]) {
+      assert.ok(prompt.includes(part), `missing ${part}`)
+    }
+    assert.ok(!prompt.includes('figures seen only in a search snippet'), 'no snippet cautions')
+  })
+
   it('gives a case study its real case as the only case facts', () => {
     const prompt = buildPlanPrompt({
       ctx: ctx(),

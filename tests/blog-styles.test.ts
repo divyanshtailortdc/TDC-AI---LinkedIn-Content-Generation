@@ -35,8 +35,10 @@ describe('writing styles', () => {
       assert.strictEqual(styleFaqDefault('blog', style), false, style)
     }
     assert.strictEqual(styleFaqDefault('blog', 'how_to'), true)
-    // An article's FAQ is off unless the style is one readers search with questions.
-    assert.strictEqual(styleFaqDefault('article', 'thought_leadership'), false)
+    // An article answers the questions people search too, unless its style
+    // has no use for an FAQ.
+    assert.strictEqual(styleFaqDefault('article', 'thought_leadership'), true)
+    assert.strictEqual(styleFaqDefault('article', 'opinion'), false)
     assert.strictEqual(styleFaqDefault('article', 'explainer'), true)
   })
 

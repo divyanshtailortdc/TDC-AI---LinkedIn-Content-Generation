@@ -54,7 +54,7 @@ export const BLOG_KIND_DEFAULTS: Record<
   { length: BlogLength; faq: boolean; schemaType: 'BlogPosting' | 'Article' }
 > = {
   blog: { length: 'medium', faq: true, schemaType: 'BlogPosting' },
-  article: { length: 'long', faq: false, schemaType: 'Article' }
+  article: { length: 'long', faq: true, schemaType: 'Article' }
 }
 
 export const BLOG_STYLES = [
@@ -482,7 +482,8 @@ export const VERIFICATION_ISSUES = [
   'uncited_figure',
   'unlabelled_specific',
   'generic_passage',
-  'repeats_earlier_point'
+  'repeats_earlier_point',
+  'research_narration'
 ] as const
 export type VerificationIssueKind = (typeof VERIFICATION_ISSUES)[number]
 

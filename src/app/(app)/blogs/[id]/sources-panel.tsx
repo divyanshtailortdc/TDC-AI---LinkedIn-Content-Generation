@@ -27,7 +27,8 @@ const ISSUE_LABELS: Record<VerificationIssueKind, string> = {
   uncited_figure: 'A figure without its source linked',
   unlabelled_specific: 'A specific detail told as if it happened',
   generic_passage: 'Generic: says nothing specific to this reader',
-  repeats_earlier_point: 'Repeats an earlier point'
+  repeats_earlier_point: 'Repeats an earlier point',
+  research_narration: 'Talks about the research, not the subject'
 }
 
 const VERDICTS: Record<

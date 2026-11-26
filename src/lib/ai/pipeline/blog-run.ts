@@ -40,8 +40,14 @@ import {
 } from '@/lib/blogs/featured-image'
 import { carryPictures, keepSectionPicture, placePictures } from '@/lib/blogs/pictures'
 import {
+  closingQuestion,
+  findEchoedSentences,
+  findFaqNonAnswers,
   findGenericWording,
   findInventedAttributions,
+  findRepeatedFigures,
+  findResearchNarration,
+  findStackedQualifiers,
   findUnverifiedQuotes,
   findWeakSourceClaims,
   keywordStuffing,
@@ -120,7 +126,7 @@ import { addUsage, EMPTY_USAGE, type CallUsage } from '../usage'
 import { gatherBlogSources } from './blog-evidence'
 import { gatherLinkCandidates } from './blog-links'
 import { gatherSearchQuestions, type GatheredQuestions } from './blog-questions'
-import { figureSourcesText, thirdPartyTexts } from './blog-sources'
+import { figureSourcesText, readSourcesOnly, thirdPartyTexts } from './blog-sources'
 import { accountTextOf } from './grounding-corpus'
 
 /**
@@ -465,11 +471,13 @@ const ISSUE_PROBLEMS: Record<string, string> = {
   sample_data_as_real:
     'It presents sample data from a product demo or screenshot as real. Remove the detail.',
   opinion_as_fact:
-    "It states a judgment as established fact. Write it as the author's view, with the reason.",
+    "It states a contested judgment as established fact. Give the reason that supports it, or narrow the wording to what is defensible (\"often\", \"for most distributors\"); do not just add \"in our view\".",
   generic_passage:
     'It could sit in any article on this topic and tells this reader nothing. Replace it with the specific point, example or figure it gestures at, or drop it.',
   repeats_earlier_point:
-    'It repeats a point the piece already made. Drop it, or make it add something new.'
+    'It repeats a point the piece already made. Drop it, or make it add something new.',
+  research_narration:
+    'It talks about the research or the writing, not the subject. Say the point about the subject plainly, or drop the sentence.'
 }
 
 /** What the quality checks found sentence by sentence, for the fix pass. */
@@ -481,6 +489,18 @@ export type QualityFindings = {
   stuffed: string[]
   /** Sentences claiming first-hand experience the author's details do not give. */
   experience?: Array<{ sentence: string; phrases: string[] }>
+  /** Sentences about the research instead of the subject. */
+  narration?: Array<{ sentence: string; phrases: string[] }>
+  /** "In our view" past the allowance. */
+  qualifiers?: Array<{ sentence: string; phrase: string }>
+  /** Sentences that say again what one just before them said. */
+  echoed?: Array<{ sentence: string; echoes: string }>
+  /** Statistics stated again past their second time. */
+  restated?: Array<{ sentence: string; figure: string; first: string }>
+  /** FAQ answers that open without answering. */
+  nonAnswers?: Array<{ question: string; sentence: string }>
+  /** The last sentence, when it is a question to the reader. */
+  closingQuestion?: string | null
 }
 
 const NO_QUALITY: QualityFindings = {
@@ -576,6 +596,18 @@ export function fixesFor(input: {
       problem: `${quoted(found.phrases)} claims first-hand experience the author's details do not give. Say it without the claim, or attribute it to a source that reports it.`
     })
   }
+  for (const found of quality.narration ?? []) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `${quoted(found.phrases)} talks about the research or the writing, not the subject. Say the point about the subject plainly (keeping any supported fact and its link), or return an empty replacement to drop the sentence.`
+    })
+  }
+  for (const found of quality.nonAnswers ?? []) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `This opens the FAQ answer to "${found.question}" without answering it. Replace it with the direct answer: yes or no, a figure from the sources, a definition, a recommendation, or the two or three things the answer depends on and what each case looks like.`
+    })
+  }
   for (const found of quality.weak) {
     candidates.push({
       sentence: found.sentence,
@@ -590,9 +622,38 @@ export function fixesFor(input: {
     })
   }
   for (const issue of input.judged?.issues ?? []) {
-    if (issue.issue === 'generic_passage' || issue.issue === 'repeats_earlier_point') {
+    if (
+      issue.issue === 'generic_passage' ||
+      issue.issue === 'repeats_earlier_point' ||
+      issue.issue === 'research_narration'
+    ) {
       candidates.push({ sentence: issue.sentence, problem: ISSUE_PROBLEMS[issue.issue]! })
     }
+  }
+  for (const found of quality.echoed ?? []) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `It says again what "${excerpt(found.echoes)}" just said. If it adds a fact that sentence lacks, keep only that fact, in a short sentence with its link; otherwise return an empty replacement to drop it.`
+    })
+  }
+  for (const found of quality.restated ?? []) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `It states ${found.figure} again, already given in "${excerpt(found.first)}". Build on it without restating the number or re-explaining its source, or drop the sentence.`
+    })
+  }
+  for (const found of quality.qualifiers ?? []) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `"${found.phrase}" is one qualifier too many: the piece already marks its contested views. State the judgment with its reason, without the qualifier.`
+    })
+  }
+  if (quality.closingQuestion) {
+    candidates.push({
+      sentence: quality.closingQuestion,
+      problem:
+        'The piece ends on a question to the reader, who cannot answer it on a web page. Replace it with the next step stated as an invitation, or drop it.'
+    })
   }
   for (const found of quality.generic) {
     candidates.push({
@@ -651,7 +712,18 @@ export function qualityForFixes(input: {
       doc: input.doc,
       primaryKeyword: input.primaryKeyword,
       keywords: input.keywords
-    }).sentences
+    }).sentences,
+    narration: findResearchNarration([
+      ...sentences,
+      ...input.faq.flatMap(item =>
+        sentenceRanges(item.answer).map(([from, to]) => item.answer.slice(from, to).trim())
+      )
+    ]),
+    qualifiers: findStackedQualifiers(sentences),
+    restated: findRepeatedFigures(input.doc),
+    echoed: findEchoedSentences(input.doc),
+    nonAnswers: findFaqNonAnswers(input.faq),
+    closingQuestion: closingQuestion(input.doc)
   }
 }
 
@@ -733,7 +805,9 @@ export async function runBlogGeneration(
 
     // Sources, and beside them the pages of the site it could link to and
     // the questions people search (asked again only with new research).
-    let sources = row.sources.map(source => ({ ...source, cited: false }))
+    // Saved sources seen only in a search snippet (kept by versions before
+    // snippets stopped counting) are not relied on again.
+    let sources = readSourcesOnly(row.sources).kept.map(source => ({ ...source, cited: false }))
     const links = d
       .gatherLinks(ctx, { blogId: row.id })
       .catch(() => ({ candidates: [] as LinkCandidate[], related: [] }))

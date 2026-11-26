@@ -81,6 +81,11 @@ export type ResearchAgentResult = {
   pagesRead: string[]
   /** The title each page read gives itself, by URL. */
   pageTitles: Record<string, string>
+  /**
+   * The text of each page read, by URL (bot checks and error pages left
+   * out): what a quote's surrounding context comes from.
+   */
+  pageTexts: Record<string, string>
   /** Proposed findings dropped by the guard. */
   rejected: number
   steps: number
@@ -131,6 +136,7 @@ export async function runResearchAgent(
   const queries: string[] = []
   const pagesRead: string[] = []
   const pageTitles: Record<string, string> = {}
+  const pageTexts: Record<string, string> = {}
 
   const agent = new ToolLoopAgent({
     model: handle.model,
@@ -178,6 +184,7 @@ export async function runResearchAgent(
             const usable = usablePage({ title: page.title, content: text })
             if (usable) {
               entry.pageText = usable.text
+              pageTexts[url] = usable.text
               if (usable.title) pageTitles[url] = usable.title
             }
             return { url, title: page.title, text }
@@ -251,6 +258,7 @@ export async function runResearchAgent(
     queries,
     pagesRead,
     pageTitles,
+    pageTexts,
     rejected,
     steps: result.steps.length,
     usage,

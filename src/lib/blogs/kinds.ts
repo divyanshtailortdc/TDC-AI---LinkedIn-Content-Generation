@@ -70,7 +70,7 @@ export const KIND_PROFILES: Record<BlogKind, KindProfile> = {
       'Paragraphs of 2-4 sentences; most sentences under 20 words, with some longer ones for rhythm.',
       'A section heading every 150-300 words; lists only where the content really is a list or steps.'
     ],
-    research: { maxSteps: 12, maxSearches: 8, maxPageReads: 6, maxFindings: 16 },
+    research: { maxSteps: 12, maxSearches: 8, maxPageReads: 8, maxFindings: 16 },
     pictures: { short: [0, 1], medium: [1, 2], long: [2, 3] },
     pictureStyle: 'a photo or an illustration, whichever suits the subject',
     checks: {
@@ -90,7 +90,8 @@ export const KIND_PROFILES: Record<BlogKind, KindProfile> = {
     depth: [
       'In depth: give the context and background a reader needs to judge the subject, then the substance.',
       'Name the trade-offs and the conditions where a conclusion does not hold. Take on the strongest counter-argument fairly.',
-      'Say where the evidence is thin, dated or disputed, and what is not known, about the subject itself ("no published study measures…", "the latest national figures are from 2019"), never about your own research ("the sources we use", "the pages we rely on").',
+      'Size each claim to its evidence in the wording itself ("a trade body estimates", "a 2019 national survey found"). Where a conclusion rests on disputed or dated evidence and that changes what the reader should do, say so once, about the subject ("the latest national figures are from 2019"), never about your own research ("the sources we use", "the pages we rely on"), and never as a section of caveats.',
+      'Authority comes from insight: what the evidence means, why it is so, and what follows for this reader, argued with confidence where the evidence is solid.',
       'Each section advances one point of the argument and follows from the one before it.'
     ],
     evidence: [
@@ -101,7 +102,7 @@ export const KIND_PROFILES: Record<BlogKind, KindProfile> = {
       'Paragraphs of 3-6 sentences that develop one idea each.',
       'Lists only for real steps or enumerations, at most two in the whole piece.'
     ],
-    research: { maxSteps: 14, maxSearches: 10, maxPageReads: 8, maxFindings: 20 },
+    research: { maxSteps: 14, maxSearches: 10, maxPageReads: 10, maxFindings: 20 },
     pictures: { short: [0, 1], medium: [1, 2], long: [2, 3] },
     pictureStyle: 'an editorial photo, unless the subject cannot be photographed',
     checks: {

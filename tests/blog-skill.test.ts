@@ -249,7 +249,8 @@ describe('the new rules', () => {
       'Never present them as real orders',
       'Never for decoration',
       'Never mix measures, units or sources in one chart',
-      'never summarises the sections and is never headed "Conclusion"',
+      'never summarises the sections, never lists caveats',
+      'is never headed "Conclusion"',
       'the author makes them and stay fair',
       'A figure always links the source it came from, in the same sentence'
     ]) {
@@ -277,7 +278,7 @@ describe('the new rules', () => {
       'Products: Mentioned where it helps — Last section',
       'Call to action (trial): Try the kit — link https://northwind.test/trial',
       'Open with a key-takeaways box',
-      'Do not state these; no source supports them: A figure for mobile abandonment',
+      'Leave these out, and do not mention that they are missing; no source supports them: A figure for mobile abandonment',
       '"our checkout kit" → https://northwind.test/kit (section 2)'
     ]) {
       assert.ok(text.includes(part), `missing ${part}`)
@@ -304,6 +305,56 @@ describe('the new rules', () => {
     assert.ok(text.includes('Checked: seen only in a search snippet'))
     assert.ok(text.includes('- "Fees again."'))
     assert.ok(text.includes("the company's own page"))
+  })
+
+  it('write with confidence, not about the research', () => {
+    // A live article spent a sentence in four on its evidence ("we saw only
+    // the abstract snippet", "no source we can cite") and said "in our view"
+    // six times.
+    const text = buildBlogInstructions(ctx(), 'article', brief())
+    for (const part of [
+      'CONFIDENT, NOT CAUTIOUS',
+      'Never narrate the research or the writing',
+      'at most twice in the piece',
+      'Give each figure once in the body',
+      'The lead\'s first sentence is the answer itself',
+      '"It depends" is never an answer on its own',
+      'a caption that states its takeaway',
+      'never "Hypothetical example" or "Example"',
+      'The closing section is the payoff'
+    ]) {
+      assert.ok(text.includes(part), `missing ${part}`)
+    }
+    assert.ok(!text.includes('attribute its figures by name'), 'snippets are no longer attributed')
+  })
+
+  it('keep products, pages and the call to action to what this reader needs', () => {
+    const text = buildBlogInstructions(ctx(), 'blog', brief())
+    for (const part of [
+      'would use it for the problem the piece discusses',
+      'never mention a page to say it is not used',
+      'rather than forcing it',
+      'never on a question to the reader'
+    ]) {
+      assert.ok(text.includes(part), `missing ${part}`)
+    }
+  })
+
+  it('tell the writer to rely on nothing seen only in a snippet', () => {
+    const text = buildBlogPrompt(
+      input({ sources: [{ ...SOURCES[1]!, verifiedOn: 'snippet' }] })
+    )
+    assert.ok(text.includes('rely on it for nothing'), text)
+  })
+
+  it('ask fixes never to patch a sentence with a hedge', () => {
+    const text = buildFixPrompt({
+      kind: 'article',
+      sources: SOURCES,
+      fixes: [{ id: 'F1', sentence: 'Most shoppers quit.', problem: 'Unsupported.' }]
+    })
+    assert.ok(text.includes('Never patch a sentence with a hedge'), text)
+    assert.ok(!text.includes("reword it as the author's view"), text)
   })
 
   it('give a case study its real case', () => {

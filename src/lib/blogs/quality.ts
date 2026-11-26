@@ -3,7 +3,9 @@ import type { LintFinding } from '../lint/run-linter'
 import { ctaSimilarity } from '../lint/writing-checks'
 import {
   GENERIC_OPENING_PATTERNS,
-  GENERIC_PHRASE_PATTERNS
+  GENERIC_PHRASE_PATTERNS,
+  RESEARCH_NARRATION_PATTERNS,
+  VIEW_QUALIFIER_PATTERN
 } from '../lint/writing-rules'
 import { normalizeUrlForCompare } from '../urls'
 import { docSentences, proseParagraphs, sentenceRanges, type DocSentence } from './citations'
@@ -68,6 +70,7 @@ const SOURCE_RULES = new Set([
 ])
 const SEARCH_RULES = new Set([
   'answer_first',
+  'faq_non_answer',
   'question_headings',
   'entity_coverage',
   'definition_early'
@@ -496,6 +499,154 @@ export function findGenericWording(
 export const genericAllowance = (wordCount: number) => Math.floor(wordCount / 800)
 
 // ---------------------------------------------------------------------------
+// Confidence: the subject, not the research
+// ---------------------------------------------------------------------------
+
+/** Sentences about the research or the writing instead of the subject, with the phrases. */
+export function findResearchNarration(
+  sentences: string[]
+): Array<{ sentence: string; phrases: string[] }> {
+  const found: Array<{ sentence: string; phrases: string[] }> = []
+  for (const sentence of sentences) {
+    const phrases = RESEARCH_NARRATION_PATTERNS.flatMap(pattern => {
+      const match = pattern.exec(sentence)
+      return match ? [lower(match[0].trim())] : []
+    })
+    if (phrases.length > 0) found.push({ sentence, phrases: Array.from(new Set(phrases)) })
+  }
+  return found
+}
+
+/** "In our view" and its kin a piece may use: a contested call or two. */
+export const VIEW_QUALIFIER_ALLOWANCE = 2
+
+/**
+ * The sentences that mark a judgment as the author's beyond the allowance,
+ * in order, with the qualifier each uses: the first ones are kept.
+ */
+export function findStackedQualifiers(
+  sentences: string[]
+): Array<{ sentence: string; phrase: string }> {
+  const marked = sentences.flatMap(sentence => {
+    const match = new RegExp(VIEW_QUALIFIER_PATTERN.source, 'i').exec(sentence)
+    return match ? [{ sentence, phrase: lower(match[0]) }] : []
+  })
+  return marked.slice(VIEW_QUALIFIER_ALLOWANCE)
+}
+
+/** How often the body may state one statistic: where it lands, and once more. */
+const FIGURE_REPEATS = 2
+
+/**
+ * Statistics the body states again and again (a live article gave "$13
+ * billion" five times, each time re-explaining where it came from): each
+ * sentence past the second that restates one, with the figure and the
+ * sentence that gave it first. The key-takeaways box, tables, quotes and
+ * examples do not count.
+ */
+export function findRepeatedFigures(
+  doc: BlogDoc
+): Array<{ sentence: string; figure: string; first: string }> {
+  const seen = new Map<string, { first: string; count: number }>()
+  const found: Array<{ sentence: string; figure: string; first: string }> = []
+  for (const sentence of docSentences(doc)) {
+    if (sentence.inTable || sentence.inQuote || sentence.inExample || sentence.inTakeaways) continue
+    const figures = Array.from(
+      new Set(extractNumbers(sentence.text).filter(isStatistic).map(lower))
+    )
+    let flagged = false
+    for (const figure of figures) {
+      const kept = seen.get(figure)
+      if (!kept) {
+        seen.set(figure, { first: sentence.text, count: 1 })
+        continue
+      }
+      kept.count++
+      if (kept.count > FIGURE_REPEATS && !flagged) {
+        found.push({ sentence: sentence.text, figure, first: kept.first })
+        flagged = true
+      }
+    }
+  }
+  return found
+}
+
+/** How alike two sentences of a paragraph must be to echo, and how long. */
+const ECHO_SIMILARITY = 0.5
+const ECHO_MIN_WORDS = 12
+
+/**
+ * How many content words two sentences share, out of the longer one's, a
+ * plural read as its singular ("prices" is "price"), so a reworded echo
+ * matches while a short sentence inside a longer one's words does not.
+ */
+function echoSimilarity(a: string, b: string): number {
+  const content = (text: string) =>
+    new Set(words(text).split(' ').filter(w => w.length > 3).map(w => w.replace(/s$/, '')))
+  const setA = content(a)
+  const setB = content(b)
+  if (setA.size === 0 || setB.size === 0) return 0
+  let shared = 0
+  for (const w of setA) if (setB.has(w)) shared++
+  return shared / Math.max(setA.size, setB.size)
+}
+
+/**
+ * A sentence that says again what an earlier sentence of the same paragraph
+ * just said, in other words (a live article: "…which quotes a view that a
+ * price floor may hurt investment… It quotes a view that a floor on prices
+ * may affect investment…"), with the sentence it echoes. Short sentences are
+ * left alone: parallel ones ("Supplier A measures… Supplier B measures…")
+ * share most of their words on purpose.
+ */
+export function findEchoedSentences(doc: BlogDoc): Array<{ sentence: string; echoes: string }> {
+  const found: Array<{ sentence: string; echoes: string }> = []
+  for (const paragraph of proseParagraphs(doc)) {
+    const sentences = sentenceRanges(paragraph)
+      .map(([from, to]) => paragraph.slice(from, to).trim())
+      .filter(sentence => countWords(sentence) >= ECHO_MIN_WORDS)
+    sentences.forEach((sentence, i) => {
+      const echoed = sentences
+        .slice(0, i)
+        .find(before => echoSimilarity(before, sentence) >= ECHO_SIMILARITY)
+      if (echoed) found.push({ sentence, echoes: echoed })
+    })
+  }
+  return found
+}
+
+/** First sentences of an FAQ answer that answer nothing. */
+const NON_ANSWER =
+  /^(?:(?:we|i)\s+(?:can't|can’t|cannot|can\s+not)\s+say|no\s+one\s+(?:knows|can\s+say)|(?:there\s+is|we\s+have)\s+no\s+(?:single\s+|simple\s+|reliable\s+|clear\s+)*(?:published\s+)?(?:answer|figure|data|number)|no\s+(?:source|study|published\s+figure)\s+(?:we\s+know\s+of\s+)?(?:settles|answers|gives|says)|it\s+(?:varies|depends)\s*[.!]?$|(?:it\s+)?(?:varies|depends)(?:\s+(?:a\s+lot|widely|greatly))?\s*,?\s*and\s+(?:we|there)\b)/i
+
+/**
+ * FAQ answers that open without answering ("We can't say", "It varies, and
+ * we have no figure"): useless to a reader and to an answer engine, which
+ * quotes the first sentence. With the sentence to rewrite.
+ */
+export function findFaqNonAnswers(
+  faq: FaqItem[]
+): Array<{ question: string; sentence: string }> {
+  return faq.flatMap(item => {
+    const [range] = sentenceRanges(item.answer)
+    const first = range ? item.answer.slice(range[0], range[1]).trim() : ''
+    return first && NON_ANSWER.test(first) ? [{ question: item.question, sentence: first }] : []
+  })
+}
+
+/**
+ * The piece's last sentence when it is a question to the reader: a social
+ * post's engagement ask ("What does your own count show?"), which a web page
+ * cannot answer. Null when it ends on a statement.
+ */
+export function closingQuestion(doc: BlogDoc): string | null {
+  const last = docSentences(doc)
+    .filter(sentence => !sentence.inTable && !sentence.inQuote && !sentence.inExample)
+    .at(-1)
+  return last && /\?["'”’)]*$/.test(last.text.trim()) ? last.text : null
+}
+
+// ---------------------------------------------------------------------------
 // Search & AI answers
 // ---------------------------------------------------------------------------
 
@@ -824,6 +975,54 @@ export function runQualityChecks(input: QualityInput): LintFinding[] {
     )
   }
 
+  const proseTexts = prose.filter(s => !s.inQuote).map(sentence => sentence.text)
+  const narration = findResearchNarration([...proseTexts, ...faqSentences(input.faq)])
+  if (narration.length > 0) {
+    fail(
+      'research_narration',
+      'warning',
+      `${narration.length} sentence${narration.length === 1 ? ' talks' : 's talk'} about the research instead of the subject (${quoteList(
+        narration.slice(0, MAX_LISTED).map(found => excerpt(found.sentence, 60))
+      )}). Say the point about the subject, or cut the sentence.`
+    )
+  } else pass('research_narration', 'The piece talks about its subject, not its research.')
+
+  const echoed = findEchoedSentences(input.content)
+  if (echoed.length > 0) {
+    fail(
+      'echoed_sentence',
+      'warning',
+      `"${excerpt(echoed[0]!.sentence, 70)}" says again what the sentence before it said. Cut it or make it add something.`
+    )
+  }
+
+  const stacked = findStackedQualifiers(proseTexts)
+  if (stacked.length > 0) {
+    fail(
+      'view_qualifiers',
+      'warning',
+      `"In our view" and the like appear ${stacked.length + VIEW_QUALIFIER_ALLOWANCE} times. Keep them for the one or two calls people dispute; state the rest with their reasons.`
+    )
+  }
+
+  const restated = findRepeatedFigures(input.content)
+  if (restated.length > 0) {
+    fail(
+      'repeated_figure',
+      'warning',
+      `${quoteList(Array.from(new Set(restated.map(found => found.figure))).slice(0, MAX_LISTED))} ${restated.length === 1 ? 'is' : 'are'} stated again and again. Give a figure once, then build on it.`
+    )
+  }
+
+  const ending = closingQuestion(input.content)
+  if (ending) {
+    fail(
+      'closing_question',
+      'warning',
+      `The piece ends on a question ("${excerpt(ending, 70)}"). A reader of a page cannot answer it: end on the next step.`
+    )
+  }
+
   // Voice fit for the kind
   const proseSentences = prose.filter(s => !s.inQuote)
   if (profile.checks.maxAverageSentenceWords && proseSentences.length >= 10) {
@@ -907,6 +1106,17 @@ export function runQualityChecks(input: QualityInput): LintFinding[] {
         `No heading asks a question, though people search ${quoteList(asked.slice(0, 2).map(q => q.text))}. Phrase the sections that answer them as those questions.`
       )
     }
+  }
+
+  const nonAnswers = findFaqNonAnswers(input.faq)
+  if (nonAnswers.length > 0) {
+    fail(
+      'faq_non_answer',
+      'warning',
+      `The FAQ answer to ${quoteList(nonAnswers.slice(0, 2).map(found => excerpt(found.question, 60)))} does not open with an answer. Answer it in the first sentence, or replace the question with one the piece can answer.`
+    )
+  } else if (input.faq.length > 0) {
+    pass('faq_non_answer', 'Every FAQ answer opens with the answer.')
   }
 
   const entities = input.entities ?? []

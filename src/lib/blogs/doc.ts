@@ -424,6 +424,24 @@ const boldLine = (text: string): BlogParagraph => ({
  * A labelled box: an optional bold first line, then paragraphs and a list.
  * Null when it says nothing beyond its title.
  */
+/** Titles that only repeat what a box's label already says. */
+const LABEL_ONLY_TITLE =
+  /^(?:(?:a|an)\s+)?(?:hypothetical|illustrative|made[-\s]up)?\s*(?:example|scenario|illustration|tip|note|warning|watch\s+out|key\s+takeaways?|takeaways?)s?\s*[:.!]?$/i
+
+/**
+ * A box's title, unless it only repeats the box's label: the page shows
+ * "Hypothetical example" above every example box, and a model asked for a
+ * title wrote that label again ("Hypothetical example / Hypothetical example").
+ */
+export function boxTitle(variant: CalloutVariant, title: string | undefined): string {
+  const heading = plainHeading(title)
+  if (!heading) return ''
+  const label = CALLOUT_LABELS[variant].toLowerCase()
+  const lowered = heading.toLowerCase().replace(/[:.!]+$/, '').trim()
+  if (lowered === label || LABEL_ONLY_TITLE.test(heading)) return ''
+  return heading
+}
+
 function calloutNode(
   variant: CalloutVariant,
   parts: { title?: string; paragraphs?: string[]; items?: string[] },
@@ -438,7 +456,7 @@ function calloutNode(
   const list = listNode('bulletList', parts.items, allow, removed)
   if (list) body.push(list)
   if (body.length === 0) return null
-  const title = plainHeading(parts.title)
+  const title = boxTitle(variant, parts.title)
   return {
     type: 'callout',
     attrs: { variant },

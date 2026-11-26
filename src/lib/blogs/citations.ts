@@ -20,7 +20,13 @@ import { sourceQuotes, type BlogSource, type FaqItem } from './types'
  */
 
 /** Where a paragraph sits: in a hypothetical example box, a table, a quote. */
-type Where = { inExample: boolean; inTable: boolean; inQuote: boolean }
+type Where = {
+  inExample: boolean
+  inTable: boolean
+  inQuote: boolean
+  /** In the key-takeaways box, which previews what the body says. */
+  inTakeaways?: boolean
+}
 const TOP: Where = { inExample: false, inTable: false, inQuote: false }
 
 export type DocSentence = {
@@ -98,7 +104,11 @@ function eachParagraph(
       case 'callout':
         eachParagraph(
           block.content,
-          { ...where, inExample: where.inExample || block.attrs.variant === 'example' },
+          {
+            ...where,
+            inExample: where.inExample || block.attrs.variant === 'example',
+            ...(block.attrs.variant === 'takeaways' && { inTakeaways: true })
+          },
           visit
         )
         break
@@ -416,7 +426,11 @@ function mapParagraphs(
       case 'callout': {
         const content = mapParagraphs(
           block.content,
-          { ...where, inExample: where.inExample || block.attrs.variant === 'example' },
+          {
+            ...where,
+            inExample: where.inExample || block.attrs.variant === 'example',
+            ...(block.attrs.variant === 'takeaways' && { inTakeaways: true })
+          },
           change
         )
         if (content.length > 0) out.push({ ...block, content })
@@ -547,7 +561,18 @@ export function applySentenceFixes(
     if (at >= 0) {
       faq = faq.map((item, i) =>
         i === at
-          ? { ...item, answer: collapse(item.answer.replace(pattern, replacement)) }
+          ? {
+              ...item,
+              // The FAQ is plain text: a replacement's Markdown keeps its
+              // words only (a live fix left "[as summarised by …](url)" in an
+              // answer, shown as typed). A function, so "$13" in it stays "$13".
+              answer: collapse(
+                item.answer.replace(
+                  pattern,
+                  () => inlineText(inlineFromMarkup(replacement, null).nodes)
+                )
+              )
+            }
           : item
       )
       continue

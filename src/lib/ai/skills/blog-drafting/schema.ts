@@ -26,7 +26,7 @@ export const BlogBlockSchema = z.object({
       'diagram'
     ])
     .describe(
-      'paragraph: text (2-5 sentences). subheading: text (an H3 inside the section). bullets / numbered: items, only where the content really is a list or steps. quote: text, a short quotation copied word for word from a source named around it. table: columns then rows, for two or more items compared on two or more attributes. example: title then paragraphs, a made-up scenario the page labels "Hypothetical example". callout: variant, then title and text (or items). diagram: diagram (its kind), title, items, then for a bar chart values and unit, then caption, alt and sourceId.'
+      'paragraph: text (2-5 sentences). subheading: text (an H3 inside the section). bullets / numbered: items, only where the content really is a list or steps. quote: text, a short quotation copied word for word from a source named around it. table: columns then rows, for two or more items compared on two or more attributes. example: title (naming the scenario, never "Hypothetical example") then paragraphs, a made-up scenario the page labels "Hypothetical example". callout: variant, then title and text (or items). diagram: diagram (its kind), title, items, then for a bar chart values and unit, then caption, alt and sourceId.'
     ),
   variant: z
     .enum(['tip', 'warning', 'note'])
@@ -39,7 +39,9 @@ export const BlogBlockSchema = z.object({
   title: z
     .string()
     .optional()
-    .describe("An example's or a callout's bold first line; a diagram's title"),
+    .describe(
+      "An example's or a callout's bold first line, specific to its content (\"A distributor's month-end count\"), never its label (\"Hypothetical example\", \"Tip\"); a diagram's title"
+    ),
   text: z
     .string()
     .optional()
@@ -63,12 +65,17 @@ export const BlogBlockSchema = z.object({
     .array(z.array(z.string()))
     .optional()
     .describe("A table's rows, one cell per column"),
-  caption: z.string().optional().describe("A diagram's caption"),
+  caption: z
+    .string()
+    .optional()
+    .describe("A diagram's caption: its takeaway, what the reader should conclude from it"),
   alt: z.string().optional().describe("A diagram's alt text: what it shows"),
   sourceId: z
     .string()
     .optional()
-    .describe("The source (S1, K2…) a chart's, a table's or a quote's figures come from")
+    .describe(
+      "The source (S1, K2…) a chart's, a table's or a quote's figures come from; for a timeline or flow only when every entry comes from it"
+    )
 })
 
 export const BlogDraftSchema = z.object({
@@ -116,18 +123,18 @@ export const BlogDraftSchema = z.object({
         lead: z
           .string()
           .describe(
-            'The answer first: 1-3 sentences (about 30-70 words) that answer the heading directly and stand alone if quoted; names its subject, never "this"/"it" pointing back; inline [text](url) for a fact from a source'
+            'The answer first: 1-3 sentences (about 30-70 words) whose first sentence is the answer itself (yes/no, the number, the name, the rule), never a sentence about the evidence; stands alone if quoted; names its subject, never "this"/"it" pointing back; inline [text](url) for a fact from a source'
           ),
         blocks: z.array(BlogBlockSchema)
       })
     )
     .describe(
-      'The body: each section makes one distinct point under its own H2. The last section closes the piece with the next step and the call to action.'
+      'The body: each section makes one distinct point under its own H2. The last section is the payoff: the recommendation or decision the piece has earned, the first step and the call to action.'
     ),
   faq: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .describe(
-      'Questions people search about this topic, each answered in 40-80 self-contained words that open with the direct answer; empty when the FAQ is not asked for'
+      'Questions people search about this topic that the piece can answer with substance, each answered in 40-80 self-contained words that open with the direct answer (never "we can\'t say" or a bare "it depends"); empty when the FAQ is not asked for'
     ),
   sourcesUsed: z
     .array(z.string())

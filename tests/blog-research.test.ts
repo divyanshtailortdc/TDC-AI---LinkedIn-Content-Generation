@@ -20,7 +20,10 @@ import { INSTRUCTIONS } from '../src/lib/ai/agents/research/prompt'
 import {
   cleanKnowledgePassage,
   cleanSourceTitle,
-  confirmSnippetFigures,
+  confirmSnippetSources,
+  quoteInContext,
+  readSourcesOnly,
+  withPageContext,
   figureSourcesText,
   ideaSourcesFrom,
   knowledgeSourcesFrom,
@@ -249,15 +252,15 @@ describe('deeper research for a blog', () => {
     assert.deepStrictEqual(BLOG_RESEARCH_LIMITS, {
       maxSteps: 12,
       maxSearches: 8,
-      maxPageReads: 6,
+      maxPageReads: 8,
       maxFindings: 16
     })
     for (const part of [
       'at most 8 searches',
-      'at most 6 pages',
+      'at most 8 pages',
       'up to 16 findings',
       'original publisher',
-      'before you quote a statistic'
+      'Never quote from a search snippet alone'
     ]) {
       assert.ok(BLOG_RESEARCH_INSTRUCTIONS.includes(part), `missing ${part}`)
     }
@@ -412,7 +415,7 @@ describe('deeper research for a blog', () => {
     )
   })
 
-  it('confirms a figure from a search snippet on its page', async () => {
+  it('confirms what a search snippet showed on its page, and keeps the page', async () => {
     const fetched: string[] = []
     const sources: BlogSource[] = [
       {
@@ -429,23 +432,76 @@ describe('deeper research for a blog', () => {
         ...source('S3', 'https://c.example/essay'),
         quote: 'Buyers want fewer phone calls.',
         verifiedOn: 'snippet'
-      }
+      },
+      { ...source('S4', 'https://d.example/read'), quote: 'Read already.', verifiedOn: 'page' }
     ]
-    const confirmed = await confirmSnippetFigures(sources, async url => {
+    const confirmed = await confirmSnippetSources(sources, async url => {
       fetched.push(url)
-      return url.includes('a.example')
-        ? 'Intro. 61% of B2B buyers prefer a rep-free buying experience. More.'
-        : 'A page that says something else.'
+      if (url.includes('a.example')) return 'Intro. 61% of B2B buyers prefer a rep-free buying experience. More.'
+      if (url.includes('c.example')) return 'Buyers want fewer phone calls. And fewer emails.'
+      return 'A page that says something else.'
     })
     assert.deepStrictEqual(
-      confirmed.map(s => s.verifiedOn),
-      ['page', 'snippet', 'snippet']
+      confirmed.sources.map(s => s.verifiedOn),
+      ['page', 'snippet', 'page', 'page']
     )
-    // A quote without a figure is not fetched.
+    // Every snippet-only source is fetched, figure or not; a page read is not.
     assert.deepStrictEqual(fetched.sort(), [
       'https://a.example/survey',
-      'https://b.example/post'
+      'https://b.example/post',
+      'https://c.example/essay'
     ])
+    assert.deepStrictEqual(Object.keys(confirmed.pageTexts).sort(), [
+      'https://a.example/survey',
+      'https://c.example/essay'
+    ])
+  })
+
+  it('leaves out every source still seen only in a snippet', () => {
+    const { kept, dropped } = readSourcesOnly([
+      { ...source('S1', 'https://a.example'), verifiedOn: 'page' },
+      { ...source('S2', 'https://b.example'), verifiedOn: 'snippet' },
+      { ...source('S3', 'https://c.example'), origin: 'idea', verifiedOn: 'snippet' },
+      { ...source('K1', 'https://own.example'), origin: 'knowledge' }
+    ])
+    assert.deepStrictEqual(kept.map(s => s.id), ['S1', 'K1'])
+    assert.deepStrictEqual(dropped.map(s => s.id), ['S2', 'S3'])
+  })
+
+  it('gives a quote the whole sentences around it on its page', () => {
+    const page =
+      'Menu Home About. Quick commerce grew fast last year. Monthly users rose about 95% year on year to 5.2 crore, driven by more users and more missions. Discounts played a smaller part than expected. Footer text.'
+    const wide = quoteInContext(page, 'Monthly users rose about 95% year on year to 5.2 crore, driven by more', 150)
+    assert.ok(wide.startsWith('Monthly users rose'), wide)
+    assert.ok(wide.endsWith('than expected.'), wide)
+    // Room for more takes the sentence before as well.
+    const wider = quoteInContext(page, 'Monthly users rose about 95%', 220)
+    assert.ok(wider.includes('Quick commerce grew fast last year.'), wider)
+    // A quote that is not on the page stays as it was.
+    assert.strictEqual(quoteInContext(page, 'Something else entirely.'), 'Something else entirely.')
+  })
+
+  it("widens a read page's quotes and keeps one where they overlap", () => {
+    const page =
+      'Buyers changed. 46% of buyers say real-time inventory updates are essential. Sana surveyed 750 buyers in September 2024. Other news.'
+    const [widened, untouched] = withPageContext(
+      [
+        {
+          ...source('S1', 'https://a.example/report'),
+          verifiedOn: 'page',
+          quote: '46% of buyers say real-time inventory updates are essential.',
+          quotes: [
+            '46% of buyers say real-time inventory updates are essential.',
+            'Sana surveyed 750 buyers in September 2024.'
+          ]
+        },
+        { ...source('K1', 'https://own.example'), origin: 'knowledge', quote: 'Ours.' }
+      ],
+      { 'https://a.example/report': page, 'https://own.example': 'Ours. More of ours.' }
+    )
+    assert.strictEqual(widened!.quotes!.length, 1)
+    assert.ok(widened!.quotes![0]!.includes('750 buyers'), widened!.quotes![0])
+    assert.strictEqual(untouched!.quote, 'Ours.')
   })
 })
 

@@ -1,4 +1,5 @@
 import type { Idea } from '@/db/schema'
+import { sentenceRanges } from '@/lib/blogs/citations'
 import { countWords } from '@/lib/blogs/doc'
 import { sourceQuotes, type BlogSource } from '@/lib/blogs/types'
 import {
@@ -10,7 +11,6 @@ import type { Finding } from '@/lib/research/web-search'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import type { GenerationContext } from '../context-blocks'
 import type { KnowledgePassage } from '../embeddings'
-import { extractNumbers } from '../skills/ideation/guard'
 import { accountTextOf } from './grounding-corpus'
 
 /**
@@ -144,37 +144,31 @@ export function webSourcesFrom(
     .slice(0, MAX_WEB_SOURCES)
 }
 
-/** Whether any of a source's quotes states a figure. */
-const statesFigure = (source: BlogSource) =>
-  sourceQuotes(source).some(quote => extractNumbers(quote).length > 0)
-
 const normalizeForSearch = (text: string) =>
   text.toLowerCase().replace(/\s+/g, ' ').trim()
 
-/** Pages fetched at most, to confirm figures seen only in search snippets. */
-export const MAX_FIGURE_CONFIRMATIONS = 6
+/** Pages fetched at most, to confirm what was seen only in search snippets. */
+export const MAX_PAGE_CONFIRMATIONS = 14
 
 /**
- * Web sources whose figures were seen only in a search snippet, checked on
- * the page itself: a source is marked read on the page when every one of its
- * quotes is there. Pages that cannot be fetched stay as they were; nothing
- * is dropped. `fetchText` returns the page's text, or null.
+ * Web and idea sources seen only in a search snippet, checked on the page itself: a
+ * source is marked read on the page when every one of its quotes is there,
+ * and the page's text is kept (by URL, in `pageTexts`) so its quotes can be
+ * given their context. Pages that cannot be fetched stay as they were.
+ * `fetchText` returns the page's text, or null.
  */
-export async function confirmSnippetFigures(
+export async function confirmSnippetSources(
   sources: BlogSource[],
   fetchText: (url: string) => Promise<string | null>,
   options: { max?: number } = {}
-): Promise<BlogSource[]> {
+): Promise<{ sources: BlogSource[]; pageTexts: Record<string, string> }> {
   const toCheck = sources
     .filter(
-      source =>
-        source.origin === 'web' &&
-        source.url &&
-        source.verifiedOn === 'snippet' &&
-        statesFigure(source)
+      source => source.origin !== 'knowledge' && source.url && source.verifiedOn === 'snippet'
     )
-    .slice(0, options.max ?? MAX_FIGURE_CONFIRMATIONS)
+    .slice(0, options.max ?? MAX_PAGE_CONFIRMATIONS)
   const confirmed = new Set<BlogSource>()
+  const pageTexts: Record<string, string> = {}
   await Promise.all(
     toCheck.map(async source => {
       const text = await fetchText(source.url!).catch(() => null)
@@ -182,12 +176,104 @@ export async function confirmSnippetFigures(
       const page = normalizeForSearch(text)
       if (sourceQuotes(source).every(quote => page.includes(normalizeForSearch(quote)))) {
         confirmed.add(source)
+        pageTexts[source.url!] = text
       }
     })
   )
-  return sources.map(source =>
-    confirmed.has(source) ? { ...source, verifiedOn: 'page' as const } : source
-  )
+  return {
+    sources: sources.map(source =>
+      confirmed.has(source) ? { ...source, verifiedOn: 'page' as const } : source
+    ),
+    pageTexts
+  }
+}
+
+/**
+ * Sources a piece may rely on: a web page whose words were seen only in a
+ * search snippet is left out. A snippet is the search engine's cut of a page,
+ * often stale, out of context or cut mid-sentence; a piece that leaned on
+ * one either stated it as fact or filled the text with "according to a
+ * search snippet". `dropped` names what was left out, for the author.
+ */
+export function readSourcesOnly(sources: BlogSource[]): {
+  kept: BlogSource[]
+  dropped: BlogSource[]
+} {
+  const kept: BlogSource[] = []
+  const dropped: BlogSource[] = []
+  for (const source of sources) {
+    if (source.origin !== 'knowledge' && source.verifiedOn === 'snippet') dropped.push(source)
+    else kept.push(source)
+  }
+  return { kept, dropped }
+}
+
+/** A quote with its context grows to at most this many characters. */
+export const QUOTE_CONTEXT_CHARS = 900
+
+/**
+ * A quote with the whole sentences around it on its page, so the writer
+ * reads a finding with what it measured and what the page says next,
+ * instead of a fragment it then has to apologise for ("the quotation is cut
+ * off"). Every word is still the page's own. The quote itself when it is not
+ * on the page, or already long.
+ */
+export function quoteInContext(
+  pageText: string,
+  quote: string,
+  maxChars: number = QUOTE_CONTEXT_CHARS
+): string {
+  const wanted = quote.replace(/\s+/g, ' ').trim()
+  if (!wanted || wanted.length >= maxChars) return quote
+  const page = pageText.replace(/\s+/g, ' ')
+  // Lower-casing keeps the length of the Latin text pages are; check it.
+  const lowered = page.toLowerCase()
+  if (lowered.length !== page.length) return quote
+  const at = lowered.indexOf(wanted.toLowerCase())
+  if (at < 0) return quote
+  const ranges = sentenceRanges(page)
+  const end = at + wanted.length
+  let first = ranges.findIndex(([, to]) => to > at)
+  let last = ranges.findIndex(([, to]) => to >= end)
+  if (first < 0 || last < 0) return quote
+  const span = () => ranges[last]![1] - ranges[first]![0]
+  // The sentences the quote is in; a sentence too long to show is not added.
+  if (span() > maxChars) return quote
+  // Then the sentences around it, the next one first, while they fit.
+  for (;;) {
+    const canNext = last + 1 < ranges.length && ranges[last + 1]![1] - ranges[first]![0] <= maxChars
+    if (canNext) last++
+    const canPrevious = first > 0 && ranges[last]![1] - ranges[first - 1]![0] <= maxChars
+    if (canPrevious) first--
+    if (!canNext && !canPrevious) break
+  }
+  return page.slice(ranges[first]![0], ranges[last]![1]).trim() || quote
+}
+
+/**
+ * Web sources whose pages were read, each quote given its context on the
+ * page; quotes that overlap once widened are kept once.
+ */
+export function withPageContext(
+  sources: BlogSource[],
+  pageTexts: Record<string, string>
+): BlogSource[] {
+  return sources.map(source => {
+    const text = source.url ? pageTexts[source.url] : undefined
+    if (source.origin === 'knowledge' || source.verifiedOn !== 'page' || !text) return source
+    const quotes: string[] = []
+    for (const quote of sourceQuotes(source)) {
+      const wide = quoteInContext(text, quote)
+      const key = normalizeForSearch(wide)
+      if (quotes.some(kept => normalizeForSearch(kept).includes(key))) continue
+      // A wider quote replaces the ones it holds.
+      for (let i = quotes.length - 1; i >= 0; i--) {
+        if (key.includes(normalizeForSearch(quotes[i]!))) quotes.splice(i, 1)
+      }
+      quotes.push(wide)
+    }
+    return { ...source, quote: quotes[0] ?? source.quote, quotes }
+  })
 }
 
 /** The idea's evidence that names a page, as sources. */
