@@ -43,7 +43,9 @@ import {
   deleteBlog,
   featuredImageData,
   regenerateBlog,
+  sectionImagesData,
   remakeFeaturedImage,
+  remakeSectionImage,
   removeFeaturedImage,
   restoreBlogVersion,
   rewriteBlogSection,
@@ -56,6 +58,7 @@ import { BlogPreview } from './blog-preview'
 import { BlogProgress } from './blog-progress'
 import { BriefPanel } from './brief-panel'
 import { DiagramColorContext } from './diagram-view'
+import { BlogImagesContext, type BlogImagesContextValue } from './image-view'
 import { DocEditor } from './doc-editor'
 import { ExportMenu } from './export-menu'
 import { FaqEditor } from './faq-editor'
@@ -142,6 +145,7 @@ export function BlogEditor({
   >(null)
   const [deleting, setDeleting] = useState(false)
   const [makingImage, setMakingImage] = useState(false)
+  const [remakingPicture, setRemakingPicture] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [failureSeen, setFailureSeen] = useState(false)
   const [preview, setPreview] = useState(false)
@@ -160,8 +164,14 @@ export function BlogEditor({
     [draft, saved]
   )
   const busy =
-    saving || rewriting !== null || regenerating || makingImage || checking
-  const editable = !regenerating && rewriting === null && !makingImage
+    saving ||
+    rewriting !== null ||
+    regenerating ||
+    makingImage ||
+    remakingPicture !== null ||
+    checking
+  const editable =
+    !regenerating && rewriting === null && !makingImage && remakingPicture === null
   const researchUsed = saved.sources.some(source => source.origin === 'web')
   const imageReady = saved.featuredImage?.status === 'ready'
   const liveChecks = useMemo(
@@ -342,6 +352,36 @@ export function BlogEditor({
     })
   }
 
+  const remakePicture = async (imageId: string, direction: string) => {
+    if (!(await savedFirst())) return
+    setRemakingPicture(imageId)
+    const result = await remakeSectionImage(saved.id, { imageId, direction })
+    setRemakingPicture(null)
+    if (!result.success) {
+      showToast({ type: 'error', title: 'No new picture', message: result.error })
+      return
+    }
+    markDataChanged()
+    applyServer(result.blog)
+    showToast({
+      type: 'success',
+      title: 'New picture',
+      message: 'Check its alt text and caption. The one it replaced is under Versions.'
+    })
+  }
+  const remakeRef = useRef(remakePicture)
+  useEffect(() => {
+    remakeRef.current = remakePicture
+  })
+  const imagesContext = useMemo<BlogImagesContextValue>(
+    () => ({
+      images: saved.images,
+      remake: (imageId, direction) => remakeRef.current(imageId, direction),
+      remaking: remakingPicture
+    }),
+    [saved.images, remakingPicture]
+  )
+
   const removeImage = async () => {
     if (!(await savedFirst())) return
     const result = await removeFeaturedImage(saved.id)
@@ -356,6 +396,11 @@ export function BlogEditor({
   const imageData = async () => {
     const result = await featuredImageData(saved.id)
     return result.success ? result.dataUrl : null
+  }
+
+  const pictureData = async () => {
+    const result = await sectionImagesData(saved.id)
+    return result.success ? result.images : {}
   }
 
   const downloadImage = async () => {
@@ -491,7 +536,10 @@ export function BlogEditor({
             height: image.height
           }
         : null,
-    verification: saved.verification
+    verification: saved.verification,
+    images: saved.images,
+    entities: saved.plan?.entities ?? [],
+    mainEntity: saved.plan?.mainEntity ?? ''
   }
   const pageMeta: BlogPageMeta = {
     siteName: labels.author.name,
@@ -576,6 +624,7 @@ export function BlogEditor({
               blog={current}
               meta={pageMeta}
               loadImageData={imageData}
+              loadPictureData={pictureData}
             />
             <Menu
               label="More"
@@ -773,12 +822,14 @@ export function BlogEditor({
                 </div>
                 <div className="mt-2 px-3 sm:px-8">
                   <DiagramColorContext.Provider value={labels.brandColor}>
-                    <DocEditor
-                      value={draft.content}
-                      editable={editable}
-                      onChange={onDocChange}
-                      onEditor={onEditor}
-                    />
+                    <BlogImagesContext.Provider value={imagesContext}>
+                      <DocEditor
+                        value={draft.content}
+                        editable={editable}
+                        onChange={onDocChange}
+                        onEditor={onEditor}
+                      />
+                    </BlogImagesContext.Provider>
                   </DiagramColorContext.Provider>
                 </div>
                 <div className="px-5 pb-8 sm:px-10">
@@ -882,6 +933,7 @@ export function BlogEditor({
                     labels={labels}
                     costUsd={saved.costUsd}
                     model={saved.model}
+                    questions={saved.searchQuestions}
                   />
                 )}
               </div>
@@ -894,7 +946,7 @@ export function BlogEditor({
         <RegenerateDialog
           dirty={dirty}
           researchOn={saved.brief.research}
-          hasImage={imageReady}
+          hasImage={imageReady || Object.keys(saved.images).length > 0}
           onCancel={() => setDialog(null)}
           onConfirm={regenerate}
         />

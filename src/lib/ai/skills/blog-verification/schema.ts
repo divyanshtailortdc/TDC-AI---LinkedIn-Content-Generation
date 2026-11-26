@@ -6,7 +6,9 @@ export const JUDGED_ISSUES = [
   'fact_without_source',
   'hypothetical_as_fact',
   'sample_data_as_real',
-  'opinion_as_fact'
+  'opinion_as_fact',
+  'generic_passage',
+  'repeats_earlier_point'
 ] as const
 
 /** What the citation check returns: a verdict per claim, and issues found reading the piece. */

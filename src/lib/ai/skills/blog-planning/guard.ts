@@ -1,14 +1,20 @@
 import { normalizeKeywords } from '@/lib/blogs/input'
+import { matchSearchQuestion, normalizeQuestion } from '@/lib/blogs/questions'
 import {
   CTA_KINDS,
+  ENTITY_TYPES,
   isSearchIntent,
   PLAN_ELEMENTS,
   PRODUCT_ROLES,
   type BlogPlan,
   type CtaKind,
+  type EntityType,
   type InternalLinkPick,
   type PlanElement,
-  type ProductRole
+  type PlanEntity,
+  type PlannedImage,
+  type ProductRole,
+  type SearchQuestion
 } from '@/lib/blogs/types'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import type { BlogPlanDraft } from './schema'
@@ -25,6 +31,11 @@ const MAX_POINTS = 6
 const MAX_FAQ = 8
 const MAX_LINKS = 6
 const MAX_NOTES = 8
+const MAX_ENTITIES = 10
+/** Supporting pictures, at most, whatever the length. */
+export const MAX_SUPPORTING_IMAGES = 3
+/** Sections that already show something: a picture there would compete. */
+const VISUAL_ELEMENTS = new Set<PlanElement>(['table', 'diagram', 'chart'])
 
 const text = (value: unknown, max = 500) =>
   typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max).trim() : ''
@@ -61,22 +72,76 @@ export function cleanPlan(
     /** The brief's primary keyword; empty when the plan chooses it. */
     keyword: string
     briefKeywords: string[]
+    /** The questions people search; a section's question must be one of them. */
+    questions?: SearchQuestion[]
+    /** Supporting pictures allowed (0 when the piece keeps its pictures). */
+    maxPictures?: number
   }
 ): BlogPlan {
   const known = new Set(input.sourceIds)
+  const questions = input.questions ?? []
   const sections = (Array.isArray(raw.sections) ? raw.sections : [])
-    .map(section => ({
-      heading: text(section?.heading, 160).replace(/^#+\s*/, ''),
-      purpose: text(section?.purpose, 300),
-      points: texts(section?.points, MAX_POINTS),
-      sourceIds: Array.from(
-        new Set(texts(section?.sourceIds, 20, 12).filter(id => known.has(id)))
-      ),
-      element: oneOf<PlanElement>(PLAN_ELEMENTS, section?.element, 'none'),
-      elementNote: text(section?.elementNote, 300)
-    }))
+    .map(section => {
+      const question = matchSearchQuestion(text(section?.question, 200), questions)
+      return {
+        heading: text(section?.heading, 160).replace(/^#+\s*/, ''),
+        purpose: text(section?.purpose, 300),
+        points: texts(section?.points, MAX_POINTS),
+        sourceIds: Array.from(
+          new Set(texts(section?.sourceIds, 20, 12).filter(id => known.has(id)))
+        ),
+        element: oneOf<PlanElement>(PLAN_ELEMENTS, section?.element, 'none'),
+        elementNote: text(section?.elementNote, 300),
+        question: question?.text ?? '',
+        example: text(section?.example, 300)
+      }
+    })
     .filter(section => section.heading)
     .slice(0, MAX_SECTIONS)
+
+  const entities: PlanEntity[] = []
+  const entityNames = new Set<string>()
+  for (const entity of Array.isArray(raw.entities) ? raw.entities : []) {
+    const name = text(entity?.name, 80)
+    const key = normalizeQuestion(name)
+    if (!name || !key || entityNames.has(key)) continue
+    entityNames.add(key)
+    const sourceId = text(entity?.sourceId, 12)
+    entities.push({
+      name,
+      type: oneOf<EntityType>(ENTITY_TYPES, entity?.type, 'concept'),
+      note: text(entity?.note, 200),
+      sourceId: known.has(sourceId) ? sourceId : ''
+    })
+    if (entities.length >= MAX_ENTITIES) break
+  }
+  const mainEntityKey = normalizeQuestion(text(raw.mainEntity, 80))
+  const mainEntity =
+    entities.find(entity => normalizeQuestion(entity.name) === mainEntityKey)?.name ?? ''
+
+  const maxPictures = Math.min(
+    MAX_SUPPORTING_IMAGES,
+    Math.max(0, input.maxPictures ?? MAX_SUPPORTING_IMAGES)
+  )
+  const pictured = new Set<number>()
+  const supportingImages: PlannedImage[] = []
+  for (const image of Array.isArray(raw.supportingImages) ? raw.supportingImages : []) {
+    if (supportingImages.length >= maxPictures) break
+    const index = Number(image?.sectionIndex)
+    const concept = text(image?.concept)
+    const alt = text(image?.alt, 250)
+    if (!Number.isInteger(index) || index < 1 || index > sections.length) continue
+    if (!concept || !alt || pictured.has(index)) continue
+    if (VISUAL_ELEMENTS.has(sections[index - 1]!.element)) continue
+    pictured.add(index)
+    supportingImages.push({
+      sectionIndex: index,
+      concept,
+      alt,
+      caption: text(image?.caption, 300),
+      style: image?.style === 'illustration' ? 'illustration' : 'photo'
+    })
+  }
 
   const candidates = new Map(
     input.candidateUrls.map(url => [normalizeUrlForCompare(url), url])
@@ -136,11 +201,17 @@ export function cleanPlan(
     featuredImage: {
       concept: text(raw.imageConcept),
       alt: text(raw.imageAlt, 300),
-      style: raw.imageStyle === 'illustration' ? 'illustration' : 'photo'
+      style: raw.imageStyle === 'illustration' ? 'illustration' : 'photo',
+      caption: text(raw.imageCaption, 300)
     },
     internalLinks,
     gaps: texts(raw.gaps, MAX_NOTES),
-    cautions: texts(raw.cautions, MAX_NOTES)
+    cautions: texts(raw.cautions, MAX_NOTES),
+    definition: text(raw.definition, 300),
+    entities,
+    mainEntity,
+    imageDirection: text(raw.imageDirection, 200),
+    supportingImages
   }
 }
 

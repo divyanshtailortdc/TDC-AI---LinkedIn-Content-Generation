@@ -10,6 +10,7 @@ import type { BlogEdit } from './input'
 import { findBlogRevision, lockBlog, saveBlogRevision } from './revisions'
 import {
   isGenerationStale,
+  type BlogImage,
   type BlogSnapshot,
   type BlogSource,
   type BlogVerification,
@@ -247,6 +248,55 @@ export async function setFeaturedImage(
       .update(blogsTable)
       .set({
         featuredImage: input.image,
+        ...(input.usage && { usage: addUsage(row.usage, input.usage) }),
+        lockVersion: row.lockVersion + 1,
+        updatedAt: now
+      })
+      .where(eq(blogsTable.id, row.id))
+      .returning()
+    return { ok: true, blog: blog! }
+  })
+}
+
+/**
+ * Puts a new section picture in place of one the text shows: the picture is
+ * added to the blog's list, the node keeps its alt text and caption and
+ * names the new picture, and the text it replaces is kept as a version. A
+ * picture the text no longer shows is refused as a conflict.
+ */
+export async function replaceSectionImage(
+  database: BlogDb,
+  input: {
+    accountId: string
+    blogId: string
+    /** The picture the text shows now. */
+    imageId: string
+    image: BlogImage
+    usage?: CallUsage
+    now?: Date
+  }
+): Promise<SaveOutcome> {
+  const now = input.now ?? new Date()
+  return database.transaction(async (tx): Promise<SaveOutcome> => {
+    const row = await lockOwned(tx, input.accountId, input.blogId)
+    if (!row) return { ok: false, reason: 'not_found' }
+    if (isRunning(row, now)) return { ok: false, reason: 'generating' }
+    let found = false
+    const content: BlogDoc = {
+      type: 'doc',
+      content: row.content.content.map(block => {
+        if (block.type !== 'image' || block.attrs.imageId !== input.imageId) return block
+        found = true
+        return { ...block, attrs: { ...block.attrs, imageId: input.image.id } }
+      })
+    }
+    if (!found) return { ok: false, reason: 'conflict' }
+    await saveBlogRevision(tx, row, 'image', { now })
+    const [blog] = await tx
+      .update(blogsTable)
+      .set({
+        content,
+        images: [...(row.images ?? []), input.image],
         ...(input.usage && { usage: addUsage(row.usage, input.usage) }),
         lockVersion: row.lockVersion + 1,
         updatedAt: now

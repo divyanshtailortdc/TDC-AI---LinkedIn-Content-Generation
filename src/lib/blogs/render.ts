@@ -8,6 +8,7 @@ import {
   type BlogDoc,
   type BlogInline,
   type BlogListItem,
+  type BlogImageAttrs,
   type BlogTable,
   type BlogTableCell
 } from './doc'
@@ -17,7 +18,15 @@ import {
   type DiagramAttrs
 } from './diagram'
 import { normalizeUrlForCompare } from '../urls'
-import { BLOG_KIND_DEFAULTS, type BlogContent, type BlogSource } from './types'
+import { normalizeQuestion } from './questions'
+import {
+  BLOG_KIND_DEFAULTS,
+  type BlogContent,
+  type BlogImageView,
+  type BlogSource,
+  type EntityType,
+  type PlanEntity
+} from './types'
 
 /**
  * Every way a blog leaves the editor: HTML for the preview and "Copy
@@ -126,15 +135,26 @@ const referenceTail = (source: BlogSource) => {
   return parts.length > 0 ? `. ${parts.join(', ')}.` : '.'
 }
 
+/** One picture file of an export: what it is, and which one. */
+export type FigureFile = {
+  name: string
+  kind: 'featured' | 'diagram' | 'picture'
+  /** The diagram's or the picture's place among its kind, from 1 (0 for featured). */
+  index: number
+  /** For a picture: its id in the blog's picture list. */
+  imageId?: string
+}
+
 /**
- * The files a blog's pictures go out as, in document order: the featured
- * image, then each diagram as a PNG. Markdown refers to them by these names.
+ * The files a blog's pictures go out as: the featured image, then in
+ * document order each diagram as a PNG and each section picture that has a
+ * file. Markdown and Copy HTML refer to them by these names.
  */
 export function figureFiles(
-  blog: Pick<BlogContent, 'slug' | 'title' | 'content' | 'featuredImage'>
-): Array<{ name: string; kind: 'featured' | 'diagram'; index: number }> {
+  blog: Pick<BlogContent, 'slug' | 'title' | 'content' | 'featuredImage' | 'images'>
+): FigureFile[] {
   const base = slugify(blog.slug) || slugify(blog.title) || 'blog'
-  const files: Array<{ name: string; kind: 'featured' | 'diagram'; index: number }> = []
+  const files: FigureFile[] = []
   if (blog.featuredImage?.src) {
     files.push({
       name: `${base}-featured.${imageExtension(blog.featuredImage.src)}`,
@@ -142,11 +162,23 @@ export function figureFiles(
       index: 0
     })
   }
-  let n = 0
+  let diagrams = 0
+  let pictures = 0
   for (const block of blog.content.content) {
-    if (block.type !== 'diagram') continue
-    n++
-    files.push({ name: `${base}-figure-${n}.png`, kind: 'diagram', index: n })
+    if (block.type === 'diagram') {
+      diagrams++
+      files.push({ name: `${base}-figure-${diagrams}.png`, kind: 'diagram', index: diagrams })
+    } else if (block.type === 'image') {
+      const view = blog.images?.[block.attrs.imageId]
+      if (!view?.src) continue
+      pictures++
+      files.push({
+        name: `${base}-picture-${pictures}.${imageExtension(view.src)}`,
+        kind: 'picture',
+        index: pictures,
+        imageId: block.attrs.imageId
+      })
+    }
   }
   return files
 }
@@ -188,6 +220,14 @@ export type HtmlOptions = {
   diagramColor?: string
   /** For a diagram's source link. */
   sources?: BlogSource[]
+  /** Where each section picture loads from, by id (the blog's own when absent). */
+  images?: Record<string, BlogImageView>
+  /** Who wrote it and when, shown under the title (the standalone page only). */
+  byline?: {
+    author?: string
+    datePublished?: string | null
+    dateModified?: string | null
+  }
 }
 
 /** What rendering one document carries along: the options, and figures so far. */
@@ -285,6 +325,20 @@ function diagramToHtml(attrs: DiagramAttrs, opts: HtmlContext): string {
   return `<figure class="diagram">${svg}${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`
 }
 
+/**
+ * A section picture as a figure: sized so the page does not jump while it
+ * loads, loaded lazily (it sits below the fold), with its caption. Nothing
+ * when the picture has no file.
+ */
+function imageToHtml(attrs: BlogImageAttrs, opts: HtmlContext): string {
+  const view = opts.images?.[attrs.imageId]
+  if (!view?.src) return ''
+  const caption = attrs.caption.trim()
+  return `<figure class="image"><img src="${escapeHtml(view.src)}" alt="${escapeHtml(attrs.alt)}" width="${view.width}" height="${view.height}" loading="lazy" decoding="async">${
+    caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : ''
+  }</figure>`
+}
+
 function listItemToHtml(item: BlogListItem, opts: HtmlContext): string {
   const [first, ...rest] = item.content
   // A list item's first paragraph sits in the <li> itself, as CMS editors
@@ -324,12 +378,16 @@ function blockToHtml(block: BlogBlock, opts: HtmlContext): string {
       return tableToHtml(block, opts)
     case 'callout': {
       const label = CALLOUT_LABELS[block.attrs.variant]
-      return `<aside class="callout callout-${block.attrs.variant}"><p class="callout-label"><strong>${escapeHtml(label)}</strong></p>${block.content
+      // A note in the text, not a landmark: a page with five tip boxes
+      // should not give a screen reader five unnamed regions to jump between.
+      return `<div class="callout callout-${block.attrs.variant}" role="note"><p class="callout-label"><strong>${escapeHtml(label)}</strong></p>${block.content
         .map(b => blockToHtml(b, opts))
-        .join('')}</aside>`
+        .join('')}</div>`
     }
     case 'diagram':
       return diagramToHtml(block.attrs, opts)
+    case 'image':
+      return imageToHtml(block.attrs, opts)
   }
 }
 
@@ -338,12 +396,47 @@ export function docToHtml(doc: BlogDoc, opts: HtmlOptions = {}): string {
   return doc.content.map(block => blockToHtml(block, context)).join('')
 }
 
+/** "26 November 2026" for an ISO date; empty when it is not one. */
+function longDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC'
+  })
+}
+
+/**
+ * "By Northwind Studio · Updated 26 November 2026": who stands behind the
+ * piece and how fresh it is, which readers and answer engines both weigh.
+ * The update date shows only when it differs from the publication date.
+ */
+function bylineHtml(byline: HtmlOptions['byline']): string {
+  if (!byline) return ''
+  const author = byline.author?.trim()
+  const published = byline.datePublished ? longDate(byline.datePublished) : ''
+  const modified = byline.dateModified ? longDate(byline.dateModified) : ''
+  const parts: string[] = []
+  if (author) parts.push(`By ${escapeHtml(author)}`)
+  if (published) {
+    parts.push(`<time datetime="${escapeHtml(byline.datePublished!)}">${escapeHtml(published)}</time>`)
+  }
+  if (modified && modified !== published) {
+    parts.push(
+      `Updated <time datetime="${escapeHtml(byline.dateModified!)}">${escapeHtml(modified)}</time>`
+    )
+  }
+  return parts.length > 0 ? `<p class="byline">${parts.join(' · ')}</p>` : ''
+}
+
 /** The featured image as a figure, with its alt text and caption. */
 function featuredImageHtml(blog: BlogContent): string {
   const image = blog.featuredImage
   if (!image?.src) return ''
   const caption = image.caption.trim()
-  return `<figure class="featured"><img src="${escapeHtml(image.src)}" alt="${escapeHtml(image.alt)}" width="${image.width}" height="${image.height}">${
+  return `<figure class="featured"><img src="${escapeHtml(image.src)}" alt="${escapeHtml(image.alt)}" width="${image.width}" height="${image.height}" fetchpriority="high" decoding="async">${
     caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : ''
   }</figure>`
 }
@@ -356,10 +449,14 @@ export function blogArticleHtml(
   blog: BlogContent,
   opts: HtmlOptions = {}
 ): string {
-  const context = contextOf({ ...opts, sources: opts.sources ?? blog.sources })
+  const context = contextOf({
+    ...opts,
+    sources: opts.sources ?? blog.sources,
+    images: opts.images ?? blog.images
+  })
   const parts: string[] = []
   if (blog.title.trim())
-    parts.push(`<header><h1>${escapeHtml(blog.title)}</h1></header>`)
+    parts.push(`<header><h1>${escapeHtml(blog.title)}</h1>${bylineHtml(opts.byline)}</header>`)
   parts.push(featuredImageHtml(blog))
   parts.push(docToHtml(blog.content, context))
   const faq = answeredFaq(blog)
@@ -446,12 +543,15 @@ type MarkdownContext = {
   sources: BlogSource[]
   /** Diagram file names in document order. */
   diagramFiles: string[]
+  /** Section picture file names, by picture id. */
+  pictureFiles: Map<string, string>
   figures: { count: number }
 }
 
 const NO_FIGURES: MarkdownContext = {
   sources: [],
   diagramFiles: [],
+  pictureFiles: new Map(),
   figures: { count: 0 }
 }
 
@@ -576,6 +676,12 @@ function blockToMarkdown(block: BlogBlock, context: MarkdownContext): string {
       )
     case 'diagram':
       return diagramToMarkdown(block.attrs, context)
+    case 'image': {
+      const name = context.pictureFiles.get(block.attrs.imageId)
+      if (!name) return ''
+      const caption = block.attrs.caption.trim()
+      return `![${escapeMarkdown(block.attrs.alt)}](${name})${caption ? `\n\n_${escapeMarkdown(caption)}_` : ''}`
+    }
   }
 }
 
@@ -592,6 +698,9 @@ export function blogToMarkdown(
   const context: MarkdownContext = {
     sources: blog.sources,
     diagramFiles: files.filter(f => f.kind === 'diagram').map(f => f.name),
+    pictureFiles: new Map(
+      files.flatMap(f => (f.kind === 'picture' && f.imageId ? [[f.imageId, f.name] as const] : []))
+    ),
     figures: { count: 0 }
   }
   const parts: string[] = []
@@ -694,7 +803,9 @@ function listToText(
     .join('\n')
 }
 
-function blockToText(block: BlogBlock, figures = { count: 0 }): string {
+type TextFigures = { count: number; images?: Record<string, BlogImageView> }
+
+function blockToText(block: BlogBlock, figures: TextFigures = { count: 0 }): string {
   switch (block.type) {
     case 'paragraph':
     case 'heading':
@@ -747,12 +858,17 @@ function blockToText(block: BlogBlock, figures = { count: 0 }): string {
         .join('\n')
     case 'horizontalRule':
       return '---'
+    case 'image': {
+      if (!figures.images?.[block.attrs.imageId]) return ''
+      const words = [block.attrs.alt.trim(), block.attrs.caption.trim()].filter(Boolean)
+      return `[Picture: ${words.join(' — ') || 'no description'}]`
+    }
   }
 }
 
 export function blogToText(blog: BlogContent): string {
   const parts: string[] = []
-  const figures = { count: 0 }
+  const figures: TextFigures = { count: 0, images: blog.images }
   if (blog.title.trim()) parts.push(blog.title.trim())
   if (blog.featuredImage?.src)
     parts.push(`[Featured image: ${blog.featuredImage.alt.trim() || 'no description'}]`)
@@ -800,12 +916,83 @@ export type BlogPageMeta = {
   dateModified?: string | null
   /** The featured image's public address; a data URL cannot go in metadata. */
   featuredImageUrl?: string | null
+  /**
+   * The section pictures' public addresses. Blog pictures are stored
+   * privately today, so callers have none to give; a data URL or signed link
+   * never goes in metadata.
+   */
+  imageUrls?: string[]
   diagramColor?: string
 }
 
 /** An address another site can fetch: http(s) only, never a data URL. */
 const isPublicUrl = (url: string | null | undefined): url is string =>
   Boolean(url && /^https?:\/\//i.test(url) && isSafeHref(url))
+
+const SCHEMA_TYPES: Record<EntityType, string> = {
+  organization: 'Organization',
+  product: 'Product',
+  person: 'Person',
+  place: 'Place',
+  event: 'Event',
+  standard: 'Thing',
+  technology: 'Thing',
+  concept: 'Thing'
+}
+
+/** The last path segment of a Wikipedia article link, as words. */
+function wikipediaTitle(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (!/(^|\.)wikipedia\.org$/i.test(parsed.hostname)) return null
+    const match = /^\/wiki\/([^/]+)$/.exec(parsed.pathname)
+    return match ? decodeURIComponent(match[1]!).replace(/_/g, ' ') : null
+  } catch {
+    return null
+  }
+}
+
+/** A site's homepage link: the root path, no query. */
+function homepageHost(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if ((parsed.pathname !== '/' && parsed.pathname !== '') || parsed.search) return null
+    return parsed.hostname.replace(/^www\./i, '')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Pages that are this entity, among links the piece already trusts: its
+ * Wikipedia article, or for an organisation its own homepage (its name is
+ * the site's name). Never a guessed address.
+ */
+export function entitySameAs(entity: PlanEntity, urls: string[]): string[] {
+  const name = normalizeQuestion(entity.name)
+  const compact = name.replace(/\s+/g, '')
+  if (!name) return []
+  const found = urls.filter(url => {
+    if (!isPublicUrl(url)) return false
+    const title = wikipediaTitle(url)
+    if (title) return normalizeQuestion(title) === name
+    if (entity.type !== 'organization') return false
+    const host = homepageHost(url)
+    return Boolean(host && compact.length >= 3 && host.split('.')[0] === compact)
+  })
+  return Array.from(new Set(found))
+}
+
+/** An entity as schema.org reads it: its type, name and same-as pages. */
+function entityLd(entity: PlanEntity, urls: string[]) {
+  const sameAs = entitySameAs(entity, urls)
+  return {
+    '@type': SCHEMA_TYPES[entity.type],
+    name: entity.name,
+    ...(entity.note && { description: entity.note }),
+    ...(sameAs.length > 0 && { sameAs })
+  }
+}
 
 /**
  * schema.org data for search engines: the post (BlogPosting) or article
@@ -827,6 +1014,19 @@ export function blogJsonLd(
     ...(who.url && isPublicUrl(who.url) && { url: who.url })
   })
   const publishedUrl = isPublicUrl(meta.publishedUrl) ? meta.publishedUrl : null
+  const entityUrls = [
+    ...blog.sources.flatMap(source => (source.url ? [source.url] : [])),
+    ...(meta.author?.url ? [meta.author.url] : [])
+  ]
+  const entities = blog.entities ?? []
+  const mainKey = normalizeQuestion(blog.mainEntity ?? '')
+  const about = mainKey
+    ? entities.find(entity => normalizeQuestion(entity.name) === mainKey)
+    : undefined
+  const mentions = entities.filter(entity => entity !== about).slice(0, 10)
+  const images = (meta.imageUrls ?? []).filter(isPublicUrl)
+  const featured = isPublicUrl(meta.featuredImageUrl) ? [meta.featuredImageUrl] : []
+  const imageList = Array.from(new Set([...featured, ...images]))
   const main = {
     '@context': 'https://schema.org',
     '@type': BLOG_KIND_DEFAULTS[blog.kind].schemaType,
@@ -834,9 +1034,7 @@ export function blogJsonLd(
     ...(blog.metaDescription.trim() && {
       description: blog.metaDescription.trim()
     }),
-    ...(isPublicUrl(meta.featuredImageUrl) && {
-      image: [meta.featuredImageUrl]
-    }),
+    ...(imageList.length > 0 && { image: imageList }),
     ...(meta.author && { author: organization(meta.author) }),
     ...(meta.author && {
       publisher: organization({
@@ -852,6 +1050,10 @@ export function blogJsonLd(
       url: publishedUrl
     }),
     ...(keywords.length > 0 && { keywords: keywords.join(', ') }),
+    ...(about && { about: entityLd(about, entityUrls) }),
+    ...(mentions.length > 0 && {
+      mentions: mentions.map(entity => entityLd(entity, entityUrls))
+    }),
     wordCount: blogWordCount(blog.content, faq),
     inLanguage: 'en',
     ...(references.length > 0 && {
@@ -903,7 +1105,8 @@ a{color:#0b57d0}
 img,svg{max-width:100%;height:auto}
 figure{margin:1.6em 0}
 figcaption{margin-top:.5em;font-size:.85em;color:#57606a}
-.featured img{display:block;width:100%;border-radius:12px}
+.featured img,.image img{display:block;width:100%;border-radius:12px}
+.byline{margin:-.2em 0 1.4em;font-size:.9em;color:#57606a}
 .diagram svg{display:block;border:1px solid #d0d7de;border-radius:12px}
 blockquote{margin:1.2em 0;padding-left:1em;border-left:3px solid #d0d7de;color:#57606a}
 .callout{margin:1.4em 0;padding:14px 18px;border:1px solid #d0d7de;border-radius:10px;background:#f6f8fa}
@@ -963,14 +1166,21 @@ export function blogToStandaloneHtml(
     )}</script>`,
     `<style>${PAGE_STYLE}</style>`
   ]
-  return `<!doctype html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 ${head.join('\n')}
 </head>
 <body>
 <main><article>
-${blogArticleHtml(blog, { diagramColor: meta.diagramColor })}
+${blogArticleHtml(blog, {
+  diagramColor: meta.diagramColor,
+  byline: {
+    author: meta.author?.name,
+    datePublished: meta.datePublished ?? null,
+    dateModified: meta.dateModified ?? null
+  }
+})}
 </article></main>
 </body>
 </html>

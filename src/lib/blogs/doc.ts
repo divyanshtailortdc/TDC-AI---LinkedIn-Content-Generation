@@ -77,6 +77,18 @@ export type BlogCallout = {
 /** A diagram or chart drawn from its data (src/lib/blogs/diagram.ts). */
 export type BlogDiagram = { type: 'diagram'; attrs: DiagramAttrs }
 
+/**
+ * A picture made for a section: `imageId` names it in the blog's picture
+ * list (blogs.images), and the node carries its own alt text and caption so
+ * the author edits them in place. A picture the list does not have renders
+ * as nothing.
+ */
+export type BlogImageAttrs = { imageId: string; alt: string; caption: string }
+export type BlogImageNode = { type: 'image'; attrs: BlogImageAttrs }
+
+/** What a picture id may look like: a UUID or a short slug, nothing else. */
+const IMAGE_ID = /^[A-Za-z0-9_-]{1,64}$/
+
 export type BlogBlock =
   | BlogParagraph
   | BlogHeading
@@ -87,6 +99,7 @@ export type BlogBlock =
   | BlogTable
   | BlogCallout
   | BlogDiagram
+  | BlogImageNode
 
 export type BlogDoc = { type: 'doc'; content: BlogBlock[] }
 
@@ -135,13 +148,23 @@ export type DraftDocInput = {
   introduction: string[]
   /** 3-5 points in a box after the introduction, when the piece opens with one. */
   keyTakeaways?: string[]
-  sections: Array<{ heading: string; blocks: DraftBlock[] }>
+  sections: Array<{ heading: string; lead?: string; blocks: DraftBlock[] }>
   /** Drafts written before the closing section was one of the sections. */
   conclusion?: { heading: string; paragraphs: string[] }
 }
 
 /** Which links may stay links; null keeps every safe one. */
 export type LinkFilter = ((url: string) => boolean) | null
+
+/**
+ * A section's blocks with its lead (the answer first) as the opening
+ * paragraph: the page shows it as an ordinary paragraph right under the H2.
+ */
+export function withLead(section: { lead?: string; blocks?: DraftBlock[] }): DraftBlock[] {
+  const lead = section.lead?.trim()
+  const blocks = section.blocks ?? []
+  return lead ? [{ type: 'paragraph', text: lead }, ...blocks] : blocks
+}
 
 // ---------------------------------------------------------------------------
 // Links
@@ -548,7 +571,7 @@ export function docFromDraft(
   for (const section of draft.sections ?? []) {
     const heading = plainHeading(section?.heading)
     if (!heading) continue
-    const built = draftBlocksToNodes(section.blocks ?? [], allow)
+    const built = draftBlocksToNodes(withLead(section), allow)
     content.push(headingNode(2, heading), ...built.nodes)
     removedLinks.push(...built.removedLinks)
     dropped.push(...built.dropped)
@@ -711,6 +734,22 @@ function cleanBlock(node: unknown, nesting: number): BlogBlock | null {
       if (!attrs) throw cannotSave('diagram')
       return { type: 'diagram', attrs }
     }
+    case 'image': {
+      const attrs = isRecord(node.attrs) ? node.attrs : {}
+      const imageId = typeof attrs.imageId === 'string' ? attrs.imageId.trim() : ''
+      // A picture with no id shows nothing: it is left out, not refused.
+      if (!IMAGE_ID.test(imageId)) return null
+      const words = (value: unknown, max: number) =>
+        typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max).trim() : ''
+      return {
+        type: 'image',
+        attrs: {
+          imageId,
+          alt: words(attrs.alt, BLOG_LIMITS.altText),
+          caption: words(attrs.caption, BLOG_LIMITS.caption)
+        }
+      }
+    }
     default:
       throw cannotSave(node.type)
   }
@@ -791,6 +830,7 @@ function cleanFlowBlocks(raw: unknown, nesting: number): BlogBlock[] {
         break
       case 'horizontalRule':
       case 'diagram':
+      case 'image':
         break
     }
   }
@@ -804,7 +844,11 @@ function cleanFlowBlocks(raw: unknown, nesting: number): BlogBlock[] {
  * cannot produce them.
  */
 export function sanitizeDoc(
-  raw: unknown
+  raw: unknown,
+  options: {
+    /** The blog's picture ids: a picture node naming any other is left out. */
+    imageIds?: string[]
+  } = {}
 ): { ok: true; doc: BlogDoc } | { ok: false; error: string } {
   let json: string | undefined
   try {
@@ -819,10 +863,11 @@ export function sanitizeDoc(
     return { ok: false, error: COULD_NOT_READ }
   }
   try {
-    return {
-      ok: true,
-      doc: { type: 'doc', content: cleanBlocks(raw.content, 0) }
-    }
+    const known = options.imageIds ? new Set(options.imageIds) : null
+    const content = cleanBlocks(raw.content, 0).filter(
+      block => block.type !== 'image' || !known || known.has(block.attrs.imageId)
+    )
+    return { ok: true, doc: { type: 'doc', content } }
   } catch (error) {
     if (error instanceof Refused) return { ok: false, error: error.message }
     throw error
@@ -875,6 +920,8 @@ export function blockText(block: BlogBlock | BlogListItem): string {
         .join('\n')
     case 'diagram':
       return diagramText(block.attrs)
+    case 'image':
+      return block.attrs.caption
     case 'horizontalRule':
       return ''
   }
@@ -909,11 +956,17 @@ export function forEachTextBlock(
           break
         case 'horizontalRule':
         case 'diagram':
+        case 'image':
           break
       }
     }
   }
   walk(doc.content)
+}
+
+/** The picture nodes of a document, in order (they sit at the top level only). */
+export function docImages(doc: BlogDoc): BlogImageNode[] {
+  return doc.content.filter((block): block is BlogImageNode => block.type === 'image')
 }
 
 export function docText(doc: BlogDoc): string {

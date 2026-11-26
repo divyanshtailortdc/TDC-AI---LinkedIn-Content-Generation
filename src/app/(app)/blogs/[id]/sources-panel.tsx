@@ -25,7 +25,9 @@ const ISSUE_LABELS: Record<VerificationIssueKind, string> = {
   opinion_as_fact: 'A judgment told as fact',
   figure_not_in_source: 'A figure its source does not give',
   uncited_figure: 'A figure without its source linked',
-  unlabelled_specific: 'A specific detail told as if it happened'
+  unlabelled_specific: 'A specific detail told as if it happened',
+  generic_passage: 'Generic: says nothing specific to this reader',
+  repeats_earlier_point: 'Repeats an earlier point'
 }
 
 const VERDICTS: Record<

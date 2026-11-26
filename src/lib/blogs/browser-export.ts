@@ -133,20 +133,34 @@ export function downloadUrl(fileName: string, url: string, revoke = false): void
 
 /**
  * Every picture of the blog as a file, named as the Markdown refers to them:
- * the featured image (its data URL, loaded by the caller) and each diagram
- * drawn as a PNG. Returns how many were saved.
+ * the featured image and the section pictures (their data URLs, loaded by
+ * the caller) and each diagram drawn as a PNG. Returns how many were saved.
  */
 export async function downloadImages(
   blog: BlogContent,
-  options: { featuredDataUrl: string | null; diagramColor?: string }
+  options: {
+    featuredDataUrl: string | null
+    /** Section pictures as data URLs, by picture id. */
+    pictureDataUrls?: Record<string, string>
+    diagramColor?: string
+  }
 ): Promise<number> {
   let saved = 0
   const diagrams = blog.content.content.filter(block => block.type === 'diagram')
+  const pause = () => new Promise(resolve => setTimeout(resolve, 250))
   for (const file of figureFiles(blog)) {
     if (file.kind === 'featured') {
       if (!options.featuredDataUrl) continue
       downloadUrl(file.name, options.featuredDataUrl)
       saved++
+      continue
+    }
+    if (file.kind === 'picture') {
+      const dataUrl = file.imageId ? options.pictureDataUrls?.[file.imageId] : undefined
+      if (!dataUrl) continue
+      downloadUrl(file.name, dataUrl)
+      saved++
+      await pause()
       continue
     }
     const block = diagrams[file.index - 1]
@@ -157,7 +171,7 @@ export async function downloadImages(
     downloadUrl(file.name, png)
     saved++
     // Browsers drop downloads started in the same instant.
-    await new Promise(resolve => setTimeout(resolve, 250))
+    await pause()
   }
   return saved
 }

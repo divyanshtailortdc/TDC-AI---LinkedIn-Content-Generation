@@ -1,5 +1,6 @@
 import {
   CTA_KINDS,
+  ENTITY_TYPES,
   PLAN_ELEMENTS,
   PRODUCT_ROLES,
   SEARCH_INTENTS
@@ -35,6 +36,24 @@ export const BlogPlanSchema = z.object({
   secondaryKeywords: z
     .array(z.string())
     .describe('2-6 related phrases this reader also searches'),
+  definition: z
+    .string()
+    .describe(
+      'When the primary keyword names a term or concept: the one-sentence definition the piece gives in its first 200 words, from the sources. Else empty'
+    ),
+  entities: z
+    .array(
+      z.object({
+        name: z.string().describe('Its full name, spelled as the sources spell it'),
+        type: z.enum(ENTITY_TYPES),
+        note: z.string().describe('What it is, in a few words, from the sources or the author\'s details'),
+        sourceId: z.string().describe('The source that says what it is (S1, K2…), or empty')
+      })
+    )
+    .describe('3-10 named things the piece covers: organisations, products, standards, technologies, concepts, people, places, events'),
+  mainEntity: z
+    .string()
+    .describe('The name of the entity the piece is about, as in entities; empty when none is'),
   workingTitle: z.string().describe('A specific working title with the primary keyword'),
   takeaways: z
     .boolean()
@@ -42,12 +61,26 @@ export const BlogPlanSchema = z.object({
   sections: z
     .array(
       z.object({
-        heading: z.string().describe('The H2: what the section covers, in plain words'),
+        question: z
+          .string()
+          .describe(
+            'The searched question this section answers, copied from the list of questions people search; empty when it answers none'
+          ),
+        heading: z
+          .string()
+          .describe(
+            'The H2: the question itself when the section answers one, else what the section covers in plain words'
+          ),
         purpose: z.string().describe('What the section does for the reader'),
         points: z.array(z.string()).describe('The points it makes, in order'),
         sourceIds: z
           .array(z.string())
           .describe('The ids of the sources its facts come from (S1, K2…)'),
+        example: z
+          .string()
+          .describe(
+            'The concrete example it uses: a real one with its source id ("S3: …") or "hypothetical: …"; empty only for a section that is itself steps or an example'
+          ),
         element: z
           .enum(PLAN_ELEMENTS)
           .describe('At most one element, only where it carries information; else none'),
@@ -73,6 +106,25 @@ export const BlogPlanSchema = z.object({
     .describe('An editorial picture for the top of the page, with no text in it'),
   imageAlt: z.string().describe('Alt text: what the picture shows, in one sentence'),
   imageStyle: z.enum(['photo', 'illustration']),
+  imageCaption: z
+    .string()
+    .describe('A caption for the top picture that adds to it (what it shows and why it fits); never the alt text again'),
+  imageDirection: z
+    .string()
+    .describe('One line for the look of every picture in the piece (light, palette, medium), so they read as one set'),
+  supportingImages: z
+    .array(
+      z.object({
+        sectionIndex: z.number().describe('The section it goes in: 1 the first section…'),
+        concept: z
+          .string()
+          .describe('What it shows: a setting, object, physical process or scene specific to that section; no text, screens, logos or charts'),
+        alt: z.string().describe('Alt text: what the picture shows, in one sentence'),
+        caption: z.string().describe('A caption that ties the picture to the section'),
+        style: z.enum(['photo', 'illustration'])
+      })
+    )
+    .describe('Pictures inside sections, as many as the prompt allows, only where a picture shows something the reader benefits from seeing'),
   internalLinks: z
     .array(
       z.object({

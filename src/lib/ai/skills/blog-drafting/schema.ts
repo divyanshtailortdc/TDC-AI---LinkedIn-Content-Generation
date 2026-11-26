@@ -110,7 +110,14 @@ export const BlogDraftSchema = z.object({
       z.object({
         heading: z
           .string()
-          .describe('The H2: says what the section covers, in plain words; never "Conclusion"'),
+          .describe(
+            'The H2: the searched question when the plan gives one, else what the section covers in plain words; never "Conclusion"'
+          ),
+        lead: z
+          .string()
+          .describe(
+            'The answer first: 1-3 sentences (about 30-70 words) that answer the heading directly and stand alone if quoted; names its subject, never "this"/"it" pointing back; inline [text](url) for a fact from a source'
+          ),
         blocks: z.array(BlogBlockSchema)
       })
     )
@@ -120,7 +127,7 @@ export const BlogDraftSchema = z.object({
   faq: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .describe(
-      'Questions people search about this topic, each answered in 40-80 self-contained words; empty when the FAQ is not asked for'
+      'Questions people search about this topic, each answered in 40-80 self-contained words that open with the direct answer; empty when the FAQ is not asked for'
     ),
   sourcesUsed: z
     .array(z.string())
@@ -139,6 +146,11 @@ export const BlogSectionSchema = z.object({
   heading: z
     .string()
     .describe('The section H2; keep it unless the author asked to change it'),
+  lead: z
+    .string()
+    .describe(
+      'The answer first: 1-3 sentences (about 30-70 words) that answer the heading directly and stand alone if quoted'
+    ),
   blocks: z.array(BlogBlockSchema),
   sourcesUsed: z
     .array(z.string())

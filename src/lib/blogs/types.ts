@@ -274,6 +274,49 @@ export type PlanSection = {
   element: PlanElement
   /** What the element shows, when there is one. */
   elementNote: string
+  /**
+   * The searched question this section answers (copied from the search
+   * questions), or empty. Absent on plans made before questions existed.
+   */
+  question?: string
+  /**
+   * The concrete example it uses: a real one with its source id ("S3: …") or
+   * "hypothetical: …"; empty for a section that is itself steps or an example.
+   */
+  example?: string
+}
+
+/** What a named thing in a piece is; maps to a schema.org type in JSON-LD. */
+export const ENTITY_TYPES = [
+  'organization',
+  'product',
+  'standard',
+  'technology',
+  'concept',
+  'person',
+  'place',
+  'event'
+] as const
+export type EntityType = (typeof ENTITY_TYPES)[number]
+
+/** A named thing the piece covers: named in full and defined at first mention. */
+export type PlanEntity = {
+  name: string
+  type: EntityType
+  /** What it is, from the sources or the author's details. */
+  note: string
+  /** The source that says what it is, when one does. */
+  sourceId: string
+}
+
+/** A picture planned for one section: a scene or object, never text or data. */
+export type PlannedImage = {
+  /** 1 = the first section… */
+  sectionIndex: number
+  concept: string
+  alt: string
+  caption: string
+  style: 'photo' | 'illustration'
 }
 
 /** A page of the company's site (or a published blog) the piece should link to. */
@@ -303,11 +346,44 @@ export type BlogPlan = {
   faq: string[]
   product: { role: ProductRole; where: string; note: string }
   cta: { kind: CtaKind; text: string; url: string | null }
-  featuredImage: { concept: string; alt: string; style: 'photo' | 'illustration' }
+  featuredImage: {
+    concept: string
+    alt: string
+    style: 'photo' | 'illustration'
+    /** Absent on plans made before captions were planned. */
+    caption?: string
+  }
   internalLinks: InternalLinkPick[]
   /** Facts the piece would want but no source supports: never stated. */
   gaps: string[]
   cautions: string[]
+  /**
+   * When the primary keyword names a term: the one-sentence definition the
+   * piece gives in its first 200 words. Empty otherwise; absent on older plans.
+   */
+  definition?: string
+  /** The named things the piece covers; absent on older plans. */
+  entities?: PlanEntity[]
+  /** The entity the piece is about (one of `entities`), or empty. */
+  mainEntity?: string
+  /** One line for the look of the whole picture set, so the pictures match. */
+  imageDirection?: string
+  /** Pictures for sections, 0-3; absent on older plans. */
+  supportingImages?: PlannedImage[]
+}
+
+// ---------------------------------------------------------------------------
+// Search questions (src/lib/ai/pipeline/blog-questions.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * A question people search about the topic: Google's "People also ask" or a
+ * related search. Only the words are kept: the answer boxes come from pages
+ * of any quality and are never sources.
+ */
+export type SearchQuestion = {
+  text: string
+  origin: 'people_also_ask' | 'related'
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +443,29 @@ export type FeaturedImageView = {
   height: number
 }
 
+/**
+ * A picture made for a section (blogs.images). The list only grows: the
+ * document's image nodes name a picture by `id` and carry their own alt text
+ * and caption, so an earlier version still finds its pictures. `src` is a
+ * `storage://` key or a data URL, like the featured image's.
+ */
+export type BlogImage = {
+  id: string
+  src: string
+  width: number
+  height: number
+  mediaType: string
+  model: string | null
+  prompt: string
+  concept: string
+  createdAt: string
+  /** The vision check still saw problems after the retry: worth a look. */
+  flagged?: boolean
+}
+
+/** A picture as renderers and the editor see it: where to load it, and its size. */
+export type BlogImageView = { src: string; width: number; height: number }
+
 // ---------------------------------------------------------------------------
 // Verification (src/lib/blogs/citations.ts, src/lib/ai/skills/blog-verification)
 // ---------------------------------------------------------------------------
@@ -381,7 +480,9 @@ export const VERIFICATION_ISSUES = [
   'opinion_as_fact',
   'figure_not_in_source',
   'uncited_figure',
-  'unlabelled_specific'
+  'unlabelled_specific',
+  'generic_passage',
+  'repeats_earlier_point'
 ] as const
 export type VerificationIssueKind = (typeof VERIFICATION_ISSUES)[number]
 
@@ -416,6 +517,16 @@ export type BlogContent = {
   featuredImage: FeaturedImageView | null
   /** The last check of its citations; null before one ran (older blogs). */
   verification: BlogVerification | null
+  /**
+   * The section pictures by id, as the renderer should load them (a signed
+   * link, a data URL, or an export's file name). Absent: none resolve, and
+   * image nodes render as nothing.
+   */
+  images?: Record<string, BlogImageView>
+  /** The named things the plan said it covers, for structured data. */
+  entities?: PlanEntity[]
+  /** The one it is about, when there is one. */
+  mainEntity?: string
 }
 
 /** What replaced an earlier version of a blog (blog_revisions.replaced_by). */
@@ -434,7 +545,14 @@ export type BlogReplacedBy = (typeof BLOG_REPLACED_BY)[number]
  */
 export type BlogSnapshot = Omit<
   BlogContent,
-  'kind' | 'sources' | 'searchIntent' | 'featuredImage' | 'verification'
+  | 'kind'
+  | 'sources'
+  | 'searchIntent'
+  | 'featuredImage'
+  | 'verification'
+  | 'images'
+  | 'entities'
+  | 'mainEntity'
 > & {
   wordCount: number
   searchIntent?: SearchIntent | ''

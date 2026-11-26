@@ -387,7 +387,7 @@ describe('standalone page', () => {
         title: 'T </script><script>alert(1)</script>'
       })
     )
-    assert.ok(html.startsWith('<!doctype html>'))
+    assert.ok(html.startsWith('<!DOCTYPE html>'))
     assert.ok(html.includes('<title>Meta title</title>'))
     assert.ok(html.includes('<meta name="description" content="Meta desc">'))
     assert.ok(html.includes('<meta name="keywords" content="x, y">'))
@@ -505,7 +505,7 @@ describe('tables, boxes and figures', () => {
     })
     assert.strictEqual(
       html,
-      '<aside class="callout callout-example"><p class="callout-label"><strong>Hypothetical example</strong></p><p>A buyer orders.</p></aside>'
+      '<div class="callout callout-example" role="note"><p class="callout-label"><strong>Hypothetical example</strong></p><p>A buyer orders.</p></div>'
     )
   })
 
@@ -558,7 +558,7 @@ describe('tables, boxes and figures', () => {
     const html = blogArticleHtml(blog)
     assert.ok(
       html.startsWith(
-        '<header><h1>How to X</h1></header><figure class="featured"><img src="data:image/webp;base64,AAAA" alt="A warehouse team &quot;packing&quot; orders" width="1600" height="900"><figcaption>Packing at a distributor</figcaption></figure>'
+        '<header><h1>How to X</h1></header><figure class="featured"><img src="data:image/webp;base64,AAAA" alt="A warehouse team &quot;packing&quot; orders" width="1600" height="900" fetchpriority="high" decoding="async"><figcaption>Packing at a distributor</figcaption></figure>'
       ),
       html
     )

@@ -194,7 +194,9 @@ const generated = (title: string): GeneratedBlog => ({
   plan: null,
   featuredImage: null,
   verification: null,
-  internalLinks: []
+  internalLinks: [],
+  searchQuestions: [],
+  newImages: []
 })
 
 const editOf = (title: string): BlogEdit => ({

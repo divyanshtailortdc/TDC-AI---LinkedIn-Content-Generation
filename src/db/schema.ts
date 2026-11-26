@@ -69,6 +69,7 @@ import {
   BLOG_STATUSES,
   SEARCH_INTENTS,
   type BlogBrief,
+  type BlogImage,
   type BlogGenerationStage,
   type BlogGenerationStatus,
   type BlogKind,
@@ -81,7 +82,8 @@ import {
   type FaqItem,
   type FeaturedImage,
   type InternalLink,
-  type SearchIntent
+  type SearchIntent,
+  type SearchQuestion
 } from '../lib/blogs/types'
 import type { BlogDoc } from '../lib/blogs/doc'
 import {
@@ -2052,6 +2054,15 @@ export const blogsTable = pgTable(
       .$type<InternalLink[]>()
       .default([])
       .notNull(),
+    // Questions people search about the topic ("People also ask", related
+    // searches), gathered with the research; reused without new research.
+    searchQuestions: jsonb('search_questions')
+      .$type<SearchQuestion[]>()
+      .default([])
+      .notNull(),
+    // The section pictures, append-only: image nodes in the text name them
+    // by id (src/lib/blogs/types.ts, BlogImage).
+    images: jsonb('images').$type<BlogImage[]>().default([]).notNull(),
     // The body as TipTap document JSON (src/lib/blogs/doc.ts): H2/H3 only.
     content: jsonb('content')
       .$type<BlogDoc>()

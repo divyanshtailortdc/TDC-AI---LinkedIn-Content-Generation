@@ -10,7 +10,7 @@ import { CALLOUT_LABELS, isCalloutVariant, isSafeHref } from './doc'
  * (src/lib/blogs/doc.ts). The title is the page's only H1, so headings are H2
  * and H3; no code, strikethrough or underline; links only http(s) and mailto,
  * and not followed on click while editing; tables (no column resizing),
- * labelled boxes and diagrams. tests/blog-editor-schema.test.ts checks the
+ * labelled boxes, diagrams and section pictures. tests/blog-editor-schema.test.ts checks the
  * editor can produce nothing sanitizeDoc refuses.
  */
 
@@ -108,13 +108,75 @@ export const Diagram = Node.create<{ view: NodeViewRenderer | null }>({
   }
 })
 
+/**
+ * A section picture (blogs.images): one block the cursor cannot enter,
+ * naming its picture by id and carrying its alt text and caption. In the app
+ * a node view shows it with Edit, Make again and Remove; copied out of the
+ * editor it is a figure carrying its id, so pasting it back into the same
+ * blog keeps it (another blog's picture is left out when saving).
+ */
+export const BlogImage = Node.create<{ view: NodeViewRenderer | null }>({
+  name: 'image',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addOptions() {
+    return { view: null }
+  },
+  addAttributes() {
+    return {
+      imageId: { default: '' },
+      alt: { default: '' },
+      caption: { default: '' }
+    }
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'figure[data-blog-image]',
+        getAttrs: element => {
+          const imageId = element.getAttribute('data-blog-image') ?? ''
+          if (!imageId) return false
+          return {
+            imageId,
+            alt: element.getAttribute('data-alt') ?? '',
+            caption: element.getAttribute('data-caption') ?? ''
+          }
+        }
+      }
+    ]
+  },
+  renderHTML({ node }) {
+    return [
+      'figure',
+      {
+        class: 'blog-image',
+        'data-blog-image': String(node.attrs.imageId ?? ''),
+        'data-alt': String(node.attrs.alt ?? ''),
+        'data-caption': String(node.attrs.caption ?? '')
+      }
+    ]
+  },
+  addNodeView() {
+    return this.options.view
+  }
+})
+
 export function blogEditorExtensions(
   options:
     | string
-    | { placeholder?: string; diagramView?: NodeViewRenderer | null } = {}
+    | {
+        placeholder?: string
+        diagramView?: NodeViewRenderer | null
+        imageView?: NodeViewRenderer | null
+      } = {}
 ) {
-  const { placeholder = 'Write your blog…', diagramView = null } =
-    typeof options === 'string' ? { placeholder: options } : options
+  const {
+    placeholder = 'Write your blog…',
+    diagramView = null,
+    imageView = null
+  } = typeof options === 'string' ? { placeholder: options } : options
   return [
     StarterKit.configure({
       heading: { levels: [2, 3] },
@@ -133,6 +195,7 @@ export function blogEditorExtensions(
     TableKit.configure({ table: { resizable: false } }),
     Callout,
     Diagram.configure({ view: diagramView }),
+    BlogImage.configure({ view: imageView }),
     Placeholder.configure({ placeholder })
   ]
 }

@@ -1,4 +1,5 @@
 import type { Idea } from '@/db/schema'
+import { renderKindRules } from '@/lib/blogs/kinds'
 import { STYLE_BLUEPRINTS } from '@/lib/blogs/styles'
 import {
   BLOG_KIND_LABELS,
@@ -36,7 +37,7 @@ import {
  * which the piece then never used.
  */
 export const SEARCH_PHRASE =
-  'the phrase of 2-5 words this reader would type into a search box to find this piece, not the topic or the title'
+  'the phrase of 2-5 words this reader would type into a search box to find this piece, in English (the language the piece is written in, whatever country the readers are in), worded so it reads naturally in a sentence ("fever in children", not "child fever see doctor"), not the topic or the title'
 
 /**
  * A web page is not a social post: an identity's goal written for posts
@@ -71,12 +72,18 @@ export type BlogPromptInput = {
 export const NO_SOURCES =
   "No sources were gathered for this piece: argue from reasoning and the author's own details, and state no figures that are not in them."
 
-const KIND_RULES: Record<BlogKind, string> = {
-  blog: `- A blog post: scannable and practical. Paragraphs of 2-4 sentences, a section heading every 150-300 words, and lists where the content really is a list or steps.
-- Every section gives the reader something they can use: a step, an example, a decision rule.`,
-  article: `- A long-form article: argument-led and deeper; each section advances one point of the argument and follows from the one before it.
-- Paragraphs of 3-6 sentences. Lists only for real steps, at most two in the whole piece.`
-}
+/**
+ * How sections open, so a search or answer engine can lift each one: the
+ * answer first, standing on its own, then the depth.
+ */
+export const ANSWER_FIRST_RULES = `- Every section starts with its lead: 1-3 sentences (about 30-70 words) that answer the heading directly, or for a step say what it achieves. The lead stands on its own if quoted alone: it names its subject instead of pointing back ("it", "this", "as mentioned above"), and carries its source's link when it states a fact. Then the section goes deeper.
+- The introduction's first paragraph answers the reader's need in 2-3 sentences; context comes after it.`
+
+/** What makes facts and named things easy to understand, reference and cite. */
+export const CITABLE_RULES = `- A sentence with a figure says who measured it, among whom when the source says, and when, so it stands alone when quoted: "In Sana's 2024 survey of 750 B2B buyers, 46% said …", not "46% of buyers say …".
+- Name each entity in full at its first mention and say what it is in a few words ("Gartner, the IT research firm"). Then keep one name for it: do not swap a key term for synonyms, and spell names exactly as the sources do.
+- When the plan gives a definition, state it early as a plain "X is …" sentence.
+- Every abstract point gets a concrete example: a real one from the sources first (named and linked), otherwise a made-up one in an example box.`
 
 const STYLE_RULES: Record<BlogStyle, string> = {
   how_to:
@@ -148,8 +155,8 @@ VOICE — match this precisely
 ${renderVoiceBlock(ctx)}
 ${guardrails ? `\nGUARDRAILS\n${guardrails}\n` : ''}
 FORMAT
-- Type: ${BLOG_KIND_LABELS[kind]}.
-${KIND_RULES[kind]}
+- Type: ${BLOG_KIND_LABELS[kind]}. The author's voice above decides person and formality; within it:
+${renderKindRules(kind, ctx.voice ? { perspective: ctx.voice.perspective, formality: ctx.voice.formality } : null)}
 - Writing style: ${BLOG_STYLE_LABELS[brief.style]}. ${STYLE_RULES[brief.style]}
 - About ${spec.words} words at most (${spec.min}-${spec.max}), counting the introduction, sections and FAQ. Depth sets the length: stop when the reader has what they need. Shorter is fine; padding, repetition and restating a point in other words never are.
 - At least ${spec.minSections} sections, each under its own H2. H3 subheadings only inside a section.
@@ -160,10 +167,15 @@ SEO
 - Meta title: 30-60 characters with the primary keyword near the start; it may differ from the title.
 - Meta description: 120-160 characters with the primary keyword and a concrete reason to read: what the reader will be able to do or decide.
 - Slug: 3-6 lowercase words from the primary keyword, joined by hyphens.
-- Use the primary keyword in the first 100 words and in at least one section heading, then only where it fits naturally: never more than about 2.5% of the words. Use each secondary keyword at least once, naturally.
-- Headings say what the section covers; questions people actually search make good headings.
-- Answer what the searcher came for early, then go deeper.
-- FAQ, when asked for: 4-6 questions people search about this topic that the sections do not already answer, each answered in 40-80 self-contained words.
+- Use the primary keyword in the first 100 words and in at least one section heading, then only where it fits naturally: never more than about 2.5% of the words, never in more than half the headings, never in sentences one after another. Use each secondary keyword at least once, naturally; vary the wording with the secondary keywords and plain synonyms rather than repeating the exact phrase.
+- Headings say what the section covers. Where the plan gives a section a searched question, the heading is that question.
+- FAQ, when asked for: 4-6 questions people search about this topic that the sections do not already answer. Each answer opens with the direct answer in its first sentence, runs 40-80 self-contained words, and never repeats a section's sentences.
+
+ANSWERS FIRST
+${ANSWER_FIRST_RULES}
+
+EASY TO UNDERSTAND, REFERENCE AND CITE
+${CITABLE_RULES}
 
 TRUTH RULES
 - Use only the sources supplied with the brief and the author's own details above. If a number is not in either, do not write a number. The same holds for names, dates, prices, quotes and results.
@@ -287,8 +299,10 @@ ${frameEvidenceText(brief.caseDetails, 3000)}
 function renderPlanSection(section: PlanSection, index: number): string {
   return [
     `${index + 1}. ${section.heading}${section.purpose ? ` — ${section.purpose}` : ''}`,
+    section.question ? `   Answers the searched question: "${section.question}"` : '',
     section.points.length > 0 ? `   Points: ${section.points.join('; ')}` : '',
     `   Sources: ${section.sourceIds.join(', ') || 'none'}`,
+    section.example ? `   Example: ${section.example}` : '',
     section.element !== 'none'
       ? `   Element: ${section.element}${section.elementNote ? ` — ${section.elementNote}` : ''}`
       : ''
@@ -315,6 +329,12 @@ export function renderPlan(plan: BlogPlan): string {
       ? `Call to action (${plan.cta.kind}): ${plan.cta.text}${plan.cta.url ? ` — link ${plan.cta.url}` : ''}`
       : '',
     plan.faq.length > 0 ? `FAQ questions: ${plan.faq.join(' | ')}` : '',
+    plan.definition ? `Definition to give in the first 200 words: ${plan.definition}` : '',
+    (plan.entities ?? []).length > 0
+      ? `Entities — name each in full at first mention with what it is, then one name throughout:\n${(plan.entities ?? [])
+          .map(e => `- ${e.name} (${e.type})${e.note ? `: ${e.note}` : ''}${e.sourceId ? ` [${e.sourceId}]` : ''}`)
+          .join('\n')}`
+      : '',
     plan.gaps.length > 0
       ? `Do not state these; no source supports them: ${plan.gaps.join('; ')}`
       : '',
@@ -393,7 +413,7 @@ export function buildBlogPrompt(input: BlogPromptInput): string {
     brief.faq
       ? 'Write the FAQ: 4-6 questions that the sections do not already answer.'
       : 'Return an empty faq list.',
-    'The last section closes the piece with the call to action. Return every field of the schema.'
+    'Every section opens with its lead (the answer first). The last section closes the piece with the call to action. Return every field of the schema.'
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -454,7 +474,7 @@ export function buildSectionRewritePrompt(
     "SOURCES — the only facts you may use besides the author's own details",
     renderBlogSources(sources),
     '',
-    "Return the section's heading, its blocks and the ids of the sources it relies on."
+    "Return the section's heading, its lead (the answer first, standing on its own), its blocks and the ids of the sources it relies on."
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')

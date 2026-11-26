@@ -59,6 +59,7 @@ describe('the blog editor', () => {
       'hardBreak',
       'heading',
       'horizontalRule',
+      'image',
       'listItem',
       'orderedList',
       'paragraph',

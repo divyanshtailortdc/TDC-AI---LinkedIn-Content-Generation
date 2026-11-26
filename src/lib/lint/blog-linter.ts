@@ -7,7 +7,9 @@ import {
 import {
   checkCitations,
   docSentences,
-  proseParagraphs
+  proseParagraphs,
+  figureText as figureTextOf,
+  statesFigure
 } from '@/lib/blogs/citations'
 import type { BlogSource, FaqItem, SearchIntent } from '@/lib/blogs/types'
 import { extractNumbers, mentionsFigure } from '~/lib/ai/skills/ideation/guard'
@@ -165,7 +167,7 @@ export function runBlogLinter(opts: BlogLintOptions): LintFinding[] {
   // a hypothetical example's illustrative numbers are labelled as such.
   if (opts.figureSources != null) {
     const sources = opts.figureSources.toLowerCase()
-    const known = new Set(extractNumbers(sources))
+    const known = new Set(extractNumbers(figureTextOf(sources)))
     const factual = [
       opts.title.trim(),
       ...docOutline(opts.content).map(h => h.text),
@@ -177,7 +179,7 @@ export function runBlogLinter(opts: BlogLintOptions): LintFinding[] {
     const invented = Array.from(
       new Set(
         extractNumbers(factual).filter(
-          n => !known.has(n) && !mentionsFigure(sources, n)
+          n => !known.has(n) && !statesFigure(sources, n)
         )
       )
     )

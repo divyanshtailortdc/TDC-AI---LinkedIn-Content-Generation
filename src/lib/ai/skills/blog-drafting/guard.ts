@@ -2,6 +2,7 @@ import {
   docFromDraft,
   docLinks,
   draftBlocksToNodes,
+  withLead,
   inlineFromMarkup,
   inlineText,
   slugify,
@@ -174,7 +175,7 @@ export function cleanSectionDraft(
     collapse((section.heading ?? '').replace(/^\s*#+\s*/, '')) ||
     input.fallbackHeading
   const { nodes, removedLinks, dropped } = draftBlocksToNodes(
-    section.blocks ?? [],
+    withLead(section),
     url => isAllowedLink(url, allowed)
   )
   const blocks: BlogBlock[] = [
@@ -206,7 +207,8 @@ const hasContent = (block: BlogDraft['sections'][number]['blocks'][number]) =>
 export function isCompleteBlogDraft(draft: BlogDraft): boolean {
   const hasSection = (draft.sections ?? []).some(
     section =>
-      collapse(section.heading) && (section.blocks ?? []).some(hasContent)
+      collapse(section.heading) &&
+      (Boolean(collapse(section.lead)) || (section.blocks ?? []).some(hasContent))
   )
   return (
     Boolean(collapse(draft.title)) &&

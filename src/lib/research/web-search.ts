@@ -13,6 +13,11 @@ import {
   type ResearchQuery
 } from './findings'
 import { isSearchRedirect } from './search-redirect'
+import {
+  NO_QUESTIONS,
+  parseQuestionResults,
+  type QuestionResults
+} from './search-questions'
 import type { SignalKind } from './source-credibility'
 import type { StyleMix } from '~/lib/formats/styles'
 import type { PlatformId } from '~/lib/platforms'
@@ -119,6 +124,42 @@ export async function searchWeb(
   } catch (err) {
     console.warn(`Serper search error for "${query}":`, err)
     return []
+  }
+}
+
+/**
+ * The questions people search around `query`: Google's "People also ask" and
+ * related searches, from one ordinary search. None, rather than a throw,
+ * when it fails. Kept apart from searchWeb so its results stay as they are.
+ */
+export async function searchQuestions(
+  query: string,
+  options: { country?: string; timeoutMs?: number } = {}
+): Promise<QuestionResults> {
+  if (!env.SERPER_API_KEY || !query.trim()) return NO_QUESTIONS
+  try {
+    const res = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': env.SERPER_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        q: query.trim(),
+        ...(options.country
+          ? { gl: options.country === 'gb' ? 'uk' : options.country }
+          : {})
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? SEARCH_TIMEOUT_MS)
+    })
+    if (!res.ok) {
+      console.warn(`Serper question search failed (${res.status}) for "${query}"`)
+      return NO_QUESTIONS
+    }
+    return parseQuestionResults(await res.json())
+  } catch (err) {
+    console.warn(`Serper question search error for "${query}":`, err)
+    return NO_QUESTIONS
   }
 }
 

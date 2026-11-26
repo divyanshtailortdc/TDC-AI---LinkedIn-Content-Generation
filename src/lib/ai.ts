@@ -44,6 +44,7 @@ export type AIStage =
   | 'blog_drafting'
   | 'blog_editing'
   | 'blog_verification'
+  | 'blog_search_phrases'
   | 'video_look'
 
 /**
@@ -102,6 +103,10 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   // Reading whether each cited source says what its sentence claims:
   // careful reading, little reasoning.
   blog_verification: { model: defaultModel, effort: 'low' },
+  // Two or three short search phrases for a topic briefed without a keyword,
+  // so "People also ask" is read for what readers type, not for a sentence.
+  // Runs beside research; a few seconds.
+  blog_search_phrases: { model: defaultModel, effort: 'low' },
   // Looks at a few of an account's post images and their analysis to set a
   // Reel's or Short's look: once per platform, reading more than reasoning.
   video_look: { model: defaultModel, effort: 'low' }

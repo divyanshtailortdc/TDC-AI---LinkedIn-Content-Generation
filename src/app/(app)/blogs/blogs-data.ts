@@ -13,7 +13,7 @@ import {
 } from '@/db/schema'
 import { isAICapable } from '@/lib/ai'
 import type { BlogDestinationId } from '@/lib/blogs/destinations'
-import type { BlogDoc } from '@/lib/blogs/doc'
+import { docImages, type BlogDoc } from '@/lib/blogs/doc'
 import { searchResultHost } from '@/lib/blogs/seo'
 import { findIdentityBlog } from '@/lib/blogs/store'
 import {
@@ -23,6 +23,7 @@ import {
   type BlogBrief,
   type BlogGenerationStage,
   type BlogGenerationStatus,
+  type BlogImageView,
   type BlogKind,
   type BlogPlan,
   type BlogSource,
@@ -32,7 +33,8 @@ import {
   type FeaturedImage,
   type InternalLink,
   type RelatedDraft,
-  type SearchIntent
+  type SearchIntent,
+  type SearchQuestion
 } from '@/lib/blogs/types'
 import { DEFAULT_PRIMARY, resolveBrandTheme } from '@/lib/brand/theme'
 import { viewableImageUrl } from '@/lib/media/image-store'
@@ -145,6 +147,10 @@ export type BlogEditorBlog = {
   featuredImage: FeaturedImage | null
   /** A link the browser can load for the featured image (signed), or null. */
   featuredImageUrl: string | null
+  /** The section pictures by id, each with a link the browser can load (signed). */
+  images: Record<string, BlogImageView>
+  /** Questions people search about the topic, found with the research. */
+  searchQuestions: SearchQuestion[]
 }
 
 /**
@@ -154,7 +160,8 @@ export type BlogEditorBlog = {
 export function toEditorBlog(
   blog: Blog,
   now: number = Date.now(),
-  featuredImageUrl: string | null = null
+  featuredImageUrl: string | null = null,
+  imageUrls: Record<string, string> = {}
 ): BlogEditorBlog {
   return {
     id: blog.id,
@@ -193,21 +200,39 @@ export function toEditorBlog(
     verification: blog.verification ?? null,
     internalLinks: blog.internalLinks ?? [],
     featuredImage: blog.featuredImage ?? null,
-    featuredImageUrl
+    featuredImageUrl,
+    images: Object.fromEntries(
+      (blog.images ?? []).flatMap(image => {
+        const src = imageUrls[image.id]
+        return src ? [[image.id, { src, width: image.width, height: image.height }]] : []
+      })
+    ),
+    searchQuestions: blog.searchQuestions ?? []
   }
 }
 
 /** The editor's copy of a blog, with a link the browser can load for its image. */
 export async function editorBlogOf(blog: Blog): Promise<BlogEditorBlog> {
   const image = blog.featuredImage
-  const url =
-    image?.status === 'ready'
-      ? await viewableImageUrl(image.src).catch(error => {
-          console.warn(`Could not sign the image of blog ${blog.id}:`, error)
-          return null
-        })
-      : null
-  return toEditorBlog(blog, Date.now(), url)
+  const sign = (src: string) =>
+    viewableImageUrl(src).catch(error => {
+      console.warn(`Could not sign an image of blog ${blog.id}:`, error)
+      return null
+    })
+  // Only the pictures the text shows: earlier versions' stay unsigned until restored.
+  const shown = new Set(docImages(blog.content).map(node => node.attrs.imageId))
+  const [url, pictures] = await Promise.all([
+    image?.status === 'ready' ? sign(image.src) : Promise.resolve(null),
+    Promise.all(
+      (blog.images ?? [])
+        .filter(picture => shown.has(picture.id))
+        .map(async picture => [picture.id, await sign(picture.src)] as const)
+    )
+  ])
+  const imageUrls = Object.fromEntries(
+    pictures.flatMap(([id, src]) => (src ? [[id, src]] : []))
+  )
+  return toEditorBlog(blog, Date.now(), url, imageUrls)
 }
 
 export type BlogLabels = {

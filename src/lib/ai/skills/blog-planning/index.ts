@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { KIND_PROFILES } from '@/lib/blogs/kinds'
 import type { BlogPlan } from '@/lib/blogs/types'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
@@ -39,7 +40,12 @@ export async function planBlog(
     allowedLinks: input.allowedLinks,
     faqWanted: input.brief.faq,
     keyword: input.brief.primaryKeyword,
-    briefKeywords: input.brief.secondaryKeywords
+    briefKeywords: input.brief.secondaryKeywords,
+    questions: input.questions ?? [],
+    maxPictures:
+      input.newPictures === false
+        ? 0
+        : KIND_PROFILES[input.kind].pictures[input.brief.length][1]
   })
   if (!isUsablePlan(plan)) {
     throw new SkillError('The model returned an unusable plan.', 'failed', { usage })

@@ -18,7 +18,7 @@ export function RegenerateDialog({
   dirty: boolean
   /** The brief had web research on: offer to research again. */
   researchOn: boolean
-  /** The blog has a featured image: offer a new one (off: it is kept). */
+  /** The blog has pictures (featured or in sections): offer new ones (off: they are kept). */
   hasImage: boolean
   onCancel: () => void
   /** Resolves true once the new version has started. */
@@ -103,10 +103,10 @@ export function RegenerateDialog({
             />
             <span>
               <span className="text-foreground font-medium">
-                Make a new featured image
+                Make new pictures
               </span>
               <span className="text-muted block text-xs">
-                Off: the current image stays (about $0.06-0.17 for a new one).
+                Off: the featured image and section pictures stay, moved to the matching sections (new ones cost about $0.06-0.17 each).
               </span>
             </span>
           </label>

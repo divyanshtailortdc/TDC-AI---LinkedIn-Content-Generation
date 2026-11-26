@@ -25,9 +25,11 @@ import {
 import { docLinks, docSections, docText } from '../src/lib/blogs/doc'
 import type {
   BlogBrief,
+  BlogImage,
   BlogPlan,
   BlogSource,
-  FeaturedImage
+  FeaturedImage,
+  SearchQuestion
 } from '../src/lib/blogs/types'
 import { account, context } from './fixtures/generation'
 
@@ -90,18 +92,21 @@ const DRAFT: BlogDraft = {
   sections: [
     {
       heading: 'Why carts are left',
+      lead: '',
       blocks: [
         { type: 'paragraph', text: 'Surprise fees drive shoppers away.' }
       ]
     },
     {
       heading: 'Fix the checkout design',
+      lead: '',
       blocks: [
         { type: 'paragraph', text: 'Show every cost before the last step.' }
       ]
     },
     {
       heading: 'Send reminders',
+      lead: '',
       blocks: [
         {
           type: 'paragraph',
@@ -111,6 +116,7 @@ const DRAFT: BlogDraft = {
     },
     {
       heading: 'Start with fees',
+      lead: '',
       blocks: [
         {
           type: 'paragraph',
@@ -187,6 +193,33 @@ const PLAN: BlogPlan = {
   cautions: []
 }
 
+const QUESTIONS: SearchQuestion[] = [
+  { text: 'Why do people abandon carts?', origin: 'people_also_ask' },
+  { text: 'cart abandonment rate', origin: 'related' }
+]
+
+/** A plan that asks for pictures in its first two sections. */
+const PICTURE_PLAN: BlogPlan = {
+  ...PLAN,
+  imageDirection: 'Soft daylight, muted colours',
+  supportingImages: [
+    { sectionIndex: 1, concept: 'A cart left by a till', alt: 'A full cart left by a till', caption: 'Fees surprise shoppers at the till.', style: 'photo' },
+    { sectionIndex: 2, concept: 'A tidy checkout counter', alt: 'A tidy checkout counter', caption: 'A short checkout.', style: 'photo' }
+  ]
+}
+
+const picture = (id: string): BlogImage => ({
+  id,
+  src: 'data:image/webp;base64,BBBB',
+  width: 1200,
+  height: 800,
+  mediaType: 'image/webp',
+  model: 'stub-image',
+  prompt: 'p',
+  concept: 'c',
+  createdAt: '2026-11-26T10:00:00.000Z'
+})
+
 const READY_IMAGE: FeaturedImage = {
   status: 'ready',
   src: 'data:image/webp;base64,AAAA',
@@ -219,7 +252,13 @@ describe('writing a blog', { skip: !url }, () => {
     ctx: context({ account: account({ id: accountId, name: 'QA Run' }) }),
     idea: null
   })
-  const planned: Array<{ timeoutMs?: number; brief: BlogBrief }> = []
+  const planned: Array<{
+    timeoutMs?: number
+    brief: BlogBrief
+    questions?: SearchQuestion[]
+    newPictures?: boolean
+  }> = []
+  const asked: BlogBrief[] = []
   const images: string[] = []
   const judgedClaims: string[][] = []
   /** Every model call a run makes, faked: nothing here costs money. */
@@ -231,9 +270,21 @@ describe('writing a blog', { skip: !url }, () => {
       ],
       related: []
     }),
-    planBlog: async (input: { brief: BlogBrief }, options: { timeoutMs?: number }) => {
-      planned.push({ timeoutMs: options.timeoutMs, brief: input.brief })
+    planBlog: async (
+      input: { brief: BlogBrief; questions?: SearchQuestion[]; newPictures?: boolean },
+      options: { timeoutMs?: number }
+    ) => {
+      planned.push({
+        timeoutMs: options.timeoutMs,
+        brief: input.brief,
+        questions: input.questions,
+        newPictures: input.newPictures
+      })
       return { plan: PLAN, usage: cost(0.02), modelId: 'stub-planner' }
+    },
+    gatherQuestions: async (_ctx: unknown, brief: BlogBrief) => {
+      asked.push(brief)
+      return { questions: QUESTIONS, phrases: ['cart abandonment'], usage: cost(0.001) }
     },
     judgeCitations: async (input: { claims: Array<{ id: string; sentence: string }> }) => {
       judgedClaims.push(input.claims.map(c => c.sentence))
@@ -335,9 +386,10 @@ describe('writing a blog', { skip: !url }, () => {
     assert.ok(row.wordCount > 30, String(row.wordCount))
     assert.ok(row.checks.some(f => f.rule === 'seo_meta_description'))
     assert.ok(row.checks.some(f => f.rule === 'unsupported_figures'))
-    // Sources 0.01, plan 0.02, text 0.05, citation check 0.01, image 0.07.
+    // Sources 0.01, questions 0.001, plan 0.02, text 0.05, citation check
+    // 0.01, image 0.07.
     assert.ok(
-      Math.abs(row.usage.costUsd! - 0.16) < 1e-9,
+      Math.abs(row.usage.costUsd! - 0.161) < 1e-9,
       String(row.usage.costUsd)
     )
     assert.strictEqual(row.model, 'stub-model')
@@ -454,6 +506,7 @@ describe('writing a blog', { skip: !url }, () => {
       sections: [
         {
           heading: 'Why carts are left',
+          lead: '',
           blocks: [
             {
               type: 'paragraph',
@@ -645,10 +698,11 @@ describe('writing a blog', { skip: !url }, () => {
       row.generationError,
       'Spending limit reached for this month.'
     )
-    // The sources (0.01), the plan (0.02) and the image made beside the text
-    // (0.07) were paid for before writing failed; the image is kept for a retry.
+    // The sources (0.01), the questions (0.001), the plan (0.02) and the image
+    // made beside the text (0.07) were paid for before writing failed; the
+    // image is kept for a retry.
     assert.ok(
-      Math.abs(row.usage.costUsd! - 0.1) < 1e-9,
+      Math.abs(row.usage.costUsd! - 0.101) < 1e-9,
       String(row.usage.costUsd)
     )
     assert.deepStrictEqual(row.featuredImage, READY_IMAGE)
@@ -738,6 +792,7 @@ describe('writing a blog', { skip: !url }, () => {
     const before = await rowOf(blogId)
     const section: BlogSectionDraft = {
       heading: 'Fix the checkout design',
+      lead: '',
       blocks: [{ type: 'paragraph', text: 'A new example with a cart.' }],
       sourcesUsed: []
     }
@@ -865,5 +920,162 @@ describe('writing a blog', { skip: !url }, () => {
     const row = await rowOf(claim.blogId)
     const figures = row.checks.find(f => f.rule === 'unsupported_figures')!
     assert.strictEqual(figures.passed, true, figures.message)
+  })
+
+  it('gathers the questions people search beside research, plans with them and keeps them', async () => {
+    const claim = await newClaim()
+    const before = planned.length
+    assert.strictEqual(
+      await runBlogGeneration(claim, {}, deps({ writeBlog: stubWriter([DRAFT]).writer })),
+      'saved'
+    )
+    assert.deepStrictEqual(planned[before]!.questions, QUESTIONS)
+    assert.strictEqual(planned[before]!.newPictures, true)
+    const row = await rowOf(claim.blogId)
+    assert.deepStrictEqual(row.searchQuestions, QUESTIONS)
+    // Asked again only with new research: a plain regeneration reuses them.
+    const count = asked.length
+    const again = await claimBlogGeneration(database, { accountId, blogId: claim.blogId })
+    await runBlogGeneration(again!, {}, deps({ writeBlog: stubWriter([DRAFT]).writer }))
+    assert.strictEqual(asked.length, count)
+    assert.deepStrictEqual(planned.at(-1)!.questions, QUESTIONS)
+  })
+
+  it("makes the planned section pictures beside the text and puts each after its section's answer", async () => {
+    const claim = await newClaim()
+    const requests: Array<{ concept: string; look?: string; section: string }> = []
+    const result = await runBlogGeneration(
+      claim,
+      {},
+      deps({
+        writeBlog: stubWriter([DRAFT]).writer,
+        planBlog: async () => ({ plan: PICTURE_PLAN, usage: cost(0.02), modelId: 'stub-planner' }),
+        makeSupportingImage: async (request: { concept: string; look?: string; section: string }) => {
+          requests.push(request)
+          return request.concept.includes('till')
+            ? { image: picture('pic-till'), usage: cost(0.06) }
+            : { image: null, error: 'No image model produced an image.', usage: cost(0.01) }
+        }
+      })
+    )
+    assert.strictEqual(result, 'saved')
+    assert.deepStrictEqual(
+      requests.map(r => [r.concept, r.look, r.section]),
+      [
+        ['A cart left by a till', 'Soft daylight, muted colours', 'Why carts are left'],
+        ['A tidy checkout counter', 'Soft daylight, muted colours', 'Fix the checkout design']
+      ]
+    )
+    const row = await rowOf(claim.blogId)
+    assert.deepStrictEqual(row.images.map(image => image.id), ['pic-till'])
+    const first = docSections(row.content)[1]!
+    assert.deepStrictEqual(
+      first.blocks.map(block => block.type),
+      ['heading', 'paragraph', 'image']
+    )
+    const node = first.blocks[2]!
+    assert.ok(node.type === 'image')
+    if (node.type === 'image') {
+      assert.deepStrictEqual(node.attrs, {
+        imageId: 'pic-till',
+        alt: 'A full cart left by a till',
+        caption: 'Fees surprise shoppers at the till.'
+      })
+    }
+    assert.ok(row.selfFlags.some(flag => flag.includes('1 section picture could not be made')))
+    assert.ok(Number(row.usage.costUsd) >= 0.07)
+  })
+
+  it('keeps its pictures on a regeneration, carried into the matching sections, unless new ones are asked for', async () => {
+    const claim = await newClaim()
+    const makeSupportingImage = async () => ({ image: picture(randomUUID()), usage: cost(0.06) })
+    const pictureDeps = (more: Record<string, unknown> = {}) =>
+      deps({
+        writeBlog: stubWriter([DRAFT]).writer,
+        planBlog: async (input: { newPictures?: boolean }) => {
+          planned.push({ brief: BRIEF, newPictures: input.newPictures })
+          return { plan: PICTURE_PLAN, usage: cost(0.02), modelId: 'stub-planner' }
+        },
+        makeSupportingImage,
+        ...more
+      })
+    await runBlogGeneration(claim, {}, pictureDeps())
+    const first = await rowOf(claim.blogId)
+    const ids = first.images.map(image => image.id)
+    assert.strictEqual(ids.length, 2)
+
+    let made = 0
+    const again = await claimBlogGeneration(database, { accountId, blogId: claim.blogId })
+    await runBlogGeneration(
+      again!,
+      {},
+      pictureDeps({
+        makeSupportingImage: async () => {
+          made++
+          return { image: picture(randomUUID()), usage: cost(0.06) }
+        }
+      })
+    )
+    assert.strictEqual(made, 0)
+    assert.strictEqual(planned.at(-1)!.newPictures, false)
+    const second = await rowOf(claim.blogId)
+    assert.deepStrictEqual(second.images.map(image => image.id), ids)
+    const shown = second.content.content.flatMap(block =>
+      block.type === 'image' ? [block.attrs.imageId] : []
+    )
+    assert.deepStrictEqual(shown.sort(), [...ids].sort())
+
+    const third = await claimBlogGeneration(database, { accountId, blogId: claim.blogId })
+    await runBlogGeneration(
+      third!,
+      { newImage: true },
+      pictureDeps({
+        makeSupportingImage: async () => {
+          made++
+          return { image: picture(randomUUID()), usage: cost(0.06) }
+        }
+      })
+    )
+    assert.strictEqual(made, 2)
+    assert.strictEqual((await rowOf(claim.blogId)).images.length, 4)
+  })
+
+  it('keeps the section picture through a section rewrite', async () => {
+    const claim = await newClaim()
+    await runBlogGeneration(
+      claim,
+      {},
+      deps({
+        writeBlog: stubWriter([DRAFT]).writer,
+        planBlog: async () => ({ plan: PICTURE_PLAN, usage: cost(0.02), modelId: 'stub-planner' }),
+        makeSupportingImage: async (request: { concept: string }) => ({
+          image: picture(request.concept.includes('till') ? 'pic-a' : 'pic-b'),
+          usage: cost(0.06)
+        })
+      })
+    )
+    const row = await rowOf(claim.blogId)
+    const result = await rewriteBlogSectionNow(
+      { accountId, blogId: claim.blogId, sectionIndex: 1, instruction: null, lockVersion: row.lockVersion },
+      deps({
+        writeBlogSection: async () => ({
+          section: {
+            heading: 'Why carts are left',
+            lead: 'Shoppers leave carts mostly because of costs they did not expect at the last step.',
+            blocks: [{ type: 'paragraph', text: 'Fees shown late feel like a trick.' }],
+            sourcesUsed: []
+          },
+          usage: cost(0.02),
+          modelId: 'stub-model'
+        })
+      })
+    )
+    assert.strictEqual(result.ok, true)
+    const after = await rowOf(claim.blogId)
+    const section = docSections(after.content)[1]!
+    assert.deepStrictEqual(
+      section.blocks.map(block => (block.type === 'image' ? `image:${block.attrs.imageId}` : block.type)),
+      ['heading', 'paragraph', 'paragraph', 'image:pic-a']
+    )
   })
 })

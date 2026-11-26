@@ -376,7 +376,7 @@ select,
 /* Labelled boxes: the label comes from the variant (data-label in the
    editor, a bold first line in the preview and exports). */
 .blog-doc aside.blog-callout,
-.blog-doc aside.callout {
+.blog-doc .callout {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: var(--surface-hover);
@@ -392,33 +392,34 @@ select,
   text-transform: uppercase;
   color: var(--muted);
 }
-.blog-doc aside .callout-label {
+.blog-doc .callout .callout-label {
   margin: 0 0 0.3em;
   font-size: 0.75rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.blog-doc aside > * + * {
+.blog-doc aside > * + *,
+.blog-doc .callout > * + * {
   margin-top: 0.6em;
 }
 .blog-doc aside[data-callout='example'],
-.blog-doc aside.callout-example {
+.blog-doc .callout-example {
   border-color: rgb(234 179 8 / 0.45);
   background: rgb(234 179 8 / 0.08);
 }
 .blog-doc aside[data-callout='takeaways'],
-.blog-doc aside.callout-takeaways {
+.blog-doc .callout-takeaways {
   border-color: rgb(59 130 246 / 0.4);
   background: rgb(59 130 246 / 0.07);
 }
 .blog-doc aside[data-callout='tip'],
-.blog-doc aside.callout-tip {
+.blog-doc .callout-tip {
   border-color: rgb(16 185 129 / 0.4);
   background: rgb(16 185 129 / 0.07);
 }
 .blog-doc aside[data-callout='warning'],
-.blog-doc aside.callout-warning {
+.blog-doc .callout-warning {
   border-color: rgb(244 63 94 / 0.4);
   background: rgb(244 63 94 / 0.07);
 }
@@ -432,9 +433,16 @@ select,
   max-width: 100%;
   height: auto;
 }
-.blog-doc figure.featured img {
+.blog-doc figure.featured img,
+.blog-doc figure.image img,
+.blog-doc figure.blog-image img {
   width: 100%;
   border-radius: 0.75rem;
+}
+.blog-doc header .byline {
+  margin: 0.4em 0 0;
+  font-size: 0.9em;
+  color: var(--muted);
 }
 .blog-doc figure.diagram svg,
 .blog-doc figure.blog-diagram svg {

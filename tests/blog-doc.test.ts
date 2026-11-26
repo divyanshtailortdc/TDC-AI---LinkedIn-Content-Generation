@@ -331,13 +331,74 @@ describe('sanitizing a document from the editor', () => {
     assert.deepStrictEqual(
       sanitizeDoc({
         type: 'doc',
-        content: [{ type: 'image', attrs: { src: 'x' } }]
+        content: [{ type: 'codeBlock', content: [{ type: 'text', text: 'x' }] }]
       }),
       {
         ok: false,
-        error: 'This document has content the editor cannot save (image).'
+        error: 'This document has content the editor cannot save (codeBlock).'
       }
     )
+  })
+
+  it('keeps a section picture by id, with its alt text and caption trimmed', () => {
+    const result = sanitizeDoc({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Before.' }] },
+        {
+          type: 'image',
+          attrs: { imageId: 'pic-1', alt: '  A loading dock  at dawn ', caption: 'Where orders leave.', src: 'ignored' }
+        }
+      ]
+    })
+    assert.ok(result.ok)
+    if (!result.ok) return
+    assert.deepStrictEqual(result.doc.content[1], {
+      type: 'image',
+      attrs: { imageId: 'pic-1', alt: 'A loading dock at dawn', caption: 'Where orders leave.' }
+    })
+  })
+
+  it('leaves out a picture with no id, or one the blog does not have', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        { type: 'image', attrs: { imageId: '', alt: 'x' } },
+        { type: 'image', attrs: { imageId: '../etc', alt: 'x' } },
+        { type: 'image', attrs: { imageId: 'other-blog', alt: 'x' } },
+        { type: 'image', attrs: { imageId: 'mine', alt: 'x' } }
+      ]
+    }
+    const result = sanitizeDoc(doc, { imageIds: ['mine'] })
+    assert.ok(result.ok)
+    if (!result.ok) return
+    assert.deepStrictEqual(
+      result.doc.content.map(block => (block.type === 'image' ? block.attrs.imageId : block.type)),
+      ['mine']
+    )
+  })
+
+  it('drops a picture inside a box or a table cell, keeping the box', () => {
+    const result = sanitizeDoc({
+      type: 'doc',
+      content: [
+        {
+          type: 'callout',
+          attrs: { variant: 'tip' },
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'Tip.' }] },
+            { type: 'image', attrs: { imageId: 'pic-1', alt: 'x' } }
+          ]
+        }
+      ]
+    })
+    assert.ok(result.ok)
+    if (!result.ok) return
+    assert.deepStrictEqual(result.doc.content[0], {
+      type: 'callout',
+      attrs: { variant: 'tip' },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Tip.' }] }]
+    })
   })
 
   it('refuses headings other than H2 and H3', () => {

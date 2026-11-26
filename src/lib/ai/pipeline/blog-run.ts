@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { blogsTable, ideasTable, type Blog, type Idea } from '@/db/schema'
 import {
@@ -10,7 +11,9 @@ import {
   sentenceRanges,
   unlinkSentences,
   wholeSentence,
-  type CitationProblem
+  type CitationProblem,
+  figureText as figureTextOf,
+  statesFigure
 } from '@/lib/blogs/citations'
 import {
   failBlogGeneration,
@@ -31,8 +34,19 @@ import {
 } from '@/lib/blogs/doc'
 import {
   makeFeaturedImage as makeImage,
-  type FeaturedImageRequest
+  makeSupportingImage as makeSectionImage,
+  type FeaturedImageRequest,
+  type SupportingImageRequest
 } from '@/lib/blogs/featured-image'
+import { carryPictures, keepSectionPicture, placePictures } from '@/lib/blogs/pictures'
+import {
+  findGenericWording,
+  findInventedAttributions,
+  findUnverifiedQuotes,
+  findWeakSourceClaims,
+  keywordStuffing,
+  runQualityChecks
+} from '@/lib/blogs/quality'
 import { FEATURED_IMAGE_DEPS } from '@/lib/blogs/featured-image-deps'
 import { blogToText } from '@/lib/blogs/render'
 import { runSeoChecks } from '@/lib/blogs/seo'
@@ -48,6 +62,8 @@ import {
   sourceQuotes,
   type BlogBrief,
   type BlogContent,
+  type BlogImage,
+  type BlogImageView,
   type BlogPlan,
   type BlogSource,
   type BlogVerification,
@@ -56,11 +72,13 @@ import {
   type FeaturedImageView,
   type InternalLink,
   type LinkCandidate,
+  type PlannedImage,
+  type SearchQuestion,
   type VerificationIssueKind
 } from '@/lib/blogs/types'
 import { blockingFindings, runBlogLinter } from '@/lib/lint/blog-linter'
 import type { LintFinding } from '@/lib/lint/run-linter'
-import { longestSharedRun } from '@/lib/lint/writing-checks'
+import { findExperienceClaims, longestSharedRun } from '@/lib/lint/writing-checks'
 import {
   DEFAULT_WRITING_THRESHOLDS,
   writingSettingsForVoice
@@ -101,6 +119,7 @@ import { AiSpendLimitError } from '../spend'
 import { addUsage, EMPTY_USAGE, type CallUsage } from '../usage'
 import { gatherBlogSources } from './blog-evidence'
 import { gatherLinkCandidates } from './blog-links'
+import { gatherSearchQuestions, type GatheredQuestions } from './blog-questions'
 import { figureSourcesText, thirdPartyTexts } from './blog-sources'
 import { accountTextOf } from './grounding-corpus'
 
@@ -146,7 +165,7 @@ const MIN_FIX_MS = 45_000
 /** The image is waited for until this long before the budget ends. */
 const IMAGE_MARGIN_MS = 5_000
 /** Sentences sent to be fixed, at most. */
-const MAX_FIXES = 12
+const MAX_FIXES = 24
 
 export type BlogRunDeps = {
   db: BlogDb
@@ -166,6 +185,11 @@ export type BlogRunDeps = {
   makeFeaturedImage: (
     request: FeaturedImageRequest
   ) => Promise<{ image: FeaturedImage; usage: CallUsage }>
+  /** The questions people search about the topic, beside research. */
+  gatherQuestions: (ctx: GenerationContext, brief: BlogBrief) => Promise<GatheredQuestions>
+  makeSupportingImage: (
+    request: SupportingImageRequest
+  ) => Promise<{ image: BlogImage | null; error?: string; usage: CallUsage }>
   now: () => number
   /** Waits; tests resolve it at once. */
   sleep: (ms: number) => Promise<void>
@@ -205,6 +229,9 @@ const DEFAULT_DEPS: BlogRunDeps = {
   fixBlogSentences,
   judgeCitations,
   makeFeaturedImage: request => makeImage(request, FEATURED_IMAGE_DEPS),
+  gatherQuestions: (ctx, brief) => gatherSearchQuestions(ctx, brief),
+  makeSupportingImage: request =>
+    makeSectionImage(request, { ...FEATURED_IMAGE_DEPS, newId: () => randomUUID() }),
   now: () => Date.now(),
   sleep: ms => new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -214,11 +241,18 @@ function authorTexts(brief: BlogBrief): string[] {
   return [brief.instructions, brief.audience.note, brief.caseDetails ?? ''].filter(Boolean)
 }
 
-/** The truth, writing and SEO checks of a blog as it stands. */
+/** What the checks know besides the text: from the plan and the research. */
+export type CheckExtras = {
+  questions?: SearchQuestion[]
+  definition?: string
+}
+
+/** The truth, writing, quality and SEO checks of a blog as it stands. */
 export function blogChecksFor(
   ctx: GenerationContext,
   blog: BlogContent,
-  brief: BlogBrief
+  brief: BlogBrief,
+  extras: CheckExtras = {}
 ): LintFinding[] {
   const website = ctx.account.websiteUrl?.trim()
   return [
@@ -254,8 +288,48 @@ export function blogChecksFor(
       searchIntent: blog.searchIntent,
       featuredImage: blog.featuredImage ? { alt: blog.featuredImage.alt } : null,
       ...(website && { internalLinkHosts: ownHosts([website]) })
+    }),
+    ...runQualityChecks({
+      kind: blog.kind,
+      content: blog.content,
+      faq: blog.faq,
+      sources: blog.sources,
+      primaryKeyword: blog.primaryKeyword,
+      keywords: blog.keywords,
+      searchIntent: blog.searchIntent,
+      authorText: [accountTextOf(ctx), ...authorTexts(brief)].join('\n'),
+      authorPosts: authorPostsOf(ctx),
+      formality: ctx.voice?.formality ?? null,
+      researchUsed: blog.sources.some(source => source.origin === 'web'),
+      questions: extras.questions ?? [],
+      entities: blog.entities ?? [],
+      definition: extras.definition ?? ''
     })
   ]
+}
+
+/** The author's own posts as one text: phrases there are their voice. */
+function authorPostsOf(ctx: GenerationContext): string {
+  return ctx.samplePosts.map(post => post.content).join('\n')
+}
+
+/** The extras the checks read, from a saved blog. */
+export const checkExtrasOf = (blog: Pick<Blog, 'searchQuestions' | 'plan'>): CheckExtras => ({
+  questions: blog.searchQuestions ?? [],
+  definition: blog.plan?.definition ?? ''
+})
+
+/** The section pictures as renderers and checks see them: each by id, with its size. */
+export function imagesView(
+  images: BlogImage[] | null | undefined,
+  resolve: (image: BlogImage) => string = image => image.src
+): Record<string, BlogImageView> {
+  return Object.fromEntries(
+    (images ?? []).map(image => [
+      image.id,
+      { src: resolve(image), width: image.width, height: image.height }
+    ])
+  )
 }
 
 /** Why a generation failed, in words the page can show as they are. */
@@ -308,7 +382,10 @@ const contentOf = (blog: Blog): BlogContent => ({
   faq: blog.faq,
   sources: blog.sources,
   featuredImage: featuredImageView(blog.featuredImage),
-  verification: blog.verification ?? null
+  verification: blog.verification ?? null,
+  images: imagesView(blog.images),
+  entities: blog.plan?.entities ?? [],
+  mainEntity: blog.plan?.mainEntity ?? ''
 })
 
 const sectionHeadings = (blog: Blog) =>
@@ -343,13 +420,13 @@ function inventedFigureSentences(
   figureText: string
 ): Array<{ sentence: string; figures: string[] }> {
   const known = figureText.toLowerCase()
-  const knownFigures = new Set(extractNumbers(known))
+  const knownFigures = new Set(extractNumbers(figureTextOf(known)))
   return docSentences(doc)
     .filter(sentence => !sentence.inExample)
     .map(sentence => ({
       sentence: sentence.text,
       figures: extractNumbers(sentence.text).filter(
-        figure => !knownFigures.has(figure) && !mentionsFigure(known, figure)
+        figure => !knownFigures.has(figure) && !statesFigure(known, figure)
       )
     }))
     .filter(found => found.figures.length > 0)
@@ -388,16 +465,41 @@ const ISSUE_PROBLEMS: Record<string, string> = {
   sample_data_as_real:
     'It presents sample data from a product demo or screenshot as real. Remove the detail.',
   opinion_as_fact:
-    "It states a judgment as established fact. Write it as the author's view, with the reason."
+    "It states a judgment as established fact. Write it as the author's view, with the reason.",
+  generic_passage:
+    'It could sit in any article on this topic and tells this reader nothing. Replace it with the specific point, example or figure it gestures at, or drop it.',
+  repeats_earlier_point:
+    'It repeats a point the piece already made. Drop it, or make it add something new.'
+}
+
+/** What the quality checks found sentence by sentence, for the fix pass. */
+export type QualityFindings = {
+  attributions: Array<{ sentence: string; name: string }>
+  quotes: Array<{ sentence: string; quote: string }>
+  weak: Array<{ sentence: string; sourceId: string; why: string }>
+  generic: Array<{ sentence: string; phrases: string[] }>
+  stuffed: string[]
+  /** Sentences claiming first-hand experience the author's details do not give. */
+  experience?: Array<{ sentence: string; phrases: string[] }>
+}
+
+const NO_QUALITY: QualityFindings = {
+  attributions: [],
+  quotes: [],
+  weak: [],
+  generic: [],
+  stuffed: []
 }
 
 /** What to rewrite, most serious first, each sentence once. */
-function fixesFor(input: {
+export function fixesFor(input: {
   judged: Judged | null
   problems: CitationProblem[]
   invented: Array<{ sentence: string; figures: string[] }>
   copied: Array<{ sentence: string; text: string }>
+  quality?: QualityFindings
 }): SentenceFix[] {
+  const quality = input.quality ?? NO_QUALITY
   const quoted = (figures: string[] = []) => figures.map(f => `"${f}"`).join(', ')
   const candidates: Array<Omit<SentenceFix, 'id'>> = []
   for (const verdict of input.judged?.verdicts.values() ?? []) {
@@ -422,6 +524,18 @@ function fixesFor(input: {
     candidates.push({
       sentence: found.sentence,
       problem: `${quoted(found.figures)} is in none of the sources or the author's details. Remove it, or use a figure a source gives (linked to that source).`
+    })
+  }
+  for (const found of quality.attributions) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `It credits ${found.name}, which none of the sources or the author's details mention. Credit the source that actually says it (and link it), or remove the attribution and the claim it carries.`
+    })
+  }
+  for (const found of quality.quotes) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `The quotation "${found.quote}" is in no source. Quote only words a source has, word for word, or say it in your own words without quotation marks and without putting it in anyone's mouth.`
     })
   }
   for (const issue of input.judged?.issues ?? []) {
@@ -456,10 +570,40 @@ function fixesFor(input: {
       candidates.push({ sentence: issue.sentence, problem: ISSUE_PROBLEMS[issue.issue]! })
     }
   }
+  for (const found of quality.experience ?? []) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `${quoted(found.phrases)} claims first-hand experience the author's details do not give. Say it without the claim, or attribute it to a source that reports it.`
+    })
+  }
+  for (const found of quality.weak) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `Its figure rests only on ${found.why}. Name the source in the sentence ("according to …"), link a stronger source that gives the figure, or remove the figure.`,
+      sourceId: found.sourceId
+    })
+  }
   for (const found of input.copied) {
     candidates.push({
       sentence: found.sentence,
       problem: `"${found.text}" is word for word from a source. Say it in your own words and keep its link, or put the exact words in quotation marks and name the source.`
+    })
+  }
+  for (const issue of input.judged?.issues ?? []) {
+    if (issue.issue === 'generic_passage' || issue.issue === 'repeats_earlier_point') {
+      candidates.push({ sentence: issue.sentence, problem: ISSUE_PROBLEMS[issue.issue]! })
+    }
+  }
+  for (const found of quality.generic) {
+    candidates.push({
+      sentence: found.sentence,
+      problem: `${quoted(found.phrases)} is generic AI wording. Say the specific thing plainly, keeping the facts and links.`
+    })
+  }
+  for (const sentence of quality.stuffed) {
+    candidates.push({
+      sentence,
+      problem: 'The keyword is repeated in sentence after sentence. Keep the meaning, but use a secondary keyword, a plain synonym or a pronoun instead of the exact phrase here.'
     })
   }
   const seen = new Set<string>()
@@ -471,6 +615,44 @@ function fixesFor(input: {
     if (fixes.length >= MAX_FIXES) break
   }
   return fixes
+}
+
+/** The quality checks' sentence findings, as the fix pass reads them. */
+export function qualityForFixes(input: {
+  doc: BlogDoc
+  faq: FaqItem[]
+  sources: BlogSource[]
+  authorText: string
+  authorPosts: string
+  primaryKeyword: string
+  keywords: string[]
+}): QualityFindings {
+  const evidence = {
+    doc: input.doc,
+    faq: input.faq,
+    sources: input.sources,
+    authorText: input.authorText
+  }
+  const sentences = docSentences(input.doc)
+    .filter(sentence => !sentence.inQuote && !sentence.inTable)
+    .map(sentence => sentence.text)
+  return {
+    attributions: findInventedAttributions(evidence),
+    quotes: findUnverifiedQuotes(evidence),
+    weak: findWeakSourceClaims(input.doc, input.sources),
+    generic: findGenericWording(sentences, input.authorPosts),
+    experience: sentences.flatMap(sentence => {
+      const phrases = findExperienceClaims(sentence).filter(
+        phrase => !`${input.authorText}\n${input.authorPosts}`.toLowerCase().includes(phrase.toLowerCase())
+      )
+      return phrases.length > 0 ? [{ sentence, phrases }] : []
+    }),
+    stuffed: keywordStuffing({
+      doc: input.doc,
+      primaryKeyword: input.primaryKeyword,
+      keywords: input.keywords
+    }).sentences
+  }
 }
 
 /** The problems a check found, as verification issues, for sentences still there. */
@@ -516,6 +698,8 @@ export async function runBlogGeneration(
   const imageAbort = new AbortController()
   // The image once it is made, so a failure later still keeps it.
   let madeImage: FeaturedImage | null = null
+  // Section pictures made so far: kept with the blog even if writing fails.
+  const madePictures: Array<{ planned: PlannedImage; image: BlogImage }> = []
   try {
     const [row] = await d.db
       .select()
@@ -547,15 +731,27 @@ export async function runBlogGeneration(
     const { ctx, idea } = await d.loadContext(row)
     const ownLinks = ownLinksOf(ctx)
 
-    // Sources, and beside them the pages of the site it could link to.
+    // Sources, and beside them the pages of the site it could link to and
+    // the questions people search (asked again only with new research).
     let sources = row.sources.map(source => ({ ...source, cited: false }))
     const links = d
       .gatherLinks(ctx, { blogId: row.id })
       .catch(() => ({ candidates: [] as LinkCandidate[], related: [] }))
-    if (!regenerating || options.researchAgain || sources.length === 0) {
+    const researching = !regenerating || options.researchAgain || sources.length === 0
+    const questionsJob: Promise<GatheredQuestions> = researching
+      ? d
+          .gatherQuestions(ctx, brief)
+          .catch(() => ({ questions: [], phrases: [], usage: EMPTY_USAGE }))
+      : Promise.resolve({
+          questions: row.searchQuestions ?? [],
+          phrases: [],
+          usage: EMPTY_USAGE
+        })
+    if (researching) {
       const gathered = await d.gatherSources(ctx, {
         brief,
         idea,
+        kind: row.kind,
         onStage: stage => setBlogStage(d.db, claim, stage)
       })
       usage = addUsage(usage, gathered.usage)
@@ -563,6 +759,14 @@ export async function runBlogGeneration(
       notes.push(...gathered.notes)
     }
     const { candidates } = await links
+    const asked = await questionsJob
+    usage = addUsage(usage, asked.usage)
+
+    // A blog that has pictures keeps them on a regeneration unless new ones
+    // are asked for; a first generation, or one with none, gets new ones.
+    const hasPictures =
+      row.featuredImage?.status === 'ready' || (row.images ?? []).length > 0
+    const newPictures = !regenerating || Boolean(options.newImage) || !hasPictures
 
     // The plan.
     let plan: BlogPlan | null = null
@@ -585,7 +789,10 @@ export async function runBlogGeneration(
             sources,
             idea,
             candidates,
-            allowedLinks: ownLinks
+            allowedLinks: ownLinks,
+            questions: asked.questions,
+            phrases: asked.phrases,
+            newPictures
           },
           { timeoutMs: planTime }
         )
@@ -608,6 +815,10 @@ export async function runBlogGeneration(
     // An image the blog already has stays: one kept from a failed first
     // generation too. A regeneration makes a new one only when asked.
     const keepImage = !options.newImage && row.featuredImage?.status === 'ready'
+    const theme = ctx.brand ?? DEFAULT_BRAND_THEME
+    const look = plan?.imageDirection || undefined
+    // The featured image's result (made or failed) once it is in.
+    let featuredResult: FeaturedImage | null = null
     const image = keepImage
       ? null
       : d
@@ -619,20 +830,54 @@ export async function runBlogGeneration(
               `An editorial picture about ${brief.topic}`,
             alt: plan?.featuredImage.alt || brief.topic,
             style: plan?.featuredImage.style ?? 'photo',
-            theme: ctx.brand ?? DEFAULT_BRAND_THEME,
+            theme,
+            look,
             abortSignal: imageAbort.signal
           })
           .then(result => {
             usage = addUsage(usage, result.usage)
-            madeImage = result.image
-            return result.image
+            const made: FeaturedImage =
+              result.image.status === 'ready' && plan?.featuredImage.caption
+                ? { ...result.image, caption: plan.featuredImage.caption }
+                : result.image
+            if (made.status === 'ready') madeImage = made
+            featuredResult = made
+            return made
           })
-          .catch((error): FeaturedImage => ({
-            status: 'failed',
-            error: error instanceof Error ? error.message : 'The image could not be made.',
-            alt: plan?.featuredImage.alt || brief.topic,
-            prompt: ''
-          }))
+          .catch((error): FeaturedImage => {
+            featuredResult = {
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'The image could not be made.',
+              alt: plan?.featuredImage.alt || brief.topic,
+              prompt: ''
+            }
+            return featuredResult
+          })
+    // The section pictures the plan asked for, made beside the text.
+    const pictureFailures: string[] = []
+    const pictureJobs = (newPictures ? (plan?.supportingImages ?? []) : []).map(planned =>
+      d
+        .makeSupportingImage({
+          blogId: row.id,
+          title: plan?.workingTitle || brief.topic,
+          section: plan?.sections[planned.sectionIndex - 1]?.heading ?? '',
+          concept: planned.concept,
+          alt: planned.alt,
+          caption: planned.caption,
+          style: planned.style,
+          theme,
+          look,
+          abortSignal: imageAbort.signal
+        })
+        .then(result => {
+          usage = addUsage(usage, result.usage)
+          if (result.image) madePictures.push({ planned, image: result.image })
+          else pictureFailures.push(result.error ?? 'it could not be made')
+        })
+        .catch(error => {
+          pictureFailures.push(error instanceof Error ? error.message : 'it could not be made')
+        })
+    )
 
     const input: BlogPromptInput = {
       ctx,
@@ -758,7 +1003,16 @@ export async function runBlogGeneration(
         thirdPartyTexts(clean.sources),
         writingSettingsForVoice(ctx.voice, ctx.samplePosts).thresholds?.copiedRunWords ??
           DEFAULT_WRITING_THRESHOLDS.copiedRunWords
-      )
+      ),
+      quality: qualityForFixes({
+        doc,
+        faq,
+        sources: clean.sources,
+        authorText,
+        authorPosts: authorPostsOf(ctx),
+        primaryKeyword: clean.primaryKeyword,
+        keywords: clean.keywords
+      })
     })
     if (fixes.length > 0 && remaining() >= MIN_FIX_MS) {
       try {
@@ -847,24 +1101,58 @@ export async function runBlogGeneration(
       )
     }
 
-    // The featured image, waited for until the budget runs out.
+    // The pictures, waited for until the budget runs out; what is not in by
+    // then is given up rather than the text.
     let featuredImage: FeaturedImage | null | 'keep' = 'keep'
-    if (image) {
-      const waited = await Promise.race([
-        image,
-        d.sleep(Math.max(0, remaining() - IMAGE_MARGIN_MS)).then(() => null)
+    const pending: Array<Promise<unknown>> = [...(image ? [image] : []), ...pictureJobs]
+    if (pending.length > 0) {
+      await Promise.race([
+        Promise.allSettled(pending),
+        d.sleep(Math.max(0, remaining() - IMAGE_MARGIN_MS))
       ])
-      if (waited) featuredImage = waited
-      else {
-        imageAbort.abort()
-        featuredImage = {
-          status: 'failed',
-          error: 'Making the image took too long. Make it again from the editor.',
-          alt: plan?.featuredImage.alt || brief.topic,
-          prompt: ''
-        }
+    }
+    const unfinishedPictures =
+      pictureJobs.length - madePictures.length - pictureFailures.length
+    if (image) {
+      featuredImage = featuredResult ?? {
+        status: 'failed',
+        error: 'Making the image took too long. Make it again from the editor.',
+        alt: plan?.featuredImage.alt || brief.topic,
+        prompt: ''
       }
     }
+    if ((image && !featuredResult) || unfinishedPictures > 0) imageAbort.abort()
+    const missedPictures = pictureFailures.length + Math.max(0, unfinishedPictures)
+    if (missedPictures > 0) {
+      notes.push(
+        `${missedPictures} section picture${missedPictures === 1 ? '' : 's'} could not be made in time; the piece is complete without ${missedPictures === 1 ? 'it' : 'them'}.`
+      )
+    }
+    const newImages = madePictures.map(made => made.image)
+    if (madePictures.some(made => made.image.flagged)) {
+      notes.push('A section picture may still have stray marks: check the pictures and their alt text.')
+    }
+    // New pictures go where the plan put them; a regeneration that keeps its
+    // pictures carries the earlier ones into the matching sections.
+    doc = newPictures
+      ? placePictures(
+          doc,
+          madePictures
+            .slice()
+            .sort((a, b) => a.planned.sectionIndex - b.planned.sectionIndex)
+            .map(made => ({
+              sectionIndex: made.planned.sectionIndex,
+              node: {
+                type: 'image' as const,
+                attrs: {
+                  imageId: made.image.id,
+                  alt: made.planned.alt,
+                  caption: made.planned.caption
+                }
+              }
+            }))
+        )
+      : carryPictures(row.content, doc)
 
     const content: BlogContent = {
       ...contentFor(),
@@ -878,9 +1166,15 @@ export async function runBlogGeneration(
       featuredImage: featuredImageView(
         featuredImage === 'keep' ? row.featuredImage : featuredImage
       ),
-      verification
+      verification,
+      images: imagesView([...(row.images ?? []), ...newImages]),
+      entities: plan?.entities ?? [],
+      mainEntity: plan?.mainEntity ?? ''
     }
-    const checks = blogChecksFor(ctx, content, brief)
+    const checks = blogChecksFor(ctx, content, brief, {
+      questions: asked.questions,
+      definition: plan?.definition ?? ''
+    })
     const placed = new Set(docLinks(doc).map(normalizeUrlForCompare))
     const titles = new Map(candidates.map(c => [normalizeUrlForCompare(c.url), c.title]))
     const internalLinks: InternalLink[] = (plan?.internalLinks ?? []).map(link => ({
@@ -915,7 +1209,9 @@ export async function runBlogGeneration(
       plan,
       featuredImage,
       verification,
-      internalLinks
+      internalLinks,
+      searchQuestions: asked.questions,
+      newImages
     }
     const saved = await saveGeneratedBlog(d.db, claim, result, {
       keepRevision: regenerating,
@@ -931,7 +1227,7 @@ export async function runBlogGeneration(
       friendlyBlogError(error),
       usage,
       new Date(),
-      { featuredImage: madeImage }
+      { featuredImage: madeImage, images: madePictures.map(made => made.image) }
     ).catch(() => false)
     return recorded ? 'failed' : 'lost'
   }
@@ -1011,7 +1307,11 @@ export async function rewriteBlogSectionNow(
     fallbackHeading: section.heading ?? '',
     extraLinks: (row.internalLinks ?? []).map(link => link.url)
   })
-  let content = replaceSection(row.content, input.sectionIndex, clean.blocks)
+  let content = replaceSection(
+    row.content,
+    input.sectionIndex,
+    keepSectionPicture(section.blocks, clean.blocks)
+  )
 
   // The new section's citations, checked; an unsupported link comes off.
   const sectionDoc: BlogDoc = { type: 'doc', content: clean.blocks }
@@ -1072,7 +1372,8 @@ export async function rewriteBlogSectionNow(
   const checks = blogChecksFor(
     ctx,
     { ...contentOf(row), content, sources: clean.sources, verification },
-    brief
+    brief,
+    checkExtrasOf(row)
   )
   return applySectionRewrite(d.db, {
     accountId: input.accountId,
@@ -1147,7 +1448,7 @@ export async function checkBlogSourcesNow(
     blogId: input.blogId,
     lockVersion: input.lockVersion,
     verification,
-    checks: blogChecksFor(ctx, { ...content, verification }, brief),
+    checks: blogChecksFor(ctx, { ...content, verification }, brief, checkExtrasOf(row)),
     usage
   })
 }

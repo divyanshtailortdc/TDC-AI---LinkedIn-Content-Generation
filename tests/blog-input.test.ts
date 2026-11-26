@@ -247,11 +247,11 @@ describe('saving', () => {
   it('refuses an unsupported document', () => {
     assert.deepStrictEqual(
       parseSaveInput(
-        saveInput({ content: { type: 'doc', content: [{ type: 'image' }] } })
+        saveInput({ content: { type: 'doc', content: [{ type: 'codeBlock' }] } })
       ),
       {
         ok: false,
-        error: 'This document has content the editor cannot save (image).'
+        error: 'This document has content the editor cannot save (codeBlock).'
       }
     )
   })

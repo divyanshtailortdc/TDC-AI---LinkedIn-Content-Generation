@@ -1,16 +1,16 @@
 import 'server-only'
 
 import type { Idea } from '@/db/schema'
-import type { BlogBrief, BlogSource } from '@/lib/blogs/types'
+import type { BlogBrief, BlogKind, BlogSource } from '@/lib/blogs/types'
 import { ownHosts } from '@/lib/research/source-credibility'
 import { isWebSearchConfigured } from '@/lib/research/web-search'
 import { scrapeUrl } from '@/lib/scraper'
 import { ResearchAgentError, runResearchAgent } from '../agents/research'
 import {
-  BLOG_RESEARCH_INSTRUCTIONS,
-  BLOG_RESEARCH_LIMITS,
   blogFreshnessDays,
-  buildBlogResearchPrompt
+  blogResearchInstructions,
+  buildBlogResearchPrompt,
+  researchLimitsFor
 } from '../agents/research/blog-prompt'
 import type { GenerationContext } from '../context-blocks'
 import { retrieveKnowledgePassages } from '../embeddings'
@@ -57,9 +57,12 @@ export async function gatherBlogSources(
     brief: BlogBrief
     idea: Idea | null
     onStage: (stage: 'research' | 'knowledge') => Promise<unknown>
+    /** Absent: a blog post's research depth. */
+    kind?: BlogKind
   }
 ): Promise<{ sources: BlogSource[]; usage: CallUsage; notes: string[] }> {
   const { brief } = input
+  const limits = researchLimitsFor(input.kind ?? 'blog')
   let usage: CallUsage = EMPTY_USAGE
   const notes: string[] = []
 
@@ -76,17 +79,18 @@ export async function gatherBlogSources(
       const region = inferRegion(ctx)
       try {
         const result = await runResearchAgent(ctx, {
-          instructions: BLOG_RESEARCH_INSTRUCTIONS,
+          instructions: blogResearchInstructions(limits),
           prompt: buildBlogResearchPrompt(ctx, {
             topic: brief.topic,
             primaryKeyword: brief.primaryKeyword,
             secondaryKeywords: brief.secondaryKeywords,
             style: brief.style,
-            freshnessDays: blogFreshnessDays(brief.style)
+            freshnessDays: blogFreshnessDays(brief.style),
+            kind: input.kind
           }),
           timeoutMs: BLOG_RESEARCH_TIMEOUT_MS,
           freshnessDays: blogFreshnessDays(brief.style),
-          limits: BLOG_RESEARCH_LIMITS
+          limits
         })
         usage = addUsage(usage, result.usage)
         web = webSourcesFrom(

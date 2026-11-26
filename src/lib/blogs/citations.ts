@@ -209,8 +209,34 @@ export type CitationProblem = {
 
 const textOf = (source: BlogSource) => [source.title, ...sourceQuotes(source)].join('\n')
 
-const states = (text: string, figure: string) =>
-  mentionsFigure(text, figure) || extractNumbers(text).includes(figure)
+const states = (text: string, figure: string) => statesFigure(text, figure)
+
+/**
+ * A source's text with its abbreviated magnitudes spelled out: "$80 Bn" is
+ * the "$80 billion" a writer states, "1,970 Mn" the "1,970 million".
+ */
+export function figureText(text: string): string {
+  return text
+    .replace(/(\d)\s?bn\b/gi, '$1 billion')
+    .replace(/(\d)\s?mn\b/gi, '$1 million')
+    .replace(/(\d)\s?tn\b/gi, '$1 trillion')
+}
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Whether a source's text states a figure, as the blog checks read it: the
+ * figure itself, its magnitude abbreviated ("Bn", "Mn"), or for a percentage
+ * the bare number where the source's passage was cut off just before its
+ * "%" ("the median rate was 6.6").
+ */
+export function statesFigure(text: string, figure: string): boolean {
+  const spelled = figureText(text)
+  if (mentionsFigure(spelled, figure) || extractNumbers(spelled).includes(figure)) return true
+  const percent = /^(\d+(?:[.,]\d+)?)%$/.exec(figure)
+  if (!percent) return false
+  return new RegExp(`(?<![\\d.,])${escapeRegex(percent[1]!)}\\s*["”'…]?\\s*$`, 'm').test(spelled)
+}
 
 /** An order number ("#1048") or a clock time ("10:24"): specifics that read as real events. */
 const SPECIFICS = /#\d{3,}\b|\b\d{1,2}:\d{2}\b/g

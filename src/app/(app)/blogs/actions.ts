@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { db } from '@/db'
 import { audiencesTable, goalsTable, ideasTable, type Blog } from '@/db/schema'
 import { isAICapable } from '@/lib/ai'
@@ -8,7 +9,7 @@ import {
   createClaimedBlog,
   type BlogClaim
 } from '@/lib/blogs/claim'
-import { blogWordCount } from '@/lib/blogs/doc'
+import { blogWordCount, docImages, docSections } from '@/lib/blogs/doc'
 import {
   parseCreateInput,
   parseInstruction,
@@ -16,7 +17,8 @@ import {
   parseSaveInput
 } from '@/lib/blogs/input'
 import { findBlogRevision, listBlogRevisions } from '@/lib/blogs/revisions'
-import { makeFeaturedImage } from '@/lib/blogs/featured-image'
+import { makeFeaturedImage, makeSupportingImage } from '@/lib/blogs/featured-image'
+import { keepKnownPictures } from '@/lib/blogs/pictures'
 import { FEATURED_IMAGE_DEPS } from '@/lib/blogs/featured-image-deps'
 import {
   deleteIdentityBlog,
@@ -24,7 +26,8 @@ import {
   restoreBlogRevision,
   saveBlogEdit,
   setBlogPublished as setPublished,
-  setFeaturedImage
+  setFeaturedImage,
+  replaceSectionImage
 } from '@/lib/blogs/store'
 import {
   isGenerationStale,
@@ -43,6 +46,7 @@ import { after } from 'next/server'
 import { loadBrandTheme, loadGenerationContext } from '~/lib/ai/context'
 import {
   blogChecksFor,
+  checkExtrasOf,
   blogContentOf,
   checkBlogSourcesNow,
   featuredImageView,
@@ -110,7 +114,7 @@ async function checkerFor(blog: Blog) {
     lintOnly: true
   })
   const brief = { ...blog.brief, caseDetails: blog.brief.caseDetails ?? '' }
-  return (text: BlogContent) => blogChecksFor(ctx, text, brief)
+  return (text: BlogContent) => blogChecksFor(ctx, text, brief, checkExtrasOf(blog))
 }
 
 /** An earlier version as the checks read it: its image as the page shows it. */
@@ -286,7 +290,15 @@ export async function saveBlog(
     const accountId = await requireIdentityId()
     const blog = await findIdentityBlog(db, accountId, blogId)
     if (!blog) return { success: false, error: NOT_FOUND }
-    const { edit, lockVersion } = parsed
+    const { lockVersion } = parsed
+    // The editor can only hold pictures the blog has; any other is left out.
+    const edit = {
+      ...parsed.edit,
+      content: keepKnownPictures(
+        parsed.edit.content,
+        (blog.images ?? []).map(image => image.id)
+      )
+    }
     const check = await checkerFor(blog)
     const image = featuredImageView(blog.featuredImage)
     const checks = check({
@@ -537,6 +549,71 @@ export async function remakeFeaturedImage(
   }
 }
 
+/**
+ * Makes one section picture again from what it was meant to show (with what
+ * the author asks for, if anything) while the user waits. The text keeps its
+ * alt text and caption; the earlier picture stays among the versions.
+ */
+export async function remakeSectionImage(
+  blogId: string,
+  raw: { imageId?: unknown; direction?: unknown }
+): Promise<{ success: true; blog: BlogEditorBlog } | Failure> {
+  await requireUser()
+  try {
+    const parsed = parseInstruction(raw?.direction)
+    if (!parsed.ok) return { success: false, error: parsed.error }
+    if (!isAICapable) return { success: false, error: NOT_AI }
+    const imageId = typeof raw?.imageId === 'string' ? raw.imageId : ''
+    const accountId = await requireIdentityId()
+    const blog = await findIdentityBlog(db, accountId, blogId)
+    if (!blog) return { success: false, error: NOT_FOUND }
+    if (blog.generationStatus === 'generating' && !isGenerationStale(blog)) {
+      return { success: false, error: GENERATING }
+    }
+    const current = (blog.images ?? []).find(image => image.id === imageId)
+    const node = docImages(blog.content).find(n => n.attrs.imageId === imageId)
+    if (!current || !node) {
+      return { success: false, error: 'That picture is not in the text any more. Reload to see it as it is.' }
+    }
+    const section = docSections(blog.content).find(s =>
+      s.blocks.some(block => block.type === 'image' && block.attrs.imageId === imageId)
+    )
+    const planned = blog.plan?.supportingImages?.find(p => p.concept === current.concept)
+    const theme = await loadBrandTheme(accountId).catch(() => DEFAULT_BRAND_THEME)
+    const made = await withAiSpend({ source: 'blogs', accountId }, () =>
+      makeSupportingImage(
+        {
+          blogId: blog.id,
+          title: blog.title || blog.brief.topic,
+          section: section?.heading ?? '',
+          concept: current.concept || node.attrs.alt,
+          alt: node.attrs.alt,
+          caption: node.attrs.caption,
+          style: planned?.style ?? blog.plan?.featuredImage.style ?? 'photo',
+          theme,
+          look: blog.plan?.imageDirection || undefined,
+          direction: parsed.instruction ?? undefined,
+          abortSignal: AbortSignal.timeout(IMAGE_ACTION_TIMEOUT_MS)
+        },
+        { ...FEATURED_IMAGE_DEPS, newId: () => randomUUID() }
+      )
+    )
+    if (!made.image) return { success: false, error: made.error ?? 'The picture could not be made.' }
+    const outcome = await replaceSectionImage(db, {
+      accountId,
+      blogId: blog.id,
+      imageId,
+      image: made.image,
+      usage: made.usage
+    })
+    if (!outcome.ok)
+      return { success: false, error: reasonError(outcome.reason) }
+    return { success: true, blog: await editorBlogOf(outcome.blog) }
+  } catch (err) {
+    return fail(err, 'The picture could not be made.')
+  }
+}
+
 /** Takes the featured image off; it stays among the versions. */
 export async function removeFeaturedImage(
   blogId: string
@@ -569,6 +646,34 @@ export async function featuredImageData(
     }
   } catch (err) {
     return fail(err, 'The image could not be loaded.')
+  }
+}
+
+/**
+ * The section pictures the saved text shows, each as a data URL by id, for
+ * exports that carry the pictures (a page, formatted copy, picture files).
+ * A picture that cannot be loaded is left out.
+ */
+export async function sectionImagesData(
+  blogId: string
+): Promise<{ success: true; images: Record<string, string> } | Failure> {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const blog = await findIdentityBlog(db, accountId, blogId)
+    if (!blog) return { success: false, error: NOT_FOUND }
+    const shown = new Set(docImages(blog.content).map(node => node.attrs.imageId))
+    const loaded = await Promise.all(
+      (blog.images ?? [])
+        .filter(image => shown.has(image.id))
+        .map(async image => [image.id, await loadImageDataUrl(image.src).catch(() => null)] as const)
+    )
+    return {
+      success: true,
+      images: Object.fromEntries(loaded.flatMap(([id, url]) => (url ? [[id, url]] : [])))
+    }
+  } catch (err) {
+    return fail(err, 'The pictures could not be loaded.')
   }
 }
 

@@ -28,8 +28,8 @@ import type { NewBlogOptions } from '../blogs-data'
 import { KeywordInput } from '../keyword-input'
 
 const KIND_NOTES: Record<BlogKind, string> = {
-  blog: 'Scannable and practical: short paragraphs, clear steps, an FAQ.',
-  article: 'Argument-led and deeper: one line of reasoning, section by section.'
+  blog: 'Conversational and practical: written to the reader, short paragraphs, clear steps, an FAQ.',
+  article: 'Authoritative and in-depth: more sources, context and counter-arguments, section by section.'
 }
 
 const STYLE_NOTES: Record<BlogStyle, string> = {
@@ -434,7 +434,7 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             <span className="text-muted text-xs">
-              Usually 1-3 minutes · about $0.20-0.45 with the featured image
+              Usually 2-3 minutes · about $0.35-0.70 with pictures
             </span>
             <Button type="submit" disabled={!ready} loading={pending}>
               <Sparkles aria-hidden className="h-4 w-4" />

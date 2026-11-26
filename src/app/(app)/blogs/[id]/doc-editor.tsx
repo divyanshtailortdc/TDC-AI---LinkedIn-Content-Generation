@@ -8,6 +8,7 @@ import {
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import { useEffect, useRef } from 'react'
 import { diagramNodeView } from './diagram-view'
+import { imageNodeView } from './image-view'
 import { EditorToolbar } from './editor-toolbar'
 
 /**
@@ -40,7 +41,8 @@ export function DocEditor({
   const editor = useEditor({
     extensions: blogEditorExtensions({
       placeholder,
-      diagramView: diagramNodeView
+      diagramView: diagramNodeView,
+      imageView: imageNodeView
     }),
     content: value,
     editable,

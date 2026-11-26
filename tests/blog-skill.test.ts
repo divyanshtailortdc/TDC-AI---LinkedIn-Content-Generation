@@ -117,6 +117,7 @@ const draft = (overrides: Partial<BlogDraft> = {}): BlogDraft => ({
   sections: [
     {
       heading: 'Why carts are left',
+      lead: '',
       blocks: [
         {
           type: 'paragraph',
@@ -165,9 +166,28 @@ describe('blog instructions', () => {
   it('read differently for a blog post and an article', () => {
     const blog = buildBlogInstructions(ctx(), 'blog', brief())
     const article = buildBlogInstructions(ctx(), 'article', brief())
-    assert.ok(blog.includes('a section heading every 150-300 words'))
-    assert.ok(!blog.includes('each section advances one point'))
-    assert.ok(article.includes('each section advances one point'))
+    assert.ok(blog.includes('section heading every 150-300 words'))
+    assert.ok(blog.includes('Conversational'))
+    assert.ok(!blog.includes('section advances one point'))
+    assert.ok(article.includes('section advances one point'))
+    assert.ok(article.includes('Authoritative'))
+    assert.ok(article.includes('strongest counter-argument'))
+    assert.ok(!article.includes('Conversational'))
+  })
+
+  it('open every section with a self-contained answer and write facts to be quoted', () => {
+    const text = buildBlogInstructions(ctx(), 'blog', brief())
+    for (const part of [
+      'Every section starts with its lead',
+      'stands on its own if quoted alone',
+      "The introduction's first paragraph answers the reader's need",
+      'who measured it, among whom',
+      'Name each entity in full at its first mention',
+      'a real one from the sources first',
+      'never in more than half the headings'
+    ]) {
+      assert.ok(text.includes(part), `missing: ${part}`)
+    }
   })
 
   it('narrow the reader to the chosen audience', () => {
@@ -478,6 +498,7 @@ describe('cleaning a drafted blog', () => {
         sections: [
           {
             heading: 'Compare the fixes',
+            lead: '',
             blocks: [
               { type: 'paragraph', text: 'See [our pricing](https://northwind.test/pricing).' },
               { type: 'table', columns: ['Fix', 'Effort'], rows: [['Show fees early', 'Low']] },
@@ -518,6 +539,7 @@ describe('cleaning a drafted blog', () => {
         sections: [
           {
             heading: 'Numbers',
+            lead: '',
             blocks: [
               { type: 'paragraph', text: 'Text.' },
               { type: 'diagram', diagram: 'bar', title: 'Rates', items: ['A', 'B'], values: [1] }
@@ -536,7 +558,7 @@ describe('cleaning a drafted blog', () => {
       isCompleteBlogDraft(
         draft({
           sections: [
-            { heading: 'Table', blocks: [{ type: 'table', columns: ['a'], rows: [['b']] }] }
+            { heading: 'Table', lead: '', blocks: [{ type: 'table', columns: ['a'], rows: [['b']] }] }
           ]
         })
       ),

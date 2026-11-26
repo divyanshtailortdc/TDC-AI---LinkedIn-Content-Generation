@@ -105,6 +105,60 @@ export const FILLER_PHRASE_PATTERNS: RegExp[] = [
   /\bhere'?s\s+the\s+(?:thing|truth|kicker)\b/i
 ]
 
+/**
+ * Words and phrases that mark long-form text as machine-written: the
+ * vocabulary of generic AI prose, which says nothing a reader can use. A few
+ * are fine in a long piece (the check allows some in proportion to length)
+ * and none is flagged when the author's own posts use it.
+ */
+export const GENERIC_PHRASE_PATTERNS: RegExp[] = [
+  /\bdelv(?:e|es|ed|ing)\b/i,
+  /\b(?:ever|constantly|rapidly)[-\s](?:evolving|changing)\s+(?:landscape|world|world of)\b/i,
+  /\bin\s+today'?s\s+(?:fast[-\s]paced|digital|modern|ever[-\s]changing|competitive)\b/i,
+  /\bnavigat(?:e|es|ing)\s+(?:the\s+)?(?:complexities|intricacies|challenges|landscape|maze)\b/i,
+  /\bunlock(?:s|ing)?\s+(?:the\s+)?(?:full\s+)?(?:power|potential|secrets?)\b/i,
+  /\bharness(?:es|ing)?\s+the\s+power\b/i,
+  /\bgame[-\s]?changer\b/i,
+  /\bseamless(?:ly)?\b/i,
+  /\btapestry\b/i,
+  /\b(?:in|into)\s+the\s+realm\s+of\b/i,
+  /\bembark(?:s|ed|ing)?\s+on\b/i,
+  /\belevate\s+your\b/i,
+  /\bit'?s\s+(?:important|worth|crucial|essential)\s+to\s+(?:note|remember|mention)\b/i,
+  /\bwhether\s+you'?re\s+an?\s+[^.?!,]{1,40}\s+or\s+an?\s+/i,
+  /\blook\s+no\s+further\b/i,
+  /\bin\s+conclusion\b/i,
+  /\bat\s+the\s+end\s+of\s+the\s+day\b/i,
+  /\bthe\s+world\s+of\s+\w+\s+is\b/i,
+  /\b(?:a|the)\s+testament\s+to\b/i,
+  /\bplays?\s+a\s+(?:crucial|pivotal|vital|key)\s+role\b/i,
+  /\bcutting[-\s]edge\b/i,
+  /\brevolutioniz(?:e|es|ed|ing)\b/i,
+  /\bparadigm\s+shift\b/i,
+  /\bsynerg(?:y|ies)\b/i,
+  /\bholistic\s+approach\b/i,
+  /\bmyriad\s+of\b/i,
+  /\bbustling\b/i,
+  /\bfostering\b/i,
+  /\bunderscore(?:s|d)?\s+the\s+importance\b/i,
+  // Writing about its own research instead of the subject.
+  /\b(?:the|our|my)\s+(?:sources|pages|references)\s+(?:we|i)\s+(?:use|used|rely\s+on|relied\s+on|draw\s+on|drew\s+on|cite|have)\b/i,
+  /\b(?:the|our)\s+sources\s+(?:provided|available|given)\b/i
+]
+
+/** Openings that clear the throat instead of saying something. */
+export const GENERIC_OPENING_PATTERNS: RegExp[] = [
+  /^in\s+today'?s\b/i,
+  /^in\s+the\s+(?:world|realm|age|era)\s+of\b/i,
+  /^in\s+an?\s+(?:world|era|age)\s+(?:where|of)\b/i,
+  /^are\s+you\s+(?:looking|struggling|tired|wondering|ready)\b/i,
+  /^have\s+you\s+ever\s+(?:wondered|thought|asked)\b/i,
+  /^imagine\s+(?:a\s+world|this)\b/i,
+  /^(?:when\s+it\s+comes\s+to|picture\s+this)\b/i,
+  /^[^.?!]{1,60}\s+is\s+defined\s+as\b/i,
+  /^according\s+to\s+(?:the\s+)?(?:dictionary|merriam|oxford|webster)\b/i
+]
+
 // ---------------------------------------------------------------------------
 // Settings from the author's voice
 // ---------------------------------------------------------------------------

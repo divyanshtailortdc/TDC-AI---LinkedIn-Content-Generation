@@ -1,6 +1,7 @@
 'use client'
 
 import type { BlogEdit } from '@/lib/blogs/input'
+import { CHECK_GROUP_LABELS, CHECK_GROUPS, checkGroup } from '@/lib/blogs/quality'
 import { seoSummary } from '@/lib/blogs/seo'
 import {
   isSearchIntent,
@@ -16,7 +17,8 @@ import { KeywordInput } from '../keyword-input'
 /**
  * The SEO side of the blog: its meta title and description, slug and
  * keywords, how it shows in search results, the SEO checklist (live, as the
- * text changes) and the accuracy and writing checks from its last save.
+ * text changes) and the other checks from its last save, in four groups:
+ * accuracy, sources, writing, and search & AI answers.
  */
 export function SeoPanel({
   edit,
@@ -40,9 +42,13 @@ export function SeoPanel({
   notes: string[]
 }) {
   const { passed, total } = seoSummary(liveChecks)
-  const writing = savedChecks.filter(
-    f => !f.rule.startsWith('seo_') && !f.passed
-  )
+  // The live checklist already shows its own rules as the text changes.
+  const live = new Set(liveChecks.map(f => f.rule))
+  const open = savedChecks.filter(f => !f.passed && !live.has(f.rule))
+  const groups = CHECK_GROUPS.map(group => ({
+    group,
+    findings: open.filter(f => checkGroup(f.rule) === group)
+  })).filter(entry => entry.findings.length > 0)
   return (
     <div className="space-y-6">
       <section className="space-y-4">
@@ -147,16 +153,28 @@ export function SeoPanel({
 
       <section>
         <h3 className="text-foreground mb-1 text-xs font-semibold tracking-wide uppercase">
-          Accuracy and writing
+          Quality checks
         </h3>
         <p className="text-muted mb-2 text-xs">As of the last save.</p>
-        {writing.length === 0 ? (
+        {groups.length === 0 ? (
           <p className="text-muted flex items-center gap-1.5 text-sm">
             <CircleCheck aria-hidden className="h-4 w-4 text-emerald-600" />
             Nothing to fix.
           </p>
         ) : (
-          <FindingList findings={writing} />
+          <div className="space-y-4">
+            {groups.map(({ group, findings }) => (
+              <div key={group}>
+                <h4 className="text-foreground mb-1.5 flex items-center justify-between text-sm font-medium">
+                  {CHECK_GROUP_LABELS[group]}
+                  <span className="text-muted text-xs font-normal">
+                    {findings.length} to look at
+                  </span>
+                </h4>
+                <FindingList findings={findings} />
+              </div>
+            ))}
+          </div>
         )}
       </section>
 

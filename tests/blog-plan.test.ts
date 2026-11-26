@@ -81,11 +81,16 @@ const draft = (overrides: Partial<BlogPlanDraft> = {}): BlogPlanDraft => ({
   originality: 'A five-question test for whether the sync is costing you.',
   primaryKeyword: 'B2B eCommerce ERP',
   secondaryKeywords: ['ERP integration', 'real-time inventory'],
+  definition: '',
+  entities: [],
+  mainEntity: '',
   workingTitle: 'B2B eCommerce ERP: what syncing really costs',
   takeaways: true,
   sections: [
     {
+      question: '',
       heading: 'Where the copies drift',
+      example: '',
       purpose: 'Show the failure points',
       points: ['Orders', 'Stock'],
       sourceIds: ['S2', 'S9'],
@@ -93,7 +98,9 @@ const draft = (overrides: Partial<BlogPlanDraft> = {}): BlogPlanDraft => ({
       elementNote: 'Flow of one order across two systems'
     },
     {
+      question: '',
       heading: 'A test for your own setup',
+      example: '',
       purpose: 'Decision rule',
       points: ['Five questions'],
       sourceIds: [],
@@ -111,6 +118,9 @@ const draft = (overrides: Partial<BlogPlanDraft> = {}): BlogPlanDraft => ({
   imageConcept: 'Two clipboards with different stock counts on a warehouse shelf',
   imageAlt: 'Two clipboards on a shelf showing different stock counts',
   imageStyle: 'photo',
+  imageCaption: '',
+  imageDirection: '',
+  supportingImages: [],
   internalLinks: [
     {
       url: 'https://tdccommerce.com/integrations/',
@@ -248,7 +258,8 @@ describe('planning a blog', () => {
     assert.deepStrictEqual(plan.featuredImage, {
       concept: 'Two clipboards with different stock counts on a warehouse shelf',
       alt: 'Two clipboards on a shelf showing different stock counts',
-      style: 'photo'
+      style: 'photo',
+      caption: ''
     })
   })
 
@@ -274,7 +285,7 @@ describe('planning a blog', () => {
         productRole: 'pitch' as never,
         ctaKind: 'shout' as never,
         sections: [
-          { heading: 'Only', purpose: '', points: [], sourceIds: [], element: 'poster' as never, elementNote: '' }
+          { question: '', heading: 'Only', example: '', purpose: '', points: [], sourceIds: [], element: 'poster' as never, elementNote: '' }
         ]
       }),
       options()

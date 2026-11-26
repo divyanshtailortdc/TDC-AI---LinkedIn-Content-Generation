@@ -11,6 +11,7 @@ import {
   BLOG_GENERATION_STALE_MS,
   type BlogBrief,
   type BlogGenerationStage,
+  type BlogImage,
   type BlogKind,
   type BlogPlan,
   type BlogSource,
@@ -18,7 +19,8 @@ import {
   type FaqItem,
   type FeaturedImage,
   type InternalLink,
-  type SearchIntent
+  type SearchIntent,
+  type SearchQuestion
 } from './types'
 
 /**
@@ -65,6 +67,10 @@ export type GeneratedBlog = {
   featuredImage: FeaturedImage | null | 'keep'
   verification: BlogVerification | null
   internalLinks: InternalLink[]
+  /** The questions people search that it was planned with. */
+  searchQuestions: SearchQuestion[]
+  /** Pictures made by this generation, added to the blog's list. */
+  newImages: BlogImage[]
 }
 
 /** Not generating, or generating under a claim that went stale. */
@@ -233,6 +239,10 @@ export async function saveGeneratedBlog(
         }),
         verification: result.verification,
         internalLinks: result.internalLinks,
+        searchQuestions: result.searchQuestions,
+        ...(result.newImages.length > 0 && {
+          images: [...(row.images ?? []), ...result.newImages]
+        }),
         generationStatus: 'ready',
         generationStage: null,
         generationError: null,
@@ -248,7 +258,8 @@ export async function saveGeneratedBlog(
 /**
  * Records why a generation failed and what it cost, while the claim still
  * holds. A featured image finished before the failure is kept (it was paid
- * for), so a retry need not make it again.
+ * for), so a retry need not make it again; section pictures made are added
+ * to the list (no text names them yet, but the files are kept with it).
  */
 export async function failBlogGeneration(
   database: BlogDb,
@@ -256,7 +267,7 @@ export async function failBlogGeneration(
   message: string,
   usage: CallUsage,
   now: Date = new Date(),
-  kept: { featuredImage?: FeaturedImage | null } = {}
+  kept: { featuredImage?: FeaturedImage | null; images?: BlogImage[] } = {}
 ): Promise<boolean> {
   return database.transaction(async tx => {
     const row = await lockBlog(tx, claim.blogId)
@@ -270,6 +281,9 @@ export async function failBlogGeneration(
         usage: addUsage(row.usage, usage),
         ...(kept.featuredImage?.status === 'ready' && {
           featuredImage: kept.featuredImage
+        }),
+        ...(kept.images?.length && {
+          images: [...(row.images ?? []), ...kept.images]
         }),
         updatedAt: now
       })
