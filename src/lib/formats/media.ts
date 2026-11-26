@@ -40,6 +40,11 @@ export const mediaFormatsOf = (formatId: FormatId): readonly MediaFormat[] =>
 export const supportsMediaFormat = (formatId: FormatId, media: MediaFormat) =>
   mediaFormatsOf(formatId).includes(media)
 
+/** A post in this format can go out with a video the user uploaded. */
+export const takesUploadedVideo = (formatId: FormatId) =>
+  Boolean(FORMATS[formatId].media.uploadedVideo) ||
+  mediaFormatsOf(formatId).includes('video')
+
 /** The format's carousel rules; null when it takes no carousel. */
 export const carouselSpecOf = (formatId: FormatId): CarouselSpec | null =>
   FORMATS[formatId].media.carousel ?? null
@@ -59,6 +64,8 @@ export function resolveMediaFormat(
 ): MediaFormat {
   const formats = mediaFormatsOf(formatId)
   if (formats.includes('video')) return 'video'
+  // A post made from an uploaded video (Create from media).
+  if (stored === 'video' && takesUploadedVideo(formatId)) return 'video'
   if (isMediaFormat(stored) && formats.includes(stored)) return stored
   if (has.image && formats.includes('image')) return 'image'
   return formats.includes('text') ? 'text' : formats[0]!

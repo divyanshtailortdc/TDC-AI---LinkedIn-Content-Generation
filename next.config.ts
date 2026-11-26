@@ -46,7 +46,9 @@ const nextConfig: NextConfig = {
     '/docs/**': ['./src/docs/content/**/*.mdx'],
     '/api/docs/**': ['./src/docs/content/**/*.mdx'],
     '/api/posts/\\[id\\]/video': VIDEO_RECORDING_FILES,
-    '/api/cron/jobs': VIDEO_RECORDING_FILES
+    '/api/cron/jobs': VIDEO_RECORDING_FILES,
+    // Create from media reads an uploaded video's frames with ffmpeg alone.
+    '/api/media-posts/analyze': [`${packageDir('ffmpeg-static')}/ffmpeg`]
   },
   // Inbox became a tab of Newsletters, and the Library moved into the
   // Knowledge base (/newsletters/library redirects there); keep old links working.

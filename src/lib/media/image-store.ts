@@ -1,6 +1,8 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client
@@ -224,6 +226,138 @@ export async function storeDraftFile(
       CacheControl: 'private, max-age=31536000, immutable'
     })
   )
+  return `${PREFIX}${key}`
+}
+
+/**
+ * Media a user uploads to make posts from (Create from media) waits under
+ * its identity's own prefix until posts are made from it; each post then
+ * gets its own copy under its draft prefix (copyStoredFileToDraft), so
+ * deleting one post never takes another's media with it.
+ */
+const uploadPrefix = (accountId: string) => `uploads/${accountId}/`
+
+/**
+ * An upload's stored value from the id the browser holds ("<uuid>.<ext>"),
+ * always under this identity's prefix: an id cannot name another's file.
+ * Null for an id that is not one.
+ */
+export function uploadValueOf(accountId: string, uploadId: string): string | null {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{2,5}$/.test(uploadId)
+    ? `${PREFIX}${uploadPrefix(accountId)}${uploadId}`
+    : null
+}
+
+/** The id the browser holds for an upload: its file name in the bucket. */
+export const uploadIdOf = (value: string) => value.slice(value.lastIndexOf('/') + 1)
+
+/** Whether uploads can be stored at all: they need the bucket. */
+export const canStoreUploads = () => Boolean(env.STORAGE_BUCKET)
+
+/**
+ * A new upload's place and a signed link the browser PUTs the file to,
+ * straight into the bucket: a video is far larger than a request to the app
+ * may be (Vercel takes 4.5 MB). The link takes only this content type.
+ */
+export async function createUploadTarget(
+  accountId: string,
+  file: { mediaType: string; extension: string }
+): Promise<{ value: string; uploadUrl: string }> {
+  const bucket = requireBucket()
+  const key = `${uploadPrefix(accountId)}${randomUUID()}.${file.extension}`
+  const uploadUrl = await getSignedUrl(
+    client(),
+    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: file.mediaType }),
+    { expiresIn: 15 * 60 }
+  )
+  return { value: `${PREFIX}${key}`, uploadUrl }
+}
+
+/** Stores an upload the server fetched itself (a shared link). */
+export async function storeUpload(
+  accountId: string,
+  file: { buffer: Buffer; mediaType: string; extension: string }
+): Promise<string> {
+  const bucket = requireBucket()
+  const key = `${uploadPrefix(accountId)}${randomUUID()}.${file.extension}`
+  await client().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mediaType,
+      CacheControl: 'private, max-age=31536000, immutable'
+    })
+  )
+  return `${PREFIX}${key}`
+}
+
+/** A stored file's size and type, or null when there is no such file. */
+export async function statStoredFile(
+  value: string
+): Promise<{ byteSize: number; contentType: string | null } | null> {
+  if (!isStoredImage(value)) return null
+  try {
+    const head = await client().send(
+      new HeadObjectCommand({ Bucket: requireBucket(), Key: storedImageKey(value) })
+    )
+    return { byteSize: head.ContentLength ?? 0, contentType: head.ContentType ?? null }
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+      ?.httpStatusCode
+    if (status === 404 || (err as { name?: string }).name === 'NotFound') return null
+    throw err
+  }
+}
+
+/** A stored file's bytes (an uploaded image, to look at or copy). */
+export async function loadStoredBytes(value: string): Promise<Buffer> {
+  const object = await client().send(
+    new GetObjectCommand({ Bucket: requireBucket(), Key: storedImageKey(value) }),
+    { abortSignal: AbortSignal.timeout(120_000) }
+  )
+  if (!object.Body) throw new Error(`Stored file ${value} is empty`)
+  return Buffer.from(await object.Body.transformToByteArray())
+}
+
+/**
+ * A copy of a stored file under a draft's prefix, so it is deleted with the
+ * draft. Copied inside the bucket; a store that refuses CopyObject gets the
+ * bytes read and written again.
+ */
+export async function copyStoredFileToDraft(
+  value: string,
+  draftId: string,
+  file: { mediaType: string; extension: string }
+): Promise<string> {
+  const bucket = requireBucket()
+  const key = `${draftPrefix(draftId)}${randomUUID()}.${file.extension}`
+  try {
+    await client().send(
+      new CopyObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        CopySource: `${bucket}/${storedImageKey(value)
+          .split('/')
+          .map(encodeURIComponent)
+          .join('/')}`,
+        ContentType: file.mediaType,
+        CacheControl: 'private, max-age=31536000, immutable',
+        MetadataDirective: 'REPLACE'
+      })
+    )
+  } catch (err) {
+    console.warn(`Copying ${value} failed; uploading the bytes again:`, err)
+    await client().send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: await loadStoredBytes(value),
+        ContentType: file.mediaType,
+        CacheControl: 'private, max-age=31536000, immutable'
+      })
+    )
+  }
   return `${PREFIX}${key}`
 }
 

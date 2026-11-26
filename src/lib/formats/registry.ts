@@ -100,7 +100,8 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
         maxSlides: 20,
         targetSlides: { min: 6, max: 9 },
         delivery: 'images'
-      }
+      },
+      uploadedVideo: true
     },
     imageShape: '1.91:1',
     platform: 'linkedin',
@@ -121,7 +122,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'x.post': {
     id: 'x.post',
-    media: { formats: ['text', 'image'], maxImages: 4 },
+    media: { formats: ['text', 'image'], maxImages: 4, uploadedVideo: true },
     imageShape: '16:9',
     platform: 'x',
     label: 'X post',
@@ -172,7 +173,7 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
   },
   'threads.post': {
     id: 'threads.post',
-    media: { formats: ['text', 'image'] },
+    media: { formats: ['text', 'image'], uploadedVideo: true },
     imageShape: '4:5',
     platform: 'threads',
     label: 'Threads post',
@@ -199,7 +200,8 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
         maxSlides: 10,
         targetSlides: { min: 4, max: 6 },
         delivery: 'images'
-      }
+      },
+      uploadedVideo: true
     },
     // Landscape: Facebook's desktop feed boxes a portrait image with blank
     // bars at its sides, but shows 1.91:1 at full width everywhere.
@@ -230,7 +232,9 @@ export const FORMATS: Record<FormatId, FormatSpec> = {
         maxSlides: 10,
         targetSlides: { min: 5, max: 8 },
         delivery: 'images'
-      }
+      },
+      // Goes out as a Reel shared to the feed.
+      uploadedVideo: true
     },
     imageShape: '4:5',
     platform: 'instagram',

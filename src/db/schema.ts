@@ -788,9 +788,11 @@ export const postDraftsTable = pgTable('post_drafts', {
   // What goes out with the text (src/lib/formats/media.ts): 'text',
   // 'image' or 'carousel' (its slides in post_slides). Null, as on every
   // post from before it, follows the post's media: its image when it has
-  // one, else text only. A video script is always a video.
+  // one, else text only. A video script is always a video; 'video' on
+  // another format is a post made from an uploaded video (its file in
+  // post_videos, provider 'upload').
   mediaFormat: varchar('media_format', { length: 20 }).$type<
-    'text' | 'image' | 'carousel'
+    'text' | 'image' | 'carousel' | 'video'
   >(),
   // The post this one was rewritten from, when it was derived from a sibling.
   sourceDraftId: uuid('source_draft_id'),

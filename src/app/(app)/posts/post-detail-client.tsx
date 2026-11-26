@@ -7,6 +7,8 @@ import { cn } from '@/lib/cn'
 import { CarouselViewer } from '@/components/carousel/carousel-viewer'
 import { SlidesPanel } from '@/components/carousel/slides-panel'
 import { VideoPanel } from '@/components/video/video-panel'
+import { UploadedVideoPanel } from '@/components/video/uploaded-video-panel'
+import { uploadedMediaOf } from '~/lib/media-upload/rules'
 import { PostCostCard } from '@/components/post-cost'
 import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -82,6 +84,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleStop,
+  Clapperboard,
   Columns2,
   Copy,
   Download,
@@ -1616,6 +1619,10 @@ export function PostDetailClient({
     { image: Boolean(activePost.media) }
   )
   const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
+  // Made from a video the user uploaded (Create from media): it goes out as
+  // uploaded, so the type picker and the recorder give way to the video.
+  const uploadedVideo =
+    shownMedia === 'video' && uploadedMediaOf(activePost.payload)?.kind === 'video'
   // Set aside by "Text only": the image is kept but does not go out.
   const imageSetAside = activePost.mediaFormat === 'text'
   // Instagram takes no text-only post, so it is not offered there.
@@ -2340,13 +2347,20 @@ export function PostDetailClient({
             <div className="flex min-w-0 flex-col gap-3 @3xl:row-span-2 @3xl:grid @3xl:grid-rows-subgrid">
               <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 px-1">
                 {/* What goes out with the text: text only, an image or a carousel. */}
-                <PostTypePicker
-                  formatId={activeFormat}
-                  value={shownMedia}
-                  onChange={next => void handleMediaFormatChange(next)}
-                  disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
-                  pending={pendingMediaFormat}
-                />
+                {uploadedVideo ? (
+                  <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
+                    <Clapperboard aria-hidden className="h-3.5 w-3.5" />
+                    Your video
+                  </span>
+                ) : (
+                  <PostTypePicker
+                    formatId={activeFormat}
+                    value={shownMedia}
+                    onChange={next => void handleMediaFormatChange(next)}
+                    disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
+                    pending={pendingMediaFormat}
+                  />
+                )}
                 {/* Who chose the image: nothing else here says so. The type
                     is the picker's, loading and errors the card's. */}
                 {shownMedia === 'image' &&
@@ -2410,7 +2424,14 @@ export function PostDetailClient({
                     </button>
                   </div>
                 )}
-                {shownMedia === 'video' && isVideoFormat(activeFormat) ? (
+                {uploadedVideo ? (
+                  // VIDEO CARD: the video the post was made from, as uploaded.
+                  <UploadedVideoPanel
+                    key={activePost.id}
+                    postId={activePost.id}
+                    locked={mediaLocked ? lockedReason : null}
+                  />
+                ) : shownMedia === 'video' && isVideoFormat(activeFormat) ? (
                   // VIDEO CARD: a Reel's or Short's video, apart from the image tools.
                   VIDEO_GENERATION_ENABLED ? (
                     <VideoPanel

@@ -9,3 +9,10 @@
 
 export const RECORDER_PROVIDER = 'recorder'
 export const RECORDER_MODEL_ID = 'product-video/recorder'
+
+/**
+ * A video the user uploaded for a post (Create from media): not made by the
+ * app, so never disclosed as AI-made and never recorded again.
+ */
+export const UPLOADED_VIDEO_PROVIDER = 'upload'
+export const UPLOADED_VIDEO_MODEL_ID = 'user-upload'

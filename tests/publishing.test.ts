@@ -1706,6 +1706,79 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       })
     })
 
+    // Create from media: a feed post or a Facebook post made from a video the
+    // user uploaded goes out as a Reel with that video, not marked AI-made.
+    const uploadedVideo = async (draftId: string) =>
+      database.insert(schema.postVideosTable).values({
+        draftId,
+        version: 1,
+        status: 'ready',
+        provider: 'upload',
+        modelId: 'user-upload',
+        prompt: '',
+        aspectRatio: '9:16',
+        width: 1080,
+        height: 1920,
+        durationSeconds: 20,
+        videoUrl: 'storage://drafts/x/u.mp4',
+        mediaType: 'video/mp4',
+        byteSize: 9_000_000
+      })
+    const uploadedVideoDeps = () =>
+      deps({
+        loadVideo: async () => ({
+          id: '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f',
+          mediaType: 'video/mp4',
+          byteSize: 9_000_000,
+          aiGenerated: false
+        })
+      })
+
+    it('M3c. an Instagram post made from an uploaded video goes out as a Reel, not marked AI-made', async () => {
+      const post = await caption({ mediaFormat: 'video', payload: { upload: { kind: 'video' } } })
+      await uploadedVideo(post)
+      const result = await publishNow(m.userId, post, uploadedVideoDeps())
+      assert.strictEqual(result.status, 'published', String(result.error))
+      const input = buffer.creates().at(-1)!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_IG')
+      // The caption is the post's own text, not a script's.
+      assert.strictEqual(
+        input.text,
+        'Behind the scenes\n\nOur team at work.\n\n#craft'
+      )
+      assert.match(input.assets[0].video.url, /\/api\/publishing-media\/video\//)
+      assert.deepStrictEqual(input.metadata, {
+        instagram: { type: 'reel', shouldShareToFeed: true, isAiGenerated: false }
+      })
+    })
+
+    it('M3d. a Facebook post made from an uploaded video needs its video, and goes out as a Reel', async () => {
+      const post = await newPost(m.accountId, {
+        platform: 'facebook',
+        formatId: 'facebook.post',
+        hook: 'Friday at the shop',
+        body: 'Thanks for coming.',
+        cta: '',
+        hashtags: [],
+        mediaFormat: 'video'
+      })
+      // Without its video it is refused before Buffer is called.
+      const before = buffer.creates().length
+      assert.strictEqual(
+        await codeOf(publishNow(m.userId, post, uploadedVideoDeps())),
+        'needs_image'
+      )
+      assert.strictEqual(buffer.creates().length, before)
+
+      await uploadedVideo(post)
+      const result = await publishNow(m.userId, post, uploadedVideoDeps())
+      assert.strictEqual(result.status, 'published', String(result.error))
+      const input = buffer.creates().at(-1)!.variables.input
+      assert.strictEqual(input.channelId, 'CHANNEL_FB')
+      assert.ok(input.assets[0].video.url)
+      assert.strictEqual(input.metadata.facebook.type, 'reel')
+    })
+
     it('M4. auto-publishing to Instagram skips posts without an image', async () => {
       // 10:00 UTC today; the slot is 09:00 UTC, the posts approved an hour before it.
       const today = new Date()

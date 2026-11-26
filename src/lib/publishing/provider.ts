@@ -116,6 +116,12 @@ export type PostVideo = {
   byteSize: number | null
   /** The video's title, where the platform shows one (a YouTube Short). */
   title: string | null
+  /**
+   * Made by the app (a recorded Reel or Short), so disclosed as AI-made
+   * where the network asks; false for a video the user uploaded. Absent
+   * counts as made by the app, as every video was before uploads.
+   */
+  aiGenerated?: boolean
 }
 
 /** One drawn slide of a carousel post, in swipe order. */

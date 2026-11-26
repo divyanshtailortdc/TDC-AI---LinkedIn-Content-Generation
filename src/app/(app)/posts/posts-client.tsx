@@ -51,6 +51,7 @@ import {
   Funnel,
   Image as ImageIcon,
   ImageOff,
+  ImagePlus,
   Inbox,
   Layers,
   LayoutGrid,
@@ -1180,6 +1181,19 @@ export function PostsClientInner({
                   <span className="hidden sm:inline">From a link</span>
                 </Link>
               )}
+              <Link
+                href="/posts/new"
+                title="Upload a photo or video: AI writes the posts from what it shows"
+                aria-label="Create posts from a photo or video"
+                className={buttonClassName({
+                  variant: 'secondary',
+                  size: 'sm',
+                  className: cn('h-9', FOCUS_RING)
+                })}
+              >
+                <ImagePlus aria-hidden className="text-accent h-4 w-4" />
+                <span className="hidden sm:inline">From media</span>
+              </Link>
               <Link
                 href="/ideas"
                 title="Posts are drafted from ideas: approve one to draft its post"
