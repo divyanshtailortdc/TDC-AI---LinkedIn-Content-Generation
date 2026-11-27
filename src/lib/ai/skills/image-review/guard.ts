@@ -12,6 +12,24 @@ const quoteList = (items: string[]) =>
     .join(', ')
 
 /**
+ * The stray lettering worth acting on: a word or sign a viewer would try to
+ * read. Faint texture (scribbles on paper, tiny markings on a tool, blurred
+ * screens) is left alone: 23 of 37 blog headers were made twice (2026-11-24
+ * to 26), most of them for texture like that, each paying a second image and
+ * a second check.
+ */
+const noticeableStrayText = (review: ImageReview) =>
+  review.unintendedTextNoticeable === false
+    ? []
+    : review.unintendedText.map(t => t.trim()).filter(Boolean)
+
+/** Generated-image flaws worth acting on; minor ones the check itself says are not. */
+const noticeableArtifacts = (review: ImageReview) =>
+  review.artifactsNoticeable === false
+    ? []
+    : (review.artifacts ?? []).map(a => a.trim()).filter(Boolean)
+
+/**
  * What is wrong with the lettering and the logos: a logo the model drew, stray
  * or misspelt words, the real logo covering something, a misspelt headline.
  * These hold for every image, including one the reviewer described.
@@ -22,7 +40,7 @@ export function letteringIssues(
 ): string[] {
   const issues: string[] = []
   const brandMarks = review.brandMarks.map(m => m.trim()).filter(Boolean)
-  const stray = review.unintendedText.map(t => t.trim()).filter(Boolean)
+  const stray = noticeableStrayText(review)
 
   if (brandMarks.length > 0) {
     issues.push(
@@ -109,7 +127,7 @@ export function retryInstructions(
   const lines: string[] = []
   const headline = options.headline.trim()
   if (
-    review.unintendedText.some(t => t.trim()) ||
+    noticeableStrayText(review).length > 0 ||
     (headline && !review.headlineCorrect)
   ) {
     lines.push(
@@ -162,7 +180,7 @@ export function pictureIssues(review: ImageReview, style: ImageStyle): string[] 
 /** The flaws that give a generated image away, and a look other than the style asked for. */
 export function lookIssues(review: ImageReview, style: ImageStyle): string[] {
   const issues: string[] = []
-  const artifacts = (review.artifacts ?? []).map(a => a.trim()).filter(Boolean)
+  const artifacts = noticeableArtifacts(review)
   if (artifacts.length > 0) {
     issues.push(`Looks generated: ${artifacts.slice(0, 3).join('; ')}.`)
   }
@@ -192,10 +210,10 @@ export function pictureRetryInstructions(
     { headline: '' }
   )
   const looks = styleRetryLines(style, {
-    artifacts: (review.artifacts ?? []).map(a => a.trim()).filter(Boolean),
+    artifacts: noticeableArtifacts(review),
     styleMismatch: review.matchesStyle === false,
     lettering:
-      review.unintendedText.some(t => t.trim()) ||
+      noticeableStrayText(review).length > 0 ||
       review.brandMarks.some(m => m.trim())
   })
   return [lettering, looks].filter(Boolean).join(' ')

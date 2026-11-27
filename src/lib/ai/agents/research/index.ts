@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { getLanguageModel } from '@/lib/ai'
+import { EPHEMERAL_CACHE, getLanguageModel } from '@/lib/ai'
 import {
   isWebSearchConfigured,
   searchWeb,
@@ -9,6 +9,7 @@ import {
 import { scrapeUrl } from '@/lib/scraper'
 import { isStepCount, Output, tool, ToolLoopAgent } from 'ai'
 import { z } from 'zod'
+import { withRollingCacheBreakpoint } from '../../cache-breakpoints'
 import type { GenerationContext } from '../../context'
 import { inferRegion } from '../../region'
 import { assertWithinAiSpendLimit, recordAiSpend } from '../../spend'
@@ -138,10 +139,20 @@ export async function runResearchAgent(
   const pageTitles: Record<string, string> = {}
   const pageTexts: Record<string, string> = {}
 
+  // Every step re-sends the whole conversation: the tools, these
+  // instructions, the prompt and every search result and page read so far.
+  // Cached, each step after the first reads all of it at a twentieth of the
+  // input price (measured before: 6.6k input tokens a step, none cached).
+  // The instructions carry a breakpoint of their own so the final step, whose
+  // tool choice differs, still reads the tools and instructions from cache.
   const agent = new ToolLoopAgent({
     model: handle.model,
     providerOptions: handle.providerOptions,
-    instructions: options.instructions ?? INSTRUCTIONS,
+    instructions: {
+      role: 'system',
+      content: options.instructions ?? INSTRUCTIONS,
+      providerOptions: EPHEMERAL_CACHE
+    },
     tools: {
       searchWeb: tool({
         description:
@@ -172,6 +183,14 @@ export async function runResearchAgent(
           const entry = seen.get(url)
           if (!entry)
             return { error: 'Only URLs returned by searchWeb can be read.' }
+          // Its text is already in the conversation: reading it again would
+          // spend a page of the budget and send the same text twice.
+          if (pagesRead.includes(url)) {
+            return {
+              error:
+                'This page was already read; its text is above. Read another page or answer.'
+            }
+          }
           if (pagesRead.length >= limits.maxPageReads) {
             return { error: `Page limit (${limits.maxPageReads}) reached.` }
           }
@@ -195,14 +214,20 @@ export async function runResearchAgent(
       })
     },
     stopWhen: isStepCount(limits.maxSteps),
-    // The last step, or any step once both budgets are spent, must answer:
-    // without this the agent can use every step on tools and return nothing.
-    prepareStep: async ({ stepNumber }) =>
-      stepNumber >= limits.maxSteps - 1 ||
+    // The conversation so far is marked as the prefix the next step reads
+    // from cache. The last step, or any step once both budgets are spent,
+    // must answer: without this the agent can use every step on tools and
+    // return nothing. It answers through the tool choice alone: removing the
+    // tools would change the start of the prompt and make that step, the
+    // largest, miss the cache entirely.
+    prepareStep: async ({ stepNumber, messages }) => ({
+      messages: withRollingCacheBreakpoint(messages),
+      ...(stepNumber >= limits.maxSteps - 1 ||
       (queries.length >= limits.maxSearches &&
         pagesRead.length >= limits.maxPageReads)
-        ? { activeTools: [], toolChoice: 'none' }
-        : undefined,
+        ? { toolChoice: 'none' as const }
+        : {})
+    }),
     output: Output.object({ schema: findingsSchema(limits.maxFindings) })
   })
 

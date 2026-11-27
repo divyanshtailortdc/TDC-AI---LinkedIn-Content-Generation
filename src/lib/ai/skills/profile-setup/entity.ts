@@ -44,7 +44,7 @@ export async function findEntity(
   if (guess?.confident) return fallback
   try {
     const { output } = await runSkill({
-      stage: 'identity_setup',
+      stage: 'selection',
       instructions: INSTRUCTIONS,
       prompt: `${
         accountType

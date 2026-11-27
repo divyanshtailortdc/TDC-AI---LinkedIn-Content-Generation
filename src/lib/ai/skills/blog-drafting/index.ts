@@ -66,7 +66,6 @@ export async function writeBlog(
   const { output, usage, modelId } = await runSkill({
     stage: 'blog_drafting',
     instructions: buildBlogInstructions(input.ctx, input.kind, input.brief),
-    cacheInstructions: true,
     prompt,
     schema: BlogDraftSchema,
     timeoutMs: mode.timeoutMs ?? BLOG_WRITING_TIMEOUT_MS,
@@ -92,7 +91,6 @@ export async function writeBlogSection(
   const { output, usage, modelId } = await runSkill({
     stage: 'blog_editing',
     instructions: buildBlogInstructions(input.ctx, input.kind, input.brief),
-    cacheInstructions: true,
     prompt: buildSectionRewritePrompt(input),
     schema: BlogSectionSchema,
     timeoutMs: SECTION_REWRITE_TIMEOUT_MS,
@@ -124,7 +122,6 @@ export async function fixBlogSentences(
   const { output, usage, modelId } = await runSkill({
     stage: 'blog_editing',
     instructions: buildBlogInstructions(input.ctx, input.kind, input.brief),
-    cacheInstructions: true,
     prompt: buildFixPrompt(input),
     schema: SentenceFixesSchema,
     timeoutMs: options.timeoutMs ?? SENTENCE_FIX_TIMEOUT_MS,

@@ -706,10 +706,19 @@ describe('writing a blog', { skip: !url }, () => {
       String(row.usage.costUsd)
     )
     assert.deepStrictEqual(row.featuredImage, READY_IMAGE)
+    // The research it paid for is kept with the unwritten blog.
+    assert.strictEqual(row.sources.length, POOL.length)
     const before = images.length
+    const researchedBefore = gathered
     const retry = await claimBlogGeneration(database, { accountId, blogId: claim.blogId })
-    await runBlogGeneration(retry!, {}, deps({ writeBlog: stubWriter([DRAFT]).writer }))
+    assert.strictEqual(
+      await runBlogGeneration(retry!, {}, deps({ writeBlog: stubWriter([DRAFT]).writer })),
+      'saved'
+    )
     assert.strictEqual(images.length, before, 'the kept image is not made again')
+    assert.strictEqual(gathered, researchedBefore, 'the kept research is not done again')
+    const saved = await rowOf(claim.blogId)
+    assert.ok(saved.sources.some(source => source.cited), 'the kept sources are cited')
   })
 
   it('writes nothing under a lost claim', async () => {

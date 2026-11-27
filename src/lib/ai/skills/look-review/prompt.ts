@@ -38,11 +38,18 @@ The account is ${input.accountName}; its own name is not a foreign mark.${
   }`
 }
 
+/**
+ * Stray lettering worth another image: words a viewer would try to read, not
+ * faint texture, which the check itself says is not noticeable.
+ */
+const noticeableExtraText = (review: LookReview) =>
+  review.extraTextNoticeable === false ? [] : review.extraText
+
 /** The problems a review found, in words for the reviewer; empty when none. */
 export function lookIssues(review: LookReview): string[] {
   return [
     ...review.textErrors.map(e => `Text: ${e}`),
-    ...review.extraText.map(t => `Unintended lettering: "${t}"`),
+    ...noticeableExtraText(review).map(t => `Unintended lettering: "${t}"`),
     ...review.inventedFacts.map(f => `Not in the post: ${f}`),
     ...review.foreignMarks.map(m => `Another brand's mark: ${m}`),
     ...review.copiedFromExamples.map(c => `Copied from an example: ${c}`),
@@ -70,7 +77,7 @@ export function isBlockingLookIssue(issue: string): boolean {
 /** Plain instructions for the second attempt at an image the review found problems in. */
 export function lookRetryLines(review: LookReview): string {
   const out: string[] = []
-  if (review.textErrors.length || review.extraText.length) {
+  if (review.textErrors.length || noticeableExtraText(review).length) {
     out.push(
       'Set every text part exactly as given above, letter for letter, and add no other lettering anywhere: no words or numbers on screens, papers, signs, labels or packaging.'
     )

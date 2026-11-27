@@ -4,10 +4,24 @@ import { estimateCostUsd } from '../src/lib/ai/usage'
 import { defaultModel, fastModel } from '../src/lib/models'
 
 describe('which model the app uses', () => {
-  it('is Sonnet, with Haiku only for bulk extraction', () => {
+  it('is Sonnet, with the current Haiku for mechanical work', () => {
     assert.strictEqual(defaultModel, 'claude-sonnet-5-5')
-    assert.strictEqual(fastModel, 'claude-haiku-4-5')
+    assert.strictEqual(fastModel, 'claude-haiku-5-5')
     assert.ok(!/opus/i.test(defaultModel + fastModel))
+  })
+
+  it('prices Haiku 5.5 at its own rates, a twentieth of Sonnet', () => {
+    const usage = {
+      noCacheInputTokens: 1_000_000,
+      cacheReadTokens: 1_000_000,
+      cacheWriteTokens: 0,
+      outputTokens: 1_000_000
+    }
+    // 0.10 input + 0.01 cache read + 0.50 output per million tokens.
+    assert.ok(Math.abs(estimateCostUsd(fastModel, usage) - 0.61) < 1e-9)
+    assert.ok(
+      Math.abs(estimateCostUsd(`anthropic/${fastModel}`, usage) - 0.61) < 1e-9
+    )
   })
 })
 

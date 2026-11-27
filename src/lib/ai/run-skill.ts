@@ -1,6 +1,13 @@
 import 'server-only'
 
-import { EPHEMERAL_CACHE, getLanguageModel, type AIStage } from '@/lib/ai'
+import {
+  defaultModel,
+  EPHEMERAL_CACHE,
+  fastModel,
+  getLanguageModel,
+  getStageSettings,
+  type AIStage
+} from '@/lib/ai'
 import { generateText, NoObjectGeneratedError, Output, RetryError } from 'ai'
 import type { z } from 'zod'
 import { parseJsonLoosely } from './parse-json'
@@ -9,7 +16,12 @@ import {
   assertWithinAiSpendLimit,
   recordAiSpend
 } from './spend'
-import { EMPTY_USAGE, readCallUsage, type CallUsage } from './usage'
+import {
+  addUsage,
+  EMPTY_USAGE,
+  readCallUsage,
+  type CallUsage
+} from './usage'
 
 /**
  * The one way a skill calls a model: a single request with structured output.
@@ -116,7 +128,49 @@ function isQuotaError(error: unknown): boolean {
   return status === 402
 }
 
-export async function runSkill<S extends z.ZodType>(opts: {
+type RunSkillOptions<S extends z.ZodType> = Parameters<typeof runSkillOn<S>>[0]
+
+/**
+ * A stage on the fast model (Haiku: extraction, picking from a list) whose
+ * call fails outright, a refusal or an answer that misses the schema, is
+ * made once more on the default model: the cheap model saves on every call
+ * and never costs a feature its result. Timeouts, budgets and busy providers
+ * are not: the default model would meet the same.
+ */
+export async function runSkill<S extends z.ZodType>(
+  opts: RunSkillOptions<S>
+): Promise<SkillResult<z.infer<S>>> {
+  try {
+    return await runSkillOn(opts)
+  } catch (error) {
+    const fellBack =
+      error instanceof SkillError &&
+      error.reason === 'failed' &&
+      !error.transient &&
+      !opts.modelId &&
+      !opts.abortSignal?.aborted &&
+      getStageSettings(opts.stage).model === fastModel
+    if (!fellBack) throw error
+    console.warn(
+      `The ${opts.stage} call failed on ${fastModel}; trying ${defaultModel}:`,
+      error.message
+    )
+    try {
+      const result = await runSkillOn({ ...opts, modelId: defaultModel })
+      return { ...result, usage: addUsage(error.usage, result.usage) }
+    } catch (second) {
+      if (!(second instanceof SkillError)) throw second
+      throw new SkillError(second.message, second.reason, {
+        usage: addUsage(error.usage, second.usage),
+        text: second.text,
+        modelUsed: second.modelUsed,
+        transient: second.transient
+      })
+    }
+  }
+}
+
+async function runSkillOn<S extends z.ZodType>(opts: {
   stage: AIStage
   /**
    * One block, or several sent in order. Several blocks each get their own

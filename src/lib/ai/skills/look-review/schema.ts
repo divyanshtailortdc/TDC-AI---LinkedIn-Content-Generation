@@ -16,12 +16,18 @@ export const LookReviewSchema = z.object({
   textErrors: z
     .array(z.string())
     .describe(
-      'Each intended text part that is missing, misspelled, cut off or worded differently, saying what is wrong, e.g. \'title reads "Recods" instead of "Records"\'. Empty when every part is right.'
+      'Each intended text part that is missing, misspelled, cut off or worded differently, saying what is wrong, e.g. \'title reads "Recods" instead of "Records"\'. Letter case, line breaks and type styling (all caps, bold, italics) are design choices, not errors. Empty when every part is right.'
     ),
   extraText: z
     .array(z.string())
     .describe(
       'Lettering that is not one of the intended parts, including pseudo-words on screens, papers, signs, labels or packaging. Not the brand logo laid on by code.'
+    ),
+  extraTextNoticeable: z
+    .boolean()
+    .default(true)
+    .describe(
+      'True when any lettering listed under extraText is something a viewer would notice and try to read at a glance: a misspelt or made-up word, a garbled sign or label, readable numbers. False when everything listed is small, faint or unreadable texture, such as scribbles on paper, tiny markings or blurred screen content. False when none is listed.'
     ),
   inventedFacts: z
     .array(z.string())

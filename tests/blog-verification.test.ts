@@ -30,8 +30,8 @@ describe('checking citations with a model', () => {
     const prompt = `${JUDGE_INSTRUCTIONS}\n${buildJudgePrompt({ claims: CLAIMS, articleText: ARTICLE })}`
     for (const part of [
       '[C1] Sentence: "Gartner found that 61% of B2B buyers prefer a rep-free experience."',
-      'It links [S1] Gartner sales survey:',
-      '- "61% of B2B buyers prefer an overall rep-free buying experience."',
+      'It links [S1] Gartner sales survey: read its passages under SOURCES.',
+      '[S1] Gartner sales survey:\n  - "61% of B2B buyers prefer an overall rep-free buying experience."',
       'supported:',
       'partial:',
       'unsupported:',
@@ -42,6 +42,22 @@ describe('checking citations with a model', () => {
     ]) {
       assert.ok(prompt.includes(part), `missing ${part}`)
     }
+  })
+
+  it("sends a source's passages once, however many sentences link it", () => {
+    const repeated = [
+      CLAIMS[0]!,
+      {
+        ...CLAIMS[0]!,
+        id: 'C3',
+        sentence: 'Most buyers would rather not talk to a rep.'
+      }
+    ]
+    const prompt = buildJudgePrompt({ claims: repeated, articleText: ARTICLE })
+    const quote = '"61% of B2B buyers prefer an overall rep-free buying experience."'
+    assert.strictEqual(prompt.split(quote).length - 1, 1)
+    assert.ok(prompt.includes('[C3] Sentence: "Most buyers would rather not talk to a rep."'))
+    assert.strictEqual(prompt.split('It links [S1]').length - 1, 2)
   })
 
   it('keeps verdicts for known claims and issues quoting real sentences', () => {

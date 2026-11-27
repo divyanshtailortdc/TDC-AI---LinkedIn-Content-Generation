@@ -772,6 +772,9 @@ export async function runBlogGeneration(
   let madeImage: FeaturedImage | null = null
   // Section pictures made so far: kept with the blog even if writing fails.
   const madePictures: Array<{ planned: PlannedImage; image: BlogImage }> = []
+  // Research done this time: kept with an unwritten blog if a later step
+  // fails, so its retry need not research again.
+  const researched: { sources?: BlogSource[]; searchQuestions?: SearchQuestion[] } = {}
   try {
     const [row] = await d.db
       .select()
@@ -811,7 +814,10 @@ export async function runBlogGeneration(
     const links = d
       .gatherLinks(ctx, { blogId: row.id })
       .catch(() => ({ candidates: [] as LinkCandidate[], related: [] }))
-    const researching = !regenerating || options.researchAgain || sources.length === 0
+    // Research is done when there is none yet or new research is asked for.
+    // A first generation has none, unless an earlier attempt that failed
+    // after its research kept it (failBlogGeneration): the brief is the same.
+    const researching = sources.length === 0 || Boolean(options.researchAgain)
     const questionsJob: Promise<GatheredQuestions> = researching
       ? d
           .gatherQuestions(ctx, brief)
@@ -830,11 +836,13 @@ export async function runBlogGeneration(
       })
       usage = addUsage(usage, gathered.usage)
       sources = gathered.sources
+      researched.sources = gathered.sources
       notes.push(...gathered.notes)
     }
     const { candidates } = await links
     const asked = await questionsJob
     usage = addUsage(usage, asked.usage)
+    if (researching) researched.searchQuestions = asked.questions
 
     // A blog that has pictures keeps them on a regeneration unless new ones
     // are asked for; a first generation, or one with none, gets new ones.
@@ -1015,10 +1023,16 @@ export async function runBlogGeneration(
     let faq: FaqItem[] = clean.faq
     const flags = [...clean.flags]
 
-    const judge = async (): Promise<Judged | null> => {
+    // `known`: verdicts already given, by source and sentence. A sentence the
+    // fixes left as it was keeps its verdict, so only new ones are sent; the
+    // whole article still is, for the issues the fixes may have changed.
+    const judge = async (known?: Judged['verdicts']): Promise<Judged | null> => {
       if (remaining() < MIN_CHECK_MS) return null
-      const claims = claimsToJudge(doc, clean.sources)
-      if (claims.length === 0) return { verdicts: new Map(), issues: [] }
+      const cited = claimsToJudge(doc, clean.sources)
+      if (cited.length === 0) return { verdicts: new Map(), issues: [] }
+      const claims = known
+        ? cited.filter(claim => !known.has(`${claim.sourceId}\n${claim.sentence}`))
+        : cited
       try {
         const result = await d.judgeCitations(
           { claims, articleText: blogToText({ ...contentFor(), content: doc, faq }) },
@@ -1113,7 +1127,7 @@ export async function runBlogGeneration(
         )
         // What changed is checked again; what did not keeps its verdict.
         const previous = judged
-        const again = await judge()
+        const again = await judge(previous?.verdicts)
         if (again) {
           for (const [key, verdict] of previous?.verdicts ?? []) {
             if (!again.verdicts.has(key) && docSentences(doc).some(s => s.text === verdict.sentence)) {
@@ -1301,7 +1315,11 @@ export async function runBlogGeneration(
       friendlyBlogError(error),
       usage,
       new Date(),
-      { featuredImage: madeImage, images: madePictures.map(made => made.image) }
+      {
+        featuredImage: madeImage,
+        images: madePictures.map(made => made.image),
+        ...researched
+      }
     ).catch(() => false)
     return recorded ? 'failed' : 'lost'
   }

@@ -77,6 +77,38 @@ function nearest<T extends string>(
 export const geminiAspectFor = (target: { width: number; height: number }) =>
   nearest(target, GEMINI_ASPECTS)
 
+/**
+ * What Gemini draws at "1K" for each shape; "2K" is twice each side. The
+ * gateway prices Nano Banana 2.1 by this size (1K $0.034, 2K $0.050 on
+ * 2026-11-27), so asking for 2K when the picture is used at 1200x800 pays
+ * for pixels that are scaled away.
+ */
+const GEMINI_1K: Record<(typeof GEMINI_ASPECTS)[number], [number, number]> = {
+  '1:1': [1024, 1024],
+  '2:3': [848, 1264],
+  '3:2': [1264, 848],
+  '3:4': [896, 1200],
+  '4:3': [1200, 896],
+  '4:5': [928, 1152],
+  '5:4': [1152, 928],
+  '9:16': [768, 1376],
+  '16:9': [1376, 768],
+  '21:9': [1584, 672]
+}
+
+/**
+ * The smallest size Gemini draws that still covers the target without
+ * enlarging it: 1K for a section picture or an illustration, 2K for a whole
+ * post image or a slide.
+ */
+export function geminiImageSizeFor(target: {
+  width: number
+  height: number
+}): '1K' | '2K' {
+  const [width, height] = GEMINI_1K[geminiAspectFor(target)]
+  return target.width <= width && target.height <= height ? '1K' : '2K'
+}
+
 export const openAiSizeFor = (target: { width: number; height: number }) =>
   nearest(target, OPENAI_SIZES)
 
@@ -154,7 +186,7 @@ export async function callImageModel(opts: {
           responseModalities: ['IMAGE'],
           imageConfig: {
             aspectRatio: geminiAspectFor(opts.target),
-            imageSize: '2K'
+            imageSize: geminiImageSizeFor(opts.target)
           }
         }
       },

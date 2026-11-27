@@ -5,9 +5,11 @@ import type { MediaFormat } from '@/lib/formats/types'
 import type { GenerationContext } from '../../context'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
+import { splitForCache } from '../../cache-breakpoints'
 import { isCompleteDraft, withoutRepeatedHook } from './guard'
 import {
   buildInstructions,
+  GOAL_HEADING,
   buildPrompt,
   buildRegeneratePrompt,
   buildRevisionPrompt
@@ -61,8 +63,10 @@ export async function writeDraft(
 }> {
   const { output, usage, modelId } = await runSkill({
     stage: 'drafting',
-    instructions: buildInstructions(input.ctx),
-    // Identical for every draft in a run, so later drafts read it from cache.
+    // Cut before the goal: the author, offerings and readers are the same
+    // for every draft on this platform, so drafts of ideas with other goals
+    // still read them from cache; the rest is shared by ideas with this goal.
+    instructions: splitForCache(buildInstructions(input.ctx), GOAL_HEADING),
     cacheInstructions: true,
     prompt: revise
       ? buildRevisionPrompt(

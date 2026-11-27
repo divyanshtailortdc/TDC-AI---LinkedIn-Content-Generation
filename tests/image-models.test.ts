@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import {
   drawsExactSize,
   geminiAspectFor,
+  geminiImageSizeFor,
   IMAGE_MODELS,
   modelFamily,
   openAiSizeFor
@@ -34,6 +35,17 @@ describe('image models', () => {
     assert.strictEqual(geminiAspectFor({ width: 1440, height: 1440 }), '1:1')
     // A tall panel in a layout.
     assert.strictEqual(geminiAspectFor({ width: 1072, height: 1600 }), '2:3')
+  })
+
+  it('asks Gemini for 1K only when that covers the picture without enlarging it', () => {
+    // A blog's section picture (3:2) and an illustration fit inside 1K.
+    assert.strictEqual(geminiImageSizeFor({ width: 1200, height: 800 }), '1K')
+    assert.strictEqual(geminiImageSizeFor({ width: 1024, height: 1024 }), '1K')
+    // A blog's header, a whole post image and a carousel slide do not.
+    assert.strictEqual(geminiImageSizeFor({ width: 1600, height: 900 }), '2K')
+    assert.strictEqual(geminiImageSizeFor(SHAPE_SIZES['1.91:1']), '2K')
+    assert.strictEqual(geminiImageSizeFor(SHAPE_SIZES['4:5']), '2K')
+    assert.strictEqual(geminiImageSizeFor({ width: 1080, height: 1350 }), '2K')
   })
 
   it('asks GPT Image for its nearest size', () => {

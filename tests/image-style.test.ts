@@ -340,6 +340,7 @@ describe('checking a picture before it goes into the layout', () => {
     visibleText: [],
     headlineCorrect: true,
     unintendedText: [],
+    unintendedTextNoticeable: true,
     brandMarks: [],
     unsupportedDetails: [],
     logoCoversContent: false,
@@ -350,6 +351,7 @@ describe('checking a picture before it goes into the layout', () => {
     genericStock: true,
     followsBrand: false,
     artifacts: [],
+    artifactsNoticeable: true,
     matchesStyle: true,
     relevanceScore: 40,
     summary: 'A rep at a desk.',
@@ -371,6 +373,38 @@ describe('checking a picture before it goes into the layout', () => {
     assert.match(issues.join(' '), /stray or misspelt lettering/)
     assert.match(issues.join(' '), /Looks generated: six fingers on the left hand/)
     assert.match(issues.join(' '), /Does not look like the Photorealistic style/)
+  })
+
+  it('leaves faint texture and minor flaws alone, so they make no second image', () => {
+    const faint = review({
+      unintendedText: ['tiny illegible scale markings on the caliper bar'],
+      unintendedTextNoticeable: false,
+      artifacts: ["the chair's armrest is slightly inconsistent"],
+      artifactsNoticeable: false
+    })
+    assert.deepEqual(pictureIssues(faint, 'photorealistic'), [])
+    assert.equal(pictureRetryInstructions(faint, 'photorealistic'), '')
+    // Words a viewer would try to read still count, as does a drawn mark.
+    assert.match(
+      pictureIssues(
+        review({ unintendedText: ['Hackbad', 'Prangaht talo'], unintendedTextNoticeable: true }),
+        'photorealistic'
+      ).join(' '),
+      /stray or misspelt lettering: "Hackbad"/
+    )
+    assert.equal(
+      pictureIssues(
+        review({ ...faint, brandMarks: ['garbled SCHAR badge on the scooter'] }),
+        'photorealistic'
+      ).length,
+      1
+    )
+    // A review from before the flags existed is read as before.
+    const { unintendedTextNoticeable: _t, artifactsNoticeable: _a, ...old } = review({
+      unintendedText: ['QUOTF'],
+      artifacts: ['six fingers']
+    })
+    assert.equal(pictureIssues(old as ImageReview, 'photorealistic').length, 2)
   })
 
   it('tells the second attempt how to fix just that', () => {

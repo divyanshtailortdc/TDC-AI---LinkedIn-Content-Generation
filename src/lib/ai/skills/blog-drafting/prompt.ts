@@ -144,9 +144,12 @@ export const pieceName = (kind: BlogKind) =>
   kind === 'blog' ? 'blog post' : 'long-form article'
 
 /**
- * Everything stable for this blog, in one cacheable block: planning, writing,
- * fixing sentences and rewriting a section of the same blog read it from
- * cache.
+ * Everything stable for this blog, in one block: planning, writing, fixing
+ * sentences and rewriting a section all send it. It is not marked for the
+ * prompt cache: each of those calls asks for a different output schema, and
+ * the schema is part of the cached prefix, so no call could read another's
+ * entry. Marked, every call paid the 1.25x cache write (5-6k tokens) and,
+ * measured over 114 blog calls (2026-11-24 to 26), almost none read it.
  */
 export function buildBlogInstructions(
   ctx: GenerationContext,

@@ -36,6 +36,7 @@ import { renderIdeaEvidence } from '../shared/evidence'
 import { renderReferenceForDrafting } from '@/lib/reference-post/render'
 import { TRUTH_RULES } from '../shared/truth-rules'
 import type { VariantDraft } from './schema'
+import { GOAL_HEADING } from '../post-drafting/prompt'
 
 /**
  * The prompt for every non-LinkedIn format, in three parts sent in this
@@ -115,8 +116,7 @@ ${renderIdentityBlock(ctx)}
 READER (the author's audience in general; a request may name who follows them on its platform)
 ${renderAudienceBlock(ctx)}
 
-GOAL THIS POST SERVES
-${renderGoalBlock(ctx.primaryGoal)}
+${GOAL_HEADING}${renderGoalBlock(ctx.primaryGoal)}
 ${alsoSupports ? `\nIT ALSO SUPPORTS these goals: reinforce their messages where the argument meets them, with no second call to action or link:\n${alsoSupports}\n` : ''}
 VOICE — the author's core voice, on every platform
 ${renderVoiceBlock(ctx)}

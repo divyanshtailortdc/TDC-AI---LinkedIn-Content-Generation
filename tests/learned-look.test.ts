@@ -113,6 +113,7 @@ describe('the check on an image made like the account\'s posts', () => {
     visibleText: [],
     textErrors: [],
     extraText: [],
+    extraTextNoticeable: true,
     inventedFacts: [],
     foreignMarks: [],
     copiedFromExamples: [],
@@ -155,6 +156,19 @@ describe('the check on an image made like the account\'s posts', () => {
     const real = { ...minor, artifacts: ['six fingers on the left hand'], artifactsNoticeable: true }
     assert.deepStrictEqual(lookIssues(real), ['Looks generated: six fingers on the left hand'])
     assert.match(lookRetryLines(real), /correctly formed/)
+  })
+
+  it('makes no second image for faint texture lettering, but does for readable gibberish', () => {
+    const faint = {
+      ...clean,
+      extraText: ['faint scribbles on the order pad'],
+      extraTextNoticeable: false
+    }
+    assert.deepStrictEqual(lookIssues(faint), [])
+    assert.strictEqual(lookRetryLines(faint), '')
+    const readable = { ...faint, extraText: ['stahlHug'], extraTextNoticeable: true }
+    assert.deepStrictEqual(lookIssues(readable), ['Unintended lettering: "stahlHug"'])
+    assert.match(lookRetryLines(readable), /letter for letter/)
   })
 })
 
