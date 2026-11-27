@@ -50,6 +50,11 @@ interface PostPreviewProps {
   firstComment?: string | null
   onCopyFirstComment?: () => void
   firstCommentCopied?: boolean
+  /**
+   * Opens with the whole post shown, as for a post written from uploaded
+   * media; "Collapse preview" still shows where the feed folds it.
+   */
+  expandedByDefault?: boolean
 }
 
 export function PostPreview({
@@ -70,9 +75,10 @@ export function PostPreview({
   hookSwapDisabled = false,
   firstComment,
   onCopyFirstComment,
-  firstCommentCopied = false
+  firstCommentCopied = false,
+  expandedByDefault = false
 }: PostPreviewProps) {
-  const [showFullPost, setShowFullPost] = useState(false)
+  const [showFullPost, setShowFullPost] = useState(expandedByDefault)
   const [showHookOptions, setShowHookOptions] = useState(false)
   const [showFullComment, setShowFullComment] = useState(false)
   const canSwapHook = Boolean(onSelectHook) && hookOptions.length > 0

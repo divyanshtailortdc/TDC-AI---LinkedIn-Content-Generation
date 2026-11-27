@@ -98,3 +98,92 @@ export function mediaPostProblem(draft: MediaPostDraft): string | null {
     return 'Give the video a title.'
   return overLimitMessage(draft.formatId, postTextOf(draft))
 }
+
+/**
+ * What Regenerate rewrites in a post made from uploaded media: the hook
+ * alone, the body alone (the hook, closing question and hashtags stay), or
+ * the whole post. Nothing else in the post changes, nor its media.
+ */
+export const MEDIA_POST_PARTS = ['hook', 'body', 'post'] as const
+export type MediaPostPart = (typeof MEDIA_POST_PARTS)[number]
+
+export const isMediaPostPart = (value: unknown): value is MediaPostPart =>
+  typeof value === 'string' &&
+  (MEDIA_POST_PARTS as readonly string[]).includes(value)
+
+/**
+ * The post with `part` taken from `rewritten` and everything else as it is
+ * in `current`. A rewritten body brings its closing question only where the
+ * post had none; a rewritten post keeps the image's alt text, which
+ * describes the image, not the post.
+ */
+export function withRewrittenPart(
+  current: MediaPostDraft,
+  rewritten: MediaPostDraft,
+  part: MediaPostPart
+): MediaPostDraft {
+  switch (part) {
+    case 'hook':
+      return { ...current, hook: rewritten.hook }
+    case 'body':
+      return {
+        ...current,
+        body: rewritten.body,
+        cta: current.cta.trim() ? current.cta : rewritten.cta
+      }
+    case 'post':
+      return { ...rewritten, altText: current.altText || rewritten.altText }
+  }
+}
+
+/**
+ * A saved post made from uploaded media, as the Create from media page held
+ * it, so a part of it can be written again. A Short keeps one caption (see
+ * draftColumnsOf): its first paragraph is taken as the hook, and a closing
+ * question ending it as the call to action.
+ */
+export function mediaDraftOfPost(
+  post: {
+    platform: PlatformId
+    formatId: FormatId
+    hook: string
+    body: string
+    cta: string | null
+    hashtags: string[] | null
+    firstComment: string | null
+    payload: Record<string, unknown> | null
+  },
+  altText: string | null = null
+): MediaPostDraft {
+  const common = {
+    platform: post.platform,
+    formatId: post.formatId,
+    hashtags: post.hashtags ?? [],
+    firstComment: post.firstComment ?? '',
+    altText: altText ?? ''
+  }
+  if (!isScriptFormat(post.formatId)) {
+    return {
+      ...common,
+      hook: post.hook,
+      body: post.body,
+      cta: post.cta ?? '',
+      title: ''
+    }
+  }
+  const text = (key: string) =>
+    typeof post.payload?.[key] === 'string' ? (post.payload[key] as string) : ''
+  const paragraphs = text('caption')
+    .split(/\n\s*\n/)
+    .map(p => p.trim())
+    .filter(Boolean)
+  const last = paragraphs.length > 2 ? paragraphs[paragraphs.length - 1]! : ''
+  const cta = last.endsWith('?') ? last : ''
+  return {
+    ...common,
+    hook: paragraphs[0] ?? '',
+    body: paragraphs.slice(1, cta ? -1 : undefined).join('\n\n'),
+    cta,
+    title: text('title')
+  }
+}

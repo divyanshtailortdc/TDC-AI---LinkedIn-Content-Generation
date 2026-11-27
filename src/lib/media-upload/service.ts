@@ -12,6 +12,13 @@ import type { PlatformId } from '@/lib/platforms'
 import { postCharCount } from '@/lib/post-text'
 import { readBodyCapped, safeFetch, UnsafeUrlError } from '@/lib/safe-url'
 import { randomUUID } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeWebStream } from 'node:stream/web'
 import { loadGenerationContext } from '~/lib/ai/context'
 import { writeMediaPosts, type MediaAnalysis } from '~/lib/ai/skills/media-post'
 import { withAiSpend } from '~/lib/ai/spend'
@@ -21,7 +28,7 @@ import {
   createUploadTarget,
   deleteStoredImages,
   loadStoredBytes,
-  signedStoredUrl,
+  openStoredFile,
   statStoredFile,
   storeUpload,
   uploadIdOf,
@@ -33,6 +40,7 @@ import {
   UPLOADED_VIDEO_PROVIDER
 } from '~/lib/video/models'
 import { draftColumnsOf, type MediaPostDraft } from './drafts'
+import { storedAnalysisFields } from './stored-analysis'
 import { inspectImage, inspectVideo, UnreadableMediaError } from './inspect'
 import {
   aspectRatioOf,
@@ -59,8 +67,32 @@ export class MediaUploadError extends Error {}
 const NO_STORAGE =
   'Uploading media needs file storage, which is not set up on this server (STORAGE_BUCKET).'
 
-/** Signed links ffmpeg reads a video through: long enough for one look. */
-const READ_LINK_SECONDS = 15 * 60
+/**
+ * An uploaded video, downloaded to a temporary file for ffmpeg: the bundled
+ * ffmpeg cannot open links (see inspectVideo). The caller removes it.
+ */
+async function downloadToTemp(
+  value: string,
+  signal?: AbortSignal
+): Promise<{ file: string; remove: () => Promise<void> }> {
+  const file = path.join(
+    tmpdir(),
+    `media-upload-${randomUUID()}${path.extname(value)}`
+  )
+  const remove = () => rm(file, { force: true })
+  try {
+    const stored = await openStoredFile(value)
+    await pipeline(
+      Readable.fromWeb(stored.body as NodeWebStream),
+      createWriteStream(file),
+      { signal }
+    )
+  } catch (err) {
+    await remove()
+    throw err
+  }
+  return { file, remove }
+}
 
 export interface UploadSummary {
   uploadId: string
@@ -259,11 +291,9 @@ export async function analyzeUpload(
     }
     pictures = [image.picture]
   } else {
+    const download = await downloadToTemp(upload.value, abortSignal)
     try {
-      const video = await inspectVideo(
-        await signedStoredUrl(upload.value, READ_LINK_SECONDS),
-        abortSignal
-      )
+      const video = await inspectVideo(download.file, abortSignal)
       facts = {
         kind: 'video',
         width: video.width,
@@ -278,6 +308,8 @@ export async function analyzeUpload(
       if (err instanceof UnreadableMediaError)
         throw new MediaUploadError(err.message)
       throw err
+    } finally {
+      await download.remove()
     }
   }
 
@@ -332,6 +364,10 @@ export async function createPostsFromUpload(
     uploadId: string
     fileName: string | null
     summary: string
+    /** What the AI saw in the media, kept for Regenerate; null when not sent. */
+    analysis?: MediaAnalysis | null
+    /** The author's notes, kept for Regenerate. */
+    notes?: string
     posts: MediaPostDraft[]
     approved: boolean
     /**
@@ -400,7 +436,11 @@ export async function createPostsFromUpload(
             upload: {
               kind: upload.kind,
               fileName: input.fileName,
-              summary: input.summary.slice(0, 1000)
+              summary: input.summary.slice(0, 1000),
+              ...storedAnalysisFields({
+                analysis: input.analysis ?? null,
+                notes: input.notes ?? ''
+              })
             }
           },
           // A Short is a video by its format; every other post says so.

@@ -24,7 +24,9 @@ import {
   Save,
   Send,
   Sparkles,
+  Undo2,
   Upload,
+  Wand2,
   X
 } from 'lucide-react'
 import Link from 'next/link'
@@ -35,7 +37,9 @@ import {
   mediaPostProblem,
   postTextOf,
   VIDEO_TITLE_MAX,
-  type MediaPostDraft
+  withRewrittenPart,
+  type MediaPostDraft,
+  type MediaPostPart
 } from '~/lib/media-upload/drafts'
 import {
   UPLOAD_MAX_BYTES,
@@ -50,8 +54,9 @@ import { createMediaPosts, type CreatedPostResult } from './actions'
 /**
  * Create from media: upload or share one image or video; the AI looks at it
  * and writes a post for each platform picked (hook, caption, call to action,
- * hashtags); edit them; then publish now, schedule, or save them as drafts.
- * Every post goes out with the original file.
+ * hashtags); edit them, or have the AI write a post's hook, body or whole
+ * text again; then publish now, schedule, or save them as drafts. Every post
+ * goes out with the original file.
  *
  * The file goes from the browser straight into storage (a signed link), so a
  * video is not held to the app's request size. Nothing is saved as a post
@@ -90,6 +95,38 @@ type Generated = {
   media: MediaFacts
   analysis: MediaAnalysis
   warnings: Partial<Record<PlatformId, string>>
+}
+
+/** A part just written again, and the post as it was, for Undo. */
+type Rewritten = { part: MediaPostPart; before: MediaPostDraft }
+
+const REWRITTEN_LABEL: Record<MediaPostPart, string> = {
+  hook: 'New hook written.',
+  body: 'New body written.',
+  post: 'New post written.'
+}
+
+/** Whether an edit changes the part that was just written again. */
+function editsPart(
+  part: MediaPostPart,
+  before: MediaPostDraft,
+  after: MediaPostDraft
+): boolean {
+  if (part === 'hook') return before.hook !== after.hook
+  if (part === 'body') return before.body !== after.body
+  return (
+    before.hook !== after.hook ||
+    before.body !== after.body ||
+    before.cta !== after.cta ||
+    before.title !== after.title ||
+    before.firstComment !== after.firstComment ||
+    before.hashtags.join(' ') !== after.hashtags.join(' ')
+  )
+}
+
+const without = <T extends object, K extends keyof T>(record: T, key: K) => {
+  const { [key]: _, ...rest } = record
+  return rest as Omit<T, K>
 }
 
 const FOCUS_RING =
@@ -216,6 +253,20 @@ export function CreateFromMediaClient({
   const [analyzing, setAnalyzing] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const analyzeAbort = useRef<AbortController | null>(null)
+  // Regenerate on one post: the part being written again, by platform, and
+  // the last part written, for Undo. A post written whole remounts its card
+  // (its hashtags field keeps its own text).
+  const [rewriting, setRewriting] = useState<
+    Partial<Record<PlatformId, MediaPostPart>>
+  >({})
+  const [rewritten, setRewritten] = useState<
+    Partial<Record<PlatformId, Rewritten>>
+  >({})
+  const [cardResets, setCardResets] = useState<
+    Partial<Record<PlatformId, number>>
+  >({})
+  const rewriteAborts = useRef(new Map<PlatformId, AbortController>())
+  const anyRewriting = Object.keys(rewriting).length > 0
 
   // ------------------------------------------------------------ going out
   const [busy, setBusy] = useState<'publish' | 'schedule' | 'draft' | null>(
@@ -269,6 +320,7 @@ export function CreateFromMediaClient({
     () => () => {
       uploadAbort.current?.abort()
       analyzeAbort.current?.abort()
+      for (const controller of rewriteAborts.current.values()) controller.abort()
     },
     []
   )
@@ -282,9 +334,18 @@ export function CreateFromMediaClient({
     return () => window.removeEventListener('beforeunload', warn)
   }, [unsaved])
 
+  /** Stops every Regenerate under way; what it would have written is dropped. */
+  const stopRewriting = useCallback(() => {
+    for (const controller of rewriteAborts.current.values()) controller.abort()
+    rewriteAborts.current.clear()
+    setRewriting({})
+    setRewritten({})
+  }, [])
+
   const reset = useCallback(() => {
     uploadAbort.current?.abort()
     analyzeAbort.current?.abort()
+    stopRewriting()
     setPreview(null)
     setUpload(null)
     setUploading(false)
@@ -298,7 +359,7 @@ export function CreateFromMediaClient({
     setProblems({})
     setResults(null)
     setScheduling(false)
-  }, [])
+  }, [stopRewriting])
 
   /** Validates and uploads a file straight to storage. */
   const takeFile = useCallback(
@@ -410,6 +471,7 @@ export function CreateFromMediaClient({
   const analyze = async () => {
     if (!upload || selected.length === 0) return
     analyzeAbort.current?.abort()
+    stopRewriting()
     const controller = new AbortController()
     analyzeAbort.current = controller
     setAnalyzing(true)
@@ -447,6 +509,79 @@ export function CreateFromMediaClient({
     setAnalyzing(false)
   }
 
+  /**
+   * Regenerate on one post: its hook, body or whole text is written again
+   * from what the AI saw in the media; the rest of the post, edits included,
+   * stays. The media is not uploaded or read again.
+   */
+  const rewrite = async (platform: PlatformId, part: MediaPostPart) => {
+    const current = drafts[platform]
+    if (!generated || !current || rewriting[platform]) return
+    const controller = new AbortController()
+    rewriteAborts.current.set(platform, controller)
+    setRewriting(prev => ({ ...prev, [platform]: part }))
+    try {
+      const { formatId: _, ...draft } = current
+      const { draft: next } = await postJson<{ draft: MediaPostDraft }>(
+        '/api/media-posts/rewrite',
+        {
+          kind: generated.media.kind,
+          part,
+          analysis: generated.analysis,
+          notes,
+          draft
+        },
+        controller.signal
+      )
+      if (controller.signal.aborted) return
+      // Into the post as it is now: fields other than the one being written
+      // may have been edited meanwhile.
+      setDrafts(prev => {
+        const latest = prev[platform]
+        return latest
+          ? { ...prev, [platform]: withRewrittenPart(latest, next, part) }
+          : prev
+      })
+      setRewritten(prev => ({ ...prev, [platform]: { part, before: current } }))
+      setProblems(prev => without(prev, platform))
+      if (part === 'post') {
+        setCardResets(prev => ({ ...prev, [platform]: (prev[platform] ?? 0) + 1 }))
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return
+      showToast({
+        type: 'error',
+        title: 'Not regenerated',
+        message:
+          err instanceof Error ? err.message : 'The new text could not be written.'
+      })
+    } finally {
+      if (rewriteAborts.current.get(platform) === controller) {
+        rewriteAborts.current.delete(platform)
+        setRewriting(prev => without(prev, platform))
+      }
+    }
+  }
+
+  /** Puts back the part last written again, as it was before. */
+  const undoRewrite = (platform: PlatformId) => {
+    const last = rewritten[platform]
+    if (!last) return
+    setDrafts(prev => {
+      const latest = prev[platform]
+      return latest
+        ? {
+            ...prev,
+            [platform]: withRewrittenPart(latest, last.before, last.part)
+          }
+        : prev
+    })
+    setRewritten(prev => without(prev, platform))
+    if (last.part === 'post') {
+      setCardResets(prev => ({ ...prev, [platform]: (prev[platform] ?? 0) + 1 }))
+    }
+  }
+
   const shownDrafts = selected
     .map(id => drafts[id])
     .filter((d): d is MediaPostDraft => Boolean(d))
@@ -462,7 +597,8 @@ export function CreateFromMediaClient({
   ) as Partial<Record<PlatformId, string>>
 
   const submit = async (intent: 'publish' | 'schedule' | 'draft') => {
-    if (!upload || !generated || shownDrafts.length === 0) return
+    if (!upload || !generated || shownDrafts.length === 0 || anyRewriting)
+      return
     setBusy(intent)
     setSubmitError(null)
     setProblems({})
@@ -471,6 +607,8 @@ export function CreateFromMediaClient({
         uploadId: upload.uploadId,
         fileName: upload.fileName,
         summary: generated.analysis.summary,
+        analysis: generated.analysis,
+        notes,
         media: {
           width: generated.media.width,
           height: generated.media.height,
@@ -781,7 +919,12 @@ export function CreateFromMediaClient({
                           <input
                             type="checkbox"
                             checked={on}
-                            disabled={!kind || analyzing || Boolean(busy)}
+                            disabled={
+                              !kind ||
+                              analyzing ||
+                              Boolean(busy) ||
+                              Boolean(rewriting[choice.id])
+                            }
                             onChange={() => togglePlatform(choice.id)}
                             className="accent-accent h-4 w-4"
                           />
@@ -830,7 +973,15 @@ export function CreateFromMediaClient({
                       className="flex-1"
                       onClick={() => void analyze()}
                       disabled={
-                        !ready || selected.length === 0 || Boolean(busy)
+                        !ready ||
+                        selected.length === 0 ||
+                        Boolean(busy) ||
+                        anyRewriting
+                      }
+                      title={
+                        anyRewriting
+                          ? 'A post is being written again; wait for it first'
+                          : undefined
                       }
                     >
                       {generated ? (
@@ -845,6 +996,8 @@ export function CreateFromMediaClient({
                 {generated && !analyzing && (
                   <p className="text-muted mt-2 text-[11px]">
                     Write again replaces the text of every post ticked above.
+                    To keep a post and change one part of it, use Regenerate
+                    on the post.
                   </p>
                 )}
                 {analyzeError && (
@@ -898,7 +1051,7 @@ export function CreateFromMediaClient({
                   )}
                   {shownDrafts.map(draft => (
                     <PostEditor
-                      key={`${draft.platform}-${generation}`}
+                      key={`${draft.platform}-${generation}-${cardResets[draft.platform] ?? 0}`}
                       draft={draft}
                       choice={choiceOf(draft.platform)}
                       kind={generated.media.kind}
@@ -909,9 +1062,18 @@ export function CreateFromMediaClient({
                         null
                       }
                       disabled={analyzing || Boolean(busy)}
-                      onChange={next =>
+                      rewriting={rewriting[draft.platform] ?? null}
+                      rewritten={rewritten[draft.platform]?.part ?? null}
+                      onRewrite={part => void rewrite(draft.platform, part)}
+                      onUndo={() => undoRewrite(draft.platform)}
+                      onChange={next => {
                         setDrafts(prev => ({ ...prev, [draft.platform]: next }))
-                      }
+                        // Once the new part is edited, Undo would undo the edit too.
+                        const last = rewritten[draft.platform]
+                        if (last && editsPart(last.part, draft, next)) {
+                          setRewritten(prev => without(prev, draft.platform))
+                        }
+                      }}
                     />
                   ))}
 
@@ -966,7 +1128,8 @@ export function CreateFromMediaClient({
                             disabled={
                               Boolean(publishBlocked) ||
                               scheduleInvalid ||
-                              Boolean(busy)
+                              Boolean(busy) ||
+                              anyRewriting
                             }
                           >
                             <CalendarClock aria-hidden className="h-4 w-4" />
@@ -988,7 +1151,8 @@ export function CreateFromMediaClient({
                             disabled={
                               Boolean(publishBlocked) ||
                               Boolean(busy) ||
-                              analyzing
+                              analyzing ||
+                              anyRewriting
                             }
                           >
                             {busy !== 'publish' && (
@@ -1002,7 +1166,8 @@ export function CreateFromMediaClient({
                             disabled={
                               Boolean(publishBlocked) ||
                               Boolean(busy) ||
-                              analyzing
+                              analyzing ||
+                              anyRewriting
                             }
                           >
                             <CalendarClock aria-hidden className="h-4 w-4" />
@@ -1012,7 +1177,7 @@ export function CreateFromMediaClient({
                             variant="secondary"
                             onClick={() => void submit('draft')}
                             loading={busy === 'draft'}
-                            disabled={Boolean(busy) || analyzing}
+                            disabled={Boolean(busy) || analyzing || anyRewriting}
                           >
                             {busy !== 'draft' && (
                               <Save aria-hidden className="h-4 w-4" />
@@ -1081,7 +1246,10 @@ function AnalysisCard({
   )
 }
 
-/** One platform's post, editable field by field, with its length and problems. */
+/**
+ * One platform's post, editable field by field, with its length and
+ * problems, and Regenerate for its hook, its body or the whole post.
+ */
 function PostEditor({
   draft,
   choice,
@@ -1089,6 +1257,10 @@ function PostEditor({
   warning,
   problem,
   disabled,
+  rewriting,
+  rewritten,
+  onRewrite,
+  onUndo,
   onChange
 }: {
   draft: MediaPostDraft
@@ -1097,9 +1269,39 @@ function PostEditor({
   warning: string | null
   problem: string | null
   disabled: boolean
+  /** The part being written again now, if any. */
+  rewriting: MediaPostPart | null
+  /** The part last written again, while Undo can put it back. */
+  rewritten: MediaPostPart | null
+  onRewrite: (part: MediaPostPart) => void
+  onUndo: () => void
   onChange: (next: MediaPostDraft) => void
 }) {
   const id = useId()
+  // While a part is written again, that part (or, for the whole post,
+  // every field) waits for it; the other fields can still be edited.
+  const busy = rewriting !== null
+  const fieldsLocked = disabled || rewriting === 'post'
+  const hookLocked = fieldsLocked || rewriting === 'hook'
+  const bodyLocked = fieldsLocked || rewriting === 'body'
+  const partButton = (part: 'hook' | 'body', label: string) => (
+    <button
+      type="button"
+      onClick={() => onRewrite(part)}
+      disabled={disabled || busy}
+      className={cn(
+        'text-accent hover:bg-accent/10 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        FOCUS_RING
+      )}
+    >
+      {rewriting === part ? (
+        <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
+      ) : (
+        <RefreshCw aria-hidden className="h-3 w-3" />
+      )}
+      {rewriting === part ? 'Writing…' : label}
+    </button>
+  )
   const spec = FORMATS[draft.formatId]
   const isShort = spec.structure === 'script'
   const [tagText, setTagText] = useState(() =>
@@ -1145,6 +1347,17 @@ function PostEditor({
             {choice.accountName ? ` · ${choice.accountName}` : ''}
           </p>
         </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => onRewrite('post')}
+          disabled={disabled || busy}
+          loading={rewriting === 'post'}
+          title={`Write this ${choice.label} post again from your ${kind}. The other posts stay as they are.`}
+        >
+          {rewriting !== 'post' && <Wand2 aria-hidden className="h-3.5 w-3.5" />}
+          {rewriting === 'post' ? 'Writing…' : 'Regenerate post'}
+        </Button>
         <span
           className={cn(
             'rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums',
@@ -1158,6 +1371,30 @@ function PostEditor({
         </span>
       </header>
       <div className="space-y-3 p-4">
+        {rewritten && !busy && (
+          <p
+            role="status"
+            className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+          >
+            <CheckCircle2
+              aria-hidden
+              className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
+            />
+            {REWRITTEN_LABEL[rewritten]}
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={disabled}
+              className={cn(
+                'text-foreground inline-flex cursor-pointer items-center gap-1 rounded font-semibold hover:underline disabled:cursor-not-allowed disabled:opacity-50',
+                FOCUS_RING
+              )}
+            >
+              <Undo2 aria-hidden className="h-3 w-3" />
+              Undo
+            </button>
+          </p>
+        )}
         {(problem || warning) && (
           <div className="space-y-1.5">
             {problem && (
@@ -1189,46 +1426,54 @@ function PostEditor({
               id={`${id}-title-field`}
               value={draft.title}
               maxLength={VIDEO_TITLE_MAX}
-              disabled={disabled}
+              disabled={fieldsLocked}
               onChange={e => set({ title: e.target.value })}
               className={FIELD}
             />
           </div>
         )}
         <div>
-          <label htmlFor={`${id}-hook`} className={LABEL}>
-            Hook
-            {fold ? (
-              <span
-                className={cn(
-                  'ml-1.5 font-normal',
-                  hookLength > fold
-                    ? 'text-amber-700 dark:text-amber-300'
-                    : 'text-muted'
-                )}
-              >
-                {hookLength}/{fold} before &ldquo;more&rdquo;
-              </span>
-            ) : null}
-          </label>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <label htmlFor={`${id}-hook`} className={cn(LABEL, 'mb-0')}>
+              Hook
+              {fold ? (
+                <span
+                  className={cn(
+                    'ml-1.5 font-normal',
+                    hookLength > fold
+                      ? 'text-amber-700 dark:text-amber-300'
+                      : 'text-muted'
+                  )}
+                >
+                  {hookLength}/{fold} before &ldquo;more&rdquo;
+                </span>
+              ) : null}
+            </label>
+            {partButton('hook', 'Regenerate hook')}
+          </div>
           <textarea
             id={`${id}-hook`}
             value={draft.hook}
             rows={2}
-            disabled={disabled}
+            disabled={hookLocked}
+            aria-busy={rewriting === 'hook' || rewriting === 'post' || undefined}
             onChange={e => set({ hook: e.target.value })}
             className={cn(FIELD, 'resize-y')}
           />
         </div>
         <div>
-          <label htmlFor={`${id}-body`} className={LABEL}>
-            {isShort ? 'Description' : 'Caption'}
-          </label>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <label htmlFor={`${id}-body`} className={cn(LABEL, 'mb-0')}>
+              {isShort ? 'Description' : 'Body'}
+            </label>
+            {partButton('body', 'Regenerate body')}
+          </div>
           <textarea
             id={`${id}-body`}
             value={draft.body}
             rows={5}
-            disabled={disabled}
+            disabled={bodyLocked}
+            aria-busy={rewriting === 'body' || rewriting === 'post' || undefined}
             onChange={e => set({ body: e.target.value })}
             className={cn(FIELD, 'resize-y')}
           />
@@ -1242,7 +1487,7 @@ function PostEditor({
               id={`${id}-cta`}
               value={draft.cta}
               rows={2}
-              disabled={disabled}
+              disabled={fieldsLocked}
               onChange={e => set({ cta: e.target.value })}
               className={cn(FIELD, 'resize-y')}
             />
@@ -1262,15 +1507,13 @@ function PostEditor({
               id={`${id}-tags`}
               value={tagText}
               rows={2}
-              disabled={disabled}
+              disabled={fieldsLocked}
               placeholder="#example #another"
               onChange={e => {
                 setTagText(e.target.value)
                 set({
-                  hashtags: e.target.value
-                    .split(/[\s,]+/)
-                    .map(t => t.replace(/^#+/, ''))
-                    .filter(Boolean)
+                  // "#AI#SaaS" is two tags, not one glued "#AISaaS".
+                  hashtags: e.target.value.split(/[\s,;#]+/).filter(Boolean)
                 })
               }}
               className={cn(FIELD, 'resize-y')}
@@ -1297,7 +1540,7 @@ function PostEditor({
                 id={`${id}-comment`}
                 value={draft.firstComment}
                 rows={2}
-                disabled={disabled}
+                disabled={fieldsLocked}
                 onChange={e => set({ firstComment: e.target.value })}
                 className={cn(FIELD, 'resize-y')}
               />
@@ -1315,7 +1558,7 @@ function PostEditor({
                   value={draft.altText}
                   rows={2}
                   maxLength={1000}
-                  disabled={disabled}
+                  disabled={fieldsLocked}
                   onChange={e => set({ altText: e.target.value })}
                   className={cn(FIELD, 'resize-y')}
                 />
@@ -1325,7 +1568,7 @@ function PostEditor({
         </details>
         {!captionOf(draft) && (
           <p className="text-muted text-xs">
-            Not written yet: write it here, or choose Write again.
+            Not written yet: write it here, or choose Regenerate post.
           </p>
         )}
       </div>

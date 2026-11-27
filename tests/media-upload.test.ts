@@ -5,14 +5,22 @@ import {
   itemFor,
   overLimit,
   plainText,
-  toDraft
+  tagsOutOfText,
+  toDraft,
+  withClosingQuestion
 } from '../src/lib/ai/skills/media-post/guard'
 import {
+  buildFixPrompt,
   buildInstructions,
   buildPrompt,
-  MEDIA_TRUTH_RULES
+  MEDIA_MESSAGE_RULES,
+  MEDIA_TRUTH_RULES,
+  MEDIA_WRITING_RULES
 } from '../src/lib/ai/skills/media-post/prompt'
-import type { MediaPostItem } from '../src/lib/ai/skills/media-post/schema'
+import type {
+  MediaAnalysis,
+  MediaPostItem
+} from '../src/lib/ai/skills/media-post/schema'
 import {
   resolveMediaFormat,
   takesUploadedVideo,
@@ -24,7 +32,14 @@ import {
   mediaPostProblem,
   type MediaPostDraft
 } from '../src/lib/media-upload/drafts'
-import { frameTimes, parseFfmpegInfo } from '../src/lib/media-upload/inspect'
+import {
+  findHolds,
+  frameCountFor,
+  frameTimes,
+  motionBetween,
+  parseFfmpegInfo,
+  pickFrameTimes
+} from '../src/lib/media-upload/inspect'
 import {
   aspectRatioOf,
   UPLOAD_MAX_BYTES,
@@ -40,6 +55,7 @@ import { goldenCases } from './fixtures/generation'
 
 const item = (overrides: Partial<MediaPostItem> = {}): MediaPostItem => ({
   platform: 'linkedin',
+  angle: '',
   hook: 'A hook',
   body: 'A body',
   cta: 'A question?',
@@ -261,8 +277,81 @@ describe('media-post guard', () => {
   it('cleans hashtags and caps them at the platform maximum', () => {
     assert.deepStrictEqual(
       cleanHashtags(['#One', 'one', 'two words', '', '#3'], 2),
-      ['One', 'twowords']
+      ['One', 'TwoWords']
     )
+  })
+
+  it('splits tags sent as one, joins words in CamelCase, and drops tags with no letter', () => {
+    assert.deepStrictEqual(
+      cleanHashtags(['#AI #SaaS', 'order tracking', 'ai', '#1', 'eCommerce, B2B'], 10),
+      ['AI', 'SaaS', 'OrderTracking', 'eCommerce', 'B2B']
+    )
+    // Tags already written as tags, sent in one item with spaces, stay apart.
+    assert.deepStrictEqual(
+      cleanHashtags(['OrderTracking CustomerExperience', 'AI SaaS', 'Customer Experience'], 10),
+      // "Customer Experience" is one tag, and the same one again.
+      ['OrderTracking', 'CustomerExperience', 'AI', 'SaaS']
+    )
+  })
+
+  it('takes hashtags written at the end of the text out, and spaces glued ones', () => {
+    assert.deepStrictEqual(tagsOutOfText('Where do you land?\n\n#AI #SaaS'), {
+      text: 'Where do you land?',
+      tags: ['AI', 'SaaS']
+    })
+    assert.deepStrictEqual(tagsOutOfText('Great day. #Launch'), {
+      text: 'Great day.',
+      tags: ['Launch']
+    })
+    assert.deepStrictEqual(tagsOutOfText('Ask me?#AI#SaaS'), {
+      text: 'Ask me?',
+      tags: ['AI', 'SaaS']
+    })
+    // A tag a sentence ends on, or one inside it, is part of the sentence.
+    assert.deepStrictEqual(tagsOutOfText('Proud of the team at #TDC'), {
+      text: 'Proud of the team at #TDC',
+      tags: []
+    })
+    assert.deepStrictEqual(tagsOutOfText('Built for #ecommerce teams.'), {
+      text: 'Built for #ecommerce teams.',
+      tags: []
+    })
+    assert.deepStrictEqual(tagsOutOfText("We're #1 here"), {
+      text: "We're #1 here",
+      tags: []
+    })
+  })
+
+  it('moves a closing question at the end of the body into the call to action', () => {
+    assert.deepStrictEqual(
+      withClosingQuestion({ body: 'Point.\n\nWhere do you land?', cta: '' }),
+      { body: 'Point.', cta: 'Where do you land?' }
+    )
+    const kept = { body: 'Point.\n\nWhere?', cta: 'Book a call.' }
+    assert.strictEqual(withClosingQuestion(kept), kept)
+    const single = { body: 'Is this a question?', cta: '' }
+    assert.strictEqual(withClosingQuestion(single), single)
+  })
+
+  it('cleans what the model wrote into the text before the page shows it', () => {
+    const post = toDraft(
+      'linkedin',
+      'linkedin.post',
+      item({
+        hook: 'Carrier sites send customers away.',
+        body: 'Carrier sites send customers away. Your page keeps them.\n\nWhere do yours go?\n\n#OrderTracking #Ecommerce',
+        cta: '',
+        hashtags: ['CustomerExperience']
+      }),
+      { kind: 'video', voiceMaxHashtags: 5 }
+    )
+    assert.strictEqual(post.body, 'Your page keeps them.')
+    assert.strictEqual(post.cta, 'Where do yours go?')
+    assert.deepStrictEqual(post.hashtags, [
+      'CustomerExperience',
+      'OrderTracking',
+      'Ecommerce'
+    ])
   })
 
   it('takes markdown out and keeps paragraphs', () => {
@@ -329,6 +418,36 @@ describe('media-post prompt', () => {
     assert.ok(instructions.includes(MEDIA_TRUTH_RULES))
   })
 
+  it('works out the message and every feature, checked, ranked and grouped, then tells it as a story', () => {
+    const instructions = buildInstructions(ctx)
+    assert.ok(instructions.includes(MEDIA_MESSAGE_RULES))
+    assert.ok(instructions.includes(MEDIA_WRITING_RULES))
+    assert.match(MEDIA_MESSAGE_RULES, /problem it addresses, who has that problem/)
+    assert.match(MEDIA_MESSAGE_RULES, /every capability it demonstrates or names/)
+    assert.match(MEDIA_MESSAGE_RULES, /a mobile or phone preview/)
+    assert.match(MEDIA_MESSAGE_RULES, /scaffolding/)
+    assert.match(MEDIA_MESSAGE_RULES, /A feature is a capability, not a control/)
+    assert.match(MEDIA_MESSAGE_RULES, /give the numbers of the frames it can be seen in/)
+    assert.match(MEDIA_MESSAGE_RULES, /Rank them: the one to three lead demonstrations/)
+    assert.match(MEDIA_MESSAGE_RULES, /Group them by the outcome they serve/)
+    assert.match(MEDIA_WRITING_RULES, /Tell it as a short story for the reader, not a feature list or a manual/)
+    assert.match(MEDIA_WRITING_RULES, /Carry both the main message and what the media demonstrates, by priority/)
+    assert.match(MEDIA_WRITING_RULES, /Never more than three things in one sentence/)
+    assert.match(MEDIA_WRITING_RULES, /Turn features into benefits/)
+    assert.match(MEDIA_WRITING_RULES, /One main message per post, said once/)
+    assert.match(MEDIA_WRITING_RULES, /at most three lines/)
+    assert.match(MEDIA_WRITING_RULES, /Never narrate it/)
+    assert.match(MEDIA_WRITING_RULES, /never walk through it in order/)
+    assert.match(MEDIA_TRUTH_RULES, /only when the analysis lists it with the frames it is in/)
+    assert.match(MEDIA_TRUTH_RULES, /integrations, analytics, automation, AI, real-time updates/)
+    assert.match(MEDIA_TRUTH_RULES, /how common, costly or important a problem or a moment is/)
+    assert.match(MEDIA_TRUTH_RULES, /never tie it to the author's other offerings or industry/)
+    // Every post ends on a question, not a generic one.
+    assert.match(instructions, /CLOSING QUESTION\nEnd every post on one closing question, in cta/)
+    // The goal's action is offered only where the media fits it.
+    assert.match(instructions, /the question may steer toward/)
+  })
+
   it("describes a video's frames, its unheard sound and each platform's rules", () => {
     const prompt = buildPrompt(ctx, {
       media: {
@@ -347,7 +466,13 @@ describe('media-post prompt', () => {
     })
     assert.match(prompt, /1080x1920, 1:15 long/)
     assert.match(prompt, /frame 1 at 0:04, frame 2 at 1:05/)
+    assert.match(prompt, /where the picture holds still/)
+    assert.match(prompt, /read them for its message .*never to retell them/)
     assert.match(prompt, /cannot hear/)
+    assert.match(prompt, /ending with "message"/)
+    assert.match(prompt, /write "angle" before the hook/)
+    // The LinkedIn shape is LinkedIn's alone.
+    assert.doesNotMatch(prompt, /Shape:/)
     assert.match(prompt, /Our new warehouse in Leeds/)
     assert.match(prompt, /PLATFORM: x \(X post, posted with the video\)/)
     assert.match(prompt, /under 280 characters as X counts them/)
@@ -366,6 +491,82 @@ describe('media-post prompt', () => {
     assert.match(prompt, /Never write a URL/)
     assert.doesNotMatch(prompt, /visualIdea/)
     assert.match(prompt, /altText: what the image shows/)
+  })
+
+  it('gives a LinkedIn post a story shape and room for each group; shorter platforms the main message', () => {
+    const prompt = buildPrompt(ctx, {
+      media: { kind: 'video', width: 1920, height: 1080, durationSeconds: 65, hasAudio: true, frameTimes: [1.5] },
+      targets: [
+        { platform: 'linkedin', formatId: 'linkedin.post' },
+        { platform: 'x', formatId: 'x.post' }
+      ],
+      notes: ''
+    })
+    assert.match(prompt, /Shape: the hook \(a moment or problem the reader knows/)
+    assert.match(prompt, /two or three short paragraphs, one per group of what the media demonstrates, strongest first/)
+    assert.match(prompt, /No closing line that sums the post up or says the main message again/)
+    assert.match(prompt, /Coverage: the main message, and every lead and supporting feature in the analysis, by group/)
+    assert.match(prompt, /Each supporting feature gets a clause or a short sentence inside its group's paragraph, never a paragraph or a bullet of its own; minor ones stay out/)
+    assert.match(prompt, /up to about 1690 characters; it never gets there by listing more/)
+    assert.match(prompt, /Coverage: the main message, made concrete by the lead demonstration \(two at most\)/)
+    assert.match(prompt, /each with the frames it is in, its rank and its group/)
+    assert.doesNotMatch(prompt, /moment worth watching for/)
+    assert.match(prompt, /one per item in the hashtags field/)
+  })
+
+  it('sends a rewrite the description of the media, the notes and what to fix', () => {
+    const analysis: MediaAnalysis = {
+      summary: 'A walkthrough of a tracking page builder.',
+      details: ['A tracking page with an In transit parcel'],
+      visibleText: ['Carrier sites send customers away.'],
+      mood: 'calm',
+      uncertain: ['What the voice-over says'],
+      message: {
+        kind: 'product',
+        subject: 'Track360 tracking pages',
+        problem: 'Carrier sites send customers away.',
+        audience: 'Online store owners',
+        value: 'Customers track orders without leaving the store.',
+        features: [
+          {
+            name: 'Mobile preview',
+            frames: [6, 7, 9],
+            shown: 'Caption "Check it on mobile before you publish." over a phone-width page',
+            benefit: 'Check the page on a phone before it goes live',
+            priority: 'supporting',
+            group: 'Nothing goes live unchecked',
+            terms: ['mobile', 'phone']
+          },
+          {
+            name: 'Brand styling',
+            frames: [4],
+            shown: 'Logo, colour and font controls',
+            benefit: 'The page looks like the store',
+            priority: 'lead',
+            group: 'Looks like your own store',
+            terms: ['brand']
+          }
+        ],
+        scaffolding: ['Northwind Outfitters']
+      }
+    }
+    const prompt = buildFixPrompt(
+      ctx,
+      { kind: 'video', analysis, notes: 'Our launch video' },
+      [draft({ hook: 'First, set the brand.', body: 'Then add offers.' })],
+      [['It walks through the video step by step.']]
+    )
+    assert.match(prompt, /THE VIDEO, AS DESCRIBED WHEN IT WAS LOOKED AT/)
+    assert.match(prompt, /Problem it addresses: Carrier sites send customers away\./)
+    assert.match(
+      prompt,
+      /What it demonstrates, by the outcome for the audience, strongest first \(only these are capabilities of the product\):\n- Looks like your own store:\n  - Brand styling \[lead; frame 4\]: The page looks like the store\. Shown: Logo, colour and font controls\.\n- Nothing goes live unchecked:\n  - Mobile preview \[supporting; frames 6-7, 9\]: Check the page on a phone before it goes live\. Shown: Caption "Check it on mobile before you publish\." over a phone-width page\./
+    )
+    assert.match(prompt, /Demo scaffolding \(never name these\):\n- Northwind Outfitters/)
+    assert.match(prompt, /Our launch video/)
+    assert.match(prompt, /Problems to fix:\n- It walks through the video step by step\./)
+    assert.match(prompt, /"hook":"First, set the brand\."/)
+    assert.match(prompt, /PLATFORM: linkedin/)
   })
 })
 
@@ -395,5 +596,93 @@ describe('reading an uploaded video', () => {
     assert.deepStrictEqual(frameTimes(80, 8), [5, 15, 25, 35, 45, 55, 65, 75])
     assert.deepStrictEqual(frameTimes(2, 8), [0.5, 1.5])
     assert.deepStrictEqual(frameTimes(null), [0])
+  })
+
+  it('shows a longer video more frames, up to sixteen', () => {
+    assert.strictEqual(frameCountFor(30), 8)
+    assert.strictEqual(frameCountFor(45), 12)
+    assert.strictEqual(frameCountFor(65), 16)
+    assert.strictEqual(frameCountFor(600), 16)
+    assert.strictEqual(frameCountFor(null), 1)
+  })
+
+  it('measures how much each grey sample differs from the one before', () => {
+    const gray = new Uint8Array([0, 0, 0, 0, 4, 4, 0, 0, 4, 4, 0, 0])
+    assert.deepStrictEqual(motionBetween(gray, 4), [2, 0])
+  })
+
+  it('finds where the picture holds still for half a second or more', () => {
+    // Four samples a second: still at samples 2-3 and 6-7, moving after.
+    const motion = [5, 0, 0, 0, 5, 0, 0, 0, 9]
+    assert.deepStrictEqual(findHolds(motion, 4), [
+      { start: 0.5, end: 0.75 },
+      { start: 1.5, end: 1.75 }
+    ])
+    assert.deepStrictEqual(findHolds([9, 9, 9], 4), [])
+  })
+
+  it("keeps a video's opening cards and end card, and a held moment in each part between", () => {
+    // Where a 65-second launch video held still (measured on the real file):
+    // "Carrier sites send customers away.", "Your page keeps them.", the
+    // logo, then caption cards over screens, then the end card.
+    const holds = [
+      [1.25, 1.75], [2.75, 3.5], [4.5, 6.25], [8.25, 8.75], [11.25, 12.5],
+      [14.75, 15.75], [21, 22.75], [24.25, 27], [29.75, 31.5], [33.25, 35],
+      [38, 39.5], [41.25, 42.5], [43.75, 44.5], [49.25, 50.5], [52.5, 53.25],
+      [56.25, 57.75], [59.5, 64.5]
+    ].map(([start, end]) => ({ start: start!, end: end! }))
+    const times = pickFrameTimes(65, holds, 12)
+    assert.strictEqual(times.length, 12)
+    assert.deepStrictEqual(times.slice(0, 3), [1.5, 3.13, 5.38])
+    assert.strictEqual(times[times.length - 1], 62)
+    assert.deepStrictEqual([...times].sort((a, b) => a - b), times)
+    // Every frame is inside a hold: nothing caught mid-transition.
+    for (const t of times) {
+      assert.ok(holds.some(h => t >= h.start && t <= h.end), `${t} is in a hold`)
+    }
+    // Even frames missed both opening cards.
+    assert.ok(frameTimes(65, 12).every(t => t > 2.5))
+  })
+
+  it('keeps a short card between two longer screens, dropping the most crowded moments', () => {
+    // The same video's holds as the bundled ffmpeg reads them: nine caption
+    // cards, each over one to three holds. The longest hold in each equal
+    // part lost "Your own address, your own page." (46.75-47) to the
+    // preview screen before it.
+    const holds = [
+      [1.25, 1.75], [2.5, 3.25], [4.5, 6], [8.25, 8.5], [11.25, 12.25],
+      [14.75, 15.5], [20, 20.25], [21, 22.5], [24.25, 26.75], [29.75, 31.25],
+      [33.25, 34.75], [38, 39.25], [41.25, 42.25], [43.75, 44.25], [46.75, 47],
+      [49.25, 50.25], [52.5, 53], [56.25, 57.5], [59.5, 60], [61, 64.25]
+    ].map(([start, end]) => ({ start: start!, end: end! }))
+    const times = pickFrameTimes(65, holds, 16)
+    assert.deepStrictEqual(times, [
+      1.5, 2.88, 5.25, 8.38, 11.75, 15.13, 20.13, 25.5, 30.5, 34, 38.63, 41.75,
+      46.88, 52.75, 56.88, 62.63
+    ])
+  })
+
+  it('takes frames across a long stretch of motion between holds', () => {
+    // A card, 40 seconds of a demonstration in motion, an end card.
+    const holds = [
+      { start: 1, end: 3 },
+      { start: 55, end: 58 }
+    ]
+    const times = pickFrameTimes(60, holds, 8)
+    assert.strictEqual(times.length, 8)
+    assert.strictEqual(times[0], 2)
+    assert.strictEqual(times[times.length - 1], 56.5)
+    const inMotion = times.filter(t => t > 3 && t < 55)
+    assert.strictEqual(inMotion.length, 6)
+    // Spread across it, none more than twice an even spacing apart.
+    const all = [2, ...inMotion, 56.5]
+    for (let i = 1; i < all.length; i++) {
+      assert.ok(all[i]! - all[i - 1]! <= 15, `${all[i - 1]} to ${all[i]}`)
+    }
+  })
+
+  it('frames a video that never holds still evenly, and a short clip by its seconds', () => {
+    assert.deepStrictEqual(pickFrameTimes(80, [], 8), frameTimes(80, 8))
+    assert.deepStrictEqual(pickFrameTimes(3, [{ start: 0.5, end: 1 }], 8), [0.75, 1.67, 2.58])
   })
 })

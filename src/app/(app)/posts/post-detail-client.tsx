@@ -150,7 +150,11 @@ import {
   deletedFromPlatformAt,
   PostProgress
 } from './post-status'
-import { RegenerateControl, VersionHistory } from './post-versions'
+import {
+  MediaRegenerateControl,
+  RegenerateControl,
+  VersionHistory
+} from './post-versions'
 import type { BrandSummary, PostDetail } from './posts-client'
 import { getPostPublication } from './publish-actions'
 import { PublishControls } from './publish-controls'
@@ -1619,8 +1623,12 @@ export function PostDetailClient({
     { image: Boolean(activePost.media) }
   )
   const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
-  // Made from a video the user uploaded (Create from media): it goes out as
-  // uploaded, so the type picker and the recorder give way to the video.
+  // Made from an image or video the user uploaded (Create from media): it
+  // has no idea behind it, so Regenerate writes its hook, body or whole text
+  // again from what the AI saw in the media, and its preview shows it whole.
+  const madeFromUpload = uploadedMediaOf(activePost.payload) !== null
+  // Made from a video the user uploaded: it goes out as uploaded, so the
+  // type picker and the recorder give way to the video.
   const uploadedVideo =
     shownMedia === 'video' && uploadedMediaOf(activePost.payload)?.kind === 'video'
   // Set aside by "Text only": the image is kept but does not go out.
@@ -2194,18 +2202,31 @@ export function PostDetailClient({
                     )}
                   {/* A published post (or one marked posted) keeps the text
                       that went out; regenerateDraft refuses it too. */}
-                  {!activePublished && !activePost.postedAt && (
-                    <RegenerateControl
-                      key={activePost.id}
-                      post={activePost}
-                      // One new text at a time: Restore's too.
-                      disabled={isEditing || isSaving || textReplacing}
-                      confirmStart={confirmRegenerate}
-                      onBusyChange={setTextReplacing}
-                      onDone={replacePostText}
-                      buttonClassName={TOOL_BUTTON}
-                    />
-                  )}
+                  {!activePublished &&
+                    !activePost.postedAt &&
+                    (madeFromUpload ? (
+                      <MediaRegenerateControl
+                        key={activePost.id}
+                        post={activePost}
+                        // One new text at a time: Restore's too.
+                        disabled={isEditing || isSaving || textReplacing}
+                        confirmStart={confirmRegenerate}
+                        onBusyChange={setTextReplacing}
+                        onDone={replacePostText}
+                        buttonClassName={TOOL_BUTTON}
+                      />
+                    ) : (
+                      <RegenerateControl
+                        key={activePost.id}
+                        post={activePost}
+                        // One new text at a time: Restore's too.
+                        disabled={isEditing || isSaving || textReplacing}
+                        confirmStart={confirmRegenerate}
+                        onBusyChange={setTextReplacing}
+                        onDone={replacePostText}
+                        buttonClassName={TOOL_BUTTON}
+                      />
+                    ))}
                   <button
                     type="button"
                     onClick={() => setIsEditing(!isEditing)}
@@ -2315,6 +2336,7 @@ export function PostDetailClient({
                           firstComment={activePost.firstComment || ''}
                           onCopyFirstComment={handleCopyComment}
                           firstCommentCopied={copiedComment}
+                          expandedByDefault={madeFromUpload}
                         />
                       </div>
                     )}

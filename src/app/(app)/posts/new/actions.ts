@@ -23,11 +23,15 @@ import {
   mediaPostProblem,
   type MediaPostDraft
 } from '~/lib/media-upload/drafts'
-import { uploadFormatOf } from '~/lib/media-upload/rules'
+import {
+  UPLOAD_NOTES_MAX_CHARS,
+  uploadFormatOf
+} from '~/lib/media-upload/rules'
 import {
   createPostsFromUpload,
   MediaUploadError
 } from '~/lib/media-upload/service'
+import { parseMediaAnalysis } from '~/lib/media-upload/stored-analysis'
 
 /**
  * Create from media, the last step: makes a post per platform from what the
@@ -53,6 +57,13 @@ const inputSchema = z.object({
   uploadId: z.string().max(100),
   fileName: z.string().max(200).nullable().default(null),
   summary: text(2000),
+  /**
+   * What the AI saw in the media, as the page got it, and the author's
+   * notes: kept with each post so Regenerate can write its hook or body
+   * again later. A missing or malformed analysis is only not kept.
+   */
+  analysis: z.unknown().optional(),
+  notes: text(UPLOAD_NOTES_MAX_CHARS),
   media: z.object({
     width: z.number().nullable(),
     height: z.number().nullable(),
@@ -163,6 +174,8 @@ export async function createMediaPosts(
       uploadId: input.uploadId,
       fileName: input.fileName,
       summary: input.summary,
+      analysis: parseMediaAnalysis(input.analysis),
+      notes: input.notes,
       posts: drafts,
       approved: input.intent !== 'draft',
       media: input.media

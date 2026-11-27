@@ -54,7 +54,16 @@ import { validateImageUrl } from '~/lib/media/image-input'
 import { deleteDraftImages, deleteStoredImages } from '~/lib/media/image-store'
 import { createPostMedia } from '~/lib/media/post-media'
 import { withAiSpend } from '~/lib/ai/spend'
-import { assertPostChangeable } from '@/lib/publishing/post-lock'
+import { SkillError } from '~/lib/ai/run-skill'
+import {
+  assertPostChangeable,
+  PostLockedError
+} from '@/lib/publishing/post-lock'
+import { isMediaPostPart } from '~/lib/media-upload/drafts'
+import {
+  RegenerateMediaError,
+  regenerateSavedMediaPost
+} from '~/lib/media-upload/regenerate'
 import { loadPostsPage } from './posts-data'
 
 /**
@@ -259,6 +268,54 @@ export async function regeneratePost(draftId: string, instruction?: string | nul
     return {
       success: false as const,
       error: err.message || 'The new version could not be written.'
+    }
+  }
+}
+
+/**
+ * Regenerate on a post made from uploaded media: writes its hook, its body
+ * or its whole text again from what the AI saw in the media, keeps the rest
+ * and the media as they are, and returns it. The version it replaces is kept
+ * under Earlier versions.
+ */
+export async function regenerateMediaPost(
+  draftId: string,
+  part: string,
+  instruction?: string | null
+) {
+  await requireUser()
+  try {
+    if (!z.string().uuid().safeParse(draftId).success) {
+      throw new Error('Draft not found')
+    }
+    if (!isMediaPostPart(part)) {
+      throw new Error('Choose the hook, the body or the entire post.')
+    }
+    const wanted = typeof instruction === 'string' ? instruction.trim() : ''
+    if (wanted.length > MAX_INSTRUCTION_CHARS) {
+      throw new Error(
+        `Keep the instruction under ${MAX_INSTRUCTION_CHARS} characters.`
+      )
+    }
+    const accountId = await requireIdentityId()
+    await regenerateSavedMediaPost(accountId, draftId, part, wanted || null)
+    const { posts } = await loadPostsPage(accountId, { ids: [draftId] })
+    revalidatePath('/posts')
+    return { success: true as const, post: posts[0] ?? null }
+  } catch (err: any) {
+    if (
+      !(err instanceof RegenerateMediaError) &&
+      !(err instanceof PostLockedError) &&
+      !(err instanceof SkillError)
+    ) {
+      console.error('Could not regenerate a post made from media:', err)
+    }
+    return {
+      success: false as const,
+      error:
+        err instanceof SkillError && err.reason === 'timeout'
+          ? 'The AI took too long to answer. Try again.'
+          : err.message || 'The new text could not be written.'
     }
   }
 }
@@ -614,7 +671,7 @@ export async function updatePostMediaAction(
     mode: 'ai_generated' | 'stock' | 'none'
     imageUrl?: string
     altText?: string
-    promptOrQuery?: string
+    promptOrQuery?: string                  
   }
 ) {
   await requireUser()
