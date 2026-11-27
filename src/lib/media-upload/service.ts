@@ -267,6 +267,10 @@ export async function analyzeUpload(
     )
   }
 
+  // The author's details load while the media is read.
+  const context = loadGenerationContext(accountId)
+  context.catch(() => {})
+
   let facts: UploadFacts
   let pictures
   let frameTimes: number[] | undefined
@@ -313,7 +317,7 @@ export async function analyzeUpload(
     }
   }
 
-  const ctx = await loadGenerationContext(accountId)
+  const ctx = await context
   const result = await withAiSpend({ source: 'posts', accountId }, () =>
     writeMediaPosts({
       ctx,

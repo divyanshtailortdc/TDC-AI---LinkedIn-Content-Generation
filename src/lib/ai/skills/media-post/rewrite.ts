@@ -221,7 +221,6 @@ function itemOf(
     firstComment: draft.firstComment,
     title: draft.title,
     altText: draft.altText,
-    mediaDetails: [],
     ...patch
   }
 }

@@ -43,7 +43,7 @@ export const MediaFeatureSchema = z.object({
   shown: z
     .string()
     .describe(
-      'What the media shows of it: the caption or on-screen text that names it, the controls or settings that make it up, the action and its result.'
+      'What the media shows of it, in one short sentence: the caption or on-screen text that names it, the controls or settings that make it up, the action and its result.'
     ),
   benefit: z
     .string()
@@ -115,7 +115,7 @@ export const MediaAnalysisSchema = z.object({
   details: z
     .array(z.string())
     .describe(
-      'Concrete things that can be seen (people and what they do, objects, setting, colours, actions, what changes across the frames), one per item.'
+      'Concrete things that can be seen (people and what they do, objects, setting, colours, actions, what changes across the frames), one per item, each a short phrase of a few words; at most ten. Do not quote on-screen text here (it goes in visibleText) or walk through the features (they go in message.features).'
     ),
   visibleText: z
     .array(z.string())
@@ -166,10 +166,7 @@ export const MediaPostItemSchema = z.object({
     .string()
     .describe(
       'For an image: a plain description for screen readers. Empty for a video.'
-    ),
-  mediaDetails: z
-    .array(z.string())
-    .describe('The details from your description that this post refers to.')
+    )
 })
 
 export const MediaPostSchema = z.object({

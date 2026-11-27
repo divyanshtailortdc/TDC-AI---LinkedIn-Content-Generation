@@ -63,7 +63,6 @@ const item = (overrides: Partial<MediaPostItem> = {}): MediaPostItem => ({
   firstComment: '',
   title: '',
   altText: '',
-  mediaDetails: [],
   ...overrides
 })
 
@@ -503,8 +502,9 @@ describe('media-post prompt', () => {
       notes: ''
     })
     assert.match(prompt, /Shape: the hook \(a moment or problem the reader knows/)
-    assert.match(prompt, /two or three short paragraphs, one per group of what the media demonstrates, strongest first/)
-    assert.match(prompt, /No closing line that sums the post up or says the main message again/)
+    assert.match(prompt, /one short paragraph per group of what the media demonstrates, strongest first/)
+    assert.match(prompt, /never end on one that only adds one more thing the product does/)
+    assert.match(prompt, /no closing line that sums the post up or says the main message again/)
     assert.match(prompt, /Coverage: the main message, and every lead and supporting feature in the analysis, by group/)
     assert.match(prompt, /Each supporting feature gets a clause or a short sentence inside its group's paragraph, never a paragraph or a bullet of its own; minor ones stay out/)
     assert.match(prompt, /up to about 1690 characters; it never gets there by listing more/)

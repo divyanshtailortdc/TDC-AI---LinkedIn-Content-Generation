@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { spawn } from 'node:child_process'
+import { availableParallelism } from 'node:os'
 import sharp from 'sharp'
 import { findFfmpeg } from '~/lib/video/render/binaries'
 
@@ -21,6 +22,16 @@ import { findFfmpeg } from '~/lib/video/render/binaries'
 
 /** Longest edge of a picture sent to the model: larger is downscaled by it. */
 const MODEL_EDGE = 1568
+/**
+ * Longest edge of a video frame sent to the model. The model reads images
+ * by area (about one token per 28x28 pixels), so a 16:9 frame at 1568 was
+ * about 1,760 tokens and sixteen of them most of the request; at 1280 one
+ * is about 1,180, and caption cards and on-screen labels still read. The
+ * request is about a quarter smaller, and answered sooner.
+ */
+const FRAME_EDGE = 1280
+/** Frames read at once: each is a short ffmpeg run of its own. */
+const FRAME_CONCURRENCY = Math.min(8, Math.max(4, availableParallelism()))
 /** Frames shown of a video: at least this many, when it is long enough. */
 export const VIDEO_FRAMES = 8
 /**
@@ -28,7 +39,7 @@ export const VIDEO_FRAMES = 8
  * A product video gives each feature a few seconds of its own; at 12 frames
  * for 65 seconds, one of the Track360 launch video's nine caption cards
  * ("Your own address, your own page.") fell between frames. Each frame is
- * about 1,800 input tokens.
+ * about 1,200 input tokens (FRAME_EDGE).
  */
 export const VIDEO_FRAMES_MAX = 16
 const SECONDS_PER_FRAME = 4
@@ -464,36 +475,39 @@ export async function inspectVideo(
     holds && info.durationSeconds
       ? pickFrameTimes(info.durationSeconds, holds, count)
       : frameTimes(info.durationSeconds, count)
-  const frames: VideoFacts['frames'] = []
-  // A few at a time: each is a short ffmpeg run of its own.
-  for (let i = 0; i < times.length; i += 4) {
-    const batch = await Promise.all(
-      times.slice(i, i + 4).map(async atSeconds => {
-        const run = await runFfmpeg(
-          ffmpeg,
-          [
-            '-hide_banner',
-            '-loglevel',
-            'error',
-            '-ss',
-            String(atSeconds),
-            '-i',
-            file,
-            '-frames:v',
-            '1',
-            '-vf',
-            `scale='min(${MODEL_EDGE},iw)':'min(${MODEL_EDGE},ih)':force_original_aspect_ratio=decrease`,
-            '-f',
-            'image2pipe',
-            '-vcodec',
-            'mjpeg',
-            '-q:v',
-            '4',
-            'pipe:1'
-          ],
-          signal
-        )
-        return run.stdout.length > 0
+  // A few at a time, the next started as soon as one ends, kept in order.
+  const read: Array<VideoFacts['frames'][number] | null> = []
+  let next = 0
+  const readFrames = async () => {
+    while (next < times.length) {
+      const index = next++
+      const atSeconds = times[index]!
+      const run = await runFfmpeg(
+        ffmpeg,
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-ss',
+          String(atSeconds),
+          '-i',
+          file,
+          '-frames:v',
+          '1',
+          '-vf',
+          `scale='min(${FRAME_EDGE},iw)':'min(${FRAME_EDGE},ih)':force_original_aspect_ratio=decrease`,
+          '-f',
+          'image2pipe',
+          '-vcodec',
+          'mjpeg',
+          '-q:v',
+          '4',
+          'pipe:1'
+        ],
+        signal
+      )
+      read[index] =
+        run.stdout.length > 0
           ? {
               atSeconds,
               picture: {
@@ -502,10 +516,17 @@ export async function inspectVideo(
               }
             }
           : null
-      })
-    )
-    for (const frame of batch) if (frame) frames.push(frame)
+    }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(FRAME_CONCURRENCY, times.length) }, () =>
+      readFrames()
+    )
+  )
+  signal?.throwIfAborted()
+  const frames = read.filter(
+    (frame): frame is VideoFacts['frames'][number] => Boolean(frame)
+  )
   if (frames.length === 0) {
     throw new UnreadableMediaError(
       'No frames could be read from the video. Upload an MP4 or MOV file.'

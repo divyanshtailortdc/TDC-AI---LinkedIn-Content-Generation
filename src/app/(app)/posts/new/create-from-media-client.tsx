@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { MediaAnalysis } from '~/lib/ai/skills/media-post/schema'
 import {
@@ -226,6 +227,7 @@ export function CreateFromMediaClient({
   storageReady: boolean
   identityName: string
 }) {
+  const router = useRouter()
   // ------------------------------------------------------------ the media
   const [preview, setPreview] = useState<{
     url: string
@@ -642,6 +644,16 @@ export function CreateFromMediaClient({
                 ? 'Scheduled'
                 : 'Published'
       })
+      // Saved as wanted: on to the post, or to the list when there are
+      // several. When a post could not go out, the summary stays to say why.
+      if (!failed) {
+        const [only] = outcome.results
+        router.push(
+          outcome.results.length === 1 && only
+            ? `/posts/${only.draftId}`
+            : '/posts'
+        )
+      }
     } catch {
       setSubmitError(
         'The posts could not be saved. Check your connection and try again.'
