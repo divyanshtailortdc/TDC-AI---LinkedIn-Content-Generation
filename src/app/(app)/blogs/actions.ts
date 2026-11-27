@@ -26,6 +26,7 @@ import {
   restoreBlogRevision,
   saveBlogEdit,
   setBlogPublished as setPublished,
+  setBlogShareLink,
   setFeaturedImage,
   replaceSectionImage
 } from '@/lib/blogs/store'
@@ -469,6 +470,29 @@ export async function setBlogPublished(
     return { success: true, blog: await editorBlogOf(outcome.blog) }
   } catch (err) {
     return fail(err, 'Could not change whether it is published.')
+  }
+}
+
+/**
+ * Turns the blog's public link on (keeping the one it has) or off, and
+ * returns its token: null when it is off.
+ */
+export async function setBlogSharing(
+  blogId: string,
+  shared: boolean
+): Promise<{ success: true; shareToken: string | null } | Failure> {
+  await requireUser()
+  try {
+    const accountId = await requireIdentityId()
+    const result = await setBlogShareLink(db, {
+      accountId,
+      blogId,
+      shared: shared === true
+    })
+    if (!result) return { success: false, error: NOT_FOUND }
+    return { success: true, shareToken: result.shareToken }
+  } catch (err) {
+    return fail(err, 'Could not change the share link.')
   }
 }
 

@@ -1970,8 +1970,8 @@ export const aiUsageTable = pgTable(
 
 // Only what saved data cannot show (src/lib/onboarding): the optional steps
 // the user chose to leave for later, the steps whose defaults they confirmed
-// (preferences, the channels Buffer picked), and whether the guide bar is
-// hidden. Everything else is read from the tables the steps write. No row
+// (preferences, the channels Buffer picked), and whether the guide was put
+// away. Everything else is read from the tables the steps write. No row
 // until the user skips, confirms or hides something.
 export const onboardingProgressTable = pgTable('onboarding_progress', {
   accountId: uuid('account_id')
@@ -1979,7 +1979,7 @@ export const onboardingProgressTable = pgTable('onboarding_progress', {
     .references(() => accountsTable.id, { onDelete: 'cascade' }),
   skipped: jsonb('skipped').$type<string[]>().default([]).notNull(),
   confirmed: jsonb('confirmed').$type<string[]>().default([]).notNull(),
-  // The guide bar is hidden; the dashboard checklist stays until complete.
+  // The guide was put away (the checklist's done card dismissed).
   hiddenAt: commonFieldDefs.date('hidden_at'),
   // When the first post went out, first noticed; kept for the record.
   completedAt: commonFieldDefs.date('completed_at'),
@@ -2088,10 +2088,16 @@ export const blogsTable = pgTable(
     // never a social platform. Null for a draft, and for a blog marked
     // published before the app asked where.
     publishedTo: varchar('published_to', { length: 20 }).$type<BlogDestinationId>(),
+    // The secret in its public link (/share/<token>, src/lib/blogs/share.ts):
+    // anyone with the link reads the saved text, without signing in. Null
+    // when it is not shared; sharing again makes a new one, so an old link
+    // stays off.
+    shareToken: text('share_token'),
     ...commonFieldDefs.dates
   },
   table => [
     index('blogs_account_updated_idx').on(table.accountId, table.updatedAt),
+    uniqueIndex('blogs_share_token_uq').on(table.shareToken),
     check('blogs_kind_check', sql`${table.kind} in (${sqlList(BLOG_KINDS)})`),
     check('blogs_status_check', sql`${table.status} in (${sqlList(BLOG_STATUSES)})`),
     check(

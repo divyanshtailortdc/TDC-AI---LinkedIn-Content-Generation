@@ -3,8 +3,8 @@ import { loadOnboardingView } from '@/lib/onboarding/view'
 import { getSessionUser } from '@/lib/session'
 
 /**
- * The signed-in user's onboarding progress, for the guide bar and the
- * dashboard checklist (src/components/onboarding) to re-read as the user
+ * The signed-in user's onboarding progress, for the dashboard checklist
+ * and publish controls (src/components/onboarding) to re-read as the user
  * works through the steps: after each navigation, when the tab is focused,
  * and every few seconds while a run, a draft or a publish is under way.
  * Counts and states only; never a token or a document's text.

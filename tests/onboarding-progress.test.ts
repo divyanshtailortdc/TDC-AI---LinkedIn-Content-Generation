@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 import {
   ONBOARDING_STEP_KEYS,
   onboardingProgress,
-  stepForPath,
   type OnboardingFacts,
   type OnboardingStepKey
 } from '../src/lib/onboarding/progress'
@@ -317,36 +316,6 @@ describe('onboarding progress', () => {
       published: true
     }
     assert.equal(onboardingProgress(facts).complete, true)
-  })
-})
-
-describe('the onboarding step a page belongs to', () => {
-  it('matches each step to the page its work happens on', () => {
-    assert.equal(stepForPath('/identity'), 'profile')
-    assert.equal(stepForPath('/identity/new'), 'profile')
-    assert.equal(stepForPath('/identity/voice'), 'voice')
-    assert.equal(stepForPath('/identity/knowledge'), 'knowledge')
-    assert.equal(stepForPath('/goals'), 'goals')
-    assert.equal(stepForPath('/identity/preferences'), 'preferences')
-    assert.equal(stepForPath('/brand'), 'brandTheme')
-    assert.equal(stepForPath('/ideas'), 'post')
-    assert.equal(stepForPath('/'), null)
-  })
-
-  it('resolves pages shared by two steps to the current one', () => {
-    // Buffer and channel choice are both on Settings → Integrations.
-    assert.equal(stepForPath('/settings/integrations', 'channels'), 'channels')
-    assert.equal(stepForPath('/settings/integrations', 'buffer'), 'buffer')
-    assert.equal(stepForPath('/settings/integrations', 'voice'), 'buffer')
-    // A run is started from Goals, and followed on its own page.
-    assert.equal(stepForPath('/goals', 'ideas'), 'ideas')
-    assert.equal(stepForPath('/goals', 'voice'), 'goals')
-    assert.equal(stepForPath('/runs/abc', 'ideas'), 'ideas')
-    assert.equal(stepForPath('/identity/runs', 'ideas'), 'ideas')
-    // A post's page is where it is reviewed, and published.
-    assert.equal(stepForPath('/posts/abc', 'publish'), 'publish')
-    assert.equal(stepForPath('/posts/abc', 'review'), 'review')
-    assert.equal(stepForPath('/posts', 'goals'), 'review')
   })
 })
 

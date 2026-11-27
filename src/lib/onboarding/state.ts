@@ -9,7 +9,7 @@ import {
 
 /**
  * Writes what the onboarding guide keeps of its own (onboarding_progress):
- * steps skipped, defaults confirmed, the guide bar hidden. One row per
+ * steps skipped, defaults confirmed, the guide put away. One row per
  * identity, made by the first write. Each list change is a single upsert on
  * the row, so two tabs confirming at once cannot lose either one. No
  * `server-only`, so the DB test can pass its own connection.

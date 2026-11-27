@@ -15,13 +15,13 @@ import {
 } from './progress'
 import { markOnboardingComplete } from './state'
 
-/** Everything the guide bar and the dashboard checklist show. */
+/** Everything the dashboard checklist shows. */
 export type OnboardingView = {
   identity: { id: string; name: string } | null
   progress: OnboardingProgress
   /** For the step details: run status, channels, the scheduled time. */
   facts: OnboardingFacts
-  /** The user hid the guide bar; the dashboard checklist stays. */
+  /** The user put the guide away (the checklist's done card dismissed). */
   hidden: boolean
 }
 
