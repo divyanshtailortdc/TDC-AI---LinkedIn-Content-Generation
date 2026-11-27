@@ -1,5 +1,6 @@
 'use client'
 
+import { FIELD_CLASS, Select, TextArea, TextField } from '@/components/ui/field'
 import type { BlogEdit } from '@/lib/blogs/input'
 import { CHECK_GROUP_LABELS, CHECK_GROUPS, checkGroup } from '@/lib/blogs/quality'
 import { seoSummary } from '@/lib/blogs/seo'
@@ -69,28 +70,38 @@ export function SeoPanel({
         />
         <Labeled label="URL slug">
           {id => (
-            <div className="border-border bg-background focus-within:border-brand flex items-center rounded-lg border px-3 text-sm">
-              <span className="text-muted">/</span>
-              <input
+            <div
+              className={cn(
+                FIELD_CLASS,
+                'focus-within:border-brand focus-within:ring-brand/15 flex items-start gap-0.5 py-0 pr-0 focus-within:ring-3',
+                disabled && 'opacity-60'
+              )}
+            >
+              <span aria-hidden className="text-muted py-2">
+                /
+              </span>
+              <TextField
                 id={id}
                 value={edit.slug}
                 disabled={disabled}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 onChange={event => onChange({ slug: event.target.value })}
-                className="text-foreground min-w-0 flex-1 bg-transparent py-2 outline-none"
+                className="rounded-none border-0 bg-transparent pl-0 shadow-none focus:ring-0 disabled:opacity-100"
               />
             </div>
           )}
         </Labeled>
         <Labeled label="Primary keyword">
           {id => (
-            <input
+            <TextField
               id={id}
               value={edit.primaryKeyword}
               disabled={disabled}
               onChange={event =>
                 onChange({ primaryKeyword: event.target.value })
               }
-              className={INPUT}
             />
           )}
         </Labeled>
@@ -106,7 +117,7 @@ export function SeoPanel({
         </Labeled>
         <Labeled label="Search intent">
           {id => (
-            <select
+            <Select
               id={id}
               value={edit.searchIntent}
               disabled={disabled}
@@ -114,7 +125,6 @@ export function SeoPanel({
                 const value = event.target.value
                 onChange({ searchIntent: isSearchIntent(value) ? value : '' })
               }}
-              className={INPUT}
             >
               <option value="">Not set</option>
               {SEARCH_INTENTS.map(intent => (
@@ -122,7 +132,7 @@ export function SeoPanel({
                   {SEARCH_INTENT_LABELS[intent]}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
         </Labeled>
       </section>
@@ -197,9 +207,6 @@ export function SeoPanel({
   )
 }
 
-const INPUT =
-  'border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-2 text-sm outline-none disabled:opacity-60'
-
 function Labeled({
   label,
   extra,
@@ -211,7 +218,7 @@ function Labeled({
 }) {
   const id = useId()
   return (
-    <div className="space-y-1.5">
+    <div className="min-w-0 space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-foreground text-sm font-medium">
           {label}
@@ -258,21 +265,20 @@ function CountedField({
     >
       {id =>
         multiline ? (
-          <textarea
+          <TextArea
             id={id}
             rows={3}
+            maxRows={8}
             value={value}
             disabled={disabled}
             onChange={event => onChange(event.target.value)}
-            className={cn(INPUT, 'resize-y')}
           />
         ) : (
-          <input
+          <TextField
             id={id}
             value={value}
             disabled={disabled}
             onChange={event => onChange(event.target.value)}
-            className={INPUT}
           />
         )
       }

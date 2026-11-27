@@ -6,6 +6,7 @@ import { Pagination } from '@/components/pagination'
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { StatusChip } from '@/components/ui/status-chip'
 import { FOCUS_RING, TONES } from '@/components/ui/tone'
 import type { Schedule } from '@/db/schema'
@@ -782,7 +783,7 @@ export function ScheduleForm({
                     type="time"
                     value={timeOfDay}
                     onChange={e => setTimeOfDay(e.target.value)}
-                    className="border-border bg-surface text-foreground focus:border-brand focus:ring-brand/20 h-9 w-full rounded-lg border px-3 text-[13px] outline-none focus:ring-2"
+                    className={cn(FIELD_CLASS, 'h-9 py-1.5 text-[13px]')}
                   />
                 </div>
                 <div>

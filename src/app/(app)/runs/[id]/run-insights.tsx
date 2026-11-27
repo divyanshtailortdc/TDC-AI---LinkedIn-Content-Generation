@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronDown, ExternalLink, Gauge, Search, SearchX } from
 import { Button } from '@/components/button'
 import { Pagination } from '@/components/pagination'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { FilterChips } from '@/components/ui/filter-chips'
 import { StackedBar, type BarSegment } from '@/components/ui/meter'
 import { SectionCard } from '@/components/ui/section-card'
@@ -455,8 +456,8 @@ export function EvidenceSection({
                   }}
                   placeholder="Search"
                   className={cn(
-                    'border-border bg-surface text-foreground placeholder:text-muted h-8 w-full rounded-lg border pr-2.5 pl-8 text-[13px]',
-                    FOCUS_RING
+                    FIELD_CLASS,
+                    'bg-surface h-8 py-1 pr-2.5 pl-8 text-[13px]'
                   )}
                 />
               </label>

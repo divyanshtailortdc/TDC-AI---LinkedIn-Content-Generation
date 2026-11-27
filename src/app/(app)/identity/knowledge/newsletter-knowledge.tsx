@@ -2,6 +2,7 @@
 
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 import { formatAbsoluteDate } from '@/lib/format-date'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
@@ -123,7 +124,7 @@ export function NewsletterKnowledge({
             maxLength={MAX_NEWSLETTER_QUERY_LENGTH}
             placeholder="Search stories and articles"
             aria-label="Search newsletter stories"
-            className="border-border bg-surface text-foreground placeholder:text-muted focus-visible:ring-foreground/30 h-9 w-full rounded-lg border pr-3 pl-8.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+            className={cn(FIELD_CLASS, 'bg-surface h-9 py-1.5 pr-3 pl-8.5')}
           />
         </div>
         {navigating ? (

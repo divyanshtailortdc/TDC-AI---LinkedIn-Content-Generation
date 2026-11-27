@@ -1,5 +1,6 @@
 'use client'
 
+import { TextArea, TextField } from '@/components/ui/field'
 import { BLOG_LIMITS, type FaqItem } from '@/lib/blogs/types'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { useId } from 'react'
@@ -64,7 +65,7 @@ export function FaqEditor({
         type="button"
         disabled={disabled || items.length >= BLOG_LIMITS.faqItems}
         onClick={() => onChange([...items, { question: '', answer: '' }])}
-        className="border-border text-foreground hover:bg-surface-hover mt-4 inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition-colors disabled:opacity-50"
+        className="border-border text-foreground hover:bg-surface-hover hover:border-brand/40 mt-4 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-dashed px-3 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Plus aria-hidden className="h-3.5 w-3.5" />
         Add a question
@@ -93,35 +94,45 @@ function FaqRow({
   const questionId = useId()
   const answerId = useId()
   const icon =
-    'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30'
+    'text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-30'
+  // Edited in place, so it reads like the published FAQ: no field borders.
+  const inline =
+    'rounded-md border-0 bg-transparent px-1.5 shadow-none hover:bg-surface-hover/60 focus:bg-surface-hover/60 focus:ring-0 disabled:opacity-100'
   return (
-    <li className="border-border bg-surface rounded-xl border p-3">
+    <li className="border-border bg-surface focus-within:border-brand/50 rounded-xl border p-3 transition-colors">
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 space-y-2">
+        <span
+          aria-hidden
+          className="bg-brand/10 text-brand-strong mt-1 flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-semibold tabular-nums"
+        >
+          Q{index + 1}
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
           <label htmlFor={questionId} className="sr-only">
             Question {index + 1}
           </label>
-          <input
+          <TextField
             id={questionId}
             value={item.question}
             maxLength={BLOG_LIMITS.faqQuestion}
             disabled={disabled}
             onChange={event => onChange({ question: event.target.value })}
             placeholder="A question people ask"
-            className="text-foreground w-full bg-transparent text-base font-semibold outline-none"
+            className={`${inline} py-1 text-base font-semibold`}
           />
           <label htmlFor={answerId} className="sr-only">
             Answer {index + 1}
           </label>
-          <textarea
+          <TextArea
             id={answerId}
             value={item.answer}
-            rows={3}
+            rows={2}
+            maxRows={24}
             maxLength={BLOG_LIMITS.faqAnswer}
             disabled={disabled}
             onChange={event => onChange({ answer: event.target.value })}
             placeholder="Its answer, in a few self-contained sentences"
-            className="text-foreground field-sizing:content w-full resize-y bg-transparent text-[15px] leading-relaxed outline-none"
+            className={`${inline} py-1 text-[15px] leading-relaxed`}
           />
         </div>
         <div className="flex shrink-0 flex-col">

@@ -18,8 +18,20 @@ import {
   type BlogLength,
   type BlogStyle
 } from '@/lib/blogs/types'
+import { Select, TextArea, TextField } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
-import { ArrowLeft, Lightbulb, Sparkles } from 'lucide-react'
+import {
+  ArrowLeft,
+  FileText,
+  Library,
+  Lightbulb,
+  MessageSquareText,
+  Shapes,
+  Sparkles,
+  Tag,
+  Users,
+  type LucideIcon
+} from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useId, useState, useTransition, type ReactNode } from 'react'
@@ -151,7 +163,7 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
           <Link
             href="/blogs"
             aria-label="Back to Blogs & Articles"
-            className="text-muted hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-lg"
+            className="text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
@@ -159,21 +171,21 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
         title="New blog or article"
         description="Researched, SEO-ready and written in your voice"
       />
-      <div className="bg-background flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="bg-background flex-1 overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6">
         <form
-          className="mx-auto max-w-2xl space-y-5 pb-16"
+          className="mx-auto max-w-3xl space-y-4 sm:space-y-5"
           onSubmit={event => {
             event.preventDefault()
             if (ready) submit()
           }}
         >
           {prefill?.ideaTitle && (
-            <p className="border-border bg-surface text-muted flex items-start gap-2 rounded-xl border px-4 py-3 text-sm">
+            <p className="border-brand/25 bg-brand/5 text-muted flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm">
               <Lightbulb
                 aria-hidden
                 className="text-brand mt-0.5 h-4 w-4 shrink-0"
               />
-              <span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">
                 From the idea{' '}
                 <span className="text-foreground font-medium">
                   {prefill.ideaTitle}
@@ -183,12 +195,16 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
             </p>
           )}
 
-          <Section title="What to write">
+          <Section
+            icon={FileText}
+            title="What to write"
+            description="The kind of piece and what it is about."
+          >
             <fieldset>
               <legend className="text-foreground mb-2 text-sm font-medium">
                 Type
               </legend>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2.5 sm:grid-cols-2">
                 {BLOG_KINDS.map(option => (
                   <ChoiceCard
                     key={option}
@@ -203,33 +219,36 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
             </fieldset>
             <Field label="Topic" hint={`${topic.length}/${BLOG_LIMITS.topic}`}>
               {id => (
-                <textarea
+                <TextArea
                   id={id}
                   required
                   rows={2}
+                  maxRows={8}
                   maxLength={BLOG_LIMITS.topic}
                   value={topic}
                   onChange={event => setTopic(event.target.value)}
                   placeholder="e.g. How small online shops can cut cart abandonment"
-                  className={INPUT}
                 />
               )}
             </Field>
           </Section>
 
-          <Section title="Keywords">
+          <Section
+            icon={Tag}
+            title="Keywords"
+            description="What readers search for, so the piece can be found."
+          >
             <Field
               label="Primary keyword"
               hint="Optional: leave it empty and the AI picks one"
             >
               {id => (
-                <input
+                <TextField
                   id={id}
                   maxLength={BLOG_LIMITS.keyword}
                   value={primaryKeyword}
                   onChange={event => setPrimaryKeyword(event.target.value)}
                   placeholder="e.g. cart abandonment"
-                  className={INPUT}
                 />
               )}
             </Field>
@@ -243,12 +262,16 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
             </Field>
           </Section>
 
-          <Section title="Shape">
+          <Section
+            icon={Shapes}
+            title="Shape"
+            description="How long it runs and how it is laid out."
+          >
             <fieldset>
               <legend className="text-foreground mb-2 text-sm font-medium">
                 Length
               </legend>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2.5 sm:grid-cols-3">
                 {BLOG_LENGTHS.map(option => (
                   <ChoiceCard
                     key={option}
@@ -267,20 +290,19 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
             <Field label="Writing style">
               {id => (
                 <>
-                  <select
+                  <Select
                     id={id}
                     value={style}
                     aria-describedby={`${id}-note`}
                     onChange={event => chooseStyle(event.target.value as BlogStyle)}
-                    className={INPUT}
                   >
                     {BLOG_STYLES.map(option => (
                       <option key={option} value={option}>
                         {BLOG_STYLE_LABELS[option]}
                       </option>
                     ))}
-                  </select>
-                  <p id={`${id}-note`} className="text-muted text-xs">
+                  </Select>
+                  <p id={`${id}-note`} className="text-muted text-xs leading-relaxed">
                     {STYLE_NOTES[style]}
                   </p>
                 </>
@@ -292,127 +314,143 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
                 hint={`Required · ${caseDetails.length}/${BLOG_LIMITS.caseDetails}`}
               >
                 {id => (
-                  <textarea
+                  <TextArea
                     id={id}
                     rows={5}
                     maxLength={BLOG_LIMITS.caseDetails}
                     value={caseDetails}
+                    aria-invalid={caseDetails.length > 0 && caseMissing}
                     onChange={event => setCaseDetails(event.target.value)}
                     placeholder="Who the customer is (or how to describe them if unnamed), the problem, what was done and the results with real figures. Only what is true and approved to share: nothing else about the case is written."
-                    className={INPUT}
                   />
                 )}
               </Field>
             )}
           </Section>
 
-          <Section title="Reader and goal">
-            <Field label="Who it is for">
-              {id => (
-                <select
-                  id={id}
-                  value={reader}
-                  onChange={event => setReader(event.target.value)}
-                  className={INPUT}
-                >
-                  <option value={ALL_READERS}>
-                    {options.audiences.length
-                      ? 'All my audiences'
-                      : 'My audience (not set up yet)'}
-                  </option>
-                  {options.audiences.map(audience => (
-                    <option key={audience.id} value={audience.id}>
-                      {shorten(audience.name)}
+          <Section
+            icon={Users}
+            title="Reader and goal"
+            description="Who it speaks to, and what it should lead them to do."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Who it is for">
+                {id => (
+                  <Select
+                    id={id}
+                    value={reader}
+                    onChange={event => setReader(event.target.value)}
+                  >
+                    <option value={ALL_READERS}>
+                      {options.audiences.length
+                        ? 'All my audiences'
+                        : 'My audience (not set up yet)'}
                     </option>
-                  ))}
-                  <option value={OTHER_READER}>Someone else…</option>
-                </select>
-              )}
-            </Field>
+                    {options.audiences.map(audience => (
+                      <option
+                        key={audience.id}
+                        value={audience.id}
+                        title={audience.name}
+                      >
+                        {shorten(audience.name)}
+                      </option>
+                    ))}
+                    <option value={OTHER_READER}>Someone else…</option>
+                  </Select>
+                )}
+              </Field>
+              <Field label="Goal" hint="Its call to action closes the piece">
+                {id => (
+                  <Select
+                    id={id}
+                    value={goalId}
+                    onChange={event => setGoalId(event.target.value)}
+                  >
+                    <option value="">No specific goal</option>
+                    {options.goals.map(goal => (
+                      <option key={goal.id} value={goal.id} title={goal.title}>
+                        {shorten(goal.title)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
             {reader === OTHER_READER && (
               <Field
                 label="Describe the reader"
                 hint={`${readerNote.length}/${BLOG_LIMITS.audienceNote}`}
               >
                 {id => (
-                  <input
+                  <TextField
                     id={id}
                     maxLength={BLOG_LIMITS.audienceNote}
                     value={readerNote}
                     onChange={event => setReaderNote(event.target.value)}
                     placeholder="e.g. first-time founders selling on Shopify"
-                    className={INPUT}
                   />
                 )}
               </Field>
             )}
-            <Field label="Goal" hint="Its call to action closes the piece">
-              {id => (
-                <select
-                  id={id}
-                  value={goalId}
-                  onChange={event => setGoalId(event.target.value)}
-                  className={INPUT}
-                >
-                  <option value="">No specific goal</option>
-                  {options.goals.map(goal => (
-                    <option key={goal.id} value={goal.id}>
-                      {shorten(goal.title)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
           </Section>
 
-          <Section title="Sources">
-            <Toggle
-              label="Research the web"
-              note={
-                options.researchAvailable
-                  ? 'Finds facts, figures and examples on the topic, and cites them with links.'
-                  : 'Web research needs a search key (SERPER_API_KEY).'
-              }
-              checked={research}
-              disabled={!options.researchAvailable}
-              onChange={setResearch}
-            />
-            <Toggle
-              label="Use my knowledge base"
-              note={
-                options.knowledgeCount > 0
-                  ? `Draws on the closest passages of your ${options.knowledgeCount} knowledge ${options.knowledgeCount === 1 ? 'document' : 'documents'}.`
-                  : 'Your knowledge base is empty.'
-              }
-              checked={knowledge}
-              disabled={options.knowledgeCount === 0}
-              onChange={setKnowledge}
-            />
-            <Toggle
-              label="Include an FAQ"
-              note="Questions people search for, answered briefly; also marked up for search engines."
-              checked={faq}
-              onChange={value => {
-                setFaq(value)
-                setFaqChosen(true)
-              }}
-            />
+          <Section
+            icon={Library}
+            title="Sources"
+            description="Where the facts and examples come from."
+          >
+            <div className="divide-border -my-1 divide-y">
+              <Toggle
+                label="Research the web"
+                note={
+                  options.researchAvailable
+                    ? 'Finds facts, figures and examples on the topic, and cites them with links.'
+                    : 'Web research needs a search key (SERPER_API_KEY).'
+                }
+                checked={research}
+                disabled={!options.researchAvailable}
+                onChange={setResearch}
+              />
+              <Toggle
+                label="Use my knowledge base"
+                note={
+                  options.knowledgeCount > 0
+                    ? `Draws on the closest passages of your ${options.knowledgeCount} knowledge ${options.knowledgeCount === 1 ? 'document' : 'documents'}.`
+                    : 'Your knowledge base is empty.'
+                }
+                checked={knowledge}
+                disabled={options.knowledgeCount === 0}
+                onChange={setKnowledge}
+              />
+              <Toggle
+                label="Include an FAQ"
+                note="Questions people search for, answered briefly; also marked up for search engines."
+                checked={faq}
+                onChange={value => {
+                  setFaq(value)
+                  setFaqChosen(true)
+                }}
+              />
+            </div>
           </Section>
 
-          <Section title="Anything else">
+          <Section
+            icon={MessageSquareText}
+            title="Anything else"
+            description="Optional notes for the writer."
+          >
             <Field
               label="Extra instructions"
               hint={`Optional · ${instructions.length}/${BLOG_LIMITS.instructions}`}
             >
               {id => (
-                <textarea
+                <TextArea
                   id={id}
                   rows={3}
                   maxLength={BLOG_LIMITS.instructions}
                   value={instructions}
                   onChange={event => setInstructions(event.target.value)}
                   placeholder="e.g. Mention our free checkout audit. Avoid jargon."
-                  className={INPUT}
                 />
               )}
             </Field>
@@ -421,25 +459,39 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
           {error && (
             <p
               role="alert"
-              className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-400"
+              className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-400"
             >
               {error}
             </p>
           )}
           {!options.aiAvailable && (
-            <p className="rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+            <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
               AI is not set up: add ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY.
             </p>
           )}
 
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <span className="text-muted text-xs">
-              Usually 2-3 minutes · about $0.35-0.70 with pictures
-            </span>
-            <Button type="submit" disabled={!ready} loading={pending}>
-              <Sparkles aria-hidden className="h-4 w-4" />
-              Generate
-            </Button>
+          {/* Stays in view at the foot of the screen while the form scrolls;
+              the page fades out under it. Room is kept on the right for the
+              floating Help button until the form sits clear of it. */}
+          <div className="sticky bottom-0 z-10 -mx-4 bg-[linear-gradient(to_top,var(--background)_70%,transparent)] pt-4 sm:-mx-2 sm:pb-6">
+            <div className="border-border bg-surface/95 flex flex-col gap-3 border-t py-3 pr-16 pl-4 shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.18)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:rounded-2xl sm:border sm:pl-5 xl:pr-5">
+              <p className="text-muted text-xs leading-relaxed">
+                {caseMissing
+                  ? 'Describe the real case (at least 40 characters) to continue.'
+                  : !topic.trim()
+                    ? 'Add a topic to continue.'
+                    : 'Usually 2-3 minutes · about $0.35-0.70 with pictures'}
+              </p>
+              <Button
+                type="submit"
+                disabled={!ready}
+                loading={pending}
+                className="w-full sm:w-auto"
+              >
+                <Sparkles aria-hidden className="h-4 w-4" />
+                Generate
+              </Button>
+            </div>
           </div>
         </form>
       </div>
@@ -447,18 +499,41 @@ export function NewBlogForm({ options }: { options: NewBlogOptions }) {
   )
 }
 
-const INPUT =
-  'border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-2 text-sm outline-none'
-
 /** Audience and goal names can be a whole paragraph; menus show the start. */
 const shorten = (text: string, max = 90) =>
   text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  icon: Icon,
+  title,
+  description,
+  children
+}: {
+  icon: LucideIcon
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  const id = useId()
   return (
-    <section className="border-border bg-surface space-y-4 rounded-2xl border p-5 shadow-xs">
-      <h2 className="text-foreground text-sm font-semibold">{title}</h2>
-      {children}
+    <section
+      aria-labelledby={id}
+      className="border-border bg-surface rounded-2xl border shadow-xs"
+    >
+      <div className="border-border flex items-start gap-3 border-b px-4 py-3.5 sm:px-5">
+        <span className="bg-brand/10 text-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+          <Icon aria-hidden className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <h2 id={id} className="text-foreground text-sm font-semibold">
+            {title}
+          </h2>
+          {description && (
+            <p className="text-muted mt-0.5 text-xs">{description}</p>
+          )}
+        </div>
+      </div>
+      <div className="space-y-5 p-4 sm:p-5">{children}</div>
     </section>
   )
 }
@@ -474,12 +549,12 @@ function Field({
 }) {
   const id = useId()
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-3">
+    <div className="min-w-0 space-y-1.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <label htmlFor={id} className="text-foreground text-sm font-medium">
           {label}
         </label>
-        {hint && <span className="text-muted text-xs">{hint}</span>}
+        {hint && <span className="text-muted text-xs tabular-nums">{hint}</span>}
       </div>
       {children(id)}
     </div>
@@ -502,8 +577,8 @@ function ChoiceCard({
   return (
     <label
       className={cn(
-        'border-border hover:bg-surface-hover/60 flex cursor-pointer flex-col gap-0.5 rounded-xl border px-3.5 py-3 transition-colors',
-        checked && 'border-brand bg-brand/5'
+        'border-border hover:border-muted/60 has-[:focus-visible]:ring-brand/30 flex cursor-pointer flex-col gap-1 rounded-xl border px-3.5 py-3 transition-colors has-[:focus-visible]:ring-3',
+        checked && 'border-brand bg-brand/5 hover:border-brand'
       )}
     >
       <span className="flex items-center gap-2">
@@ -538,11 +613,11 @@ function Toggle({
   return (
     <div
       className={cn(
-        'flex items-start justify-between gap-4',
+        'flex items-start justify-between gap-4 py-3',
         disabled && 'opacity-60'
       )}
     >
-      <div>
+      <div className="min-w-0">
         <label htmlFor={id} className="text-foreground text-sm font-medium">
           {label}
         </label>
@@ -556,7 +631,7 @@ function Toggle({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed',
+          'focus-visible:ring-brand/30 relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:ring-3 focus-visible:outline-none disabled:cursor-not-allowed',
           checked ? 'bg-brand' : 'bg-border'
         )}
       >

@@ -22,7 +22,9 @@ import {
 import { PlatformMark } from '@/components/platform-mark'
 import { PlatformCards, type PlatformCardNote } from '@/components/platform-cards'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS, TextArea } from '@/components/ui/field'
 import type { IdentitySetupAnalysis } from '@/lib/ai/skills/profile-setup/schema'
+import { cn } from '@/lib/cn'
 import {
   DEFAULT_STYLES,
   CREATABLE_PLATFORMS,
@@ -401,8 +403,7 @@ const primaryButton =
   'bg-accent hover:bg-accent-hover text-background inline-flex h-11 items-center justify-center gap-2 rounded-lg px-6 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50'
 const secondaryButton =
   'border-border text-foreground hover:bg-surface-hover inline-flex h-11 items-center justify-center gap-2 rounded-lg border px-5 text-sm font-medium transition-colors disabled:opacity-50'
-const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
+const inputClass = cn(FIELD_CLASS, 'bg-surface px-4 py-2.5 text-[15px]')
 
 function WhereStep({
   platforms,
@@ -606,14 +607,15 @@ function AboutStep({
         <label htmlFor="about-description" className="text-foreground mb-2 block text-base font-semibold">
           What do you post about, and who is it for?
         </label>
-        <textarea
+        <TextArea
           id="about-description"
           value={value.description}
           disabled={analyzing}
           onChange={e => set('description', e.target.value)}
           rows={5}
+          autoGrow={false}
           placeholder="e.g. I'm a dance teacher in Pune. I post short dance tutorials for teens learning at home."
-          className={`${inputClass} scrollbar-visible h-48 resize-y px-4 py-3 leading-relaxed`}
+          className={cn(inputClass, 'scrollbar-visible h-48 px-4 py-3 leading-relaxed')}
         />
       </div>
     
@@ -728,7 +730,7 @@ function LinkInput({
           disabled={disabled}
           placeholder={placeholder}
           onChange={e => onChange(e.target.value)}
-          className={`${inputClass} h-11 pl-10 ${error ? 'border-red-500/60 ring-1 ring-red-500/30' : ''}`}
+          className={cn(inputClass, 'h-11 pl-10', error && 'border-red-500/60 ring-1 ring-red-500/30')}
         />
       </div>
       {error && <p className="mt-1.5 text-sm text-red-500">{error}</p>}

@@ -1,5 +1,6 @@
 'use client'
 
+import { TextField } from '@/components/ui/field'
 import { BLOG_LIMITS, type BlogImageView } from '@/lib/blogs/types'
 import { cn } from '@/lib/cn'
 import {
@@ -132,9 +133,6 @@ function ImageView({ node, updateAttributes, deleteNode, selected, editor }: Nod
 /** The node view the blog editor draws section pictures with. */
 export const imageNodeView = ReactNodeViewRenderer(ImageView)
 
-const input =
-  'border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-2 text-sm outline-none'
-
 function ImageTextDialog({
   alt,
   caption,
@@ -164,24 +162,22 @@ function ImageTextDialog({
           <label htmlFor={ids.alt} className="text-foreground text-sm font-medium">
             Alt text (what it shows)
           </label>
-          <input
+          <TextField
             id={ids.alt}
             value={altText}
             maxLength={BLOG_LIMITS.altText}
             onChange={event => setAltText(event.target.value)}
-            className={input}
           />
         </div>
         <div className="space-y-1.5">
           <label htmlFor={ids.caption} className="text-foreground text-sm font-medium">
             Caption
           </label>
-          <input
+          <TextField
             id={ids.caption}
             value={captionText}
             maxLength={BLOG_LIMITS.caption}
             onChange={event => setCaptionText(event.target.value)}
-            className={input}
           />
         </div>
       </div>
@@ -210,13 +206,12 @@ function RemakeDialog({
         <label htmlFor={id} className="text-foreground text-sm font-medium">
           What to change (optional)
         </label>
-        <input
+        <TextField
           id={id}
           value={direction}
           maxLength={BLOG_LIMITS.instructions}
           placeholder="e.g. warmer light, no people, show the warehouse floor"
           onChange={event => setDirection(event.target.value)}
-          className={input}
         />
       </div>
     </BlogDialog>

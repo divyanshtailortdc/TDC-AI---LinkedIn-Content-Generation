@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS, Select } from '@/components/ui/field'
 import { FilterChips } from '@/components/ui/filter-chips'
 import { ProgressBar } from '@/components/ui/meter'
 import { StatTile } from '@/components/ui/stat-tile'
@@ -28,7 +29,6 @@ import {
   Bookmark,
   BookmarkX,
   CheckCircle2,
-  ChevronDown,
   Copy,
   ExternalLink,
   Gauge,
@@ -411,7 +411,7 @@ export function NewslettersClient({
                     onChange={e => changeSearch(e.target.value)}
                     placeholder="Search"
                     aria-label="Search name, publisher or topic"
-                    className="border-border bg-surface-hover text-foreground placeholder:text-muted focus-visible:ring-foreground/30 h-9 w-full rounded-lg border pr-3 pl-8.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                    className={cn(FIELD_CLASS, 'bg-surface-hover h-9 py-1.5 pr-3 pl-8.5')}
                   />
                 </div>
                 <SelectField
@@ -603,19 +603,17 @@ function SelectField({
   children: ReactNode
 }) {
   return (
-    <label className="border-border bg-surface text-muted focus-within:ring-foreground/30 relative flex h-9 min-w-0 items-center gap-1.5 rounded-lg border pr-8 pl-3 text-[13px] focus-within:ring-2">
+    <label className="border-border bg-surface text-muted focus-within:ring-brand/15 focus-within:border-brand relative flex h-9 min-w-0 items-center gap-1.5 rounded-lg border pl-3 text-[13px] transition-[border-color,box-shadow] focus-within:ring-3">
       <span className="shrink-0">{label}</span>
-      <select
+      {/* A long choice ends in an ellipsis, with the whole of it on hover. */}
+      <Select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="text-foreground bg-surface min-w-0 cursor-pointer appearance-none font-medium outline-none"
+        wrapperClassName="flex-1 self-stretch"
+        className="text-foreground bg-surface h-full rounded-lg border-0 py-0 pr-8 pl-0 text-[13px] leading-normal font-medium shadow-none focus:ring-0"
       >
         {children}
-      </select>
-      <ChevronDown
-        aria-hidden
-        className="text-muted pointer-events-none absolute right-2.5 h-4 w-4"
-      />
+      </Select>
     </label>
   )
 }

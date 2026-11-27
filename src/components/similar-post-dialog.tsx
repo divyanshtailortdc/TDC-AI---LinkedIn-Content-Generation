@@ -1,6 +1,7 @@
 'use client'
 
 import { PlatformMark } from '@/components/platform-mark'
+import { TextArea, TextField } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 import { isPlatformId } from '@/lib/formats'
 import { describeReference } from '@/lib/reference-post/render'
@@ -38,7 +39,7 @@ export function SimilarPostDialog({
 }) {
   const titleId = useId()
   const descriptionId = useId()
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const [link, setLink] = useState('')
   const [reading, setReading] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
@@ -145,12 +146,13 @@ export function SimilarPostDialog({
               Link
             </label>
             <div className="flex gap-2">
-              <input
+              <TextField
                 ref={inputRef}
                 id={`${titleId}-link`}
-                type="url"
                 inputMode="url"
                 autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
                 spellCheck={false}
                 value={link}
                 onChange={e => {
@@ -160,10 +162,7 @@ export function SimilarPostDialog({
                 placeholder="https://www.instagram.com/reel/…"
                 aria-invalid={linkError ? true : undefined}
                 aria-describedby={linkError ? `${titleId}-link-error` : undefined}
-                className={cn(
-                  'border-border bg-background text-foreground placeholder:text-muted/70 h-9 min-w-0 flex-1 rounded-lg border px-3 text-sm outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/20',
-                  linkError && 'border-rose-500/60'
-                )}
+                className={cn('flex-1 py-1.5', linkError && 'border-rose-500/60')}
               />
               <button
                 type="submit"
@@ -231,13 +230,14 @@ export function SimilarPostDialog({
                 <label htmlFor={`${titleId}-text`} className="text-foreground mb-1.5 block text-xs font-semibold">
                   {readNote ? 'Paste what the post says' : 'What the post says'}
                 </label>
-                <textarea
+                <TextArea
                   id={`${titleId}-text`}
                   value={text}
                   onChange={e => setText(e.target.value.slice(0, REFERENCE_TEXT_MAX))}
                   rows={6}
+                  maxRows={14}
                   placeholder={isVideo ? 'Its caption, or what is said in it' : 'Its caption or text'}
-                  className="border-border bg-background text-foreground placeholder:text-muted/70 w-full resize-y rounded-lg border px-3 py-2 text-[13px] leading-relaxed outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/20"
+                  className="text-[13px] leading-relaxed"
                 />
                 <p className="text-muted mt-1 text-[11px] leading-snug">
                   {readNote

@@ -4,6 +4,8 @@ import type {
   AnalysisGuidance,
   IdentitySetupAnalysis
 } from '@/lib/ai/skills/profile-setup/schema'
+import { FIELD_CLASS, TextArea, TextField } from '@/components/ui/field'
+import { cn } from '@/lib/cn'
 import { IDENTITY_FIELDS, optionalUrlError } from '@/lib/identity-profile'
 import {
   AlertCircle,
@@ -24,8 +26,7 @@ const EXAMPLE_DESCRIPTION = `I'm Priya Rao, founder of Ledgerly, a bookkeeping a
 
 I want my posts to position me as the person D2C founders trust on finance operations, and to bring in discovery calls. I write best when I explain how things actually work behind the scenes, plainly, without hype.`
 
-const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
+const inputClass = cn(FIELD_CLASS, 'bg-surface py-1.5')
 
 /**
  * The Analyze with AI inputs: paste a description (and optional links), then
@@ -245,8 +246,9 @@ export function AnalyzeForm({
               </button>
             </div>
           )}
-          <textarea
+          <TextArea
             id="ai-description"
+            autoGrow={false}
             value={description}
             disabled={isAnalyzing}
             onChange={e => {
@@ -258,11 +260,13 @@ export function AnalyzeForm({
                 ? 'Paste your social media bio, company description, or website content...'
                 : 'Paste anything about you or your company: who you are, what you offer, who you want to reach and what your content should do for you.'
             }
-            className={`${inputClass} ${
+            className={cn(
+              inputClass,
               assistant
-                ? 'h-28 resize-y text-sm'
-                : 'min-h-28 flex-1 resize-none text-xs leading-relaxed'
-            } ${validationError ? 'border-red-500/60 ring-1 ring-red-500/30' : ''}`}
+                ? 'h-28 text-sm'
+                : 'min-h-28 flex-1 resize-none text-xs leading-relaxed',
+              validationError && 'border-red-500/60 ring-1 ring-red-500/30'
+            )}
           />
           {validationError && (
             <p className="mt-1 text-[11px] text-red-500">{validationError}</p>
@@ -316,14 +320,17 @@ export function AnalyzeForm({
                   LinkedIn URL{' '}
                   <span className="text-muted font-normal">(optional)</span>
                 </label>
-                <input
+                <TextField
                   id="ai-linkedin"
-                  type="url"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={linkedinUrl}
                   disabled={isAnalyzing}
                   onChange={e => setLinkedinUrl(e.target.value)}
                   placeholder="linkedin.com/in/your-name"
-                  className={`${inputClass} text-xs`}
+                  className={cn(inputClass, 'text-xs')}
                 />
               </div>
 
@@ -335,14 +342,17 @@ export function AnalyzeForm({
                   Website URL{' '}
                   <span className="text-muted font-normal">(optional)</span>
                 </label>
-                <input
+                <TextField
                   id="ai-website"
-                  type="url"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={websiteUrl}
                   disabled={isAnalyzing}
                   onChange={e => setWebsiteUrl(e.target.value)}
                   placeholder="example.com"
-                  className={`${inputClass} text-xs`}
+                  className={cn(inputClass, 'text-xs')}
                 />
               </div>
             </>
@@ -525,20 +535,25 @@ function OnlinePresence({
         {label}
       </label>
       <div className="relative">
-        <span className="text-muted pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
+        <span className="text-muted pointer-events-none absolute top-[19px] left-2.5 z-10 flex -translate-y-1/2">
           {icon}
         </span>
-        <input
+        <TextField
           id={id}
-          type="url"
+          inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={value}
           disabled={disabled}
           aria-invalid={error ? true : undefined}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
-          className={`${inputClass} pl-8 text-xs ${
-            error ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
-          }`}
+          className={cn(
+            inputClass,
+            'pl-8 text-xs',
+            error && 'border-red-500/60 ring-1 ring-red-500/30'
+          )}
         />
       </div>
       {error && <p className="mt-1 text-[11px] text-red-500">{error}</p>}

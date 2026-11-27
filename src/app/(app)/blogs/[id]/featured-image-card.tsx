@@ -1,6 +1,7 @@
 'use client'
 
 import { Button } from '@/components/button'
+import { TextField } from '@/components/ui/field'
 import { BLOG_LIMITS, type FeaturedImage } from '@/lib/blogs/types'
 import { Download, ImageIcon, RefreshCw, Trash2 } from 'lucide-react'
 import { useId, useState } from 'react'
@@ -78,26 +79,26 @@ export function FeaturedImageCard({
             <label htmlFor={altId} className="text-muted text-xs font-medium">
               Alt text (what the picture shows)
             </label>
-            <input
+            <TextField
               id={altId}
               value={alt}
               maxLength={BLOG_LIMITS.altText}
               disabled={disabled}
               onChange={event => onAlt(event.target.value)}
-              className="border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-1.5 text-sm outline-none"
+              className="py-1.5"
             />
           </div>
           <div className="space-y-1">
             <label htmlFor={captionId} className="text-muted text-xs font-medium">
               Caption (optional)
             </label>
-            <input
+            <TextField
               id={captionId}
               value={caption}
               maxLength={BLOG_LIMITS.caption}
               disabled={disabled}
               onChange={event => onCaption(event.target.value)}
-              className="border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-1.5 text-sm outline-none"
+              className="py-1.5"
             />
           </div>
         </div>
@@ -105,7 +106,7 @@ export function FeaturedImageCard({
 
       {asking ? (
         <form
-          className="flex flex-wrap items-center gap-2"
+          className="flex flex-wrap items-start gap-2"
           onSubmit={event => {
             event.preventDefault()
             void make()
@@ -114,14 +115,14 @@ export function FeaturedImageCard({
           <label htmlFor={directionId} className="sr-only">
             What should change in the picture?
           </label>
-          <input
+          <TextField
             id={directionId}
             autoFocus
             value={direction}
             maxLength={BLOG_LIMITS.instructions}
             onChange={event => setDirection(event.target.value)}
             placeholder="What should change? e.g. warmer light, no people (optional)"
-            className="border-border bg-background text-foreground focus:border-brand h-8 min-w-0 flex-1 rounded-lg border px-3 text-sm outline-none"
+            className="min-w-48 flex-1 basis-64 py-1"
           />
           <Button size="sm" type="submit" loading={making} disabled={disabled}>
             Make it

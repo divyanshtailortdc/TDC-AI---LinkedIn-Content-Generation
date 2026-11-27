@@ -1,5 +1,6 @@
 'use client'
 
+import { FIELD_CLASS, Select, TextArea, TextField } from '@/components/ui/field'
 import {
   cleanDiagram,
   DIAGRAM_KIND_LABELS,
@@ -145,8 +146,6 @@ function DiagramDialog({
     sourceId: initial.sourceId
   })
   const max = kind === 'bar' ? DIAGRAM_LIMITS.maxBars : DIAGRAM_LIMITS.maxSteps
-  const input =
-    'border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-2 text-sm outline-none'
   return (
     <BlogDialog
       title="Edit the diagram"
@@ -161,24 +160,23 @@ function DiagramDialog({
           <label htmlFor={ids.kind} className="text-foreground text-sm font-medium">
             Kind
           </label>
-          <select
+          <Select
             id={ids.kind}
             value={kind}
             onChange={event => setKind(event.target.value as DiagramKind)}
-            className={input}
           >
             {DIAGRAM_KINDS.map(option => (
               <option key={option} value={option}>
                 {DIAGRAM_KIND_LABELS[option]}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <label htmlFor={ids.title} className="text-foreground text-sm font-medium">
             Title
           </label>
-          <input id={ids.title} value={title} maxLength={DIAGRAM_LIMITS.title} onChange={e => setTitle(e.target.value)} className={input} />
+          <TextField id={ids.title} value={title} maxLength={DIAGRAM_LIMITS.title} onChange={e => setTitle(e.target.value)} />
         </div>
         <div className="space-y-1.5">
           <label htmlFor={ids.lines} className="text-foreground text-sm font-medium">
@@ -188,7 +186,7 @@ function DiagramDialog({
                 ? 'Entries, one per line: 2019 — what happened'
                 : 'Steps, one per line'}
           </label>
-          <textarea id={ids.lines} rows={6} value={lines} onChange={e => setLines(e.target.value)} className={input} />
+          <TextArea id={ids.lines} rows={6} value={lines} onChange={e => setLines(e.target.value)} />
           <p className="text-muted text-xs">
             2 to {max} lines.
             {kind === 'bar' && next
@@ -201,20 +199,20 @@ function DiagramDialog({
             <label htmlFor={ids.unit} className="text-foreground text-sm font-medium">
               Unit (e.g. %, days)
             </label>
-            <input id={ids.unit} value={unit} maxLength={DIAGRAM_LIMITS.unit} onChange={e => setUnit(e.target.value)} className={input} />
+            <input id={ids.unit} value={unit} maxLength={DIAGRAM_LIMITS.unit} onChange={e => setUnit(e.target.value)} className={FIELD_CLASS} />
           </div>
         )}
         <div className="space-y-1.5">
           <label htmlFor={ids.caption} className="text-foreground text-sm font-medium">
             Caption
           </label>
-          <input id={ids.caption} value={caption} maxLength={DIAGRAM_LIMITS.caption} onChange={e => setCaption(e.target.value)} className={input} />
+          <TextField id={ids.caption} value={caption} maxLength={DIAGRAM_LIMITS.caption} onChange={e => setCaption(e.target.value)} />
         </div>
         <div className="space-y-1.5">
           <label htmlFor={ids.alt} className="text-foreground text-sm font-medium">
             Alt text (what it shows, for screen readers)
           </label>
-          <input id={ids.alt} value={alt} maxLength={DIAGRAM_LIMITS.alt} onChange={e => setAlt(e.target.value)} className={input} />
+          <TextField id={ids.alt} value={alt} maxLength={DIAGRAM_LIMITS.alt} onChange={e => setAlt(e.target.value)} />
         </div>
         {!next && (
           <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">

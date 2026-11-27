@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS } from '@/components/ui/field'
 import {
   FilterChips,
   type FilterChipOption
@@ -456,7 +457,7 @@ function IdentityInbox({
                   maxLength={MAX_INBOX_QUERY_LENGTH}
                   placeholder="Search"
                   aria-label="Search sender, subject or text"
-                  className="border-border bg-surface-hover text-foreground placeholder:text-muted focus-visible:ring-foreground/30 h-9 w-full rounded-lg border pr-3 pl-8.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  className={cn(FIELD_CLASS, 'bg-surface-hover h-9 py-1.5 pr-3 pl-8.5')}
                 />
               </div>
               {navigating ? (

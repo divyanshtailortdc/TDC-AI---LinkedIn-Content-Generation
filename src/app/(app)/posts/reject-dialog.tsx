@@ -1,5 +1,7 @@
 'use client'
 
+import { FIELD_CLASS } from '@/components/ui/field'
+import { cn } from '@/lib/cn'
 import { Loader2, XCircle } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -131,7 +133,7 @@ export function RejectPostDialog({
             onChange={e => setReason(e.target.value)}
             placeholder="e.g. Too salesy"
             title="Saved to shape future drafts"
-            className="border-border bg-surface text-foreground placeholder:text-muted h-9 w-full rounded-lg border px-3 text-sm outline-none focus:border-rose-500 focus-visible:ring-2 focus-visible:ring-rose-500/30 read-only:opacity-60"
+            className={cn(FIELD_CLASS, 'bg-surface h-9 py-1.5 read-only:opacity-60 focus:border-rose-500 focus:ring-rose-500/20')}
           />
         </div>
 

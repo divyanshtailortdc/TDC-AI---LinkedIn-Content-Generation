@@ -2,6 +2,7 @@
 
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { showToast } from '@/components/toast-notification'
+import { TextArea } from '@/components/ui/field'
 import { PLATFORMS, splitSamplePosts, type PlatformId } from '@/lib/formats'
 import { Loader2, Sparkles } from 'lucide-react'
 import { useState } from 'react'
@@ -9,9 +10,6 @@ import { forgetPlatformStyle, learnPlatformStyle } from './style-actions'
 
 /** What was learned for a platform, and from how many posts. */
 export type LearnedStyleValue = { rubric: string; count: number }
-
-const inputClass =
-  'border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm'
 
 /**
  * How the identity writes on one platform, learned from posts it pastes.
@@ -126,13 +124,14 @@ export function LearnedStyle({
           <label htmlFor={`learn-${platform}`} className="sr-only">
             Your {label} posts
           </label>
-          <textarea
+          <TextArea
             id={`learn-${platform}`}
             autoComplete="off"
+            autoGrow={false}
             value={text}
             onChange={e => setText(e.target.value)}
             placeholder={`Paste 2 or more of your real ${label} posts, with a line of --- between them.`}
-            className={`${inputClass} h-36 resize-y leading-relaxed`}
+            className="h-36 leading-relaxed"
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-muted text-[11px]">

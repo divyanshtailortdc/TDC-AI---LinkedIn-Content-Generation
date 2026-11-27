@@ -5,6 +5,7 @@ import { FormAlert } from '@/components/form-alert'
 import { PageHeader } from '@/components/page-header'
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS, TextArea, TextField } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 import { formatCharCount, FORMATS } from '@/lib/formats'
 import type { PlatformId } from '@/lib/platforms'
@@ -132,8 +133,6 @@ const without = <T extends object, K extends keyof T>(record: T, key: K) => {
 
 const FOCUS_RING =
   'focus-visible:ring-accent/40 focus-visible:ring-2 focus-visible:outline-none'
-const FIELD =
-  'border-border bg-background text-foreground placeholder:text-muted/70 focus:border-accent/60 focus:ring-accent/20 w-full rounded-lg border px-3 py-2 text-sm focus:ring-2 focus:outline-none'
 const LABEL = 'text-foreground mb-1 block text-xs font-semibold'
 
 const megabytes = (bytes: number) =>
@@ -867,7 +866,7 @@ export function CreateFromMediaClient({
                           onChange={e => setLink(e.target.value)}
                           placeholder="Or paste a link to an image or video"
                           disabled={!storageReady || uploading}
-                          className={cn(FIELD, 'h-9 py-0 pl-8')}
+                          className={cn(FIELD_CLASS, 'h-9 py-0 pl-8')}
                         />
                       </label>
                       <Button
@@ -892,7 +891,7 @@ export function CreateFromMediaClient({
                     What should people know?{' '}
                     <span className="text-muted font-normal">(optional)</span>
                   </label>
-                  <textarea
+                  <TextArea
                     id="media-notes"
                     value={notes}
                     onChange={e =>
@@ -900,7 +899,7 @@ export function CreateFromMediaClient({
                     }
                     rows={3}
                     placeholder="Who or what is in it, where it was, the occasion, a link to include… The AI only states what it can see or what you write here."
-                    className={cn(FIELD, 'resize-y')}
+                    maxRows={14}
                   />
                 </div>
               </section>
@@ -1132,7 +1131,7 @@ export function CreateFromMediaClient({
                             required
                             value={scheduleAt}
                             onChange={e => setScheduleAt(e.target.value)}
-                            className={cn(FIELD, 'h-9 w-auto py-0')}
+                            className={cn(FIELD_CLASS, 'h-9 w-auto py-0')}
                           />
                           <Button
                             type="submit"
@@ -1434,13 +1433,12 @@ function PostEditor({
             <label htmlFor={`${id}-title-field`} className={LABEL}>
               Title
             </label>
-            <input
+            <TextField
               id={`${id}-title-field`}
               value={draft.title}
               maxLength={VIDEO_TITLE_MAX}
               disabled={fieldsLocked}
               onChange={e => set({ title: e.target.value })}
-              className={FIELD}
             />
           </div>
         )}
@@ -1463,14 +1461,14 @@ function PostEditor({
             </label>
             {partButton('hook', 'Regenerate hook')}
           </div>
-          <textarea
+          <TextArea
             id={`${id}-hook`}
             value={draft.hook}
             rows={2}
             disabled={hookLocked}
             aria-busy={rewriting === 'hook' || rewriting === 'post' || undefined}
             onChange={e => set({ hook: e.target.value })}
-            className={cn(FIELD, 'resize-y')}
+            maxRows={14}
           />
         </div>
         <div>
@@ -1480,14 +1478,14 @@ function PostEditor({
             </label>
             {partButton('body', 'Regenerate body')}
           </div>
-          <textarea
+          <TextArea
             id={`${id}-body`}
             value={draft.body}
             rows={5}
             disabled={bodyLocked}
             aria-busy={rewriting === 'body' || rewriting === 'post' || undefined}
             onChange={e => set({ body: e.target.value })}
-            className={cn(FIELD, 'resize-y')}
+            maxRows={14}
           />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1495,13 +1493,13 @@ function PostEditor({
             <label htmlFor={`${id}-cta`} className={LABEL}>
               Call to action
             </label>
-            <textarea
+            <TextArea
               id={`${id}-cta`}
               value={draft.cta}
               rows={2}
               disabled={fieldsLocked}
               onChange={e => set({ cta: e.target.value })}
-              className={cn(FIELD, 'resize-y')}
+              maxRows={14}
             />
           </div>
           <div>
@@ -1515,7 +1513,7 @@ function PostEditor({
                     : `up to ${spec.hashtags.max}`}
               </span>
             </label>
-            <textarea
+            <TextArea
               id={`${id}-tags`}
               value={tagText}
               rows={2}
@@ -1528,7 +1526,7 @@ function PostEditor({
                   hashtags: e.target.value.split(/[\s,;#]+/).filter(Boolean)
                 })
               }}
-              className={cn(FIELD, 'resize-y')}
+              maxRows={14}
             />
           </div>
         </div>
@@ -1548,13 +1546,13 @@ function PostEditor({
                     : 'kept for you, not published'}
                 </span>
               </label>
-              <textarea
+              <TextArea
                 id={`${id}-comment`}
                 value={draft.firstComment}
                 rows={2}
                 disabled={fieldsLocked}
                 onChange={e => set({ firstComment: e.target.value })}
-                className={cn(FIELD, 'resize-y')}
+                maxRows={14}
               />
             </div>
             {kind === 'image' && (
@@ -1565,14 +1563,14 @@ function PostEditor({
                     for screen readers
                   </span>
                 </label>
-                <textarea
+                <TextArea
                   id={`${id}-alt`}
                   value={draft.altText}
                   rows={2}
                   maxLength={1000}
                   disabled={fieldsLocked}
                   onChange={e => set({ altText: e.target.value })}
-                  className={cn(FIELD, 'resize-y')}
+                  maxRows={14}
                 />
               </div>
             )}

@@ -4,7 +4,9 @@ import type {
   AnalysisGuidance,
   GOAL_OBJECTIVES
 } from '@/lib/ai/skills/profile-setup/schema'
+import { Select, TextArea, TextField } from '@/components/ui/field'
 import { WRITING_STYLES } from '@/lib/ai/skills/voice-analysis/schema'
+import { cn } from '@/lib/cn'
 import { optionalUrlError } from '@/lib/identity-profile'
 import {
   AlertCircle,
@@ -47,9 +49,6 @@ const EMOJI = [
   { value: 'bullets only', label: 'Bullets' },
   { value: 'liberal', label: 'Freely' }
 ] as const
-
-const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors disabled:opacity-60'
 
 function Section({
   title,
@@ -370,7 +369,7 @@ export function AdvancedAnalyzeDialog({
                   About you or your business{' '}
                   <span className="text-rose-600 dark:text-rose-400">*</span>
                 </Label>
-                <textarea
+                <TextArea
                   id="adv-description"
                   rows={4}
                   value={description}
@@ -379,11 +378,11 @@ export function AdvancedAnalyzeDialog({
                     if (descriptionError) setDescriptionError(null)
                   }}
                   placeholder="Who you are, what you offer and who you serve."
-                  className={`${inputClass} scrollbar-visible resize-none ${
-                    descriptionError
-                      ? 'border-red-500/60 ring-1 ring-red-500/30'
-                      : ''
-                  }`}
+                  aria-invalid={descriptionError ? true : undefined}
+                  className={cn(
+                    'scrollbar-visible',
+                    descriptionError && 'border-red-500/60 ring-1 ring-red-500/30'
+                  )}
                 />
                 {descriptionError && (
                   <p className="mt-1 text-xs text-red-500">
@@ -398,9 +397,12 @@ export function AdvancedAnalyzeDialog({
                     LinkedIn URL{' '}
                     <span className="text-muted font-normal">(optional)</span>
                   </Label>
-                  <input
+                  <TextField
                     id="adv-linkedin"
-                    type="url"
+                    inputMode="url"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={linkedinUrl}
                     onChange={e => {
                       onLinkedinUrlChange(e.target.value)
@@ -408,7 +410,6 @@ export function AdvancedAnalyzeDialog({
                     }}
                     placeholder="linkedin.com/in/your-name"
                     aria-invalid={linkedinError ? true : undefined}
-                    className={inputClass}
                   />
                   {linkedinError && (
                     <p className="mt-1 text-[11px] text-red-500">
@@ -421,9 +422,12 @@ export function AdvancedAnalyzeDialog({
                     Website URL{' '}
                     <span className="text-muted font-normal">(optional)</span>
                   </Label>
-                  <input
+                  <TextField
                     id="adv-website"
-                    type="url"
+                    inputMode="url"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={websiteUrl}
                     onChange={e => {
                       onWebsiteUrlChange(e.target.value)
@@ -431,7 +435,6 @@ export function AdvancedAnalyzeDialog({
                     }}
                     placeholder="example.com"
                     aria-invalid={websiteError ? true : undefined}
-                    className={inputClass}
                   />
                   {websiteError && (
                     <p className="mt-1 text-[11px] text-red-500">
@@ -512,13 +515,12 @@ export function AdvancedAnalyzeDialog({
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="adv-objective">Objective</Label>
-                  <select
+                  <Select
                     id="adv-objective"
                     value={objectiveType}
                     onChange={e =>
                       setObjectiveType(e.target.value as Objective | '')
                     }
-                    className={inputClass}
                   >
                     <option value="">Let AI decide</option>
                     {OBJECTIVES.map(option => (
@@ -526,16 +528,15 @@ export function AdvancedAnalyzeDialog({
                         {option.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor="adv-cta">Call to action</Label>
-                  <input
+                  <TextField
                     id="adv-cta"
                     value={callToAction}
                     onChange={e => setCallToAction(e.target.value)}
                     placeholder="e.g. Book a demo"
-                    className={inputClass}
                   />
                 </div>
               </div>
@@ -543,13 +544,13 @@ export function AdvancedAnalyzeDialog({
                 <Label htmlFor="adv-goal">
                   What should your content do for you?
                 </Label>
-                <textarea
+                <TextArea
                   id="adv-goal"
                   rows={2}
                   value={goal}
                   onChange={e => setGoal(e.target.value)}
                   placeholder="e.g. Be known as the go-to expert on B2B commerce and bring in 10 qualified demos a month."
-                  className={`${inputClass} scrollbar-visible resize-none`}
+                  className="scrollbar-visible"
                 />
               </div>
               <div>
@@ -557,9 +558,12 @@ export function AdvancedAnalyzeDialog({
                   CTA link{' '}
                   <span className="text-muted font-normal">(optional)</span>
                 </Label>
-                <input
+                <TextField
                   id="adv-cta-url"
-                  type="url"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={ctaUrl}
                   onChange={e => {
                     setCtaUrl(e.target.value)
@@ -567,7 +571,6 @@ export function AdvancedAnalyzeDialog({
                   }}
                   placeholder="https://example.com/book-a-demo"
                   aria-invalid={ctaUrlError ? true : undefined}
-                  className={inputClass}
                 />
                 {ctaUrlError && (
                   <p className="mt-1 text-[11px] text-red-500">{ctaUrlError}</p>
@@ -581,36 +584,36 @@ export function AdvancedAnalyzeDialog({
             >
               <div>
                 <Label htmlFor="adv-audience">Target audience</Label>
-                <textarea
+                <TextArea
                   id="adv-audience"
                   rows={2}
                   value={targetAudience}
                   onChange={e => setTargetAudience(e.target.value)}
                   placeholder="e.g. Heads of eCommerce at B2B manufacturers, CFOs at mid-size distributors"
-                  className={`${inputClass} scrollbar-visible resize-none`}
+                  className="scrollbar-visible"
                 />
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="adv-focus">Topics to focus on</Label>
-                  <textarea
+                  <TextArea
                     id="adv-focus"
                     rows={2}
                     value={focusTopics}
                     onChange={e => setFocusTopics(e.target.value)}
                     placeholder="e.g. ERP integration, B2B checkout, pricing"
-                    className={`${inputClass} scrollbar-visible resize-none`}
+                    className="scrollbar-visible"
                   />
                 </div>
                 <div>
                   <Label htmlFor="adv-avoid">Topics to avoid</Label>
-                  <textarea
+                  <TextArea
                     id="adv-avoid"
                     rows={2}
                     value={avoidTopics}
                     onChange={e => setAvoidTopics(e.target.value)}
                     placeholder="e.g. politics, competitor names"
-                    className={`${inputClass} scrollbar-visible resize-none`}
+                    className="scrollbar-visible"
                   />
                 </div>
               </div>

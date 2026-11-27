@@ -1,13 +1,16 @@
 'use client'
 
+import { FIELD_CLASS } from '@/components/ui/field'
 import { BLOG_LIMITS } from '@/lib/blogs/types'
+import { cn } from '@/lib/cn'
 import { X } from 'lucide-react'
 import { useState } from 'react'
 
 /**
  * Keywords as removable chips: Enter or a comma adds what was typed,
  * Backspace on an empty field removes the last. No repeats (ignoring case),
- * at most BLOG_LIMITS.secondaryKeywords.
+ * at most BLOG_LIMITS.secondaryKeywords. A long keyword wraps inside its
+ * chip instead of running out of the box.
  */
 export function KeywordInput({
   id,
@@ -37,19 +40,30 @@ export function KeywordInput({
   }
 
   return (
-    <div className="border-border bg-background focus-within:border-brand flex flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5">
+    <div
+      className={cn(
+        FIELD_CLASS,
+        'focus-within:border-brand focus-within:ring-brand/15 flex cursor-text flex-wrap items-center gap-1.5 px-2 py-1.5 focus-within:ring-3',
+        disabled && 'cursor-not-allowed opacity-60'
+      )}
+      onClick={event => {
+        if (event.target === event.currentTarget) {
+          event.currentTarget.querySelector('input')?.focus()
+        }
+      }}
+    >
       {value.map(keyword => (
         <span
           key={keyword}
-          className="bg-surface-hover text-foreground inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs"
+          className="border-border bg-surface-hover text-foreground inline-flex max-w-full items-start gap-1 rounded-md border px-2 py-0.5 text-xs leading-5"
         >
-          {keyword}
+          <span className="min-w-0 [overflow-wrap:anywhere]">{keyword}</span>
           <button
             type="button"
             aria-label={`Remove ${keyword}`}
             disabled={disabled}
             onClick={() => onChange(value.filter(k => k !== keyword))}
-            className="text-muted hover:text-foreground"
+            className="text-muted hover:text-foreground mt-1 shrink-0 cursor-pointer rounded-sm"
           >
             <X className="h-3 w-3" />
           </button>
@@ -70,8 +84,15 @@ export function KeywordInput({
           }
         }}
         onBlur={() => add(draft)}
-        placeholder={value.length ? '' : placeholder}
-        className="text-foreground min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-sm outline-none"
+        placeholder={
+          full
+            ? `${BLOG_LIMITS.secondaryKeywords} keywords added`
+            : value.length
+              ? 'Add another…'
+              : placeholder
+        }
+        size={Math.max(12, draft.length + 1)}
+        className="text-foreground placeholder:text-muted/70 min-w-[8rem] max-w-full flex-1 bg-transparent px-1 py-0.5 text-sm leading-6 outline-none disabled:cursor-not-allowed"
       />
     </div>
   )

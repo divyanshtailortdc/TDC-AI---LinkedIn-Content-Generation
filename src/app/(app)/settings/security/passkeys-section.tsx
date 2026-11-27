@@ -5,6 +5,7 @@ import { Button } from '@/components/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { FormAlert } from '@/components/form-alert'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { authClient } from '@/lib/auth-client'
 import { authErrorMessage } from '@/lib/auth-errors'
 import { cn } from '@/lib/cn'
@@ -179,7 +180,7 @@ function PasskeyRow({
             disabled={saving}
             aria-label="Passkey name"
             placeholder="e.g. Work laptop"
-            className="border-border bg-surface-hover text-foreground focus-visible:ring-foreground/30 h-8 min-w-0 flex-1 basis-40 rounded-lg border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
+            className={cn(FIELD_CLASS, 'h-8 flex-1 basis-40 py-1')}
           />
           <div className="flex gap-2">
             <Button

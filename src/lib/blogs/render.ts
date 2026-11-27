@@ -1124,6 +1124,24 @@ thead th{background:#f6f8fa}
 @media (max-width:600px){body{font-size:16px}main{padding:24px 16px}h1{font-size:1.75em}}`
 
 /**
+ * The page laid out as a document for the print window (and so a PDF): page
+ * margins in place of the page's padding, a document's type size, colours
+ * and tints kept, and headings, pictures, tables and callouts kept whole
+ * across page breaks where they fit.
+ */
+const PRINT_STYLE = `@page{margin:18mm 16mm}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-size:11pt;line-height:1.6}
+main{padding:0}
+article{max-width:none}
+h1,h2,h3{break-after:avoid}
+figure,.callout,blockquote,tr,pre{break-inside:avoid}
+.featured img,.image img{max-height:120mm;object-fit:contain}
+.table-wrap{overflow:visible}
+thead{display:table-header-group}
+p,li{orphans:3;widows:3}`
+
+/**
  * A complete, responsive HTML page: meta, canonical and social tags,
  * structured data and the article, images embedded as given. The canonical
  * address and og:url appear only when the published page is known, and the
@@ -1131,10 +1149,14 @@ thead th{background:#f6f8fa}
  */
 export function blogToStandaloneHtml(
   blog: BlogContent,
-  meta: BlogPageMeta = {}
+  meta: BlogPageMeta = {},
+  options: {
+    /** Laid out for printing or saving as a PDF, titled by the article's own title. */
+    print?: boolean
+  } = {}
 ): string {
   const keywords = keywordsOf(blog)
-  const title = (blog.metaTitle || blog.title).trim()
+  const title = (options.print ? blog.title : blog.metaTitle || blog.title).trim()
   const description = blog.metaDescription.trim()
   const publishedUrl = isPublicUrl(meta.publishedUrl) ? meta.publishedUrl : null
   const image = isPublicUrl(meta.featuredImageUrl) ? meta.featuredImageUrl : null
@@ -1164,7 +1186,8 @@ export function blogToStandaloneHtml(
     `<script type="application/ld+json">${scriptJson(
       blogJsonLd(blog, meta, { faqVisible: answeredFaq(blog).length > 0 })
     )}</script>`,
-    `<style>${PAGE_STYLE}</style>`
+    `<style>${PAGE_STYLE}</style>`,
+    ...(options.print ? [`<style>${PRINT_STYLE}</style>`] : [])
   ]
   return `<!DOCTYPE html>
 <html lang="en">

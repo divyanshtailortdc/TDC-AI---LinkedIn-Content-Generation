@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ChevronDown
 } from 'lucide-react'
+import { TextArea, TextField } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 import { ConfirmPopover } from '@/components/confirm-popover'
 import type { IdeaScorecard } from '@/lib/idea-scorecard'
@@ -155,21 +156,21 @@ export function IdeaCard({ idea, onApprove, onReject, onEditSave }: IdeaCardProp
             <label className="mb-1.5 block text-xs font-semibold text-foreground">
               Hook concept
             </label>
-            <textarea
+            <TextArea
               rows={3}
+              maxRows={12}
               value={editHook}
               onChange={(e) => setEditHook(e.target.value)}
               autoFocus
-              className="w-full resize-y rounded-xl border border-border bg-surface-hover p-3 text-sm text-foreground outline-none focus:border-accent"
+              className="rounded-xl p-3"
             />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-foreground">Angle</label>
-            <input
-              type="text"
+            <TextField
               value={editAngle}
               onChange={(e) => setEditAngle(e.target.value)}
-              className="w-full rounded-xl border border-border bg-surface-hover p-3 text-sm text-foreground outline-none focus:border-accent"
+              className="rounded-xl p-3"
             />
           </div>
           <div className="flex items-center justify-end gap-2 pt-1">

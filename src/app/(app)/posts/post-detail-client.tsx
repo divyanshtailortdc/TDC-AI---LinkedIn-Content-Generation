@@ -1,6 +1,7 @@
 'use client'
 
 import { buttonClassName } from '@/components/button'
+import { FIELD_CLASS, TextArea, TextField } from '@/components/ui/field'
 import { StatusChip } from '@/components/ui/status-chip'
 import { FOCUS_RING } from '@/components/ui/tone'
 import { cn } from '@/lib/cn'
@@ -1826,7 +1827,10 @@ export function PostDetailClient({
         onChange={e => setPostRejectionReason(e.target.value)}
         placeholder="Why reject? Optional"
         aria-label="Why reject this post (optional)"
-        className="border-border bg-surface text-foreground placeholder:text-muted h-8 w-48 max-w-full min-w-0 rounded-lg border px-3 text-xs outline-none focus:border-rose-500 focus-visible:ring-2 focus-visible:ring-rose-500/30 sm:w-60"
+        className={cn(
+          FIELD_CLASS,
+          'bg-surface h-8 w-48 max-w-full py-1 text-xs focus:border-rose-500 focus:ring-rose-500/20 sm:w-60'
+        )}
       />
       <button
         type="button"
@@ -2980,7 +2984,7 @@ export function PostDetailClient({
                           value={stockSearchQuery}
                           onChange={e => setStockSearchQuery(e.target.value)}
                           placeholder={`e.g. ${activePost.hook.slice(0, 35)}...`}
-                          className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                          className={cn(FIELD_CLASS, 'bg-surface flex-1 px-2.5 py-1.5 text-xs')}
                           aria-invalid={
                             stockSearchQuery.trim().length > 0 &&
                             stockQueryError !== null
@@ -3016,21 +3020,24 @@ export function PostDetailClient({
                         Image URL
                       </label>
                       <div className="flex gap-2">
-                        <input
-                          type="url"
+                        <TextField
+                          inputMode="url"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
                           value={customImageUrl}
                           onChange={e => setCustomImageUrl(e.target.value)}
                           placeholder="https://images.unsplash.com/..."
-                          className="border-border bg-surface text-foreground focus:border-accent flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+                          className="bg-surface flex-1 px-2.5 py-1.5 text-xs"
                           aria-invalid={
                             customImageUrl.trim().length > 0 &&
                             customUrlError !== null
                           }
-                          onKeyDown={e =>
-                            e.key === 'Enter' &&
-                            !customUrlError &&
-                            handleApplyCustomUrl()
-                          }
+                          onKeyDown={e => {
+                            if (e.key !== 'Enter') return
+                            e.preventDefault()
+                            if (!customUrlError) handleApplyCustomUrl()
+                          }}
                         />
                         <button
                           type="button"
@@ -3082,8 +3089,9 @@ export function PostDetailClient({
                           </button>
                         )}
                       </div>
-                      <textarea
+                      <TextArea
                         id="image-prompt"
+                        maxRows={8}
                         value={imagePrompt}
                         onChange={e => setImagePrompt(e.target.value)}
                         onPaste={handleReferencePaste}
@@ -3119,7 +3127,7 @@ export function PostDetailClient({
                         }
                         // Grows with what is typed (and the placeholder), so a
                         // narrow panel never cuts the example off.
-                        className="border-border bg-background text-foreground placeholder:text-muted focus:border-accent field-sizing-content max-h-48 min-h-16 w-full resize-y rounded-lg border px-3 py-2.5 text-sm outline-none aria-invalid:border-rose-500"
+                        className="px-3 py-2.5"
                       />
                       {showPromptError && (
                         <p
@@ -3379,7 +3387,7 @@ export function PostDetailClient({
                                 onKeyDown={e =>
                                   e.key === 'Enter' && e.currentTarget.blur()
                                 }
-                                className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-44 min-w-0 rounded-lg border px-2 py-1 text-xs outline-none"
+                                className={cn(FIELD_CLASS, 'bg-surface w-44 px-2 py-1 text-xs')}
                               />
                             </div>
                           </div>
@@ -3439,6 +3447,9 @@ interface PostTextEditorHandle {
   draft: PostDraft
   setHook: Dispatch<SetStateAction<string>>
 }
+
+/** The post editor's fields: the shared look, roomier and a size down. */
+const POST_FIELD = cn(FIELD_CLASS, 'bg-surface-hover rounded-xl p-3 text-xs')
 
 /**
  * The hook, body and first comment textareas, with the edit buffer they type
@@ -3562,12 +3573,12 @@ function PostTextEditor({
         >
           {labels.hook}
         </label>
-        <textarea
+        <TextArea
           id={`${fieldId}-hook`}
           value={hook}
           onChange={e => setHook(e.target.value)}
           rows={3}
-          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+          className={POST_FIELD}
         />
       </div>
       <div>
@@ -3577,12 +3588,13 @@ function PostTextEditor({
         >
           {labels.body}
         </label>
-        <textarea
+        <TextArea
           id={`${fieldId}-body`}
           value={body}
           onChange={e => setBody(e.target.value)}
           rows={8}
-          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 font-mono text-xs outline-none"
+          maxRows={24}
+          className={cn(POST_FIELD, 'font-mono')}
         />
       </div>
       <div>
@@ -3592,12 +3604,12 @@ function PostTextEditor({
         >
           {spec.commentLabel}
         </label>
-        <textarea
+        <TextArea
           id={`${fieldId}-comment`}
           value={firstComment}
           onChange={e => setFirstComment(e.target.value)}
           rows={2}
-          className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+          className={POST_FIELD}
         />
       </div>
       {hasTitle && (
@@ -3608,12 +3620,11 @@ function PostTextEditor({
           >
             Title ({title.length}/100)
           </label>
-          <input
+          <TextField
             id={`${fieldId}-title`}
-            type="text"
             value={title}
             onChange={e => setTitle(e.target.value)}
-            className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+            className={POST_FIELD}
           />
         </div>
       )}
@@ -3625,12 +3636,12 @@ function PostTextEditor({
           >
             Caption
           </label>
-          <textarea
+          <TextArea
             id={`${fieldId}-caption`}
             value={caption}
             onChange={e => setCaption(e.target.value)}
             rows={3}
-            className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-xl border p-3 text-xs outline-none"
+            className={POST_FIELD}
           />
         </div>
       )}

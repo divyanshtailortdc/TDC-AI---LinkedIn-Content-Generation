@@ -160,6 +160,26 @@ select,
   caret-color: auto;
 }
 
+/* Native controls (a select's list, date and time pickers, scrollbars) are
+   drawn in the theme's own scheme, so a select's options never show light
+   text on a light list in dark mode. */
+:root {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+  }
+}
+select option,
+select optgroup {
+  background-color: var(--surface);
+  color: var(--foreground);
+}
+
 /* Smooth scrollbars */
 * {
   scrollbar-width: thin;

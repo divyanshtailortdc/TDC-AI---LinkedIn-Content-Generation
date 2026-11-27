@@ -3,6 +3,8 @@
 import { Pagination } from '@/components/pagination'
 import { cn } from '@/lib/cn'
 import { showToast } from '@/components/toast-notification'
+import { TextArea } from '@/components/ui/field'
+import { useAnchoredPanel } from '@/components/ui/floating'
 import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
 import {
@@ -110,8 +112,12 @@ export function MediaRegenerateControl({
   const [instruction, setInstruction] = useState('')
   const [running, setRunning] = useState<MediaPostPart | null>(null)
   const wrapper = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   const panelId = useId()
   useDismiss(open, setOpen, wrapper)
+  // Fixed to the button, so the card's own scroll box cannot clip it.
+  const position = useAnchoredPanel(open, button, panel, { align: 'end' })
 
   const media = uploadedMediaOf(post.payload)
   if (!media) return null
@@ -166,10 +172,9 @@ export function MediaRegenerateControl({
   }
 
   return (
-    // Below sm the panel anchors to the toolbar row (relative there), not the
-    // button, so it stays on a phone's screen.
-    <div className="sm:relative" ref={wrapper}>
+    <div className="relative" ref={wrapper}>
       <button
+        ref={button}
         type="button"
         onClick={() => setOpen(o => !o)}
         disabled={disabled || running !== null}
@@ -205,7 +210,9 @@ export function MediaRegenerateControl({
           id={panelId}
           role="dialog"
           aria-label="Regenerate part of this post"
-          className="border-border bg-surface absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border p-3 shadow-lg"
+          ref={panel}
+          style={position}
+          className="border-border bg-surface z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border p-3 shadow-lg"
         >
           <label
             htmlFor={`${panelId}-instruction`}
@@ -214,7 +221,7 @@ export function MediaRegenerateControl({
             What to change{' '}
             <span className="text-muted font-normal">· Optional</span>
           </label>
-          <textarea
+          <TextArea
             id={`${panelId}-instruction`}
             value={instruction}
             onChange={e => setInstruction(e.target.value)}
@@ -222,7 +229,8 @@ export function MediaRegenerateControl({
             rows={2}
             autoFocus
             placeholder="e.g. Shorter. Lead with the problem. Less salesy."
-            className="border-border bg-surface-hover text-foreground focus:border-accent w-full resize-none rounded-lg border p-2 text-xs leading-relaxed outline-none"
+            maxRows={8}
+            className="bg-surface-hover p-2 text-xs leading-relaxed"
           />
           <p className="text-muted mt-2 mb-1.5 text-[11px]">
             Only the part you pick is written again. Your {media.kind} stays
@@ -292,8 +300,12 @@ export function RegenerateControl({
   const [instruction, setInstruction] = useState('')
   const [running, setRunning] = useState(false)
   const wrapper = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   const panelId = useId()
   useDismiss(open, setOpen, wrapper)
+  // Fixed to the button, so the card's own scroll box cannot clip it.
+  const position = useAnchoredPanel(open, button, panel, { align: 'end' })
 
   if (!post.ideaId) return null
 
@@ -333,10 +345,9 @@ export function RegenerateControl({
   }
 
   return (
-    // Below sm the panel anchors to the toolbar row (relative there), not the
-    // button, so it stays on a phone's screen.
-    <div className="sm:relative" ref={wrapper}>
+    <div className="relative" ref={wrapper}>
       <button
+        ref={button}
         type="button"
         onClick={() => setOpen(o => !o)}
         disabled={disabled || running}
@@ -360,7 +371,9 @@ export function RegenerateControl({
           id={panelId}
           role="dialog"
           aria-label="Regenerate this post"
-          className="border-border bg-surface absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border p-3 shadow-lg"
+          ref={panel}
+          style={position}
+          className="border-border bg-surface z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border p-3 shadow-lg"
         >
           <label
             htmlFor={`${panelId}-instruction`}
@@ -368,7 +381,7 @@ export function RegenerateControl({
           >
             What to change <span className="text-muted font-normal">· Optional</span>
           </label>
-          <textarea
+          <TextArea
             id={`${panelId}-instruction`}
             value={instruction}
             onChange={e => setInstruction(e.target.value)}
@@ -377,7 +390,8 @@ export function RegenerateControl({
             autoFocus
             placeholder="e.g. Shorter. Open with the customer story. Less salesy."
             title="Leave it empty for a different take on the same idea. The image stays as it is."
-            className="border-border bg-surface-hover text-foreground focus:border-accent w-full resize-none rounded-lg border p-2 text-xs leading-relaxed outline-none"
+            maxRows={8}
+            className="bg-surface-hover p-2 text-xs leading-relaxed"
           />
           <div className="mt-2.5 flex justify-end gap-2">
             <button
