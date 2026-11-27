@@ -106,7 +106,7 @@ export function PublishDialog({
                   value={option}
                   checked={destination === option}
                   onChange={() => setDestination(option)}
-                  className="accent-[var(--brand)]"
+                  className="accent-brand"
                 />
                 <span className="text-foreground font-medium">
                   {BLOG_DESTINATIONS[option].name}
