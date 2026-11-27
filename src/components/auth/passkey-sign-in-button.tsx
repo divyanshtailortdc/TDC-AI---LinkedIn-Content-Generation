@@ -4,8 +4,8 @@ import { Button } from '@/components/button'
 import { authClient } from '@/lib/auth-client'
 import { authErrorMessage } from '@/lib/auth-errors'
 import { KeyRound } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { enterApp } from './enter-app'
 
 /** Signs in with a passkey the user added earlier, then goes to `next`. */
 export function PasskeySignInButton({
@@ -16,7 +16,6 @@ export function PasskeySignInButton({
   next: string
   onError: (message: string | null) => void
 }) {
-  const router = useRouter()
   const [pending, setPending] = useState(false)
 
   const signIn = async () => {
@@ -33,8 +32,7 @@ export function PasskeySignInButton({
       )
       return
     }
-    router.replace(next)
-    router.refresh()
+    enterApp(next)
   }
 
   return (

@@ -122,6 +122,8 @@ export async function retrieveKnowledgePassages(
     minSimilarity?: number
     /** What to look for; the goals' texts (buildRetrievalQueries) when absent. */
     queries?: string[]
+    /** How the queries are embedded; a run shares one (sharedEmbedder). */
+    embed?: typeof embedValues
   } = {}
 ): Promise<KnowledgePassage[]> {
   const handle = getEmbeddingModel()
@@ -136,7 +138,7 @@ export async function retrieveKnowledgePassages(
   try {
     await backfillMissingChunks(docs, handle.modelId)
 
-    const embeddings = await embedValues(handle, queries, {
+    const embeddings = await (options.embed ?? embedValues)(handle, queries, {
       abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
     })
 

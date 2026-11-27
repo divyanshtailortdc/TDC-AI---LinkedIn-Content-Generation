@@ -349,12 +349,13 @@ function CompleteCard({ onHide }: { onHide: () => Promise<string | null> }) {
       title: 'Plan your schedule',
       text: 'Pick the days posts go out.'
     },
-    {
-      href: '/newsletters',
-      icon: Newspaper,
-      title: 'Feed it newsletters',
-      text: 'Fresh stories for every run.'
-    }
+    // NEWSLETTER_DISABLED: uncomment the block below to re-enable the newsletter onboarding step
+    // {
+    //   href: '/newsletters',
+    //   icon: Newspaper,
+    //   title: 'Feed it newsletters',
+    //   text: 'Fresh stories for every run.'
+    // }
   ]
   return (
     <section className="border-border bg-surface overflow-hidden rounded-2xl border shadow-xs">

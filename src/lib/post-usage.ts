@@ -32,9 +32,11 @@ export interface PostUsage {
 const STAGE_LABELS: Record<string, string> = {
   drafting: 'Writing',
   linting: 'Revision',
+  rewrite: 'Rewrite',
   media_brief: 'Image planning',
   media_review: 'Image check',
   image: 'Image',
+  image_retry: 'Image (second try)',
   video_look: 'Video look',
   embedding: 'Embedding'
 }

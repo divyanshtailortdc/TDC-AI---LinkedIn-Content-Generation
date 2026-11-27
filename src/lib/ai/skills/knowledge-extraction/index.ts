@@ -26,7 +26,10 @@ export async function extractKnowledgeClaims(
       instructions: INSTRUCTIONS,
       prompt: buildPrompt({ title, content }),
       schema: ExtractionSchema,
-      timeoutMs: options.timeoutMs
+      timeoutMs: options.timeoutMs,
+      // One quick retry, as the digest has: an article that still fails is
+      // tried again later (read-article.ts), a document gets the heuristic.
+      maxRetries: 1
     })
 
     if (output?.summary) {

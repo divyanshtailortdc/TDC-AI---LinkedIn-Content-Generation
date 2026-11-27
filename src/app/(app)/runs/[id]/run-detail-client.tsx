@@ -556,7 +556,10 @@ export function RunDetailClient({
       const drafted = rows.filter((r) => r.status === 'drafted').length
       const notDrafted = rows.length - drafted
       if (drafted === 0) {
-        const message = 'No post could be drafted. The ideas are back to approved; try again.'
+        const reason = rows.find((r) => r.error)?.error
+        const message = `No post could be drafted. The ideas are back to approved; try again.${
+          reason ? ` Reason: ${reason}` : ''
+        }`
         setDraftStatus('error')
         setDraftError(message)
         showToast({ title: 'Drafting failed', message, type: 'error' })

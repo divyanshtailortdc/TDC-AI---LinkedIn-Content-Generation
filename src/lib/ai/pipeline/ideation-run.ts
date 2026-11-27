@@ -34,6 +34,7 @@ import {
   withReaderGroup,
   type GenerationContext
 } from '../context'
+import { sharedEmbedder } from '../embed'
 import { retrieveKnowledgePassages } from '../embeddings'
 import {
   coverEveryGoal,
@@ -429,6 +430,12 @@ async function researchAndIdeate(
   const style = ideationStyle(ctx, channels)
   const platformIds = runPlatforms(ctx, channels)
   const trendQueries: ResearchQuery[] = []
+  // The knowledge base and the newsletters both look for the goals' texts:
+  // embedded once, by whichever asks first.
+  const embed = sharedEmbedder()
+  // NEWSLETTER_DISABLED: newsletter story retrieval is disabled.
+  // To re-enable, replace `Promise.resolve([])` with `retrieveNewsletterStories(ctx, undefined, { embed })`
+  // and remove the standalone `retrieveKnowledgePassages` / `researchTheWeb` / `runTrendScan` grouping below.
   const [research, trendFindings, passages, stories] = await Promise.all([
     researchTheWeb(ctx, style),
     runTrendScan(
@@ -436,8 +443,8 @@ async function researchAndIdeate(
       { platforms: platformIds.map(p => PLATFORMS[p].label), platformIds, style },
       q => trendQueries.push(q)
     ),
-    retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx)),
-    retrieveNewsletterStories(ctx)
+    retrieveKnowledgePassages(ctx, selectKnowledgeDocs(ctx), { embed }),
+    Promise.resolve([] as Awaited<ReturnType<typeof retrieveNewsletterStories>>)
   ])
   // Pages written to rank, another market's stories and syndicated copies
   // never reach the writer; the step lists them with why.

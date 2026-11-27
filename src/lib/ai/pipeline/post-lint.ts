@@ -159,3 +159,32 @@ export function buildFormatLintOptions(
     }
   }
 }
+
+/** Markdown in plain text, as the linter's no_markdown_leakage check finds it. */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[^\n]*\n?/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
+    .replace(/^(\s*)[-*]\s+/gm, '$1• ')
+}
+
+/**
+ * The draft with markdown taken out of its text, the way a revision would:
+ * bold and headings to plain words, a [link](url) to its words and address,
+ * a "- " list to "• ". Lets drafting clear that check without a second model
+ * call (see drafting-run.ts).
+ */
+export function withoutMarkdown<
+  T extends { hook: string; body: string; cta?: string | null; firstComment?: string | null }
+>(draft: T): T {
+  return {
+    ...draft,
+    hook: stripMarkdown(draft.hook),
+    body: stripMarkdown(draft.body),
+    ...(draft.cta ? { cta: stripMarkdown(draft.cta) } : {}),
+    ...(draft.firstComment ? { firstComment: stripMarkdown(draft.firstComment) } : {})
+  }
+}

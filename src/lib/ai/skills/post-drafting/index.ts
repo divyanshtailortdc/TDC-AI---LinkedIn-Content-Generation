@@ -87,7 +87,9 @@ export async function writeDraft(
         : buildPrompt(input.ctx, input.idea, input.mediaFormat),
     schema: DraftGenerationSchema,
     timeoutMs: DRAFTING_TIMEOUT_MS,
-    maxRetries: 1
+    maxRetries: 1,
+    // Recorded apart from the first draft, so a post's cost shows each.
+    recordAs: revise ? 'linting' : regenerate ? 'rewrite' : undefined
   })
 
   if (!isCompleteDraft(output)) {

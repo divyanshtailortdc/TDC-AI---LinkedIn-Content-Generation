@@ -661,23 +661,48 @@ describe('writing a blog', { skip: !url }, () => {
 
   it("checks a saved blog's sources again without changing its text", async () => {
     const blogId = await written()
+    // A blog never checked (an older one): every citation is judged.
+    await database
+      .update(schema.blogsTable)
+      .set({ verification: null })
+      .where(eq(schema.blogsTable.id, blogId))
     const before = await rowOf(blogId)
-    const result = await checkBlogSourcesNow(
-      { accountId, blogId, lockVersion: before.lockVersion },
-      deps({
-        judgeCitations: async (input: { claims: Array<{ id: string }> }) => ({
+    const sent: number[] = []
+    const judge = deps({
+      judgeCitations: async (input: { claims: Array<{ id: string }> }) => {
+        sent.push(input.claims.length)
+        return {
           verdicts: input.claims.map(c => ({ id: c.id, verdict: 'partial', reason: 'Only fees.' })),
           issues: [],
           usage: cost(0.01),
           modelId: 'stub-judge'
-        })
-      })
+        }
+      }
+    })
+    const result = await checkBlogSourcesNow(
+      { accountId, blogId, lockVersion: before.lockVersion },
+      judge
     )
     assert.strictEqual(result.ok, true)
     const row = await rowOf(blogId)
     assert.deepStrictEqual(row.content, before.content)
+    assert.ok(sent[0]! > 0)
     assert.strictEqual(row.verification?.citations[0]?.verdict, 'partial')
     assert.strictEqual(row.lockVersion, before.lockVersion)
+
+    // Checked again with nothing edited: the verdicts are kept, none re-sent.
+    const again = await checkBlogSourcesNow(
+      { accountId, blogId, lockVersion: row.lockVersion },
+      judge
+    )
+    assert.strictEqual(again.ok, true)
+    assert.strictEqual(sent[1], 0)
+    const after = await rowOf(blogId)
+    assert.strictEqual(
+      after.verification?.citations.length,
+      row.verification?.citations.length
+    )
+    assert.strictEqual(after.verification?.citations[0]?.verdict, 'partial')
   })
 
   it('fails with a readable message', async () => {

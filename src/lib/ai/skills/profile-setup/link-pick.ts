@@ -90,7 +90,9 @@ ${results.join('\n\n')}
 }
 
 export async function pickLinks(
-  input: LinkPickInput
+  input: LinkPickInput,
+  /** Stops the call once its answer would no longer be used. */
+  abortSignal?: AbortSignal
 ): Promise<LinkPicks | null> {
   try {
     const { output } = await runSkill({
@@ -99,7 +101,8 @@ export async function pickLinks(
       prompt: buildPrompt(input),
       schema: LinkPicksSchema,
       timeoutMs: TIMEOUT_MS,
-      maxRetries: 0
+      maxRetries: 0,
+      abortSignal
     })
     return output
   } catch (error) {

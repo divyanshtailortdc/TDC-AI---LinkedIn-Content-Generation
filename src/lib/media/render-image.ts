@@ -80,6 +80,12 @@ export async function renderImage(req: {
   abortSignal?: AbortSignal
   /** Called with each billed call as soon as it is known. */
   onUsage: (usage: CallUsage) => void
+  /**
+   * The name the usage ledger records it under, when not 'image': a second
+   * try after a failed check is 'image_retry', so how often that happens
+   * shows in a post's cost.
+   */
+  recordAs?: string
 }): Promise<RenderedImage> {
   if (!gatewayClient || !env.AI_GATEWAY_API_KEY) {
     throw new ImageGenerationError(
@@ -122,7 +128,7 @@ export async function renderImage(req: {
       })
       const cost = readImageCost(result)
       req.onUsage(cost)
-      await recordAiSpend({ stage: 'image', modelId, usage: cost })
+      await recordAiSpend({ stage: req.recordAs ?? 'image', modelId, usage: cost })
 
       if (!result.image) {
         failures.push(`${modelId} returned no image`)

@@ -28,3 +28,22 @@ export async function embedValues(
   })
   return result.embeddings
 }
+
+/**
+ * embedValues, but the same values with the same model are embedded once
+ * however many callers ask, as a run's knowledge base and newsletter
+ * retrieval both do with its goal texts. Keep one per run: a failure is
+ * shared by everyone who asked for the same values.
+ */
+export function sharedEmbedder(): typeof embedValues {
+  const made = new Map<string, Promise<Embedding[]>>()
+  return (handle, values, options) => {
+    const key = `${handle.modelId}\n${values.join('\u0000')}`
+    let embeddings = made.get(key)
+    if (!embeddings) {
+      embeddings = embedValues(handle, values, options)
+      made.set(key, embeddings)
+    }
+    return embeddings
+  }
+}

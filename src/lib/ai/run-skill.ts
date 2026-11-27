@@ -197,6 +197,12 @@ async function runSkillOn<S extends z.ZodType>(opts: {
   abortSignal?: AbortSignal
   /** Another model than the stage's, e.g. a fallback after it failed. */
   modelId?: string
+  /**
+   * The name the usage ledger records the call under, when it differs from
+   * the stage it runs at: a lint revision runs as drafting but is recorded
+   * as 'linting', so a post's cost shows writing and revising apart.
+   */
+  recordAs?: string
 }): Promise<SkillResult<z.infer<S>>> {
   const handle = getLanguageModel(opts.stage, opts.modelId)
   if (!handle) {
@@ -220,7 +226,11 @@ async function runSkillOn<S extends z.ZodType>(opts: {
     throw error
   }
   const record = (usage: CallUsage) =>
-    recordAiSpend({ stage: opts.stage, modelId: handle.modelId, usage })
+    recordAiSpend({
+      stage: opts.recordAs ?? opts.stage,
+      modelId: handle.modelId,
+      usage
+    })
 
   try {
     const result = await generateText({

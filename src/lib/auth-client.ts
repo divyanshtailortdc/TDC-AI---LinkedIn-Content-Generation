@@ -3,8 +3,8 @@ import { adminClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/react'
 
 /**
- * Better Auth in the browser: Google and passkey sign-in, adding a passkey,
- * and sign out. No baseURL, so requests go to the origin the page was loaded
+ * Better Auth in the browser: Google, passkey and email/password sign-in,
+ * email sign-up, adding a passkey, and sign out. No baseURL, so requests go to the origin the page was loaded
  * from.
  *
  * This only starts flows; it decides nothing about access. Every page, action

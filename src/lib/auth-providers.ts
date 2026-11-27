@@ -14,3 +14,7 @@ export type SocialProvider = (typeof SOCIAL_PROVIDER_IDS)[number]
 export const SOCIAL_PROVIDER_LABELS: Record<SocialProvider, string> = {
   google: 'Google'
 }
+
+/** Password rules for email sign-up, shared by the server and the form. */
+export const PASSWORD_MIN_LENGTH = 8
+export const PASSWORD_MAX_LENGTH = 128

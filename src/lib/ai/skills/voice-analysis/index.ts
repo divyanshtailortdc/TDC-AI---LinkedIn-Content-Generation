@@ -26,7 +26,8 @@ export async function analyzeVoiceSamples(
       stage: 'voice_analysis',
       instructions: INSTRUCTIONS,
       prompt: buildPrompt(cleanText, options?.platform),
-      schema: VoiceAnalysisSchema
+      schema: VoiceAnalysisSchema,
+      maxRetries: 1
     })
     return {
       result: sanitizeVoiceAnalysis(output),

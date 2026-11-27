@@ -96,15 +96,21 @@ const contentNavItems: Array<{
 
 // Publishing is where and when content goes out, whatever its type: the
 // schedule of posts, everything already out, and the newsletters that come in.
-const publishingNavItems = [
+const publishingNavItems: Array<{
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  items?: SubNavItem[]
+}> = [
   { href: '/schedule', label: 'Schedule', icon: CalendarDays },
   { href: PUBLISHED_PATH, label: 'Published Content', icon: Send },
-  {
-    href: NEWSLETTERS_PATH,
-    label: 'Newsletters',
-    icon: Newspaper,
-    items: newsletterNavItems
-  }
+  // NEWSLETTER_DISABLED: uncomment the block below to re-enable the newsletter nav
+  // {
+  //   href: NEWSLETTERS_PATH,
+  //   label: 'Newsletters',
+  //   icon: Newspaper,
+  //   items: newsletterNavItems
+  // }
 ]
 
 /** Heading above a group of nav links; a thin divider in the collapsed rail. */

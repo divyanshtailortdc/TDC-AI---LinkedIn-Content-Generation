@@ -41,7 +41,11 @@ import {
   priorVisualsOf
 } from '~/lib/media/plan-record'
 import { postCharCount, postFullText } from '@/lib/post-text'
-import { buildFormatLintOptions, buildPostLintOptions } from './post-lint'
+import {
+  buildFormatLintOptions,
+  buildPostLintOptions,
+  withoutMarkdown
+} from './post-lint'
 import { recheckPostText } from './post-recheck'
 import { getPlatform } from '@/lib/platforms'
 import { isPublishingConfigured } from '@/lib/publishing/config'
@@ -246,6 +250,29 @@ const blockingCount = (findings: LintFinding[]) =>
   findings.filter(f => f.severity === 'error' && !f.passed).length
 
 /**
+ * Markdown the linter blocks on is taken out in code before any revision:
+ * a model redraft for it is a whole second post at full price. Kept only
+ * when it leaves fewer blocking findings; what is left goes to the revision.
+ */
+function clearMarkdown<
+  D extends { hook: string; body: string; cta?: string | null; firstComment?: string | null }
+>(
+  draft: D,
+  findings: LintFinding[],
+  lintOptions: (d: D) => LintOptions
+): { draft: D; lintFindings: LintFinding[] } {
+  const leaks = findings.some(
+    f => f.rule === 'no_markdown_leakage' && f.severity === 'error' && !f.passed
+  )
+  if (!leaks) return { draft, lintFindings: findings }
+  const cleaned = withoutMarkdown(draft)
+  const cleanedFindings = runLinter(lintOptions(cleaned))
+  return blockingCount(cleanedFindings) < blockingCount(findings)
+    ? { draft: cleaned, lintFindings: cleanedFindings }
+    : { draft, lintFindings: findings }
+}
+
+/**
  * The reviewer's own words for a post: what they asked a rewrite to change,
  * and this idea's posts they approved. Links in them are theirs to use.
  */
@@ -280,6 +307,12 @@ interface PrepareOptions {
    * absent.
    */
   draftId?: string
+  /**
+   * Called with the post's hook once its text is written and checked, before
+   * its slides or image are made: the formats that only need how it opens
+   * can start then rather than after its media.
+   */
+  onWritten?: (hook: string) => void
 }
 
 /** A new post's id, and its model calls tagged with it (each post shows its cost). */
@@ -478,6 +511,7 @@ async function prepareLinkedInPost(
   const lintStart = Date.now()
   let lintFindings: LintFinding[] = runLinter(lintOptions(draft))
   let revised = false
+  ;({ draft, lintFindings } = clearMarkdown(draft, lintFindings, lintOptions))
 
   // --------------------------------------------------------- single revision
   const blocking = lintFindings.filter(f => f.severity === 'error' && !f.passed)
@@ -837,6 +871,7 @@ async function prepareFormatPost(
   const lintStart = Date.now()
   let lintFindings = runLinter(lintOptions(draft))
   let revised = false
+  ;({ draft, lintFindings } = clearMarkdown(draft, lintFindings, lintOptions))
   const blocking = lintFindings.filter(f => f.severity === 'error' && !f.passed)
   if (blocking.length > 0) {
     try {
@@ -884,6 +919,8 @@ async function prepareFormatPost(
       usage: revisionUsage
     }
   })
+
+  options.onWritten?.(draft.hook)
 
   const caption = postTexts(formatId, draft).join('\n\n')
   // A carousel's slides, written beside the caption; without them, the
@@ -965,7 +1002,8 @@ const settle = (formatId: FormatId, work: Promise<PreparedPost>): Promise<Settle
 /**
  * Every requested format of one idea. LinkedIn runs alongside the others;
  * of the others, the first is written alone so the shared part of their
- * prompt is in the model's cache before the rest are written together.
+ * prompt is in the model's cache before the rest are written together. The
+ * rest wait only for the first's text, not its image.
  * `existing` is what the idea's posts from before say (drafted again for
  * more platforms), so the new ones open differently and keep what the
  * reviewer approved, as "Add a version" does.
@@ -998,20 +1036,32 @@ async function prepareFormats(
   const otherResults = (async () => {
     if (others.length === 0) return []
     const [first, ...rest] = others
-    const firstResult = await settle(
+    // The rest start once the first's text is written (its prompt prefix is
+    // then in the cache, and its opening known), not after its image.
+    let announce: (hook: string | null) => void = () => {}
+    const written = new Promise<string | null>(resolve => {
+      announce = resolve
+    })
+    const firstSettled = settle(
       first!,
       asNewPost(draftId =>
         prepareFormatPost(ctx, idea, first!, recordStep, {
           ...existing,
           withMedia: imageChosenFor(idea, first!),
           chosenMedia: mediaChosenFor(idea, first!),
-          draftId
+          draftId,
+          onWritten: hook => announce(hook)
         })
       )
     )
+    // Failed before its text was written: the rest go ahead without it.
+    void firstSettled.then(result =>
+      announce('post' in result ? result.post.values.hook : null)
+    )
+    const firstHook = await written
     // The rest are told how the first opens, so they open differently.
-    const firstOpening = 'post' in firstResult ? [firstResult.post.values.hook] : []
-    const restResults = await Promise.all(
+    const firstOpening = firstHook ? [firstHook] : []
+    const restSettled = Promise.all(
       rest.map(f =>
         settle(
           f,
@@ -1030,6 +1080,7 @@ async function prepareFormats(
         )
       )
     )
+    const [firstResult, restResults] = await Promise.all([firstSettled, restSettled])
     return [firstResult, ...restResults]
   })()
   const [linkedInResult, rest] = await Promise.all([linkedIn, otherResults])

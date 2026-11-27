@@ -130,8 +130,8 @@ const SAFEGUARDS: { icon: Icon; title: string; body: string }[] = [
   },
   {
     icon: KeyRound,
-    title: 'No passwords',
-    body: 'Sign in with Google or a passkey. There is no password to create, reuse or leak.'
+    title: 'Sign in your way',
+    body: 'Use Google, a passkey, or an email and password. Add a passkey later to sign in with your fingerprint or face.'
   },
   {
     icon: Gauge,
@@ -179,7 +179,7 @@ const FAQS: { question: string; answer: ReactNode }[] = [
   {
     question: 'How do I sign in?',
     answer:
-      'With Google or a passkey. There are no passwords. Signing in only tells the app who you are; it never lets the app post on your behalf.'
+      'With Google, a passkey, or an email and password you choose when you sign up. Signing in only tells the app who you are; it never lets the app post on your behalf.'
   }
 ]
 
@@ -188,7 +188,7 @@ export default async function WelcomePage() {
   const signedIn = Boolean(await getSession())
   const start = signedIn
     ? { href: '/', label: 'Open the app' }
-    : { href: '/login', label: 'Get started' }
+    : { href: '/signup', label: 'Get started' }
 
   return (
     <div className="bg-surface min-h-full">
@@ -575,7 +575,7 @@ function SiteFooter({ start }: { start: { href: string; label: string } }) {
     {
       title: 'Account',
       links:
-        start.href === '/login'
+        start.href === '/signup'
           ? [{ label: 'Sign in', href: '/login' }, start]
           : [start]
     }

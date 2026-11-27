@@ -530,7 +530,8 @@ export async function producePicture(opts: {
         seed: pass === 0 ? opts.seed : randomSeed(),
         crop: true,
         abortSignal: opts.abortSignal,
-        onUsage: opts.onUsage
+        onUsage: opts.onUsage,
+        ...(pass > 0 ? { recordAs: 'image_retry' } : {})
       })
     } catch (err) {
       // A retry that fails leaves the first picture standing; a stop does not.

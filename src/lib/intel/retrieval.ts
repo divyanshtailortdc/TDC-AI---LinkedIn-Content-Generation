@@ -86,9 +86,10 @@ const storyFields = {
 async function byMeaning(
   recent: SQL,
   queries: string[],
-  handle: NonNullable<ReturnType<typeof getEmbeddingModel>>
+  handle: NonNullable<ReturnType<typeof getEmbeddingModel>>,
+  embed: typeof embedValues
 ): Promise<StoryRow[]> {
-  const embeddings = await embedValues(handle, queries, {
+  const embeddings = await embed(handle, queries, {
     abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS)
   })
   const perGoal = await Promise.all(
@@ -116,7 +117,9 @@ async function byMeaning(
 
 export async function retrieveNewsletterStories(
   ctx: GenerationContext,
-  now = new Date()
+  now = new Date(),
+  /** How the queries are embedded; a run shares one (sharedEmbedder). */
+  options: { embed?: typeof embedValues } = {}
 ): Promise<NewsletterStory[]> {
   const queries = buildRetrievalQueries(ctx)
   if (queries.length === 0) return []
@@ -144,7 +147,12 @@ export async function retrieveNewsletterStories(
   let matchedByMeaning = false
   if (handle) {
     try {
-      closest = await byMeaning(recent, queries, handle)
+      closest = await byMeaning(
+        recent,
+        queries,
+        handle,
+        options.embed ?? embedValues
+      )
       matchedByMeaning = true
     } catch (err) {
       console.warn(

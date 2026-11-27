@@ -38,6 +38,19 @@ type DraftingQueue = {
 
 declare global {
   var __draftingQueue: DraftingQueue | undefined
+  var __draftingErrors: Map<string, string> | undefined
+}
+
+/**
+ * Why an idea's last drafting in this process failed, so the page that
+ * started it can say so (fetchIdeaStatuses) rather than only "try again".
+ * In memory: a page polling another instance sees none, and gets the
+ * general message as before.
+ */
+const draftingErrors = () => (globalThis.__draftingErrors ??= new Map())
+
+export function draftingErrorOf(ideaId: string): string | null {
+  return draftingErrors().get(ideaId) ?? null
 }
 
 /** Ideas drafted at once: each holds model calls and image rendering on one vCPU. */
@@ -80,6 +93,8 @@ export function enqueueDrafting(ideas: QueuedIdea[]): Promise<void> {
   ).then(() => undefined)
   const held = new Set(heldIds())
   for (const idea of ideas) {
+    // Drafted again: an earlier failure is no longer the news.
+    draftingErrors().delete(idea.ideaId)
     if (held.has(idea.ideaId)) continue
     held.add(idea.ideaId)
     q.waiting.push(idea)
@@ -118,6 +133,10 @@ async function draft({ ideaId, runId }: QueuedIdea) {
   } catch (err) {
     // The idea is back to approved, which is what the pages report.
     console.error(`Drafting idea ${ideaId} failed:`, err)
+    const errors = draftingErrors()
+    errors.set(ideaId, err instanceof Error ? err.message : String(err))
+    // Only the latest few: a long-running process need not keep them all.
+    if (errors.size > 200) errors.delete(errors.keys().next().value!)
   }
   // The run reads "drafting" while any of its ideas is still claimed.
   if (runId) {

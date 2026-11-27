@@ -4,6 +4,9 @@ export const DEFAULT_SIGNED_IN_PATH = '/'
 /** The sign-in page, which sends people back to `next` afterwards. */
 export const LOGIN_PATH = '/login'
 
+/** The email and password sign-up page; also takes `?next=`. */
+export const SIGNUP_PATH = '/signup'
+
 /**
  * `value` when it is a path inside this app, otherwise `fallback`. Used for
  * `?next=`, which anyone can put in a link, so an open redirect here would
@@ -45,8 +48,17 @@ export function safeRedirectPath(
 
 /** The login URL that returns to `path` after signing in. */
 export function loginPathFor(path: string): string {
+  return withNext(LOGIN_PATH, path)
+}
+
+/** The sign-up URL that goes on to `path` after signing up. */
+export function signupPathFor(path: string): string {
+  return withNext(SIGNUP_PATH, path)
+}
+
+function withNext(page: string, path: string): string {
   const next = safeRedirectPath(path, '')
   return next && next !== DEFAULT_SIGNED_IN_PATH
-    ? `${LOGIN_PATH}?next=${encodeURIComponent(next)}`
-    : LOGIN_PATH
+    ? `${page}?next=${encodeURIComponent(next)}`
+    : page
 }

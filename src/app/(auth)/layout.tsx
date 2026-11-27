@@ -87,8 +87,14 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="bg-background flex min-h-full flex-col">
       <header className="border-border bg-surface/80 flex h-14 shrink-0 items-center justify-between border-b px-4 backdrop-blur sm:px-8">
-        {/* Home: the website, for anyone not signed in yet. */}
-        <Link href="/" className="flex min-w-0 items-center gap-3">
+        {/* Home: the website, for anyone not signed in yet. Not prefetched:
+            a prefetched website could be shown again for / after signing in
+            (src/components/auth/enter-app.ts). */}
+        <Link
+          href="/"
+          prefetch={false}
+          className="flex min-w-0 items-center gap-3"
+        >
           <AuthLogo className="h-7 w-auto shrink-0 sm:h-8" />
           <span aria-hidden className="text-border text-lg">
             /

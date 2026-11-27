@@ -1,11 +1,14 @@
 'use client'
 
+import { EmailPasswordForm } from '@/components/auth/email-password-form'
 import { PasskeySignInButton } from '@/components/auth/passkey-sign-in-button'
 import {
   SocialSignInButton,
   type SocialProvider
 } from '@/components/auth/social-sign-in-button'
+import { loginPathFor, signupPathFor } from '@/lib/safe-redirect'
 import { CircleAlert, X } from 'lucide-react'
+import Link from 'next/link'
 import { useState } from 'react'
 
 /** A sign-in error, its first sentence in bold, that the user can dismiss. */
@@ -50,10 +53,13 @@ function SignInError({
 }
 
 export function SignInOptions({
+  mode = 'sign-in',
   next,
   providers,
   initialError
 }: {
+  /** The sign-in page, or the sign-up page (no passkey: one needs an account). */
+  mode?: 'sign-in' | 'sign-up'
   /** Where to go once signed in; already checked to be a path in this app. */
   next: string
   /** The social sign-ins that are configured, in display order. */
@@ -78,7 +84,38 @@ export function SignInOptions({
           onError={setError}
         />
       ))}
-      <PasskeySignInButton next={next} onError={setError} />
+      {mode === 'sign-in' && (
+        <PasskeySignInButton next={next} onError={setError} />
+      )}
+      <div className="text-muted flex items-center gap-3 py-1 text-xs tracking-wider uppercase">
+        <span aria-hidden className="bg-border h-px flex-1" />
+        or with email
+        <span aria-hidden className="bg-border h-px flex-1" />
+      </div>
+      <EmailPasswordForm mode={mode} next={next} onError={setError} />
+      <p className="text-muted pt-2 text-center text-sm">
+        {mode === 'sign-in' ? (
+          <>
+            New here?{' '}
+            <Link
+              href={signupPathFor(next)}
+              className="text-platform-text font-medium hover:underline"
+            >
+              Create an account
+            </Link>
+          </>
+        ) : (
+          <>
+            Already have an account?{' '}
+            <Link
+              href={loginPathFor(next)}
+              className="text-platform-text font-medium hover:underline"
+            >
+              Sign in
+            </Link>
+          </>
+        )}
+      </p>
     </div>
   )
 }

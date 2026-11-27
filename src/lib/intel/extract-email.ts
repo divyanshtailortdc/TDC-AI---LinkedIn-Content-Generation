@@ -157,13 +157,24 @@ async function followLink(raw: string) {
 }
 
 /** The article ids for these addresses, adding the new ones as pending. */
-async function articleIdsFor(tx: Tx, urls: string[]) {
+async function articleIdsFor(
+  tx: Tx,
+  urls: string[],
+  /**
+   * Link only articles already there, queueing none to be read: for
+   * sponsored stories, which ideas never use, so reading their pages with
+   * the model would be paid for nothing.
+   */
+  options: { existingOnly?: boolean } = {}
+) {
   const unique = [...new Set(urls)]
   if (unique.length === 0) return new Map<string, string>()
-  await tx
-    .insert(articles)
-    .values(unique.map(canonicalUrl => ({ canonicalUrl })))
-    .onConflictDoNothing({ target: articles.canonicalUrl })
+  if (!options.existingOnly) {
+    await tx
+      .insert(articles)
+      .values(unique.map(canonicalUrl => ({ canonicalUrl })))
+      .onConflictDoNothing({ target: articles.canonicalUrl })
+  }
   const rows = await tx
     .select({
       id: articles.id,
@@ -437,10 +448,17 @@ async function extract(email: ClaimedEmail) {
 
     await tx.delete(mentions).where(eq(mentions.messageId, email.id))
     if (digest.items.length === 0) return
-    const articleIds = await articleIdsFor(
-      tx,
-      targets.flatMap(target => (target?.article ? [target.url] : []))
-    )
+    const articleUrls = (sponsored: boolean) =>
+      targets.flatMap((target, position) =>
+        target?.article && digest.items[position]!.sponsored === sponsored
+          ? [target.url]
+          : []
+      )
+    const read = await articleIdsFor(tx, articleUrls(false))
+    const known = await articleIdsFor(tx, articleUrls(true), {
+      existingOnly: true
+    })
+    const articleIds = new Map([...known, ...read])
     const stories = digest.items.map((item, position) => {
       const target = targets[position]
       return {

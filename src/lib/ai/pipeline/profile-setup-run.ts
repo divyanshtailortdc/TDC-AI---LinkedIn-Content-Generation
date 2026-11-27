@@ -257,6 +257,9 @@ async function researchOnline(
     notes: [note]
   })
 
+  // Past the budget the research is no longer waited for, so its model call
+  // stops too rather than being paid for and thrown away.
+  const budget = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
@@ -275,19 +278,18 @@ async function researchOnline(
             searchConfigured: isWebSearchConfigured,
             search: query => searchWithTimeout(query),
             fetchPage: (url, options) => fetchSource(url, 'web', options),
-            pickLinks
+            pickLinks: picks => pickLinks(picks, budget.signal)
           }
         ))(),
       new Promise<ResearchResult>(resolve => {
-        timer = setTimeout(
-          () =>
-            resolve(
-              empty(
-                'Web research took too long, so only your details and the links you gave were used.'
-              )
-            ),
-          RESEARCH_BUDGET_MS
-        )
+        timer = setTimeout(() => {
+          resolve(
+            empty(
+              'Web research took too long, so only your details and the links you gave were used.'
+            )
+          )
+          budget.abort()
+        }, RESEARCH_BUDGET_MS)
       })
     ])
   } catch (error) {
@@ -311,12 +313,19 @@ async function readOwnSite(
   signal?: AbortSignal
 ): Promise<SetupSource[]> {
   if (signal?.aborted) return []
+  // The pick stops when its answer would no longer be used: past the budget,
+  // or when the analysis is cancelled.
+  const stop = AbortSignal.any(
+    [AbortSignal.timeout(SITE_PAGES_BUDGET_MS), signal].filter(
+      (s): s is AbortSignal => Boolean(s)
+    )
+  )
   try {
     return await settleWithin(
       readSitePages(
         { description, home },
         {
-          pickPages: pickSitePages,
+          pickPages: picks => pickSitePages(picks, stop),
           fetchPage: url => fetchSource(url, 'site', { direct: true })
         }
       ),

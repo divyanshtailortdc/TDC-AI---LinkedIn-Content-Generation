@@ -20,7 +20,11 @@ import { requireUser } from '@/lib/session'
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
-import { enqueueDrafting, resumeAbandonedDrafting } from '~/jobs/drafting-queue'
+import {
+  draftingErrorOf,
+  enqueueDrafting,
+  resumeAbandonedDrafting
+} from '~/jobs/drafting-queue'
 import {
   claimDraftSelection,
   describeDraftSelection
@@ -420,7 +424,11 @@ export async function fetchIdeaStatuses(ideaIds: string[]) {
             .select({
               id: ideasTable.id,
               status: ideasTable.status,
-              posts: sql<number>`(select count(*)::int from ${postDraftsTable} where ${postDraftsTable.ideaId} = ${ideasTable.id})`
+              // Spelled "table"."column": in a selected field drizzle leaves
+              // the table out, and a bare "id" in here is the post's own id,
+              // so every idea counted 0 posts and the page said drafting
+              // failed although the posts were saved.
+              posts: sql<number>`(select count(*)::int from ${postDraftsTable} where ${sql.identifier('post_drafts')}.${sql.identifier('idea_id')} = ${sql.identifier('ideas')}.${sql.identifier('id')})`
             })
             .from(ideasTable)
             .where(
@@ -438,7 +446,14 @@ export async function fetchIdeaStatuses(ideaIds: string[]) {
         )
       )
     }
-    return { success: true as const, ideas }
+    return {
+      success: true as const,
+      // Why an idea back to approved was not drafted, when this process knows.
+      ideas: ideas.map(idea => {
+        const error = idea.status === 'approved' ? draftingErrorOf(idea.id) : null
+        return error ? { ...idea, error } : idea
+      })
+    }
   } catch (err: any) {
     return {
       success: false as const,
@@ -497,6 +512,69 @@ export async function approveAllIdeas(ideaIds: string[]) {
     return { success: true, approvedIds: approved.map(i => i.id) }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to approve ideas' }
+  }
+}
+
+/**
+ * Deletes ideas of the active identity, one or many. Posts already made from
+ * an idea are kept (post_drafts.idea_id is set null), and so are blogs.
+ * Ideas being drafted are left alone: their posts are being written and
+ * would be saved against an idea that no longer exists. Only the returned
+ * ids were deleted.
+ */
+export async function deleteIdeas(ideaIds: string[]) {
+  await requireUser()
+  try {
+    // A server action's arguments come from the browser, whatever the types say.
+    const ids = Array.isArray(ideaIds)
+      ? ideaIds.filter(isUuid).slice(0, 500)
+      : []
+    if (ids.length === 0) {
+      return { success: false as const, error: 'Select the ideas to delete.' }
+    }
+    const identityId = await requireIdentityId()
+
+    const deleted = await db
+      .delete(ideasTable)
+      .where(
+        and(
+          inArray(ideasTable.id, ids),
+          eq(ideasTable.accountId, identityId),
+          notInArray(ideasTable.status, ['drafting'])
+        )
+      )
+      .returning({ id: ideasTable.id, runId: ideasTable.runId })
+
+    if (deleted.length === 0) {
+      return {
+        success: false as const,
+        error:
+          'None of these ideas could be deleted. They may be being drafted right now, or already deleted. Refresh the page to see where they stand.'
+      }
+    }
+
+    // A run waiting on ideas that are now gone reads "completed" instead.
+    const runIds = new Set(
+      deleted.map(i => i.runId).filter((id): id is string => Boolean(id))
+    )
+    await Promise.all(
+      [...runIds].map(runId =>
+        settleRunAfterIdeaDecision(runId).catch(err =>
+          console.error(`Could not settle run ${runId}:`, err)
+        )
+      )
+    )
+
+    // The sidebar's Ideas badge counts ideas still to review.
+    revalidatePath('/', 'layout')
+    revalidatePath('/ideas')
+    revalidatePath('/runs')
+    return { success: true as const, deletedIds: deleted.map(i => i.id) }
+  } catch (err: any) {
+    return {
+      success: false as const,
+      error: err.message || 'Failed to delete the ideas'
+    }
   }
 }
 

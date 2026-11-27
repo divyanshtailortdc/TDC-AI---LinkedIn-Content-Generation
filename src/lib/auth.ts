@@ -14,7 +14,12 @@ import {
   authVerificationsTable
 } from '~/db/schema'
 import { env } from '~/env'
-import { SOCIAL_PROVIDER_IDS, type SocialProvider } from './auth-providers'
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  SOCIAL_PROVIDER_IDS,
+  type SocialProvider
+} from './auth-providers'
 import { ADMIN_ROLES, parseAdminUserIds, USER_ROLE } from './roles'
 
 const APP_NAME = 'TDC Content Engine'
@@ -95,15 +100,26 @@ export const auth = betterAuth({
     })
   },
 
+  // Email and password sign-up and sign-in. The app sends no email, so the
+  // address is never confirmed: the user is signed in straight after
+  // signing up, with emailVerified false.
+  emailAndPassword: {
+    enabled: true,
+    autoSignIn: true,
+    minPasswordLength: PASSWORD_MIN_LENGTH,
+    maxPasswordLength: PASSWORD_MAX_LENGTH
+  },
+
   account: {
     accountLinking: {
-      // A social sign-in links to the existing user with the same
-      // email, even one whose email was never confirmed (left from the old
-      // password sign-up, or made by an admin). Safe now that there are no
-      // passwords: nobody can have registered the address first and kept a
-      // way in. The provider must still report the email as verified, as
-      // none is a trusted provider.
-      requireLocalEmailVerified: false
+      // A social sign-in links to the existing user with the same email
+      // only when that user's email is confirmed. Must stay true now that
+      // anyone can sign up with a password and an unconfirmed address:
+      // otherwise someone could register a victim's email first, and keep
+      // their password way in after the victim signs in with Google. The
+      // provider must also report the email as verified, as none is a
+      // trusted provider.
+      requireLocalEmailVerified: true
     }
   },
 

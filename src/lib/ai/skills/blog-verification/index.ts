@@ -20,7 +20,7 @@ export const CITATION_CHECK_TIMEOUT_MS = 30_000
  * checks that need no model.
  */
 export async function judgeCitations(
-  input: { claims: JudgeClaim[]; articleText: string },
+  input: { claims: JudgeClaim[]; articleText: string; verdictsOnly?: boolean },
   options: { timeoutMs?: number } = {}
 ): Promise<{
   verdicts: Array<{ id: string; verdict: CitationVerdict; reason: string }>

@@ -179,8 +179,8 @@ describe(
     const emails = (suffix: string) => `${tag}-${suffix}@example.test`
 
     /**
-     * A signed-in user, made directly in the database: the only ways to sign
-     * in are Google and passkeys, which a test cannot drive.
+     * A signed-in user, made directly in the database: quicker than signing
+     * up, and with a confirmed email, as a Google sign-in leaves it.
      */
     async function signedInUser(suffix: string) {
       const [user] = await db
@@ -216,32 +216,57 @@ describe(
     })
 
     describe('sign-in', () => {
-      it('has no password sign-up, sign-in or reset', async () => {
-        const browser = new Client()
-        for (const [path, body] of [
-          [
-            '/api/auth/sign-up/email',
-            {
-              name: 'No Passwords',
-              email: emails('nopw'),
-              password: 'x'.repeat(12)
-            }
-          ],
-          [
-            '/api/auth/sign-in/email',
-            { email: emails('nopw'), password: 'x'.repeat(12) }
-          ],
-          ['/api/auth/request-password-reset', { email: emails('nopw') }]
-        ] as const) {
-          const res = await browser.json(path, body)
-          assert.ok(res.status >= 400, `${path} answered ${res.status}`)
-        }
-        assert.strictEqual(browser.hasSessionCookie(), false)
+      it('signs up and in with an email and password', async () => {
+        const email = emails('pw')
+        const password = 'correct horse battery'
+
+        const signup = new Client()
+        const res = await signup.json('/api/auth/sign-up/email', {
+          name: 'Password User',
+          email,
+          password
+        })
+        assert.strictEqual(res.status, 200)
+        assert.strictEqual(signup.hasSessionCookie(), true)
+        assert.strictEqual((await signup.session())?.user.email, email)
+        // The app sends no email, so the address stays unconfirmed, which
+        // keeps Google from linking to this user (src/lib/auth.ts).
         const [user] = await db
           .select()
           .from(schema.authUsersTable)
-          .where(eq(schema.authUsersTable.email, emails('nopw')))
-        assert.strictEqual(user, undefined)
+          .where(eq(schema.authUsersTable.email, email))
+        assert.strictEqual(user?.emailVerified, false)
+
+        // The same email cannot sign up twice.
+        const again = await new Client().json('/api/auth/sign-up/email', {
+          name: 'Someone Else',
+          email,
+          password: 'another password'
+        })
+        assert.ok(again.status >= 400, `second sign-up answered ${again.status}`)
+
+        const wrong = new Client()
+        const bad = await wrong.json('/api/auth/sign-in/email', {
+          email,
+          password: 'wrong password'
+        })
+        assert.strictEqual(bad.status, 401)
+        assert.strictEqual(wrong.hasSessionCookie(), false)
+
+        const signin = new Client()
+        const ok = await signin.json('/api/auth/sign-in/email', {
+          email,
+          password
+        })
+        assert.strictEqual(ok.status, 200)
+        assert.strictEqual((await signin.session())?.user.id, user!.id)
+      })
+
+      it('has no password reset (the app sends no email)', async () => {
+        const res = await new Client().json('/api/auth/request-password-reset', {
+          email: emails('pw')
+        })
+        assert.ok(res.status >= 400, `answered ${res.status}`)
       })
 
       it('offers passkey sign-in for this site', async () => {
@@ -339,9 +364,10 @@ describe(
         assert.strictEqual(api.status, 401)
       })
 
-      it('keeps only the sign-in page public', async () => {
+      it('keeps only the sign-in and sign-up pages public', async () => {
         assert.strictEqual((await new Client().fetch('/login')).status, 200)
-        for (const path of ['/signup', '/forgot-password', '/reset-password']) {
+        assert.strictEqual((await new Client().fetch('/signup')).status, 200)
+        for (const path of ['/forgot-password', '/reset-password']) {
           const res = await new Client().fetch(path)
           assert.strictEqual(res.status, 307, path)
         }

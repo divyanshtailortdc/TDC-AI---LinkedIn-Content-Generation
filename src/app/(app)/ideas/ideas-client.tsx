@@ -13,7 +13,7 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, Link2, Play, SquareCheck, Wand2, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, Link2, Play, SquareCheck, Trash2, Wand2, X } from 'lucide-react'
 import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import { SimilarPostDialog } from '@/components/similar-post-dialog'
@@ -28,7 +28,14 @@ import { PlatformTabs } from '@/components/platform-tabs'
 import { IDEA_STATUS_LABEL, isSelectableIdea, RunIdeaCard } from '@/components/run-idea-card'
 import { PageHeader } from '@/components/page-header'
 import { AiDraftingStatus, type DraftingStatus } from '@/components/ai-drafting-status'
-import { approveIdea, rejectIdea, editIdea, draftSelectedIdeas, approveAllIdeas } from './actions'
+import {
+  approveIdea,
+  rejectIdea,
+  editIdea,
+  draftSelectedIdeas,
+  approveAllIdeas,
+  deleteIdeas
+} from './actions'
 import { createSimilarPostAction } from './reference-actions'
 import { showToast } from '@/components/toast-notification'
 import { ConfirmPopover } from '@/components/confirm-popover'
@@ -236,8 +243,14 @@ export function IdeasClient({
   const [ticked, setTicked] = useState<string[]>([])
   const [draftedTicks, setDraftedTicks] = useState<Record<string, string[]>>({})
   const isDraftedTick = (id: string) => Object.hasOwn(draftedTicks, id)
+  // Rejected ideas ticked, for Delete only: Create posts leaves them out.
+  const [rejectedTicks, setRejectedTicks] = useState<string[]>([])
   const selection = ticked.filter(
-    (id) => proposedIds.includes(id) || approvedIds.includes(id) || isDraftedTick(id)
+    (id) =>
+      proposedIds.includes(id) ||
+      approvedIds.includes(id) ||
+      isDraftedTick(id) ||
+      rejectedTicks.includes(id)
   )
   const selectedApproved = selection.filter((id) => approvedIds.includes(id))
   const selectedProposed = selection.filter((id) => proposedIds.includes(id))
@@ -257,11 +270,18 @@ export function IdeasClient({
       }
       return next
     })
+    const rejected = ids.filter(
+      (id) => ideas.find((i) => i.id === id)?.status === 'rejected'
+    )
+    setRejectedTicks((prev) =>
+      on ? [...new Set([...prev, ...rejected])] : prev.filter((x) => !ids.includes(x))
+    )
   }
   const setTick = (id: string, on: boolean) => tickMany([id], on)
   const clearSelection = () => {
     setTicked([])
     setDraftedTicks({})
+    setRejectedTicks([])
   }
   // The formats each idea already has posts in, for the dialog.
   const postFormatsOf = (id: string): string[] =>
@@ -281,7 +301,9 @@ export function IdeasClient({
   const selectableShown = filteredIdeas
     .filter(
       (i) =>
-        isSelectableIdea(i.status) || (status === 'drafted' && i.status === 'drafted')
+        isSelectableIdea(i.status) ||
+        (status === 'drafted' && i.status === 'drafted') ||
+        (status === 'rejected' && i.status === 'rejected')
     )
     .map((i) => i.id)
   const allShownTicked =
@@ -384,6 +406,37 @@ export function IdeasClient({
   }
 
   const handleReject = (id: string) => decideIdea(id, 'rejected')
+
+  // Deletes one idea or the selection. Posts made from them are kept.
+  const handleDelete = async (ids: string[]) => {
+    if (ids.length === 0) return
+    setIsActionBusy(true)
+    if (ids.length === 1) setIdeaActionBusyId(ids[0]!)
+    try {
+      const res = await deleteIdeas(ids)
+      if (!res.success) {
+        showToast({ title: 'Delete failed', message: res.error, type: 'error' })
+        return
+      }
+      const gone = res.deletedIds
+      setIdeas((prev) => prev.filter((i) => !gone.includes(i.id)))
+      tickMany(gone, false)
+      markDataChanged()
+      const skipped = ids.length - gone.length
+      showToast({
+        title: 'Deleted',
+        message: `Deleted ${gone.length} idea${gone.length === 1 ? '' : 's'}.${
+          skipped > 0
+            ? ` ${skipped} could not be deleted: ${skipped === 1 ? 'it is' : 'they are'} being drafted.`
+            : ''
+        }`,
+        type: skipped > 0 ? 'info' : 'success'
+      })
+    } finally {
+      setIdeaActionBusyId(null)
+      setIsActionBusy(false)
+    }
+  }
 
   const handleEditSave = async (id: string, payload: { hookConcept: string; angle: string }) => {
     setIdeaActionBusyId(id)
@@ -515,7 +568,10 @@ export function IdeasClient({
         return
       }
       if (made.length === 0) {
-        const message = 'No post could be drafted. The ideas are as they were; try again.'
+        const reason = rows.find((r) => r.error)?.error
+        const message = `No post could be drafted. The ideas are as they were; try again.${
+          reason ? ` Reason: ${reason}` : ''
+        }`
         setDraftStatus('error')
         setDraftError(message)
         showToast({ title: 'Drafting failed', message, type: 'error' })
@@ -730,7 +786,30 @@ export function IdeasClient({
                 </button>
               )}
 
-              {selectedProposed.length === 0 ? (
+              <ConfirmPopover
+                title={`Delete ${selection.length} idea${selection.length === 1 ? '' : 's'}?`}
+                description={
+                  selectedDrafted.length > 0
+                    ? "They are removed for good. Posts already made from them are kept."
+                    : "They are removed for good. This can't be undone."
+                }
+                confirmLabel="Delete"
+                tone="danger"
+                align="end"
+                onConfirm={() => handleDelete(selection)}
+                disabled={isActionBusy}
+              >
+                <button
+                  type="button"
+                  disabled={isActionBusy}
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-rose-500/30 px-3.5 text-[13px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-60 dark:text-rose-400"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete</span>
+                </button>
+              </ConfirmPopover>
+
+              {selectedProposed.length === 0 && selectedToDraft.length === 0 ? null : selectedProposed.length === 0 ? (
                 <button
                   type="button"
                   onClick={() => setCreateDialog({ kind: 'selected' })}
@@ -980,6 +1059,7 @@ export function IdeasClient({
                     selected={selection.includes(idea.id)}
                     onSelectChange={setTick}
                     canAddPosts
+                    onDelete={(id) => handleDelete([id])}
                   />
                 </Fragment>
               ))}

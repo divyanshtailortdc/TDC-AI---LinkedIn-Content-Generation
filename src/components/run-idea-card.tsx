@@ -17,6 +17,7 @@ import {
   NotebookPen,
   Sparkles,
   Target,
+  Trash2,
   X
 } from 'lucide-react'
 import Link from 'next/link'
@@ -106,6 +107,11 @@ interface RunIdeaCardProps {
    * no post on (the Ideas page). Off where the page does not support it.
    */
   canAddPosts?: boolean
+  /**
+   * Deletes the idea (the Ideas page). With it, the card shows Delete, and
+   * a rejected idea gets a checkbox too, so it can be deleted with others.
+   */
+  onDelete?: (id: string) => Promise<void>
 }
 
 /** Only ideas still at the gate can be picked for posts. */
@@ -186,7 +192,8 @@ export function RunIdeaCard({
   showStatus = true,
   selected = false,
   onSelectChange,
-  canAddPosts = false
+  canAddPosts = false,
+  onDelete
 }: RunIdeaCardProps) {
   const actionsDisabled = isBusy
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -227,8 +234,13 @@ export function RunIdeaCard({
   // changes the idea's own status (src/app/(app)/blogs).
   const showWriteBlog = idea.status !== 'rejected'
   const collapsed = mode === 'view' && !showDetails
+  // Never while drafting: its posts are being saved against it.
+  const showDelete = !!onDelete && idea.status !== 'drafting'
   const showCheckbox =
-    !!onSelectChange && (isSelectableIdea(idea.status) || addsPosts)
+    !!onSelectChange &&
+    (isSelectableIdea(idea.status) ||
+      addsPosts ||
+      (!!onDelete && idea.status === 'rejected'))
   const goals = idea.goalTitles ?? []
 
   const evidence = Array.isArray(idea.supportingEvidence)
@@ -298,7 +310,7 @@ export function RunIdeaCard({
               type="checkbox"
               checked={selected}
               onChange={e => onSelectChange?.(idea.id, e.target.checked)}
-              aria-label={`Select "${title}" for posts`}
+              aria-label={`Select "${title}"`}
               className="accent-accent h-4 w-4 shrink-0 cursor-pointer"
             />
           )}
@@ -593,7 +605,8 @@ export function RunIdeaCard({
             canApprove ||
             showDraft ||
             showViewPost ||
-            showWriteBlog) && (
+            showWriteBlog ||
+            showDelete) && (
             // mt-auto pins the actions to the bottom edge of the fixed-height card.
             <div className="mt-auto pt-4">
               <div className="border-border flex flex-wrap items-center gap-2 border-t pt-3">
@@ -614,6 +627,30 @@ export function RunIdeaCard({
                   </button>
                 )}
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  {showDelete && (
+                    <ConfirmPopover
+                      title="Delete this idea?"
+                      description={
+                        idea.status === 'drafted'
+                          ? "It is removed for good. The posts made from it are kept."
+                          : "It is removed for good. This can't be undone."
+                      }
+                      confirmLabel="Delete"
+                      tone="danger"
+                      onConfirm={() => onDelete?.(idea.id)}
+                      disabled={actionsDisabled}
+                    >
+                      <button
+                        type="button"
+                        disabled={actionsDisabled}
+                        aria-label="Delete idea"
+                        title="Delete idea"
+                        className="text-muted inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-60 dark:hover:text-rose-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </ConfirmPopover>
+                  )}
                   {showWriteBlog && (
                     <Link
                       href={`/blogs/new?idea=${idea.id}`}

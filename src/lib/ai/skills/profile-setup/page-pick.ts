@@ -53,7 +53,9 @@ ${links.join('\n\n')}
 }
 
 export async function pickSitePages(
-  input: SitePagePickInput
+  input: SitePagePickInput,
+  /** Stops the call once its answer would no longer be used. */
+  abortSignal?: AbortSignal
 ): Promise<SitePagePick[] | null> {
   try {
     const { output } = await runSkill({
@@ -62,7 +64,8 @@ export async function pickSitePages(
       prompt: buildPrompt(input),
       schema: SitePagePicksSchema,
       timeoutMs: TIMEOUT_MS,
-      maxRetries: 0
+      maxRetries: 0,
+      abortSignal
     })
     return output.pages
   } catch (error) {

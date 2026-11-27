@@ -88,7 +88,7 @@ export const authAccountsTable = pgTable(
       withTimezone: true
     }),
     scope: text('scope'),
-    // Part of Better Auth's core schema; always empty, as passwords are off.
+    // The password hash, on the 'credential' account of an email sign-up.
     password: text('password'),
     ...timestamps
   },

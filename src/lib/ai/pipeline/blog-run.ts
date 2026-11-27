@@ -92,7 +92,6 @@ import {
 import { ownHosts } from '@/lib/research/source-credibility'
 import { normalizeUrlForCompare } from '@/lib/urls'
 import { and, eq } from 'drizzle-orm'
-import { defaultModel } from '../../ai'
 import {
   collectBannedWords,
   loadGenerationContext,
@@ -986,18 +985,16 @@ export async function runBlogGeneration(
       usage = addUsage(usage, written.usage)
     } catch (error) {
       if (error instanceof SkillError) usage = addUsage(usage, error.usage)
-      // The long-form model failing (not a limit, not the clock) is worth one
-      // try on the default model while there is time for it.
+      // A failed answer (an incomplete blog, one that missed the schema; not
+      // a limit, not the clock) is worth one more try while there is time:
+      // the same call usually succeeds the second time, and the blog is
+      // otherwise lost.
       const retry =
         error instanceof SkillError &&
         error.reason === 'failed' &&
         remaining() - CHECK_RESERVE_MS >= 60_000
       if (!retry) throw error
-      written = await d.writeBlog(input, {
-        ...mode,
-        timeoutMs: writeTime(),
-        modelId: defaultModel
-      })
+      written = await d.writeBlog(input, { ...mode, timeoutMs: writeTime() })
       usage = addUsage(usage, written.usage)
     }
 
@@ -1412,7 +1409,8 @@ export async function rewriteBlogSectionNow(
   if (claims.length > 0) {
     try {
       const judged = await d.judgeCitations(
-        { claims, articleText: docText(sectionDoc) },
+        // Only the verdicts are kept here, so no issues are asked for.
+        { claims, articleText: docText(sectionDoc), verdictsOnly: true },
         { timeoutMs: 20_000 }
       )
       usage = addUsage(usage, judged.usage)
@@ -1500,7 +1498,15 @@ export async function checkBlogSourcesNow(
   const { ctx } = await d.loadContext(row)
   const brief: BlogBrief = { ...row.brief, caseDetails: row.brief.caseDetails ?? '' }
   const content = contentOf(row)
-  const claims = claimsToJudge(row.content, row.sources)
+  const cited = claimsToJudge(row.content, row.sources)
+  // A sentence still linking the source it was judged against keeps that
+  // verdict: only sentences written or relinked since are sent again. The
+  // whole article still is, for the issues an edit may have made.
+  const keyOf = (c: { sourceId: string; sentence: string }) => `${c.sourceId}\n${c.sentence}`
+  const known = new Map(
+    (row.verification?.citations ?? []).map(citation => [keyOf(citation), citation])
+  )
+  const claims = cited.filter(claim => !known.has(keyOf(claim)))
   let usage: CallUsage = EMPTY_USAGE
   let judged: Awaited<ReturnType<typeof judgeCitations>> | null = null
   try {
@@ -1517,12 +1523,19 @@ export async function checkBlogSourcesNow(
   const problems = checkCitations({ doc: row.content, sources: row.sources, authorText })
   const verification: BlogVerification = {
     checkedAt: new Date(d.now()).toISOString(),
-    citations: judged.verdicts.flatMap(verdict => {
-      const claim = byId.get(verdict.id)
-      return claim
-        ? [{ sourceId: claim.sourceId, sentence: claim.sentence, verdict: verdict.verdict, reason: verdict.reason }]
-        : []
-    }),
+    citations: [
+      ...judged.verdicts.flatMap(verdict => {
+        const claim = byId.get(verdict.id)
+        return claim
+          ? [{ sourceId: claim.sourceId, sentence: claim.sentence, verdict: verdict.verdict, reason: verdict.reason }]
+          : []
+      }),
+      // Kept from the last check, for sentences that still cite their source.
+      ...cited.flatMap(claim => {
+        const kept = known.get(keyOf(claim))
+        return kept ? [kept] : []
+      })
+    ],
     issues: [
       ...problems.map(problem => ({
         sentence: problem.sentence,

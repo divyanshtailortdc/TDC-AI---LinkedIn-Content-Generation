@@ -103,7 +103,9 @@ export async function writeVariant(
     // One schema for every format, so they share the prompt cache.
     schema: VariantOutputSchema,
     timeoutMs: DRAFTING_TIMEOUT_MS,
-    maxRetries: 1
+    maxRetries: 1,
+    // Recorded apart from the first draft, so a post's cost shows each.
+    recordAs: revise ? 'linting' : regenerate ? 'rewrite' : undefined
   })
 
   const draft = toVariantDraft(formatId, output)
