@@ -14,8 +14,6 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
-  Eye,
-  EyeOff,
   Lightbulb,
   Loader2,
   Lock,
@@ -126,7 +124,6 @@ export function OnboardingChecklist() {
   const ctx = useOnboarding()
   const outcome = useBufferOutcome()
   const [selected, setSelected] = useState<OnboardingStepKey | null>(null)
-  const [toggling, setToggling] = useState(false)
   if (!ctx) return null
   const { view, change } = ctx
   const { progress } = view
@@ -144,12 +141,6 @@ export function OnboardingChecklist() {
   const numberOf = (key: OnboardingStepKey) =>
     numbered.findIndex(s => s.key === key) + 1
   const isCurrent = shown.key === progress.current
-
-  const toggleBar = async () => {
-    setToggling(true)
-    await change({ hidden: !view.hidden })
-    setToggling(false)
-  }
 
   return (
     <section
@@ -275,29 +266,6 @@ export function OnboardingChecklist() {
           })}
         </div>
       </div>
-
-      <footer className="border-border text-muted flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-xs sm:px-6">
-        <span>
-          {view.hidden
-            ? 'The guide bar is hidden on the other pages.'
-            : 'The guide bar shows the next step on every page.'}
-        </span>
-        <button
-          type="button"
-          onClick={() => void toggleBar()}
-          disabled={toggling}
-          className="text-foreground hover:bg-surface-hover inline-flex h-7 items-center gap-1.5 rounded-md px-2 font-medium"
-        >
-          {toggling ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : view.hidden ? (
-            <Eye className="h-3.5 w-3.5" />
-          ) : (
-            <EyeOff className="h-3.5 w-3.5" />
-          )}
-          {view.hidden ? 'Show the guide bar' : 'Hide the guide bar'}
-        </button>
-      </footer>
     </section>
   )
 }

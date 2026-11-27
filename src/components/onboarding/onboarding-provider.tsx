@@ -1,7 +1,6 @@
 'use client'
 
 import { updateOnboarding } from '@/lib/onboarding/actions'
-import { stepForPath } from '@/lib/onboarding/progress'
 import type { OnboardingChange } from '@/lib/onboarding/state'
 import type { OnboardingView } from '@/lib/onboarding/view'
 import {
@@ -22,15 +21,14 @@ import {
 } from 'react'
 
 /**
- * The onboarding progress of the active identity, shared by the guide bar on
- * every page, the dashboard checklist and a post's publish controls. The
- * layout renders it first; after that it is re-read from /api/onboarding:
+ * The onboarding progress of the active identity, shared by the dashboard
+ * checklist and a post's publish controls. The layout renders it first;
+ * after that it is re-read from /api/onboarding:
  *
  * - after each navigation (a layout does not re-render on navigation),
  * - when the tab comes back into view (work done in another tab, or Buffer),
- * - every few seconds while the app is busy (a run, a draft, a publish), or
- *   while the user is on the page of the step they are working on, so saving
- *   there ticks it off without a reload,
+ * - every few seconds on the dashboard while the app is busy (a run, a
+ *   draft, a publish), so the checklist ticks it off without a reload,
  * - when a component says something changed (refreshOnboarding).
  */
 
@@ -50,7 +48,7 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null)
 
 const REFRESH_EVENT = 'onboarding:refresh'
 
-/** Tells the guide that saved data changed (a post published, say). */
+/** Tells the onboarding progress that saved data changed (a post published, say). */
 export function refreshOnboarding() {
   if (typeof window !== 'undefined')
     window.dispatchEvent(new Event(REFRESH_EVENT))
@@ -58,8 +56,6 @@ export function refreshOnboarding() {
 
 /** While a run, a draft or a publish is under way. */
 const BUSY_POLL_MS = 5_000
-/** While the user works on the current step's own page. */
-const STEP_POLL_MS = 8_000
 
 export function OnboardingProvider({
   initial,
@@ -109,9 +105,9 @@ export function OnboardingProvider({
   }, [])
 
   // The outcome of connecting Buffer, when the page was just returned to from
-  // Buffer's screen (src/lib/publishing/return-path.ts). Read here, once, so
-  // the guide bar and the checklist show the same one; the address is then
-  // cleaned, so a reload does not show it again. Settings → Integrations
+  // Buffer's screen (src/lib/publishing/return-path.ts). Read here, once, for
+  // the checklist; the address is then cleaned, so a reload does not show it
+  // again. Settings → Integrations
   // shows it on its own Buffer card.
   const [outcome, setOutcome] = useState<
     (BufferOutcome & { path: string }) | null
@@ -163,20 +159,12 @@ export function OnboardingProvider({
     }
   }, [refresh])
 
-  const { progress, hidden } = view
+  const { progress } = view
   const busy = progress.steps.some(s => s.status === 'working')
-  const onStepPage =
-    progress.current !== null &&
-    stepForPath(pathname, progress.current) === progress.current
-  // Nothing to follow once complete, or with the guide out of sight.
-  const watching = !progress.complete && (!hidden || pathname === '/')
-  const interval = !watching
-    ? null
-    : busy
-      ? BUSY_POLL_MS
-      : onStepPage
-        ? STEP_POLL_MS
-        : null
+  // Only the dashboard checklist shows progress live; nothing to follow
+  // once complete.
+  const interval =
+    !progress.complete && busy && pathname === '/' ? BUSY_POLL_MS : null
   useEffect(() => {
     if (!interval) return
     const timer = setInterval(() => {

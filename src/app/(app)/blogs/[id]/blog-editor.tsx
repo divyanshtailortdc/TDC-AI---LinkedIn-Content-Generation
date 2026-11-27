@@ -29,6 +29,7 @@ import {
   ExternalLink,
   Eye,
   Globe,
+  Link2,
   MoreHorizontal,
   PencilLine,
   RefreshCw,
@@ -52,7 +53,8 @@ import {
   restoreBlogVersion,
   rewriteBlogSection,
   saveBlog,
-  setBlogPublished
+  setBlogPublished,
+  setBlogSharing
 } from '../actions'
 import { BlogStatusChip } from '../blog-status'
 import type { BlogEditorBlog, BlogLabels } from '../blogs-data'
@@ -71,6 +73,7 @@ import { OutlinePanel } from './outline-panel'
 import { PublishDialog, type PublishDetails } from './publish-dialog'
 import { RegenerateDialog } from './regenerate-dialog'
 import { SeoPanel } from './seo-panel'
+import { ShareDialog } from './share-dialog'
 import { SourcesPanel } from './sources-panel'
 import { VersionsPanel } from './versions-panel'
 
@@ -143,7 +146,7 @@ export function BlogEditor({
   const [conflict, setConflict] = useState(false)
   const [rewriting, setRewriting] = useState<number | null>(null)
   const [dialog, setDialog] = useState<
-    'regenerate' | 'publish' | 'delete' | null
+    'regenerate' | 'publish' | 'share' | 'delete' | null
   >(null)
   const [deleting, setDeleting] = useState(false)
   const [makingImage, setMakingImage] = useState(false)
@@ -498,6 +501,18 @@ export function BlogEditor({
     return true
   }
 
+  const share = async (shared: boolean) => {
+    const result = await setBlogSharing(saved.id, shared)
+    if (!result.success) {
+      showToast({ type: 'error', title: 'Not changed', message: result.error })
+      return false
+    }
+    // Sharing changes no text: the draft and lock version stay as they are.
+    setSaved(current => ({ ...current, shareToken: result.shareToken }))
+    if (!shared) showToast({ type: 'success', title: 'Stopped sharing' })
+    return true
+  }
+
   const remove = async () => {
     setDeleting(true)
     const result = await deleteBlog(saved.id)
@@ -625,6 +640,15 @@ export function BlogEditor({
                 <Eye aria-hidden className="h-4 w-4" />
               )}
               {preview ? 'Edit' : 'Preview'}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setDialog('share')}
+              disabled={!saved.title.trim()}
+            >
+              <Link2 aria-hidden className="h-4 w-4" />
+              {saved.shareToken ? 'Shared' : 'Share'}
             </Button>
             <ExportMenu
               blog={current}
@@ -967,6 +991,14 @@ export function BlogEditor({
           editing={saved.status === 'published'}
           onCancel={() => setDialog(null)}
           onConfirm={details => markPublished(details)}
+        />
+      )}
+      {dialog === 'share' && (
+        <ShareDialog
+          token={saved.shareToken}
+          dirty={dirty}
+          onShare={share}
+          onCancel={() => setDialog(null)}
         />
       )}
       {dialog === 'delete' && (

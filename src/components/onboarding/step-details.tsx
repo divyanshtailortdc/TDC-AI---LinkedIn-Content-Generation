@@ -231,14 +231,11 @@ function ChannelList({ view }: { view: OnboardingView }) {
  */
 export function StepDetails({
   step,
-  showHow = true,
-  onPage = false
+  showHow = true
 }: {
   step: OnboardingStepState
   /** The numbered instructions; left out where space is short. */
   showHow?: boolean
-  /** The user is on the step's own page: no "go there" button. */
-  onPage?: boolean
 }) {
   const ctx = useOnboarding()
   const pathname = usePathname()
@@ -317,7 +314,6 @@ export function StepDetails({
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         ) : (
-          !onPage &&
           actionable &&
           !finished && (
             <Link
@@ -341,7 +337,7 @@ export function StepDetails({
             onClick={() => void run('confirm', { confirm: step.key })}
             className={buttonClassName({
               size: 'sm',
-              variant: onPage ? 'primary' : 'secondary',
+              variant: 'secondary',
               className: 'font-semibold'
             })}
           >

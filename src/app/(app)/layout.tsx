@@ -1,5 +1,4 @@
 import { MobileNavProvider } from '@/components/mobile-nav'
-import { OnboardingGuideBar } from '@/components/onboarding/guide-bar'
 import { OnboardingProvider } from '@/components/onboarding/onboarding-provider'
 import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { RefreshOnBack } from '@/components/refresh-on-back'
@@ -68,8 +67,8 @@ export default async function AppLayout({
       configuredPlatforms.length > 0 && identity
         ? getCurrentConnections(identity.id)
         : [],
-      // The getting-started guide: the bar above every page, the dashboard
-      // checklist and the publish review all read it.
+      // The getting-started progress: the dashboard checklist and the
+      // publish review read it.
       loadOnboardingView(user.id, identity)
     ])
   const sidebarCollapsed =
@@ -108,7 +107,6 @@ export default async function AppLayout({
               user={{ name: user.name, email: user.email }}
             />
             <main className="bg-background relative flex min-w-0 flex-1 flex-col overflow-y-auto">
-              <OnboardingGuideBar />
               <RefreshOnBack>
                 {/* Switching identity reloads the page with router.refresh(),
                   which keeps client state: a form would still hold the

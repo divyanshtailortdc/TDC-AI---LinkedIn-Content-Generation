@@ -1,6 +1,7 @@
 import { blogsTable, type Blog } from '@/db/schema'
 import { isUuid } from '@/lib/ids'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
+import { randomBytes } from 'node:crypto'
 import { addUsage, type CallUsage } from '~/lib/ai/usage'
 import type { LintFinding } from '~/lib/lint/run-linter'
 import type { BlogDb } from './claim'
@@ -8,6 +9,7 @@ import { DEFAULT_BLOG_DESTINATION, type BlogDestinationId } from './destinations
 import type { BlogDoc } from './doc'
 import type { BlogEdit } from './input'
 import { findBlogRevision, lockBlog, saveBlogRevision } from './revisions'
+import { isShareToken } from './share'
 import {
   isGenerationStale,
   type BlogImage,
@@ -394,6 +396,49 @@ export async function setBlogPublished(
     )
     .returning()
   return blog ? { ok: true, blog } : { ok: false, reason: 'not_found' }
+}
+
+/**
+ * Turns the blog's public link on or off. On keeps the link it already has,
+ * so a second tab never breaks a link the first one copied; off stops it
+ * working for everyone, and turning it on again makes a new one. Its text,
+ * lock version and last-changed time are untouched: sharing is not an edit.
+ * Null when the blog is not the identity's.
+ */
+export async function setBlogShareLink(
+  database: BlogDb,
+  input: { accountId: string; blogId: string; shared: boolean }
+): Promise<{ shareToken: string | null } | null> {
+  if (!isUuid(input.blogId)) return null
+  const [row] = await database
+    .update(blogsTable)
+    .set({
+      shareToken: input.shared
+        ? sql`coalesce(${blogsTable.shareToken}, ${randomBytes(24).toString('base64url')})`
+        : null
+    })
+    .where(
+      and(
+        eq(blogsTable.id, input.blogId),
+        eq(blogsTable.accountId, input.accountId)
+      )
+    )
+    .returning({ shareToken: blogsTable.shareToken })
+  return row ?? null
+}
+
+/** The blog a public link opens; null when none is shared under it. */
+export async function findSharedBlog(
+  database: BlogDb,
+  token: string
+): Promise<Blog | null> {
+  if (!isShareToken(token)) return null
+  const [blog] = await database
+    .select()
+    .from(blogsTable)
+    .where(eq(blogsTable.shareToken, token))
+    .limit(1)
+  return blog ?? null
 }
 
 export async function deleteIdentityBlog(

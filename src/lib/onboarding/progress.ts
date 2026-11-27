@@ -12,8 +12,8 @@ import { INTEGRATIONS_SETTINGS_PATH } from '@/lib/settings-path'
  * The guided journey from signing up to the first published post, worked out
  * from what is actually saved (src/lib/onboarding/facts.ts) rather than from
  * which pages were visited. So it resumes by itself, on any device: whatever
- * was saved last time is already done. Pure, so the dashboard checklist, the
- * guide bar and the tests all read the same rules.
+ * was saved last time is already done. Pure, so the dashboard checklist and
+ * the tests read the same rules.
  */
 
 export const ONBOARDING_STEP_KEYS = [
@@ -267,50 +267,6 @@ export function onboardingProgress(facts: OnboardingFacts): OnboardingProgress {
     ? null
     : (applies.find(s => !FINISHED.has(s.status))?.key ?? null)
   return { steps, current, completed, total: applies.length, complete }
-}
-
-/**
- * Which step a page is for. Some pages serve two steps (Settings →
- * Integrations: Buffer, then channels; Goals: goals, then starting a run;
- * a post's page: review, then publish): there, the current step if it is one
- * of them, else the first.
- */
-const PAGE_STEPS: Array<{
-  match: (path: string) => boolean
-  steps: OnboardingStepKey[]
-}> = [
-  {
-    match: p => p === IDENTITY_PATH || p === `${IDENTITY_PATH}/new`,
-    steps: ['profile']
-  },
-  { match: p => p === `${IDENTITY_PATH}/voice`, steps: ['voice'] },
-  { match: p => p === `${IDENTITY_PATH}/knowledge`, steps: ['knowledge'] },
-  { match: p => p === `${IDENTITY_PATH}/preferences`, steps: ['preferences'] },
-  { match: p => p === BRAND_THEME_PATH, steps: ['brandTheme'] },
-  {
-    match: p => p === INTEGRATIONS_SETTINGS_PATH,
-    steps: ['buffer', 'channels']
-  },
-  { match: p => p === '/goals', steps: ['goals', 'ideas'] },
-  {
-    match: p =>
-      p === `${IDENTITY_PATH}/runs` || p === '/runs' || p.startsWith('/runs/'),
-    steps: ['ideas']
-  },
-  { match: p => p === '/ideas', steps: ['post'] },
-  {
-    match: p => p === '/posts' || p.startsWith('/posts/'),
-    steps: ['review', 'publish']
-  }
-]
-
-export function stepForPath(
-  pathname: string,
-  current: OnboardingStepKey | null = null
-): OnboardingStepKey | null {
-  const page = PAGE_STEPS.find(p => p.match(pathname))
-  if (!page) return null
-  return current && page.steps.includes(current) ? current : page.steps[0]!
 }
 
 /** How long the "your first post is out" message stays up by itself. */

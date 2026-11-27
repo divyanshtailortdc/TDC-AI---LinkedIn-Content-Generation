@@ -1,13 +1,15 @@
 import { getSessionCookie } from 'better-auth/cookies'
 import { NextResponse, type NextRequest } from 'next/server'
+import { SHARE_PATH } from './lib/blogs/share'
 import { loginPathFor } from './lib/safe-redirect'
 import { SITE_PATH } from './lib/site'
 
 /**
- * Pages anyone can open: the website, signing in, and the help pages (the
- * sign-in page links to them; they hold no account data).
+ * Pages anyone can open: the website, signing in, the help pages (the
+ * sign-in page links to them; they hold no account data), and blogs shared
+ * by link (the route checks the link itself).
  */
-const PUBLIC_PATHS = [SITE_PATH, '/login', '/docs']
+const PUBLIC_PATHS = [SITE_PATH, '/login', '/docs', SHARE_PATH]
 
 /**
  * An early, cheap redirect for visitors with no session cookie, so they land

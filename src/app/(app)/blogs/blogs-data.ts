@@ -138,6 +138,8 @@ export type BlogEditorBlog = {
   publishedUrl: string | null
   publishedAt: string | null
   publishedTo: BlogDestinationId | null
+  /** The secret in its public link; null when it is not shared. */
+  shareToken: string | null
   updatedAt: string
   ideaId: string | null
   goalId: string | null
@@ -193,6 +195,7 @@ export function toEditorBlog(
     publishedUrl: blog.publishedUrl,
     publishedAt: blog.publishedAt?.toISOString() ?? null,
     publishedTo: blog.publishedTo ?? null,
+    shareToken: blog.shareToken ?? null,
     updatedAt: blog.updatedAt.toISOString(),
     ideaId: blog.ideaId,
     goalId: blog.goalId,
