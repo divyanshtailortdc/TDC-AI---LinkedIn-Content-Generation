@@ -5,6 +5,8 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/page-header'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
+import { TextField } from '@/components/ui/field'
+import { TruncatedText } from '@/components/ui/tooltip'
 import { downloadUrl } from '@/lib/blogs/browser-export'
 import { blogWordCount, docSignature, type BlogDoc } from '@/lib/blogs/doc'
 import type { BlogEdit } from '@/lib/blogs/input'
@@ -562,12 +564,16 @@ export function BlogEditor({
           <Link
             href="/blogs"
             aria-label="Back to Blogs & Articles"
-            className="text-muted hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-lg"
+            className="text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
         }
-        title={draft.title || saved.brief.topic}
+        title={
+          <h1 className="text-foreground min-w-0 text-xl font-bold tracking-tight sm:text-2xl">
+            <TruncatedText text={draft.title || saved.brief.topic} />
+          </h1>
+        }
         description={
           <span className="inline-flex items-center gap-2">
             <BlogStatusChip
@@ -795,9 +801,9 @@ export function BlogEditor({
                   <label htmlFor={titleId} className="sr-only">
                     Title
                   </label>
-                  <textarea
+                  <TextField
                     id={titleId}
-                    rows={1}
+                    maxRows={12}
                     maxLength={BLOG_LIMITS.title}
                     value={draft.title}
                     disabled={!editable}
@@ -811,7 +817,7 @@ export function BlogEditor({
                       }
                     }}
                     placeholder="Title"
-                    className="text-foreground [field-sizing:content] w-full resize-none bg-transparent text-3xl leading-tight font-bold tracking-tight outline-none sm:text-4xl"
+                    className="rounded-none border-0 bg-transparent p-0 text-3xl leading-tight font-bold tracking-tight shadow-none hover:border-0 focus:ring-0 disabled:cursor-default disabled:opacity-100 sm:text-4xl"
                   />
                   <p className="text-muted mt-2 text-xs">
                     {BLOG_KIND_LABELS[saved.kind]} ·{' '}
@@ -845,10 +851,10 @@ export function BlogEditor({
 
           <aside className="lg:sticky lg:top-6 lg:w-96 lg:shrink-0">
             <div className="border-border bg-surface rounded-2xl border shadow-xs">
-              <div
+              <ScrollFade
                 role="tablist"
                 aria-label="Blog details"
-                className="border-border flex gap-1 overflow-x-auto border-b px-2 pt-2"
+                className="border-border flex gap-0.5 border-b px-1.5 pt-1.5"
               >
                 {TABS.map(([key, label]) => (
                   <button
@@ -860,16 +866,16 @@ export function BlogEditor({
                     aria-controls={`${tabsId}-panel`}
                     onClick={() => setTab(key)}
                     className={cn(
-                      '-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
+                      'focus-visible:ring-brand/30 -mb-px flex-1 cursor-pointer rounded-t-md border-b-2 px-2 py-2 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset',
                       tab === key
                         ? 'border-brand text-foreground'
-                        : 'text-muted hover:text-foreground border-transparent'
+                        : 'text-muted hover:text-foreground hover:bg-surface-hover/60 border-transparent'
                     )}
                   >
                     {label}
                   </button>
                 ))}
-              </div>
+              </ScrollFade>
               <div
                 role="tabpanel"
                 id={`${tabsId}-panel`}
@@ -974,6 +980,55 @@ export function BlogEditor({
           onConfirm={remove}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * A row that scrolls sideways when it does not fit, with its cut-off edge
+ * faded so it is clear there is more to scroll to.
+ */
+function ScrollFade({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<'div'>) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState({ start: false, end: false })
+  useEffect(() => {
+    const row = ref.current
+    if (!row) return
+    const measure = () =>
+      setEdges({
+        start: row.scrollLeft > 1,
+        end: row.scrollLeft + row.clientWidth < row.scrollWidth - 1
+      })
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    row.addEventListener('scroll', measure, { passive: true })
+    return () => {
+      observer.disconnect()
+      row.removeEventListener('scroll', measure)
+    }
+  }, [])
+  const fade = 'black calc(100% - 24px), transparent'
+  const mask =
+    edges.start && edges.end
+      ? `linear-gradient(to right, transparent, black 24px, ${fade})`
+      : edges.start
+        ? 'linear-gradient(to right, transparent, black 24px)'
+        : edges.end
+          ? `linear-gradient(to right, ${fade})`
+          : undefined
+  return (
+    <div
+      ref={ref}
+      {...props}
+      style={{ maskImage: mask, WebkitMaskImage: mask }}
+      className={cn('overflow-x-auto [scrollbar-width:none]', className)}
+    >
+      {children}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { ConfirmPopover } from '@/components/confirm-popover'
+import { TextArea, TextField } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 import { FormatChips } from '@/components/format-chips'
 import {
@@ -394,13 +395,14 @@ export function RunIdeaCard({
               >
                 Hook
               </label>
-              <textarea
+              <TextArea
                 id={`hook-${idea.id}`}
                 rows={3}
+                maxRows={12}
                 value={editHook}
                 onChange={e => setEditHook(e.target.value)}
                 autoFocus
-                className="border-border bg-surface-hover text-foreground focus:border-accent w-full resize-y rounded-lg border p-2.5 text-sm outline-none"
+                className="p-2.5"
               />
             </div>
             <div>
@@ -413,12 +415,11 @@ export function RunIdeaCard({
                   One line on the position the post takes
                 </span>
               </label>
-              <input
+              <TextField
                 id={`angle-${idea.id}`}
-                type="text"
                 value={editAngle}
                 onChange={e => setEditAngle(e.target.value)}
-                className="border-border bg-surface-hover text-foreground focus:border-accent w-full rounded-lg border p-2.5 text-sm outline-none"
+                className="p-2.5"
               />
             </div>
             <div className="border-border flex items-center justify-end gap-2 border-t pt-3">

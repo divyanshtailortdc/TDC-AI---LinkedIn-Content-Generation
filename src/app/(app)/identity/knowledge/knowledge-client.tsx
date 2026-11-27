@@ -9,6 +9,7 @@ import {
 } from '@/components/ai-setup/draft-store'
 import { ProvenanceBadge } from '@/components/ai-setup/prefill-banner'
 import { showToast } from '@/components/toast-notification'
+import { TextArea, TextField } from '@/components/ui/field'
 import {
   EMPTY_SUGGESTIONS
 } from '@/lib/ai/skills/profile-setup/schema'
@@ -553,12 +554,15 @@ export function KnowledgeClient({
         {tab === 'url' && (
           <div className="space-y-4">
             <div className="flex gap-3">
-              <input
-                type="url"
+              <TextField
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 value={inputUrl}
                 onChange={e => setInputUrl(e.target.value)}
                 placeholder="https://example.com/article"
-                className="border-border bg-surface-hover text-foreground placeholder:text-muted focus:ring-accent flex-1 rounded-lg border px-3.5 py-2 text-sm focus:ring-1"
+                className="flex-1 px-3.5"
               />
               <button
                 type="button"
@@ -594,13 +598,12 @@ export function KnowledgeClient({
                   <label className="text-foreground mb-1 block text-xs font-medium">
                     Title
                   </label>
-                  <input
-                    type="text"
+                  <TextField
                     value={urlPreview.title}
                     onChange={e =>
                       setUrlPreview({ ...urlPreview, title: e.target.value })
                     }
-                    className="border-border bg-surface text-foreground w-full rounded-md border px-3 py-1.5 text-sm"
+                    className="bg-surface py-1.5"
                   />
                 </div>
 
@@ -608,13 +611,13 @@ export function KnowledgeClient({
                   <label className="text-foreground mb-1 block text-xs font-medium">
                     Text
                   </label>
-                  <textarea
+                  <TextArea
                     rows={6}
                     value={urlPreview.content}
                     onChange={e =>
                       setUrlPreview({ ...urlPreview, content: e.target.value })
                     }
-                    className="border-border bg-surface text-foreground w-full resize-none rounded-md border p-3 font-mono text-xs"
+                    className="bg-surface p-3 font-mono text-xs"
                   />
                 </div>
 
@@ -646,12 +649,11 @@ export function KnowledgeClient({
               <label className="text-foreground mb-1.5 block text-xs font-medium">
                 Title
               </label>
-              <input
-                type="text"
+              <TextField
                 value={artifactTitle}
                 onChange={e => setArtifactTitle(e.target.value)}
                 placeholder="e.g. Customer case study"
-                className="border-border bg-surface-hover text-foreground focus:ring-accent w-full rounded-lg border px-3.5 py-2 text-sm focus:ring-1"
+                className="px-3.5"
               />
             </div>
 
@@ -659,12 +661,12 @@ export function KnowledgeClient({
               <label className="text-foreground mb-1.5 block text-xs font-medium">
                 Text
               </label>
-              <textarea
+              <TextArea
                 rows={6}
                 value={artifactContent}
                 onChange={e => setArtifactContent(e.target.value)}
                 placeholder="Paste a case study, transcript, release note or talk"
-                className="border-border bg-surface-hover text-foreground focus:ring-accent w-full resize-none rounded-lg border p-3.5 text-sm focus:ring-1"
+                className="p-3.5"
               />
             </div>
 

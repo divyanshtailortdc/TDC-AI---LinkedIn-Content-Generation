@@ -3,6 +3,7 @@
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS, Select } from '@/components/ui/field'
 import { findFont, FONT_CHOICES } from '@/lib/brand/fonts'
 import { IMAGE_STYLE_ICONS } from '@/components/image-style-icons'
 import {
@@ -42,9 +43,6 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { saveBrandTheme } from './actions'
-
-const inputClass =
-  'border-border bg-surface-hover text-foreground placeholder:text-muted focus:border-accent w-full rounded-md border px-3 py-2 text-sm outline-none'
 
 function Section({
   icon: Icon,
@@ -351,7 +349,7 @@ function ColorField({
             else if (!e.target.value.trim()) onChange(null)
           }}
           className={cn(
-            inputClass,
+            FIELD_CLASS,
             'py-1.5 font-mono text-xs uppercase aria-invalid:border-rose-500'
           )}
         />
@@ -929,20 +927,20 @@ export function BrandThemeClient({
                   >
                     Headline typeface
                   </label>
-                  <select
+                  <Select
                     id="heading-font-select"
                     value={theme.headingFont}
                     onChange={e =>
                       setTheme(t => ({ ...t, headingFont: e.target.value }))
                     }
-                    className={cn(inputClass, 'mt-1.5')}
+                    wrapperClassName="mt-1.5"
                   >
                     {FONT_CHOICES.map(f => (
                       <option key={f.family} value={f.family}>
                         {f.family} ({f.category})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div>
@@ -952,20 +950,20 @@ export function BrandThemeClient({
                   >
                     Body & label typeface
                   </label>
-                  <select
+                  <Select
                     id="body-font-select"
                     value={theme.bodyFont}
                     onChange={e =>
                       setTheme(t => ({ ...t, bodyFont: e.target.value }))
                     }
-                    className={cn(inputClass, 'mt-1.5')}
+                    wrapperClassName="mt-1.5"
                   >
                     {FONT_CHOICES.map(f => (
                       <option key={f.family} value={f.family}>
                         {f.family} ({f.category})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
             </Section>

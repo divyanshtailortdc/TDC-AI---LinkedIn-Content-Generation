@@ -4,6 +4,7 @@ import { PlatformMark } from '@/components/platform-mark'
 import { Button } from '@/components/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
 import type { PlatformSpec } from '@/lib/platforms'
@@ -183,7 +184,7 @@ export function AutoPublishSection({
             type="time"
             value={time}
             onChange={e => setTime(e.target.value)}
-            className="border-border bg-surface-hover text-foreground h-8 rounded-lg border px-2 text-sm"
+            className={cn(FIELD_CLASS, 'h-8 w-auto px-2 py-1')}
           />
           {/* The zone in use until a save stores the viewer's own. */}
           {(savedZone ?? zone) && (

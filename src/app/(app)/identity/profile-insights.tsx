@@ -3,6 +3,7 @@
 import { ConfirmPopover } from '@/components/confirm-popover'
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
+import { TextArea } from '@/components/ui/field'
 import { formatAbsoluteDate, formatRelativeDate } from '@/lib/format-date'
 import { PLATFORMS, type PlatformId } from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
@@ -418,9 +419,6 @@ const fromDraft = (d: Draft): ProfileInsights => ({
   }))
 })
 
-const inputClass =
-  'border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm leading-relaxed'
-
 /** One editable part of the insights. */
 const FIELDS: Array<{
   key: keyof Draft
@@ -727,7 +725,7 @@ function ProfileInsightsDialog({
                       </span>
                     )}
                   </label>
-                  <textarea
+                  <TextArea
                     id={`${titleId}-${field.key}`}
                     autoComplete="off"
                     rows={field.rows}
@@ -736,7 +734,7 @@ function ProfileInsightsDialog({
                     onChange={e =>
                       setDraft(d => ({ ...d, [field.key]: e.target.value }))
                     }
-                    className={`${inputClass} resize-y`}
+                    className="leading-relaxed"
                   />
                 </div>
               ))}

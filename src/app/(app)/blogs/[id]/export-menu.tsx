@@ -5,7 +5,8 @@ import {
   copyFormatted,
   copyText,
   downloadImages,
-  downloadText
+  downloadText,
+  printHtml
 } from '@/lib/blogs/browser-export'
 import {
   blogArticleHtml,
@@ -24,6 +25,7 @@ import {
   Code2,
   Download,
   FileCode2,
+  FileDown,
   FileText,
   Hash,
   Images,
@@ -36,7 +38,8 @@ import { Menu } from './menu'
  * included): formatted for pasting into a CMS or document (pictures inline),
  * Markdown, HTML or the structured data on the clipboard; Markdown with
  * front matter, a complete HTML page (pictures embedded), plain text or the
- * pictures themselves as files named by the slug.
+ * pictures themselves as files named by the slug, or a PDF saved from the
+ * browser's print window.
  */
 export function ExportMenu({
   blog,
@@ -175,6 +178,23 @@ export function ExportMenu({
                 downloadText(name, 'text/html', blogToStandaloneHtml(embedded, meta))
                 done(`Downloaded ${name}`, 'Pictures are embedded in the page.')
               })
+          },
+          {
+            label: 'PDF (.pdf)',
+            icon: <FileDown aria-hidden className="h-4 w-4" />,
+            onSelect: () =>
+              withEmbeddedImage()
+                .then(embedded => {
+                  showToast({
+                    type: 'info',
+                    title: 'Save it as a PDF',
+                    message: 'In the print window, choose “Save as PDF” as the destination.'
+                  })
+                  return printHtml(blogToStandaloneHtml(embedded, meta, { print: true }))
+                })
+                .catch(() =>
+                  failed('Could not make the PDF', 'Try again, or export the HTML page and print it from your browser.')
+                )
           },
           {
             label: 'Plain text (.txt)',

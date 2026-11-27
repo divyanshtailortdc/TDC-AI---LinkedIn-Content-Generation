@@ -13,6 +13,8 @@ import {
 } from '@/components/publishing-header-button'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS } from '@/components/ui/field'
+import { cn } from '@/lib/cn'
 import { formatAbsoluteDateTime as formatDateTime } from '@/lib/format-date'
 import { FORMATS, type FormatId, type MediaFormat } from '@/lib/formats'
 import { useHasMounted } from '@/lib/hooks/use-has-mounted'
@@ -570,7 +572,7 @@ function PublishControlsInner({
               required
               value={scheduleAt}
               onChange={e => setScheduleAt(e.target.value)}
-              className="border-border bg-surface text-foreground h-8 rounded-lg border px-2 text-xs"
+              className={cn(FIELD_CLASS, 'bg-surface h-8 w-auto px-2 py-1 text-xs')}
             />
             <button
               type="submit"

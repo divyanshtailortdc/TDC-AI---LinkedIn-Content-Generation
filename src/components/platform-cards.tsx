@@ -2,6 +2,7 @@
 
 import { PlatformMark } from '@/components/platform-mark'
 import { StylePicker } from '@/components/platform-styles'
+import { Select, TextArea } from '@/components/ui/field'
 import {
   EMOJI_LABELS,
   EMOJI_LEVELS,
@@ -21,9 +22,6 @@ export type PlatformCardNote = {
   tone?: string
   emoji?: EmojiLevel
 }
-
-const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors'
 
 /**
  * Each platform as a card: its style, and for every platform but LinkedIn
@@ -140,13 +138,15 @@ function PlatformCard({
               >
                 Who follows you on {label}
               </label>
-              <textarea
+              <TextArea
                 id={`${id}-audience`}
                 autoComplete="off"
                 value={note.audience ?? ''}
                 onChange={e => onNoteChange({ ...note, audience: e.target.value })}
                 placeholder="e.g. Locals and regulars who come for the seasonal bakes"
-                className={`${inputClass} h-20 resize-none leading-relaxed`}
+                rows={2}
+                maxRows={10}
+                className="bg-surface leading-relaxed"
               />
             </div>
             <div className="min-w-0">
@@ -156,13 +156,15 @@ function PlatformCard({
               >
                 How you sound on {label}
               </label>
-              <textarea
+              <TextArea
                 id={`${id}-tone`}
                 autoComplete="off"
                 value={note.tone ?? ''}
                 onChange={e => onNoteChange({ ...note, tone: e.target.value })}
                 placeholder="e.g. Warm and chatty, first names, behind the scenes"
-                className={`${inputClass} h-20 resize-none leading-relaxed`}
+                rows={2}
+                maxRows={10}
+                className="bg-surface leading-relaxed"
               />
             </div>
           </div>
@@ -173,7 +175,7 @@ function PlatformCard({
             >
               Emoji on {label}
             </label>
-            <select
+            <Select
               id={`${id}-emoji`}
               value={note.emoji ?? ''}
               onChange={e =>
@@ -182,7 +184,7 @@ function PlatformCard({
                   emoji: isEmojiLevel(e.target.value) ? e.target.value : undefined
                 })
               }
-              className={inputClass}
+              className="bg-surface"
             >
               <option value="">Default ({defaultEmoji})</option>
               {EMOJI_LEVELS.map(level => (
@@ -190,7 +192,7 @@ function PlatformCard({
                   {EMOJI_LABELS[level]}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
       )}

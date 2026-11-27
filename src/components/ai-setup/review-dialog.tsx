@@ -7,6 +7,7 @@ import {
   type SectionApplyResult
 } from '@/app/(app)/identity/ai-setup-actions'
 import { showToast } from '@/components/toast-notification'
+import { Select, TextArea, TextField } from '@/components/ui/field'
 import {
   describeSource,
   EMPTY_SUGGESTIONS,
@@ -24,6 +25,7 @@ import {
   type SectionStatus,
   type SetupSection
 } from '@/lib/ai/skills/profile-setup/schema'
+import { cn } from '@/lib/cn'
 import { hasGoalTitle } from '@/lib/goal-titles'
 import {
   isDifferentIdentity,
@@ -79,9 +81,6 @@ export type Item = {
   /** Audience and offerings: where each line came from. */
   lines?: LineBasis[]
 }
-
-const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand'
 
 /** Raw form, for telling whether a suggestion differs from what is saved. */
 function formatValue(value: unknown): string {
@@ -352,33 +351,33 @@ function FieldEditor({
   let control: ReactNode
   if (spec?.type === 'scale') {
     control = (
-      <select
+      <Select
         id={id}
         value={text}
         onChange={e => change(e.target.value)}
-        className={`${inputClass} ${invalid}`}
+        className={cn('bg-surface', invalid)}
       >
         {[1, 2, 3, 4, 5].map(n => (
           <option key={n} value={n}>
             {n} / 5
           </option>
         ))}
-      </select>
+      </Select>
     )
   } else if (spec?.type === 'enum') {
     control = (
-      <select
+      <Select
         id={id}
         value={text}
         onChange={e => change(e.target.value)}
-        className={`${inputClass} ${invalid}`}
+        className={cn('bg-surface', invalid)}
       >
         {spec.options!.map(option => (
           <option key={option} value={option}>
             {option.replace(/_/g, ' ')}
           </option>
         ))}
-      </select>
+      </Select>
     )
   } else if (spec?.type === 'list' && spec.options) {
     const selected = new Set(text.split('\n').filter(Boolean))
@@ -407,25 +406,22 @@ function FieldEditor({
     )
   } else if (spec?.type === 'list' || LONG_TEXT_FIELDS.has(field)) {
     control = (
-      <textarea
+      <TextArea
         id={id}
-        rows={
-          spec?.type === 'list'
-            ? Math.min(6, Math.max(2, text.split('\n').length))
-            : 3
-        }
+        rows={spec?.type === 'list' ? 2 : 3}
+        maxRows={12}
         value={text}
         onChange={e => change(e.target.value)}
-        className={`${inputClass} ${invalid} resize-y`}
+        className={cn('bg-surface', invalid)}
       />
     )
   } else {
     control = (
-      <input
+      <TextField
         id={id}
         value={text}
         onChange={e => change(e.target.value)}
-        className={`${inputClass} ${invalid}`}
+        className={cn('bg-surface', invalid)}
       />
     )
   }

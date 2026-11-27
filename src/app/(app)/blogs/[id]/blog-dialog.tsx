@@ -47,15 +47,15 @@ export function BlogDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-xs motion-safe:animate-[overlay-in_150ms_ease-out] sm:p-4"
       onClick={event => {
         if (event.target === event.currentTarget && !pending) onCancel()
       }}
     >
       <div
-        className={`border-border bg-surface flex max-h-[calc(100dvh-2rem)] w-full flex-col rounded-2xl border shadow-2xl ${wide ? 'max-w-3xl' : 'max-w-md'}`}
+        className={`border-border bg-surface flex max-h-[calc(100dvh-1.5rem)] w-full flex-col rounded-2xl border shadow-2xl motion-safe:animate-[dialog-in_200ms_cubic-bezier(0.16,1,0.3,1)] sm:max-h-[calc(100dvh-2rem)] ${wide ? 'max-w-3xl' : 'max-w-md'}`}
       >
-        <div className="border-border border-b px-6 pt-5 pb-4">
+        <div className="border-border border-b px-5 pt-5 pb-4 sm:px-6">
           <h2 id={titleId} className="text-foreground text-base font-semibold">
             {title}
           </h2>
@@ -66,11 +66,11 @@ export function BlogDialog({
           )}
         </div>
         {children && (
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
             {children}
           </div>
         )}
-        <div className="border-border flex justify-end gap-2 border-t px-6 py-4">
+        <div className="border-border flex flex-col-reverse gap-2 border-t px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
           <Button variant="secondary" disabled={pending} onClick={onCancel}>
             {confirmLabel ? 'Cancel' : 'Close'}
           </Button>

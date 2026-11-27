@@ -1,6 +1,7 @@
 'use client'
 
 import { PlatformMark } from '@/components/platform-mark'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { StatusChip } from '@/components/ui/status-chip'
 import { FOCUS_RING, TONES } from '@/components/ui/tone'
 import { dayLabel } from '@/lib/calendar'
@@ -205,8 +206,8 @@ export function DayInput({
         // A half-typed year left behind shows the saved day again.
         onBlur={() => setDraft(value ?? '')}
         className={cn(
-          'border-border bg-surface-hover text-foreground h-7 min-w-0 flex-1 rounded-lg border px-2 text-xs tabular-nums aria-disabled:opacity-60',
-          FOCUS_RING
+          FIELD_CLASS,
+          'h-7 flex-1 px-2 py-0.5 text-xs tabular-nums aria-disabled:opacity-60'
         )}
       />
     </div>

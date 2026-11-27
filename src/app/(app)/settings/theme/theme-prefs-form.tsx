@@ -2,6 +2,8 @@
 
 import { Button } from '@/components/button'
 import { showToast } from '@/components/toast-notification'
+import { FIELD_CLASS } from '@/components/ui/field'
+import { cn } from '@/lib/cn'
 import {
   contrastRatio,
   DEFAULT_THEME_PREFS,
@@ -324,7 +326,7 @@ function ColorField({
             if (hex) onChange(hex)
           }}
           onBlur={() => setDraft(value)}
-          className="border-border bg-surface-hover text-foreground focus-visible:ring-foreground/30 h-9 w-28 rounded-lg border px-3 font-mono text-sm uppercase focus-visible:ring-2 focus-visible:outline-none"
+          className={cn(FIELD_CLASS, 'h-9 w-28 py-1.5 font-mono uppercase')}
         />
       </div>
     </div>

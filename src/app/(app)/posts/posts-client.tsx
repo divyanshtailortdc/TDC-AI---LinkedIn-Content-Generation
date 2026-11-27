@@ -3,6 +3,7 @@
 import { buttonClassName } from '@/components/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { FilterChips } from '@/components/ui/filter-chips'
 import { StatTile } from '@/components/ui/stat-tile'
 import { TimeAgo } from '@/components/ui/time-ago'
@@ -1283,7 +1284,7 @@ export function PostsClientInner({
                   placeholder="Search posts..."
                   aria-label="Search posts"
                   title={`Search posts (${isMac ? '⌘K' : 'Ctrl+K'})`}
-                  className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent focus-visible:ring-foreground/15 h-9 w-full rounded-lg border pr-3 pl-9 text-[13px] outline-none focus-visible:ring-2"
+                  className={cn(FIELD_CLASS, 'bg-surface h-9 py-1.5 pr-3 pl-9 text-[13px]')}
                 />
               </div>
               <PostFiltersMenu
@@ -2371,8 +2372,10 @@ const DEFAULT_FILTERS: PostFilters = {
   hidden: false
 }
 
-const filterFieldClass =
-  'border-border bg-surface text-foreground focus:border-accent w-full cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs outline-none'
+const filterFieldClass = cn(
+  FIELD_CLASS,
+  'bg-surface cursor-pointer px-2.5 py-1.5 text-xs'
+)
 
 /**
  * The Filters button and its panel. Choices are only a draft until Apply, so

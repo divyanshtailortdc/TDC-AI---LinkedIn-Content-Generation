@@ -2,6 +2,7 @@
 
 import { PlatformMark } from '@/components/platform-mark'
 import { showToast } from '@/components/toast-notification'
+import { useAnchoredPanel } from '@/components/ui/floating'
 import { ToneDot } from '@/components/ui/status-chip'
 import { cn } from '@/lib/cn'
 import {
@@ -148,7 +149,11 @@ export function AddVersionMenu({
   // "Add an image": on until taken off, as in Create posts.
   const [withImage, setWithImage] = useState(true)
   const wrapper = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   const panelId = useId()
+  // Fixed to the button: the page's two-column layout hides overflow.
+  const position = useAnchoredPanel(open, button, panel)
 
   useEffect(() => {
     if (!open) return
@@ -202,6 +207,7 @@ export function AddVersionMenu({
   return (
     <div className="relative" ref={wrapper}>
       <button
+        ref={button}
         type="button"
         disabled={disabled || Boolean(writing)}
         aria-expanded={open}
@@ -225,8 +231,10 @@ export function AddVersionMenu({
       {open && (
         <div
           id={panelId}
+          ref={panel}
           role="menu"
-          className="border-border bg-surface absolute top-full left-0 z-40 mt-1.5 max-h-[min(30rem,calc(100dvh-14rem))] w-72 overflow-y-auto rounded-xl border p-1.5 shadow-lg"
+          style={position}
+          className="border-border bg-surface z-50 w-72 max-w-[calc(100vw-1rem)] rounded-xl border p-1.5 shadow-lg"
         >
           <p className="text-muted px-2 pt-1 pb-2 text-[11px] leading-snug">
             Write this idea for another platform, from the same evidence. It

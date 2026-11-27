@@ -1,5 +1,6 @@
 'use client'
 
+import { TextField } from '@/components/ui/field'
 import {
   CALLOUT_LABELS,
   CALLOUT_VARIANTS,
@@ -253,17 +254,24 @@ export function EditorToolbar({ editor }: { editor: Editor | null }) {
 
       {linkOpen && (
         <form
-          className="border-border flex flex-wrap items-center gap-2 border-t px-3 py-2"
+          className="border-border flex flex-wrap items-start gap-2 border-t px-3 py-2"
           onSubmit={event => {
             event.preventDefault()
             applyLink()
           }}
         >
-          <label htmlFor={inputId} className="text-muted text-xs font-medium">
+          <label
+            htmlFor={inputId}
+            className="text-muted py-1.5 text-xs leading-5 font-medium"
+          >
             Link to
           </label>
-          <input
+          <TextField
             id={inputId}
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
             value={href}
             onChange={event => {
@@ -278,7 +286,7 @@ export function EditorToolbar({ editor }: { editor: Editor | null }) {
               }
             }}
             placeholder="https://example.com/page"
-            className="border-border bg-background text-foreground focus:border-brand h-8 min-w-0 flex-1 rounded-md border px-2.5 text-sm outline-none"
+            className="min-w-48 flex-1 basis-64 rounded-md px-2.5 py-1"
           />
           <button
             type="submit"

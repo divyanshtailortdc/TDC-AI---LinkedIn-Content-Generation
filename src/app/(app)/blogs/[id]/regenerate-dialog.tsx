@@ -1,5 +1,6 @@
 'use client'
 
+import { TextArea } from '@/components/ui/field'
 import { BLOG_LIMITS } from '@/lib/blogs/types'
 import { useId, useState } from 'react'
 import { BlogDialog } from './blog-dialog'
@@ -63,15 +64,15 @@ export function RegenerateDialog({
           >
             What should change? (optional)
           </label>
-          <textarea
+          <TextArea
             id={instructionId}
             rows={3}
+            maxRows={10}
             autoFocus
             maxLength={BLOG_LIMITS.instructions}
             value={instruction}
             onChange={event => setInstruction(event.target.value)}
             placeholder="e.g. Make it shorter and more practical, with a checklist at the end."
-            className="border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-2 text-sm outline-none"
           />
         </div>
         {researchOn && (

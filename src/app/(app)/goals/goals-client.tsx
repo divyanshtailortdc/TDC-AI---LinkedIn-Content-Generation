@@ -15,6 +15,7 @@ import { PageHeader } from '@/components/page-header'
 import { Pagination } from '@/components/pagination'
 import { showToast } from '@/components/toast-notification'
 import { triggerNewRun } from '@/app/(app)/runs/actions'
+import { FIELD_CLASS, Select, TextArea, TextField } from '@/components/ui/field'
 import type { GoalSuggestion } from '@/lib/ai/skills/goal-suggestions/schema'
 import { EMPTY_SUGGESTIONS } from '@/lib/ai/skills/profile-setup/schema'
 import { hasGoalTitle } from '@/lib/goal-titles'
@@ -645,13 +646,11 @@ export function GoalsClient({
                     Goal Title{' '}
                     <span className="text-rose-600 dark:text-rose-400">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <TextField
                     value={title}
                     onChange={e => setTitle(e.target.value)}
                     placeholder="e.g. Become known for our core expertise"
                     required
-                    className="border-border bg-surface-hover text-foreground focus:ring-accent w-full rounded-md border px-3 py-2 text-sm focus:ring-1"
                   />
                 </div>
 
@@ -659,14 +658,13 @@ export function GoalsClient({
                   <label className="text-foreground mb-1 block text-xs font-medium">
                     Objective
                   </label>
-                  <select
+                  <Select
                     value={objectiveType}
                     onChange={e =>
                       setObjectiveType(
                         e.target.value as GoalPayload['objectiveType']
                       )
                     }
-                    className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
                   >
                     {/* This identity's objectives, and a saved goal's own
                         when it is from the other set. */}
@@ -677,7 +675,7 @@ export function GoalsClient({
                         {o.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
 
@@ -699,13 +697,14 @@ export function GoalsClient({
                   <span className="text-rose-600 dark:text-rose-400">*</span>
                 </label>
 
-                <textarea
+                <TextArea
                   rows={2}
+                  maxRows={10}
                   value={keyMessage}
                   onChange={e => setKeyMessage(e.target.value)}
                   required
                   placeholder="e.g. Most teams fix this problem with more tools; the real fix is a simpler process."
-                  className="border-border bg-surface text-foreground focus:ring-accent w-full resize-none rounded-md border p-3 text-sm focus:ring-1"
+                  className="bg-surface p-3"
                 />
               </div>
 
@@ -715,12 +714,10 @@ export function GoalsClient({
                   <label className="text-foreground mb-1 block text-xs font-medium">
                     Call to Action (Optional)
                   </label>
-                  <input
-                    type="text"
+                  <TextField
                     value={desiredAction}
                     onChange={e => setDesiredAction(e.target.value)}
                     placeholder="e.g. Comment with your experience"
-                    className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
                   />
                 </div>
 
@@ -733,7 +730,7 @@ export function GoalsClient({
                     value={targetUrl}
                     onChange={e => setTargetUrl(e.target.value)}
                     placeholder="https://example.com/page"
-                    className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
+                    className={FIELD_CLASS}
                   />
                   {/* The placement only matters once there is a link to place. */}
                   {targetUrl.trim() && (
@@ -741,20 +738,19 @@ export function GoalsClient({
                       <label className="text-foreground mb-1 block text-xs font-medium">
                         Links Go In
                       </label>
-                      <select
+                      <Select
                         value={linkStrategy}
                         onChange={e =>
                           setLinkStrategy(
                             e.target.value as GoalPayload['linkStrategy']
                           )
                         }
-                        className="border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm"
                       >
                         <option value="first_comment">
                           First comment (better reach)
                         </option>
                         <option value="body">Post body</option>
-                      </select>
+                      </Select>
                     </div>
                   )}
                 </div>

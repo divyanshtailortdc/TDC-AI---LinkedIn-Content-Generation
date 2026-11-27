@@ -132,6 +132,59 @@ export function downloadUrl(fileName: string, url: string, revoke = false): void
 }
 
 /**
+ * Opens the browser's print window on a complete HTML page, laid out in a
+ * hidden frame, where it can be saved as a PDF. The page's title names the
+ * file. Resolves once the window has closed (in most browsers: in the rest,
+ * once it has opened); the frame goes when printing ends, or at the next print.
+ */
+export async function printHtml(html: string): Promise<void> {
+  document.querySelector('iframe[data-print-frame]')?.remove()
+  const frame = document.createElement('iframe')
+  frame.dataset.printFrame = ''
+  frame.setAttribute('aria-hidden', 'true')
+  frame.tabIndex = -1
+  Object.assign(frame.style, {
+    position: 'fixed',
+    right: '0',
+    bottom: '0',
+    width: '0',
+    height: '0',
+    border: '0',
+    opacity: '0',
+    pointerEvents: 'none'
+  })
+  const loaded = new Promise<void>(resolve => {
+    frame.onload = () => resolve()
+  })
+  frame.srcdoc = html
+  document.body.appendChild(frame)
+  await loaded
+  const view = frame.contentWindow
+  const page = frame.contentDocument
+  if (!view || !page) {
+    frame.remove()
+    throw new Error('The page could not be laid out for printing.')
+  }
+  // Every picture drawn before the pages are laid out.
+  await Promise.all(
+    Array.from(page.images, image => image.decode().catch(() => {}))
+  )
+  await page.fonts?.ready
+  view.addEventListener('afterprint', () => setTimeout(() => frame.remove()), {
+    once: true
+  })
+  // Some browsers name the PDF after the tab, not the frame printed.
+  const tabTitle = document.title
+  if (page.title) document.title = page.title
+  try {
+    view.focus()
+    view.print()
+  } finally {
+    document.title = tabTitle
+  }
+}
+
+/**
  * Every picture of the blog as a file, named as the Markdown refers to them:
  * the featured image and the section pictures (their data URLs, loaded by
  * the caller) and each diagram drawn as a PNG. Returns how many were saved.

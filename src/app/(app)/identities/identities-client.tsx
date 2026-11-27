@@ -8,7 +8,9 @@ import { Pagination } from '@/components/pagination'
 import { markDataChanged } from '@/components/refresh-on-back'
 import { showToast } from '@/components/toast-notification'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { TimeAgo } from '@/components/ui/time-ago'
+import { cn } from '@/lib/cn'
 import type { IdentityOverview } from '@/lib/identity-manage'
 import { IDENTITY_PATH, NEW_IDENTITY_PATH } from '@/lib/identity-path'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
@@ -378,7 +380,7 @@ function DeleteIdentityDialog({
             disabled={pending}
             autoComplete="off"
             spellCheck={false}
-            className="border-border bg-background text-foreground focus:border-foreground/40 focus:ring-foreground/10 mt-1.5 block h-9 w-full rounded-lg border px-3 text-sm focus:ring-2 focus:outline-none disabled:opacity-60"
+            className={cn(FIELD_CLASS, 'mt-1.5 block h-9 py-1.5')}
           />
         </label>
       </form>

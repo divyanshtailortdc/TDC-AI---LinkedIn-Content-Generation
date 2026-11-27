@@ -1,6 +1,7 @@
 'use client'
 
 import { markDataChanged } from '@/components/refresh-on-back'
+import { FIELD_CLASS, Select, TextArea, TextField } from '@/components/ui/field'
 import {
   CONTENT_LAYOUTS,
   SLIDE_LAYOUT_LABELS,
@@ -8,6 +9,7 @@ import {
   type SlideLayout,
   type SlideView
 } from '@/lib/carousel/types'
+import { cn } from '@/lib/cn'
 import { carouselSpecOf, slideCountRange, type FormatId } from '@/lib/formats'
 import { ICON_NAMES } from '@/lib/media/canvas/icon-names'
 import {
@@ -30,6 +32,9 @@ import {
   X
 } from 'lucide-react'
 import { useRef, useState } from 'react'
+
+/** The panel's compact field: the shared look, a size down. */
+const SMALL_FIELD = cn(FIELD_CLASS, 'bg-surface px-2.5 py-1.5 text-xs leading-5')
 
 /**
  * A carousel post's slides, each edited on its own: its words, layout and
@@ -428,15 +433,16 @@ export function SlidesPanel({
           >
             Write every slide again
           </label>
-          <textarea
+          <TextArea
             id="carousel-instruction"
+            maxRows={8}
             value={carouselInstruction}
             onChange={e =>
               setCarouselInstruction(e.target.value.slice(0, 1000))
             }
             rows={2}
             placeholder="Optional: what to change, e.g. “fewer slides, one per step” or “more figures”"
-            className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+            className={SMALL_FIELD}
           />
           <p className="text-muted text-[11px]">
             Replaces every slide, and your edits to them. The caption stays.
@@ -774,12 +780,16 @@ function SlideRow(props: {
 
       {props.rewriting && !props.locked && (
         <div className="mt-2 space-y-2 pl-19">
-          <input
+          <TextField
             value={props.instruction}
             onChange={e => props.onInstruction(e.target.value.slice(0, 1000))}
-            onKeyDown={e => e.key === 'Enter' && props.onRewrite()}
+            onKeyDown={e => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              props.onRewrite()
+            }}
             placeholder="Optional: what to change, e.g. “shorter”, “use the 43% figure”"
-            className="border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+            className={SMALL_FIELD}
             autoFocus
           />
           <div className="flex justify-end gap-2">
@@ -833,8 +843,7 @@ function SlideEditor({
   const [stat, setStat] = useState(slide.design.stat ?? '')
   // Its words are set into the image: no layout, and saving makes it again.
   const look = slide.design.look === true
-  const field =
-    'border-border bg-surface text-foreground placeholder:text-muted focus:border-accent w-full rounded-lg border px-2.5 py-1.5 text-xs outline-none'
+  const field = SMALL_FIELD
   const count = (n: number, soft: number) => (
     <span
       className={`tabular-nums ${n > soft ? 'text-amber-600 dark:text-amber-400' : ''}`}
@@ -864,7 +873,7 @@ function SlideEditor({
         <span className="text-muted flex justify-between text-[11px] font-medium">
           Headline {count(headline.length, SLIDE_TEXT.headline.soft)}
         </span>
-        <input
+        <TextField
           value={headline}
           onChange={e => setHeadline(e.target.value)}
           className={field}
@@ -882,10 +891,11 @@ function SlideEditor({
                 : 'Text'}{' '}
           {count(body.length, SLIDE_TEXT.body.soft)}
         </span>
-        <textarea
+        <TextArea
           value={body}
           onChange={e => setBody(e.target.value)}
           rows={3}
+          maxRows={10}
           className={field}
         />
       </label>
@@ -895,7 +905,7 @@ function SlideEditor({
             <span className="text-muted block text-[11px] font-medium">
               Layout
             </span>
-            <select
+            <Select
               value={layout}
               onChange={e => setLayout(e.target.value as SlideLayout)}
               className={field}
@@ -905,14 +915,14 @@ function SlideEditor({
                   {SLIDE_LAYOUT_LABELS[l]}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {layout === 'icon' && (
             <label className="min-w-32 flex-1 space-y-1">
               <span className="text-muted block text-[11px] font-medium">
                 Icon
               </span>
-              <select
+              <Select
                 value={icon}
                 onChange={e => setIcon(e.target.value as typeof icon)}
                 className={field}
@@ -922,7 +932,7 @@ function SlideEditor({
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           )}
           {layout === 'stat' && (
@@ -947,10 +957,11 @@ function SlideEditor({
             ? 'What it shows beside its words'
             : 'Picture prompt (used by Add picture)'}
         </span>
-        <textarea
+        <TextArea
           value={imagePrompt}
           onChange={e => setImagePrompt(e.target.value)}
           rows={2}
+          maxRows={8}
           className={field}
         />
       </label>

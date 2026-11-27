@@ -8,6 +8,7 @@ import { PrefillBanner } from '@/components/ai-setup/prefill-banner'
 import { useSectionPrefill } from '@/components/ai-setup/use-section-prefill'
 import { PlatformStyles } from '@/components/platform-styles'
 import { showToast } from '@/components/toast-notification'
+import { Select, TextArea, TextField } from '@/components/ui/field'
 import {
   preferencesSuggestionValues,
   type PreferencesValues
@@ -43,9 +44,6 @@ const splitList = (value: string) =>
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
-
-const inputClass =
-  'border-border bg-surface-hover text-foreground w-full rounded-md border px-3 py-2 text-sm'
 
 function Section({
   icon: Icon,
@@ -236,10 +234,9 @@ export function PreferencesForm({
             <label className="text-foreground mb-1 block text-xs font-medium">
               Ideas per run
             </label>
-            <select
+            <Select
               value={ideasPerRun}
               onChange={e => setIdeasPerRun(Number(e.target.value))}
-              className={inputClass}
             >
               {Array.from(new Set([...IDEAS_PER_RUN_OPTIONS, ideasPerRun]))
                 .sort((a, b) => a - b)
@@ -248,7 +245,7 @@ export function PreferencesForm({
                     {n} ideas
                   </option>
                 ))}
-            </select>
+            </Select>
           </div>
 
           <div>
@@ -373,13 +370,15 @@ export function PreferencesForm({
                     >
                       Who follows you here (optional)
                     </label>
-                    <textarea
+                    <TextArea
                       id={`audience-${platform}`}
                       autoComplete="off"
+                      rows={2}
+                      maxRows={10}
                       value={channelSettings[platform]?.audience ?? ''}
                       onChange={e => setNote(platform, 'audience', e.target.value)}
                       placeholder={editing ? 'e.g. Customers and local followers' : 'Not set'}
-                      className={`${inputClass} ${editing ? 'h-20' : 'field-sizing-content'} resize-none leading-relaxed`}
+                      className="leading-relaxed"
                     />
                   </div>
                   <div className="min-w-0">
@@ -389,13 +388,15 @@ export function PreferencesForm({
                     >
                       How you sound here (optional)
                     </label>
-                    <textarea
+                    <TextArea
                       id={`tone-${platform}`}
                       autoComplete="off"
+                      rows={2}
+                      maxRows={10}
                       value={channelSettings[platform]?.tone ?? ''}
                       onChange={e => setNote(platform, 'tone', e.target.value)}
                       placeholder={editing ? 'e.g. Lighter, more personal, first names' : 'Not set'}
-                      className={`${inputClass} ${editing ? 'h-20' : 'field-sizing-content'} resize-none leading-relaxed`}
+                      className="leading-relaxed"
                     />
                   </div>
                 </div>
@@ -407,7 +408,7 @@ export function PreferencesForm({
                     >
                       Emoji
                     </label>
-                    <select
+                    <Select
                       id={`emoji-${platform}`}
                       value={channelSettings[platform]?.emoji ?? ''}
                       onChange={e =>
@@ -416,7 +417,6 @@ export function PreferencesForm({
                           isEmojiLevel(e.target.value) ? e.target.value : undefined
                         )
                       }
-                      className={inputClass}
                     >
                       <option value="">
                         Default: {EMOJI_LABELS[defaultEmoji]}
@@ -426,7 +426,7 @@ export function PreferencesForm({
                           {EMOJI_LABELS[level]}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                 </div>
                 <LearnedStyle
@@ -459,13 +459,11 @@ export function PreferencesForm({
           {/* Chrome's autofill read this as a vehicle licence plate and
               offered to save "politics"; none of these fields are personal
               details a browser should remember. */}
-          <input
-            type="text"
+          <TextField
             autoComplete="off"
             value={bannedTopicsInput}
             onChange={e => setBannedTopicsInput(e.target.value)}
             placeholder={editing ? 'e.g. politics, competitor pricing' : 'None'}
-            className={inputClass}
           />
         </div>
 
@@ -475,12 +473,14 @@ export function PreferencesForm({
           </label>
           {/* Fixed height (~5 lines); longer notes scroll inside the box
               rather than clipping or stretching the page. */}
-          <textarea
+          <TextArea
             autoComplete="off"
+            rows={editing ? 4 : 1}
+            maxRows={14}
             value={complianceNotes}
             onChange={e => setComplianceNotes(e.target.value)}
             placeholder={editing ? 'e.g. Never mention client names without approval.' : 'None'}
-            className={`${inputClass} scrollbar-visible ${editing ? 'h-32' : 'field-sizing-content'} resize-none overflow-y-auto leading-relaxed wrap-break-word`}
+            className="scrollbar-visible leading-relaxed"
           />
         </div>
       </Section>

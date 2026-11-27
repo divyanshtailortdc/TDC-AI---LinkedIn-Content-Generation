@@ -1,6 +1,8 @@
 'use client'
 
 import { PlatformMark } from '@/components/platform-mark'
+import { FIELD_CLASS, TextArea, TextField } from '@/components/ui/field'
+import { cn } from '@/lib/cn'
 import { PLATFORMS, type PlatformId } from '@/lib/formats'
 import {
   IDENTITY_FIELDS,
@@ -190,9 +192,6 @@ export function validateIdentityValues(
   return errors
 }
 
-const baseInputClass =
-  'w-full rounded-lg border bg-surface px-3.5 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors'
-
 function FieldLabel({
   def,
   rightHint,
@@ -281,7 +280,7 @@ function IdentityField({
   error,
   rightHint,
   icon,
-  textareaClass = 'h-24',
+  textareaRows = 3,
   readOnly = false,
   aiFilled = false,
   onChange
@@ -294,7 +293,7 @@ function IdentityField({
   /** Shown inside the input, before the text. */
   icon?: ReactNode
   /** Starting height of the box when the field is a textarea. */
-  textareaClass?: string
+  textareaRows?: number
   /** Show the saved text, not an input. */
   readOnly?: boolean
   onChange: (value: string) => void
@@ -336,45 +335,60 @@ function IdentityField({
   const length = value.length
   const overLimit = max !== undefined && length > max
 
-  const className = `${baseInputClass} ${
+  const className = cn(
+    FIELD_CLASS,
+    'bg-surface px-3.5',
     error || overLimit
-      ?'border-red-500/60 ring-1 ring-red-500/30'
-      : aiFilled
-        ? 'border-accent/40'
-        : 'border-border'
-  }`
+      ? 'border-red-500/60 ring-1 ring-red-500/30'
+      : aiFilled && 'border-accent/40'
+  )
 
   return (
     <div>
       <FieldLabel def={def} rightHint={rightHint} aiFilled={aiFilled} />
       {def.type === 'textarea' ? (
-        <textarea
+        <TextArea
           id={def.name}
           name={def.name}
-          rows={3}
+          rows={textareaRows}
+          maxRows={14}
           value={value}
           required={def.required}
           placeholder={def.placeholder}
           onChange={e => onChange(e.target.value)}
-          className={`${className} scrollbar-visible ${textareaClass} resize-y overflow-y-auto`}
+          className={cn(className, 'scrollbar-visible')}
         />
       ) : (
         <div className="relative">
           {icon && (
-            <span className="text-muted pointer-events-none absolute top-1/2 left-3 -translate-y-1/2">
+            <span className="text-muted pointer-events-none absolute top-[11px] left-3 z-10 flex">
               {icon}
             </span>
           )}
-          <input
-            id={def.name}
-            name={def.name}
-            type={def.type}
-            value={value}
-            required={def.required}
-            placeholder={def.placeholder}
-            onChange={e => onChange(e.target.value)}
-            className={`${className} ${icon ? 'pl-9' : ''}`}
-          />
+          {/* A name or company can run long: it wraps instead of hiding.
+              Addresses keep the browser's own URL checks. */}
+          {def.type === 'text' ? (
+            <TextField
+              id={def.name}
+              name={def.name}
+              value={value}
+              required={def.required}
+              placeholder={def.placeholder}
+              onChange={e => onChange(e.target.value)}
+              className={cn(className, icon && 'pl-9')}
+            />
+          ) : (
+            <input
+              id={def.name}
+              name={def.name}
+              type={def.type}
+              value={value}
+              required={def.required}
+              placeholder={def.placeholder}
+              onChange={e => onChange(e.target.value)}
+              className={cn(className, icon && 'pl-9')}
+            />
+          )}
         </div>
       )}
       <FieldFooter def={def} error={error} length={length} max={max} />
@@ -438,7 +452,7 @@ export function IdentityFields({
     name: IdentityProfileField,
     extras: {
       rightHint?: string
-      textareaClass?: string
+      textareaRows?: number
       icon?: ReactNode
     } = {}
   ) => (
@@ -448,7 +462,7 @@ export function IdentityFields({
       value={values[name]}
       error={errors[name]}
       rightHint={extras.rightHint}
-      textareaClass={extras.textareaClass}
+      textareaRows={extras.textareaRows}
       icon={extras.icon}
       readOnly={readOnly}
       aiFilled={aiFilled?.has(name)}
@@ -469,16 +483,16 @@ export function IdentityFields({
           {field('name')}
           {field('company')}
           <div className="sm:col-span-2">
-            {field('industry', { textareaClass: 'h-20' })}
+            {field('industry', { textareaRows: 2 })}
           </div>
           <div className="sm:col-span-2">
-            {field('description', { textareaClass: 'h-28' })}
+            {field('description', { textareaRows: 4 })}
           </div>
           <div className="sm:col-span-2">
-            {field('targetAudience', { textareaClass: 'h-28' })}
+            {field('targetAudience', { textareaRows: 4 })}
           </div>
           <div className="sm:col-span-2">
-            {field('offerings', { textareaClass: 'h-28' })}
+            {field('offerings', { textareaRows: 4 })}
           </div>
         </div>
       </SectionCard>

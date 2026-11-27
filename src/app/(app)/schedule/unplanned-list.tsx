@@ -4,6 +4,7 @@ import { buttonClassName } from '@/components/button'
 import { Pagination } from '@/components/pagination'
 import { PlatformMark } from '@/components/platform-mark'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FIELD_CLASS } from '@/components/ui/field'
 import { FilterChips, type FilterChipOption } from '@/components/ui/filter-chips'
 import { SectionCard } from '@/components/ui/section-card'
 import { FOCUS_RING, TONES } from '@/components/ui/tone'
@@ -250,8 +251,8 @@ export function UnplannedList({
                   aria-label="Search posts not planned yet"
                   placeholder="Search hooks"
                   className={cn(
-                    'border-border bg-surface-hover/50 text-foreground placeholder:text-muted h-8 w-full rounded-lg border pr-8 pl-8 text-xs [&::-webkit-search-cancel-button]:appearance-none',
-                    FOCUS_RING
+                    FIELD_CLASS,
+                    'bg-surface-hover/50 h-8 py-1 pr-8 pl-8 text-xs [&::-webkit-search-cancel-button]:appearance-none'
                   )}
                 />
                 {query && (

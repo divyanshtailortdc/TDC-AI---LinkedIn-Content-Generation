@@ -1,5 +1,6 @@
 'use client'
 
+import { FIELD_CLASS, TextField } from '@/components/ui/field'
 import {
   BLOG_DESTINATION_IDS,
   BLOG_DESTINATIONS,
@@ -20,9 +21,6 @@ export type PublishDetails = {
   /** The moment it went out, as an ISO timestamp. */
   publishedAt: string
 }
-
-const inputClass =
-  'border-border bg-background text-foreground focus:border-brand w-full rounded-lg border px-3 py-2 text-sm outline-none'
 
 /**
  * Marks the blog published, or changes where and when it was: the
@@ -123,14 +121,16 @@ export function PublishDialog({
           >
             Live URL (optional)
           </label>
-          <input
+          <TextField
             id={`${id}-url`}
-            type="url"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             maxLength={BLOG_LIMITS.url}
             value={url}
             onChange={event => setUrl(event.target.value)}
             placeholder={BLOG_DESTINATIONS[destination].urlPlaceholder}
-            className={inputClass}
           />
         </div>
 
@@ -148,7 +148,7 @@ export function PublishDialog({
             max={today}
             value={day}
             onChange={event => setDay(event.target.value)}
-            className={cn(inputClass, 'w-auto')}
+            className={cn(FIELD_CLASS, 'w-auto')}
           />
           {!dayValid && (
             <p className="text-xs text-rose-600 dark:text-rose-400">

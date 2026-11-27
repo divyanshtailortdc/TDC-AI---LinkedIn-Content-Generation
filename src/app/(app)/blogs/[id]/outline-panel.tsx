@@ -1,5 +1,6 @@
 'use client'
 
+import { TextArea } from '@/components/ui/field'
 import { Button } from '@/components/button'
 import { docOutline, type BlogDoc } from '@/lib/blogs/doc'
 import { BLOG_LIMITS } from '@/lib/blogs/types'
@@ -101,15 +102,16 @@ export function OutlinePanel({
               >
                 What should change? (optional)
               </label>
-              <textarea
+              <TextArea
                 id={inputId}
                 rows={2}
+                maxRows={8}
                 autoFocus
                 maxLength={BLOG_LIMITS.instructions}
                 value={instruction}
                 onChange={event => setInstruction(event.target.value)}
                 placeholder="e.g. Add a real example. Make it shorter."
-                className="border-border bg-surface text-foreground focus:border-brand w-full rounded-md border px-2.5 py-1.5 text-sm outline-none"
+                className="bg-surface rounded-md px-2.5 py-1.5"
               />
               <div className="flex justify-end gap-2">
                 <Button
