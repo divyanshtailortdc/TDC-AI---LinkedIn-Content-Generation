@@ -121,7 +121,7 @@ function FaqRow({
             disabled={disabled}
             onChange={event => onChange({ answer: event.target.value })}
             placeholder="Its answer, in a few self-contained sentences"
-            className="text-foreground [field-sizing:content] w-full resize-y bg-transparent text-[15px] leading-relaxed outline-none"
+            className="text-foreground field-sizing:content w-full resize-y bg-transparent text-[15px] leading-relaxed outline-none"
           />
         </div>
         <div className="flex shrink-0 flex-col">
