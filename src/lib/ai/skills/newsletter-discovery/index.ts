@@ -49,7 +49,7 @@ export async function planNewsletterSearches(
   region?: string
 ): Promise<string[]> {
   const { output } = await runSkill({
-    stage: 'identity_setup',
+    stage: 'selection',
     instructions: QUERY_INSTRUCTIONS,
     prompt: buildQueryPrompt({ profile: renderProfile(ctx), region }),
     schema: SearchQueriesModelSchema,

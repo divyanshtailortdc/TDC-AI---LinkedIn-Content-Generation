@@ -23,7 +23,7 @@ import {
   type VideoFormatId,
   type VideoSpec
 } from './formats'
-import { RECORDER_MODEL_ID, RECORDER_PROVIDER } from './models'
+import { RECORDER_MODEL_ID, RECORDER_PROVIDER, UPLOADED_VIDEO_PROVIDER } from './models'
 import { recorder } from './providers/recorder'
 import { findFfmpeg, RendererUnavailableError } from './render/binaries'
 import { parsePlan, plannedSeconds, planVideo } from './render/plan'
@@ -564,6 +564,13 @@ export async function startPostVideo(options: {
   const draft = await loadVideoDraft(options.accountId, options.draftId)
   if (!draft) return { status: 'not_found' }
   await assertPostChangeable(draft)
+  // Made from a video the user uploaded: a recording would replace it.
+  if ((draft.payload?.upload as { kind?: unknown } | undefined)?.kind === 'video') {
+    return {
+      status: 'failed',
+      error: 'This post goes out with the video you uploaded; it is not recorded.'
+    }
+  }
 
   const unavailable = unavailableReason()
   if (unavailable) return { status: 'unavailable', error: unavailable }
@@ -662,13 +669,16 @@ export async function publishableVideoOf(draftId: string): Promise<{
   id: string
   mediaType: string
   byteSize: number | null
+  /** Recorded by the app; false for a video the user uploaded. */
+  aiGenerated: boolean
 } | null> {
   const [video] = await db
     .select({
       id: postVideosTable.id,
       videoUrl: postVideosTable.videoUrl,
       mediaType: postVideosTable.mediaType,
-      byteSize: postVideosTable.byteSize
+      byteSize: postVideosTable.byteSize,
+      provider: postVideosTable.provider
     })
     .from(postVideosTable)
     .where(
@@ -683,7 +693,8 @@ export async function publishableVideoOf(draftId: string): Promise<{
   return {
     id: video.id,
     mediaType: video.mediaType ?? 'video/mp4',
-    byteSize: video.byteSize
+    byteSize: video.byteSize,
+    aiGenerated: video.provider !== UPLOADED_VIDEO_PROVIDER
   }
 }
 

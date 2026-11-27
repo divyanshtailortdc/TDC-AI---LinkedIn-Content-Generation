@@ -46,6 +46,8 @@ export type AIStage =
   | 'blog_verification'
   | 'blog_search_phrases'
   | 'video_look'
+  | 'media_post'
+  | 'selection'
 
 /**
  * Effort is the first quality/cost lever. Ideation and drafting carry the
@@ -75,7 +77,16 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   voice_analysis: { model: defaultModel, effort: 'medium' },
   // Interactive: the user waits on this, so it trades depth for speed.
   identity_setup: { model: defaultModel, effort: 'low' },
+  // Facts out of a knowledge document or a newsletter email: mechanical.
   extraction: { model: fastModel, effort: 'low' },
+  // Short mechanical choices while the user waits: the name an identity's
+  // description is about, which of its site's pages to read, the searches
+  // that find newsletters for it. Each answer is checked in code (a name
+  // must be in the text, a page one of those offered), and a call that fails
+  // outright is made again on the default model (runSkill). Which search
+  // results are the identity's own profiles stays with identity_setup: a
+  // same-named company's page picked there would be saved as the identity's.
+  selection: { model: fastModel, effort: 'low' },
   // The research agent: several short steps choosing searches and pages.
   research: { model: defaultModel, effort: 'medium' },
   // Judges each idea against its goal, and on originality, trends, brand fit
@@ -106,10 +117,14 @@ const STAGE_SETTINGS: Record<AIStage, { model: string; effort: Effort }> = {
   // Two or three short search phrases for a topic briefed without a keyword,
   // so "People also ask" is read for what readers type, not for a sentence.
   // Runs beside research; a few seconds.
-  blog_search_phrases: { model: defaultModel, effort: 'low' },
+  blog_search_phrases: { model: fastModel, effort: 'low' },
   // Looks at a few of an account's post images and their analysis to set a
   // Reel's or Short's look: once per platform, reading more than reasoning.
-  video_look: { model: defaultModel, effort: 'low' }
+  video_look: { model: defaultModel, effort: 'low' },
+  // Looks at an image or a video's frames the user uploaded and writes a
+  // post for each platform picked, while the user waits: careful looking
+  // and writing in the author's voice, kept quick.
+  media_post: { model: defaultModel, effort: 'medium' }
 }
 
 /** The model and effort a stage runs at. */
@@ -138,8 +153,9 @@ export function getLanguageModel(
   const settings = STAGE_SETTINGS[stage]
   const modelId = overrideModelId || settings.model
 
-  // Haiku 4.5 predates adaptive thinking and rejects `effort`.
-  const supportsAdaptiveThinking = !modelId.includes('haiku')
+  // Haiku 4.5 predates adaptive thinking and rejects `effort`; Haiku 5.5
+  // takes both.
+  const supportsAdaptiveThinking = !/haiku-4/.test(modelId)
 
   const providerOptions: StageProviderOptions = {
     anthropic: {
@@ -196,13 +212,5 @@ export function getEmbeddingModel(): EmbeddingModelHandle | null {
   }
 }
 
-/**
- * Marks a message part as a cacheable prefix. The per-account system block is
- * identical across every draft in a run, so caching it makes each post after
- * the first read that prefix at a fraction of the price.
- */
-export const EPHEMERAL_CACHE = {
-  anthropic: { cacheControl: { type: 'ephemeral' } }
-} as const
-
+export { EPHEMERAL_CACHE } from './ai/cache-breakpoints'
 export { EMPTY_USAGE, type CallUsage } from './ai/usage'

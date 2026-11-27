@@ -57,6 +57,9 @@ const MODEL_RATES: Record<
   'claude-opus-5': { input: 5, output: 25 },
   'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.05 },
   'claude-sonnet-5': { input: 2, output: 10 },
+  // Prompts up to 100k tokens; longer ones are billed at 5x, which no call
+  // this app makes reaches.
+  'claude-haiku-5-5': { input: 0.1, output: 0.5 },
   'claude-haiku-4-5': { input: 1, output: 5 }
 }
 

@@ -57,7 +57,7 @@ export async function pickSitePages(
 ): Promise<SitePagePick[] | null> {
   try {
     const { output } = await runSkill({
-      stage: 'identity_setup',
+      stage: 'selection',
       instructions: INSTRUCTIONS,
       prompt: buildPrompt(input),
       schema: SitePagePicksSchema,

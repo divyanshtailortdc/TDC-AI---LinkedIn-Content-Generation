@@ -28,7 +28,6 @@ export async function planBlog(
   const { output, usage, modelId } = await runSkill({
     stage: 'blog_planning',
     instructions: buildBlogInstructions(input.ctx, input.kind, input.brief),
-    cacheInstructions: true,
     prompt: buildPlanPrompt(input),
     schema: BlogPlanSchema,
     timeoutMs: options.timeoutMs ?? BLOG_PLANNING_TIMEOUT_MS,

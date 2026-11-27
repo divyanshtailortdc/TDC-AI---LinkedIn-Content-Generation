@@ -141,6 +141,12 @@ export interface FormatSpec {
     /** Most images one post carries (X: 4); absent when only one or none. */
     maxImages?: number
     carousel?: CarouselSpec
+    /**
+     * The post can go out with a video the user uploaded ("Create from
+     * media"), stored as media_format 'video'. Never offered by the post
+     * type picker: only a post made from an uploaded video is one.
+     */
+    uploadedVideo?: boolean
   }
   /** Where a format reads or opens unlike its platform's other formats (a video script). */
   register?: string

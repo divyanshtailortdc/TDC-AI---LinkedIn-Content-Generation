@@ -285,7 +285,12 @@ export function validatePost(input: ValidationInput): PublishCheck[] {
       id: 'media',
       level: 'info',
       label: 'Video',
-      message: `A script to film: record the video, then post it on ${platform} with this caption.`
+      // A post made from an uploaded video (Create from media) has its video.
+      message:
+        spec.structure !== 'script' ||
+        (post.payload?.upload as { kind?: unknown } | undefined)?.kind === 'video'
+          ? `Goes out on ${platform} with the video you uploaded.`
+          : `A script to film: record the video, then post it on ${platform} with this caption.`
     })
   }
 

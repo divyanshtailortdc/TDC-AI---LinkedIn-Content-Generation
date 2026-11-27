@@ -9,7 +9,16 @@ import type { DraftingDb } from '~/lib/ai/pipeline/drafting-claim'
  * and a restore is itself undoable.
  */
 
-export type ReplacedBy = 'user_edit' | 'regenerate' | 'restore'
+/**
+ * What replaced a version. A post made from uploaded media can have its hook
+ * or its body regenerated alone; 'regenerate' is the whole text.
+ */
+export type ReplacedBy =
+  | 'user_edit'
+  | 'regenerate'
+  | 'regenerate_hook'
+  | 'regenerate_body'
+  | 'restore'
 
 /** The text columns a version keeps. */
 type VersionText = Pick<

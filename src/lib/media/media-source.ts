@@ -1,10 +1,13 @@
 export const REVIEWER_SEARCH_SOURCE = 'reviewer_search'
 export const REVIEWER_URL_SOURCE = 'reviewer_url'
+/** A file the user uploaded to make the post from (Create from media). */
+export const REVIEWER_UPLOAD_SOURCE = 'reviewer_upload'
 
 const REVIEWER_SOURCE_LABELS: Record<string, string> = {
   user_prompt: 'Your prompt',
   [REVIEWER_SEARCH_SOURCE]: 'Your search',
-  [REVIEWER_URL_SOURCE]: 'Your image'
+  [REVIEWER_URL_SOURCE]: 'Your image',
+  [REVIEWER_UPLOAD_SOURCE]: 'Your upload'
 }
 
 /** True for an image the reviewer asked for, found or supplied. */

@@ -18,6 +18,14 @@ export type WritingCheck =
   | 'filler_phrase'
   | 'copied_source_text'
   | 'repeated_cta'
+  // Checked for posts written from uploaded media (media-post/quality.ts),
+  // not by runLinter.
+  | 'promotional_language'
+  | 'repeated_wording'
+  | 'retold_sequence'
+  | 'media_narration'
+  | 'feature_sheet'
+  | 'repeated_message'
 
 export interface WritingThresholds {
   /** "It's not X, it's Y" turns allowed in one post; more is a template. */
@@ -174,6 +182,180 @@ export const RESEARCH_NARRATION_PATTERNS: RegExp[] = [
  */
 export const VIEW_QUALIFIER_PATTERN =
   /\b(?:in\s+(?:our|my)\s+(?:view|opinion|judgment|judgement)|(?:we|i)\s+(?:think|believe|suspect|would\s+argue)|(?:this|that)\s+is\s+(?:our|my)\s+(?:judgment|judgement|view|reading)|(?:our|my)\s+(?:reading|judgment|judgement|view|take)\s+(?:is|of)\b)\b/gi
+
+/**
+ * Advert language: hype, rankings and urgency a post cannot back up. A
+ * product shown working makes the case; these words only claim it. Checked
+ * on posts written from uploaded media (media-post/quality.ts), alongside
+ * GENERIC_PHRASE_PATTERNS. A phrase the author's own posts or notes use is
+ * theirs, and not flagged.
+ */
+export const PROMOTIONAL_PHRASE_PATTERNS: RegExp[] = [
+  /\b(?:world|best|first)[-\s]class\b/i,
+  /\bindustry[-\s]leading\b/i,
+  /\bstate[-\s]of[-\s]the[-\s]art\b/i,
+  /\b(?:to\s+the\s+)?next[-\s]level\b/i,
+  /\bgame[-\s]?chang(?:er|ers|ing)\b/i,
+  /\b(?:revolutionary|groundbreaking|unparalleled|unmatched|unbeatable)\b/i,
+  /\bmust[-\s]have\b/i,
+  /\b(?:don't|don’t|do\s+not)\s+miss\s+(?:out|this|it)\b/i,
+  // An order to act now, opening a sentence: not "their order now shows"
+  // nor "buy now, pay later".
+  /(?<=^|[.!?:;]\s+|\n\s*)(?:act|buy|order|shop|sign\s+up|join)\s+now\b(?![\s,–—-]+pay\s+later)/im,
+  /\blimited[-\s]time\b/i,
+  /\beffortless(?:ly)?\b/i,
+  /\blike\s+never\s+before\b/i,
+  /\bsay\s+goodbye\s+to\b/i,
+  /\bone[-\s]stop[-\s]shop\b/i,
+  /\b(?:the\s+)?ultimate\s+(?:solution|tool|platform|guide|way|answer)\b/i,
+  /\bthe\s+only\s+(?:tool|platform|solution|app|software|product|way)\b/i,
+  /(?:#1|\bnumber\s+one)\s+(?:tool|platform|solution|app|choice)\b/i,
+  /\bskyrocket(?:s|ed|ing)?\b/i,
+  /\bsupercharg(?:e|es|ed|ing)\b/i,
+  /\btransform(?:s|ing)?\s+(?:your|the\s+way)\b/i,
+  /\bpowerful\s+(?:new\s+)?(?:tool|platform|solution|features?)\b/i,
+  /\bboosts?\s+your\b/i
+]
+
+/**
+ * A post narrating the media it goes out with instead of talking to the
+ * reader: "This video shows…", "In the demo…", "The moment worth watching…".
+ * Readers see the media beside the post; the post says what it means for
+ * them. Checked on posts written from uploaded media (media-post/quality.ts).
+ */
+const MEDIA_NOUN =
+  '(?:video|clip|demo|walkthrough|walk-through|reel|short|footage|recording)'
+export const MEDIA_NARRATION_PATTERNS: RegExp[] = [
+  new RegExp(
+    `\\b(?:this|the|our|that)\\s+(?:(?:short|quick|new|product|launch)\\s+)?${MEDIA_NOUN}\\s+(?:shows|showed|walks|takes|covers|demonstrates|highlights|features|opens|starts|begins|ends|closes|goes|moves|cuts|explains|presents|follows)\\b`,
+    'i'
+  ),
+  new RegExp(`\\bin\\s+(?:this|the|our)\\s+${MEDIA_NOUN}\\b`, 'i'),
+  /\bmoments?\s+worth\s+(?:watching|seeing)\b/i,
+  /\bworth\s+watching\s+for\b/i,
+  /\bwatch\s+as\b/i,
+  /\byou(?:'ll|’ll|\s+will)\s+see\s+(?:how|it)\b/i,
+  /\bhere(?:'s|’s|\s+is)\s+a\s+(?:quick\s+)?look\b/i,
+  /\b(?:first|next|last|final|opening|closing)\s+(?:frame|scene|shot)\b/i,
+  /\b\d+[-\s]second\s+mark\b/i
+]
+
+/**
+ * A post from a product video written as a feature sheet: "Here's what it
+ * does for you:" over a bullet per feature, every control in a row. Checked
+ * on posts written from uploaded media (media-post/quality.ts).
+ */
+export const FEATURE_SHEET_PATTERNS: RegExp[] = [
+  /\bhere(?:'s|’s|\s+is|\s+are)\s+(?:what|how)\s+(?:it|you|they|this|that|we)\s+(?:does|do|get|gets|can|offers?|works?)\b/i,
+  /\b(?:key|main|core|top|standout)\s+features?\b/i,
+  /\bfeatures?\s+(?:include|including)\b/i,
+  /\bwhat\s+you\s+get\s*:/i,
+  /\b(?:and\s+)?that(?:'s|’s|\s+is)\s+not\s+all\b/i
+]
+
+/** How much listing a post from media may do before it reads as a manual. */
+export const FEATURE_SHEET_LIMITS = {
+  /** Lines one under another starting with a bullet, a number or an emoji. */
+  listLines: 3,
+  /** Things named in one comma-separated run in a sentence. */
+  itemsInSentence: 3
+}
+
+/** A line that is a list item: a bullet, a dash, a number or an emoji first. */
+export const LIST_LINE_PATTERN =
+  /^\s*(?:[•·▪▸►‣◦✓✔➤➜→\-*]|\d{1,2}[.)]|\p{Extended_Pictographic})/u
+
+/**
+ * Capabilities a product video is often credited with because products like
+ * it have them: integrations, analytics, automation, AI, real-time updates,
+ * notifications, apps, named platforms. A post may claim one only when the
+ * media's analysis or the author's notes say it too (`evidence`, else the
+ * claim's own pattern, tried on them). Checked on posts written from
+ * uploaded media.
+ */
+export const CAPABILITY_CLAIMS: Array<{ claim: RegExp; evidence?: RegExp }> = [
+  { claim: /\bintegrat(?:es?|ed|ing|ions?)\b/i },
+  {
+    claim:
+      /\b(?:connects?|syncs?|synchroni[sz]es?|plugs?\s+into)\s+(?:(?:with|to|into)\s+)?(?:your|any|all|every)\b/i,
+    evidence: /\b(?:connect|sync|synchroni[sz]|integrat|plug)/i
+  },
+  { claim: /\banalytics\b/i },
+  { claim: /\bdashboards?\b/i },
+  { claim: /\breporting\b/i, evidence: /\breport/i },
+  { claim: /\binsights?\b/i },
+  {
+    claim: /\bautomat(?:es?|ed|ing|ically|ion|ions)\b/i,
+    evidence: /\bautomat|\bauto[-\s]/i
+  },
+  { claim: /\bAI\b/, evidence: /\bAI\b|artificial\s+intelligence/i },
+  { claim: /\bartificial\s+intelligence\b/i, evidence: /\bAI\b|artificial\s+intelligence/i },
+  { claim: /\bmachine\s+learning\b/i },
+  { claim: /\breal[-\s]?time\b/i },
+  { claim: /\bnotifications?\b/i, evidence: /\bnotif/i },
+  { claim: /\b(?:sms|whatsapp)\b/i },
+  { claim: /\bAPIs?\b/ },
+  { claim: /\bwebhooks?\b/i },
+  { claim: /\b(?:mobile|ios|android)\s+apps?\b/i, evidence: /\b(?:mobile|ios|android)\s+app|\bapp\s+store\b/i },
+  {
+    claim:
+      /\b(?:shopify|woocommerce|magento|bigcommerce|wix|squarespace|salesforce|hubspot|zapier|klaviyo|mailchimp)\b/i
+  },
+  { claim: /\bdrag[-\s]and[-\s]drop\b/i },
+  { claim: /\bno[-\s]code\b/i },
+  {
+    claim: /\bmulti[-\s]?lingual\b|\bin\s+(?:any|multiple|several)\s+languages\b/i,
+    evidence: /lingual|languages?\b|translat/i
+  },
+  { claim: /\bA\/B\s+test/i },
+  { claim: /\bone[-\s]click\b/i },
+  { claim: /\bunlimited\b/i }
+]
+
+/** Words that open a step-by-step retelling: "First…", "Then…", "Finally…". */
+export const SEQUENCE_OPENING_PATTERN =
+  /^(?:first(?:ly)?|second(?:ly)?|third(?:ly)?|then|next|after\s+that|afterwards|finally|lastly|step\s+\d+|to\s+(?:start|begin)|from\s+there|once\s+(?:that|it)(?:'s|’s|\s+is)\s+done)\b/i
+
+/**
+ * Words too common to count as repeated wording: function words, and the
+ * words every post uses. Content words are counted only from five letters.
+ */
+export const REPETITION_STOPWORDS = new Set([
+  'about', 'above', 'after', 'again', 'against', 'along', 'already', 'also',
+  'always', 'among', 'another', 'around', 'because', 'before', 'being',
+  'below', 'between', 'both', 'cannot', 'could', 'doing', 'during', 'each',
+  'either', 'every', 'first', 'from', 'further', 'having', 'here', 'into',
+  'itself', 'just', 'least', 'less', 'like', 'many', 'might', 'more', 'most',
+  'much', 'must', 'never', 'other', 'others', 'ours', 'over', 'same',
+  'should', 'since', 'some', 'still', 'such', 'than', 'that', 'their',
+  'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'thing',
+  'things', 'this', 'those', 'through', 'under', 'until', 'very', 'want',
+  'what', 'when', 'where', 'whether', 'which', 'while', 'with', 'within',
+  'without', 'would', 'your', 'yours', 'yourself', 'people'
+])
+
+/** Sentence openings that do not count as repeating one: articles and "I". */
+export const REPETITION_FREE_OPENINGS = new Set(['the', 'a', 'an', 'i', 'we'])
+
+export interface RepetitionLimits {
+  /** Uses of one content word allowed, or one per this many words if more. */
+  wordUses: number
+  wordsPerUse: number
+  /** Sentences that may open on the same word. */
+  sameOpenings: number
+  /** Sentence openings like "First"/"Then" before a post reads as a retelling. */
+  sequenceOpenings: number
+  /** The media's own captions a post may repeat word for word. */
+  retoldCaptions: number
+}
+
+export const DEFAULT_REPETITION_LIMITS: RepetitionLimits = {
+  wordUses: 4,
+  wordsPerUse: 45,
+  sameOpenings: 2,
+  sequenceOpenings: 2,
+  retoldCaptions: 2
+}
 
 /** Openings that clear the throat instead of saying something. */
 export const GENERIC_OPENING_PATTERNS: RegExp[] = [

@@ -5,7 +5,9 @@ import { FORMATS, type FormatId } from '@/lib/formats'
 import type { GenerationContext } from '../../context'
 import { runSkill, SkillError } from '../../run-skill'
 import type { CallUsage } from '../../usage'
+import { splitForCache } from '../../cache-breakpoints'
 import { withoutRepeatedHook } from '../post-drafting/guard'
+import { GOAL_HEADING } from '../post-drafting/prompt'
 import {
   buildFormatPrompt,
   buildIdeaBlock,
@@ -66,9 +68,14 @@ export async function writeVariant(
   const approved = input.approvedSiblings ?? []
   const { output, usage, modelId } = await runSkill({
     stage: 'drafting',
-    // Formats in the same style share this block and its cache entry.
+    // Formats in the same style share the first blocks and their cache
+    // entries; cut before the goal, the author and readers are shared by
+    // ideas with other goals too.
     instructions: [
-      buildSharedInstructions(ctx, styleOfFormat(ctx, formatId)),
+      ...splitForCache(
+        buildSharedInstructions(ctx, styleOfFormat(ctx, formatId)),
+        GOAL_HEADING
+      ),
       buildIdeaBlock(idea)
     ],
     cacheInstructions: true,

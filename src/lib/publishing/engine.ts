@@ -1173,7 +1173,8 @@ export async function executePublication(
               id: video.id,
               mediaType: video.mediaType,
               byteSize: video.byteSize,
-              title: videoTitle
+              title: videoTitle,
+              aiGenerated: video.aiGenerated
             }
           : undefined
       })

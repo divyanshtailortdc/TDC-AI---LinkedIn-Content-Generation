@@ -110,6 +110,9 @@ const NETWORKS = {
     // stays in the app, to add by hand.
     // Several images in one post (Buffer and LinkedIn take up to 20).
     maxCarouselImages: FORMATS['linkedin.post'].media.carousel!.maxSlides,
+    // A video the user uploaded (Create from media). Buffer's limit for
+    // LinkedIn is larger; uploads are capped well below it.
+    video: { maxBytes: 1024 * MB },
     // Posts published straight to LinkedIn before Buffer have a post URN.
     postUrl: id =>
       id.startsWith('urn:li:')
@@ -126,7 +129,9 @@ const NETWORKS = {
     // A free X account's limit, as X counts it (a link 23, an emoji 2).
     maxPostLength: FORMATS['x.post'].limits.maxChars,
     measure: text => countChars(text, 'x_weighted'),
-    maxImageBytes: 5 * MB
+    maxImageBytes: 5 * MB,
+    // A video the user uploaded (Create from media): X takes up to 512 MB.
+    video: { maxBytes: 512 * MB }
   },
   threads: {
     platform: PLATFORMS.threads,
@@ -140,7 +145,9 @@ const NETWORKS = {
     measure: text => countChars(text, 'utf16'),
     maxImageBytes: 8 * MB,
     // Threads takes JPEG and PNG: a WebP goes as JPEG, as for Facebook.
-    imageVariant: 'facebook'
+    imageVariant: 'facebook',
+    // A video the user uploaded (Create from media): Threads takes up to 1 GB.
+    video: { maxBytes: 1024 * MB }
   },
   facebook: {
     platform: PLATFORMS.facebook,
@@ -177,11 +184,16 @@ const NETWORKS = {
     // A Reel: the caption with its video (the Graph API takes up to 300 MB).
     video: { maxBytes: 300 * MB },
     // A feed post, or a Reel shared to the feed too. The caption's comment
-    // field is a link-in-bio note for the author: never posted. A Reel is
-    // marked AI-generated, as when Reels were AI clips (docs/SHORT_VIDEOS.md).
+    // field is a link-in-bio note for the author: never posted. A Reel the
+    // app recorded is marked AI-generated, as when Reels were AI clips
+    // (docs/SHORT_VIDEOS.md); one the user uploaded is not.
     metadata: ({ video }) => ({
       instagram: video
-        ? { type: 'reel', shouldShareToFeed: true, isAiGenerated: true }
+        ? {
+            type: 'reel',
+            shouldShareToFeed: true,
+            isAiGenerated: video.aiGenerated !== false
+          }
         : { type: 'post', shouldShareToFeed: true }
     })
   },
@@ -195,13 +207,14 @@ const NETWORKS = {
     maxImageBytes: null,
     video: { maxBytes: 1024 * MB },
     // A Short needs a title and a category: People & Blogs (22) suits a
-    // brand's short. Not for children, and disclosed as AI-made.
+    // brand's short. Not for children, and disclosed as AI-made unless the
+    // user uploaded it.
     metadata: ({ video }) => ({
       youtube: {
         title: (video?.title || 'Short').slice(0, 100),
         categoryId: '22',
         madeForKids: false,
-        isAiGenerated: true
+        isAiGenerated: video?.aiGenerated !== false
       }
     })
   }

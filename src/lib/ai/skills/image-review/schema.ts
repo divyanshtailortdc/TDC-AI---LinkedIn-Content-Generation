@@ -18,10 +18,16 @@ export const ImageReviewSchema = z.object({
     .describe(
       'Lettering that should not be there: anything besides the intended headline, including pseudo-words on screens, documents, signs, labels or packaging.'
     ),
+  unintendedTextNoticeable: z
+    .boolean()
+    .default(true)
+    .describe(
+      'True when any lettering listed under unintendedText is something a viewer would notice and try to read at a glance: a misspelt or made-up word, a garbled sign, label or badge, readable numbers. False when everything listed is small, faint or unreadable texture, such as scribbles or ruled lines on paper, tiny markings on a tool or scale, embossing, or blurred screen content. False when none is listed.'
+    ),
   brandMarks: z
     .array(z.string())
     .describe(
-      'Every logo, emblem, wordmark, brand or company name, signature or watermark drawn in the image, each described briefly.'
+      'Every logo, emblem, wordmark, brand or company name, signature or watermark drawn in the image, each described briefly. Not packaging, labels or signs whose graphics are unreadable and name no brand.'
     ),
   unsupportedDetails: z
     .array(z.string())
@@ -71,7 +77,13 @@ export const ImageReviewSchema = z.object({
     .array(z.string())
     .default([])
     .describe(
-      'Visible flaws that give away a generated image, each described briefly: malformed hands or faces, extra or merged fingers or limbs, warped or melted objects, impossible geometry, bent lines that should be straight, duplicated objects, plastic or waxy skin. Empty when there are none.'
+      'Visible flaws that give away a generated image, each described briefly: malformed hands or faces, extra or merged fingers or limbs, warped or melted objects, impossible geometry, bent lines that should be straight, duplicated objects, plastic or waxy skin. Not blank or blurred screens, papers or book spines where no lettering was allowed. Empty when there are none.'
+    ),
+  artifactsNoticeable: z
+    .boolean()
+    .default(true)
+    .describe(
+      'True only when a flaw listed under artifacts would be noticed by a viewer at a glance and is worth making the image again for; false when the listed ones are minor (slightly soft details, a small inconsistency in the background), or none are listed.'
     ),
   matchesStyle: z
     .boolean()

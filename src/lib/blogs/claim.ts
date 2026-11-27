@@ -260,6 +260,9 @@ export async function saveGeneratedBlog(
  * holds. A featured image finished before the failure is kept (it was paid
  * for), so a retry need not make it again; section pictures made are added
  * to the list (no text names them yet, but the files are kept with it).
+ * So is the research of a blog not yet written: its brief cannot change, so
+ * a retry reads the same sources and questions instead of paying the
+ * research agent again. A written blog keeps the sources its text cites.
  */
 export async function failBlogGeneration(
   database: BlogDb,
@@ -267,11 +270,17 @@ export async function failBlogGeneration(
   message: string,
   usage: CallUsage,
   now: Date = new Date(),
-  kept: { featuredImage?: FeaturedImage | null; images?: BlogImage[] } = {}
+  kept: {
+    featuredImage?: FeaturedImage | null
+    images?: BlogImage[]
+    sources?: BlogSource[]
+    searchQuestions?: SearchQuestion[]
+  } = {}
 ): Promise<boolean> {
   return database.transaction(async tx => {
     const row = await lockBlog(tx, claim.blogId)
     if (!row || !holds(claim, row)) return false
+    const unwritten = row.wordCount === 0 && row.title.trim() === ''
     await tx
       .update(blogsTable)
       .set({
@@ -285,6 +294,11 @@ export async function failBlogGeneration(
         ...(kept.images?.length && {
           images: [...(row.images ?? []), ...kept.images]
         }),
+        ...(unwritten && kept.sources?.length && { sources: kept.sources }),
+        ...(unwritten &&
+          kept.searchQuestions?.length && {
+            searchQuestions: kept.searchQuestions
+          }),
         updatedAt: now
       })
       .where(eq(blogsTable.id, row.id))

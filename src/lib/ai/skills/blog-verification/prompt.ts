@@ -42,18 +42,30 @@ export function buildJudgePrompt(input: {
   claims: JudgeClaim[]
   articleText: string
 }): string {
+  // Each source's passages once, however many sentences link it: written out
+  // under every claim, a source cited four times was sent four times, which
+  // was most of this prompt.
+  const sources = new Map<string, Pick<JudgeClaim, 'sourceTitle' | 'quotes'>>()
+  for (const claim of input.claims) {
+    if (!sources.has(claim.sourceId)) sources.set(claim.sourceId, claim)
+  }
+  const sourceBlock = [...sources]
+    .map(([id, source]) =>
+      [
+        `[${id}] ${frameEvidenceText(source.sourceTitle, 200)}:`,
+        ...source.quotes.map(quote => `  - "${frameEvidenceText(quote, 1200)}"`)
+      ].join('\n')
+    )
+    .join('\n')
   const claims = input.claims.length
     ? input.claims
-        .map(claim =>
-          [
-            `[${claim.id}] Sentence: "${frameEvidenceText(claim.sentence, 600)}"`,
-            `    It links [${claim.sourceId}] ${frameEvidenceText(claim.sourceTitle, 200)}:`,
-            ...claim.quotes.map(quote => `      - "${frameEvidenceText(quote, 1200)}"`)
-          ].join('\n')
+        .map(
+          claim =>
+            `[${claim.id}] Sentence: "${frameEvidenceText(claim.sentence, 600)}"\n    It links [${claim.sourceId}] ${frameEvidenceText(claim.sourceTitle, 200)}: read its passages under SOURCES.`
         )
         .join('\n')
     : 'None: return an empty verdicts list.'
-  return `CLAIMS
+  return `${sources.size ? `SOURCES, each with the passages it gives\n${sourceBlock}\n\n` : ''}CLAIMS
 ${claims}
 
 ARTICLE

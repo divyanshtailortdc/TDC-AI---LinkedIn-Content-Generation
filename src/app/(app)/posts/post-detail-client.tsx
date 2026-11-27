@@ -7,6 +7,8 @@ import { cn } from '@/lib/cn'
 import { CarouselViewer } from '@/components/carousel/carousel-viewer'
 import { SlidesPanel } from '@/components/carousel/slides-panel'
 import { VideoPanel } from '@/components/video/video-panel'
+import { UploadedVideoPanel } from '@/components/video/uploaded-video-panel'
+import { uploadedMediaOf } from '~/lib/media-upload/rules'
 import { PostCostCard } from '@/components/post-cost'
 import { isVideoFormat, VIDEO_GENERATION_ENABLED } from '@/lib/video/formats'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -82,6 +84,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleStop,
+  Clapperboard,
   Columns2,
   Copy,
   Download,
@@ -147,7 +150,11 @@ import {
   deletedFromPlatformAt,
   PostProgress
 } from './post-status'
-import { RegenerateControl, VersionHistory } from './post-versions'
+import {
+  MediaRegenerateControl,
+  RegenerateControl,
+  VersionHistory
+} from './post-versions'
 import type { BrandSummary, PostDetail } from './posts-client'
 import { getPostPublication } from './publish-actions'
 import { PublishControls } from './publish-controls'
@@ -1616,6 +1623,14 @@ export function PostDetailClient({
     { image: Boolean(activePost.media) }
   )
   const shownMedia: MediaFormat = wantsCarousel ? 'carousel' : activeMediaFormat
+  // Made from an image or video the user uploaded (Create from media): it
+  // has no idea behind it, so Regenerate writes its hook, body or whole text
+  // again from what the AI saw in the media, and its preview shows it whole.
+  const madeFromUpload = uploadedMediaOf(activePost.payload) !== null
+  // Made from a video the user uploaded: it goes out as uploaded, so the
+  // type picker and the recorder give way to the video.
+  const uploadedVideo =
+    shownMedia === 'video' && uploadedMediaOf(activePost.payload)?.kind === 'video'
   // Set aside by "Text only": the image is kept but does not go out.
   const imageSetAside = activePost.mediaFormat === 'text'
   // Instagram takes no text-only post, so it is not offered there.
@@ -2187,18 +2202,31 @@ export function PostDetailClient({
                     )}
                   {/* A published post (or one marked posted) keeps the text
                       that went out; regenerateDraft refuses it too. */}
-                  {!activePublished && !activePost.postedAt && (
-                    <RegenerateControl
-                      key={activePost.id}
-                      post={activePost}
-                      // One new text at a time: Restore's too.
-                      disabled={isEditing || isSaving || textReplacing}
-                      confirmStart={confirmRegenerate}
-                      onBusyChange={setTextReplacing}
-                      onDone={replacePostText}
-                      buttonClassName={TOOL_BUTTON}
-                    />
-                  )}
+                  {!activePublished &&
+                    !activePost.postedAt &&
+                    (madeFromUpload ? (
+                      <MediaRegenerateControl
+                        key={activePost.id}
+                        post={activePost}
+                        // One new text at a time: Restore's too.
+                        disabled={isEditing || isSaving || textReplacing}
+                        confirmStart={confirmRegenerate}
+                        onBusyChange={setTextReplacing}
+                        onDone={replacePostText}
+                        buttonClassName={TOOL_BUTTON}
+                      />
+                    ) : (
+                      <RegenerateControl
+                        key={activePost.id}
+                        post={activePost}
+                        // One new text at a time: Restore's too.
+                        disabled={isEditing || isSaving || textReplacing}
+                        confirmStart={confirmRegenerate}
+                        onBusyChange={setTextReplacing}
+                        onDone={replacePostText}
+                        buttonClassName={TOOL_BUTTON}
+                      />
+                    ))}
                   <button
                     type="button"
                     onClick={() => setIsEditing(!isEditing)}
@@ -2308,6 +2336,7 @@ export function PostDetailClient({
                           firstComment={activePost.firstComment || ''}
                           onCopyFirstComment={handleCopyComment}
                           firstCommentCopied={copiedComment}
+                          expandedByDefault={madeFromUpload}
                         />
                       </div>
                     )}
@@ -2340,13 +2369,20 @@ export function PostDetailClient({
             <div className="flex min-w-0 flex-col gap-3 @3xl:row-span-2 @3xl:grid @3xl:grid-rows-subgrid">
               <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 px-1">
                 {/* What goes out with the text: text only, an image or a carousel. */}
-                <PostTypePicker
-                  formatId={activeFormat}
-                  value={shownMedia}
-                  onChange={next => void handleMediaFormatChange(next)}
-                  disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
-                  pending={pendingMediaFormat}
-                />
+                {uploadedVideo ? (
+                  <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
+                    <Clapperboard aria-hidden className="h-3.5 w-3.5" />
+                    Your video
+                  </span>
+                ) : (
+                  <PostTypePicker
+                    formatId={activeFormat}
+                    value={shownMedia}
+                    onChange={next => void handleMediaFormatChange(next)}
+                    disabled={mediaLocked || pendingMediaFormat !== null || mediaBusyHere}
+                    pending={pendingMediaFormat}
+                  />
+                )}
                 {/* Who chose the image: nothing else here says so. The type
                     is the picker's, loading and errors the card's. */}
                 {shownMedia === 'image' &&
@@ -2410,7 +2446,14 @@ export function PostDetailClient({
                     </button>
                   </div>
                 )}
-                {shownMedia === 'video' && isVideoFormat(activeFormat) ? (
+                {uploadedVideo ? (
+                  // VIDEO CARD: the video the post was made from, as uploaded.
+                  <UploadedVideoPanel
+                    key={activePost.id}
+                    postId={activePost.id}
+                    locked={mediaLocked ? lockedReason : null}
+                  />
+                ) : shownMedia === 'video' && isVideoFormat(activeFormat) ? (
                   // VIDEO CARD: a Reel's or Short's video, apart from the image tools.
                   VIDEO_GENERATION_ENABLED ? (
                     <VideoPanel

@@ -50,9 +50,16 @@ export function renderExemplars(ctx: GenerationContext): string {
 }
 
 /**
- * Everything stable for this account and goal, in one block so it can be
- * cached. Every draft after the first in a run reads this prefix instead of
- * paying for it again.
+ * Where the instructions turn from the author to the goal: drafting cuts them
+ * here into two cached blocks (splitForCache), so drafts of ideas with
+ * different goals still share the part before it.
+ */
+export const GOAL_HEADING = 'GOAL THIS POST SERVES\n'
+
+/**
+ * Everything stable for this account and goal, sent as cached blocks: every
+ * draft after the first in a run reads the author's part from cache, and the
+ * rest too when its idea has the same goal.
  */
 export function buildInstructions(ctx: GenerationContext): string {
   const goal = ctx.primaryGoal
@@ -83,8 +90,7 @@ ${renderIdentityBlock(ctx)}
 READER
 ${renderAudienceBlock(ctx)}
 
-GOAL THIS POST SERVES
-${renderGoalBlock(goal)}
+${GOAL_HEADING}${renderGoalBlock(goal)}
 ${alsoSupports ? `\nIT ALSO SUPPORTS these goals: reinforce their messages where the argument meets them, with no second call to action or link:\n${alsoSupports}\n` : ''}
 VOICE — match this precisely
 ${renderVoiceBlock(ctx)}

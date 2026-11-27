@@ -5,10 +5,265 @@ import { cn } from '@/lib/cn'
 import { showToast } from '@/components/toast-notification'
 import { formatAbsoluteDateTime, formatRelativeDate } from '@/lib/format-date'
 import { PAGE_SIZE, paginate } from '@/lib/pagination'
-import { ChevronDown, History, Loader2, RotateCcw, Wand2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
-import { loadPostVersions, regeneratePost, restorePostVersion } from './actions'
+import {
+  AlignLeft,
+  ChevronDown,
+  History,
+  Loader2,
+  RotateCcw,
+  Type,
+  Wand2,
+  type LucideIcon
+} from 'lucide-react'
+import { useEffect, useId, useRef, useState, type RefObject } from 'react'
+import type { MediaPostPart } from '~/lib/media-upload/drafts'
+import { uploadedMediaOf } from '~/lib/media-upload/rules'
+import {
+  loadPostVersions,
+  regenerateMediaPost,
+  regeneratePost,
+  restorePostVersion
+} from './actions'
 import type { PostDetail } from './posts-client'
+
+/** Shuts a popover on a click outside `wrapper` or on Escape, while open. */
+function useDismiss(
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  wrapper: RefObject<HTMLElement | null>
+) {
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!wrapper.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, setOpen, wrapper])
+}
+
+const MEDIA_PART_CHOICES: Array<{
+  part: MediaPostPart
+  label: string
+  description: string
+  icon: LucideIcon
+}> = [
+  {
+    part: 'hook',
+    label: 'Regenerate hook',
+    description: 'A new opening. The body, question and hashtags stay.',
+    icon: Type
+  },
+  {
+    part: 'body',
+    label: 'Regenerate body',
+    description: 'New wording after the hook. The rest stays.',
+    icon: AlignLeft
+  },
+  {
+    part: 'post',
+    label: 'Regenerate entire post',
+    description: 'A fresh take on all of it, hashtags included.',
+    icon: Wand2
+  }
+]
+
+const MEDIA_PART_DONE: Record<MediaPostPart, string> = {
+  hook: 'New hook written',
+  body: 'New body written',
+  post: 'New version written'
+}
+
+/**
+ * Regenerate for a post made from uploaded media (Create from media), which
+ * has no idea to write again from: its hook, its body or the whole post is
+ * written again from what the AI saw in the media, and only that part
+ * changes. The video or image stays attached. The version it replaces is
+ * kept under Earlier versions.
+ */
+export function MediaRegenerateControl({
+  post,
+  onDone,
+  disabled,
+  confirmStart,
+  onBusyChange,
+  buttonClassName
+}: {
+  post: PostDetail
+  onDone: (post: PostDetail) => void
+  disabled?: boolean
+  /** Asked before writing; false leaves the post as it is. */
+  confirmStart?: () => boolean
+  /** Told when writing starts and when it ends, however it ends. */
+  onBusyChange?: (busy: boolean) => void
+  /** The button's look, to match the toolbar it sits in. */
+  buttonClassName?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [instruction, setInstruction] = useState('')
+  const [running, setRunning] = useState<MediaPostPart | null>(null)
+  const wrapper = useRef<HTMLDivElement>(null)
+  const panelId = useId()
+  useDismiss(open, setOpen, wrapper)
+
+  const media = uploadedMediaOf(post.payload)
+  if (!media) return null
+
+  const run = async (part: MediaPostPart) => {
+    // Declined: the panel stays open with the instruction.
+    if (confirmStart && !confirmStart()) return
+    setOpen(false)
+    setRunning(part)
+    onBusyChange?.(true)
+    try {
+      const res = await regenerateMediaPost(post.id, part, instruction)
+      if (res.success && res.post) {
+        onDone(res.post)
+        setInstruction('')
+        const wasScheduled = post.publication?.status === 'scheduled'
+        const backToReview =
+          post.status === 'approved' && res.post.status !== 'approved'
+        showToast({
+          type: 'success',
+          title: MEDIA_PART_DONE[part],
+          message: [
+            wasScheduled
+              ? 'Its scheduled publishing was called off: approve it and schedule it again.'
+              : backToReview
+                ? 'Approve it again once it reads right.'
+                : null,
+            'The previous version is under Earlier versions.'
+          ]
+            .filter(Boolean)
+            .join(' ')
+        })
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Not regenerated',
+          message:
+            (!res.success && res.error) ||
+            'The new text could not be written.'
+        })
+      }
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Not regenerated',
+        message: err?.message || 'The new text could not be written.'
+      })
+    } finally {
+      setRunning(null)
+      onBusyChange?.(false)
+    }
+  }
+
+  return (
+    // Below sm the panel anchors to the toolbar row (relative there), not the
+    // button, so it stays on a phone's screen.
+    <div className="sm:relative" ref={wrapper}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled || running !== null}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-haspopup="dialog"
+        className={cn(
+          buttonClassName ??
+            'text-muted hover:text-foreground inline-flex cursor-pointer items-center gap-2 text-sm font-medium',
+          'disabled:cursor-wait disabled:opacity-60'
+        )}
+      >
+        {running ? (
+          <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Wand2 aria-hidden className="h-3.5 w-3.5" />
+        )}
+        <span>
+          {running === 'hook'
+            ? 'Writing hook…'
+            : running === 'body'
+              ? 'Writing body…'
+              : running
+                ? 'Writing…'
+                : 'Regenerate'}
+        </span>
+        {!running && (
+          <ChevronDown aria-hidden className="text-muted h-3 w-3" />
+        )}
+      </button>
+      {open && (
+        <div
+          id={panelId}
+          role="dialog"
+          aria-label="Regenerate part of this post"
+          className="border-border bg-surface absolute right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border p-3 shadow-lg"
+        >
+          <label
+            htmlFor={`${panelId}-instruction`}
+            className="text-foreground mb-1 block text-xs font-semibold"
+          >
+            What to change{' '}
+            <span className="text-muted font-normal">· Optional</span>
+          </label>
+          <textarea
+            id={`${panelId}-instruction`}
+            value={instruction}
+            onChange={e => setInstruction(e.target.value)}
+            maxLength={1000}
+            rows={2}
+            autoFocus
+            placeholder="e.g. Shorter. Lead with the problem. Less salesy."
+            className="border-border bg-surface-hover text-foreground focus:border-accent w-full resize-none rounded-lg border p-2 text-xs leading-relaxed outline-none"
+          />
+          <p className="text-muted mt-2 mb-1.5 text-[11px]">
+            Only the part you pick is written again. Your {media.kind} stays
+            attached.
+          </p>
+          <ul className="space-y-1">
+            {MEDIA_PART_CHOICES.map(choice => (
+              <li key={choice.part}>
+                <button
+                  type="button"
+                  onClick={() => void run(choice.part)}
+                  className="hover:border-accent/40 hover:bg-surface-hover focus-visible:ring-foreground/30 block w-full cursor-pointer rounded-lg border border-transparent px-2.5 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  <span className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+                    <choice.icon
+                      aria-hidden
+                      className="text-accent h-3.5 w-3.5"
+                    />
+                    {choice.label}
+                  </span>
+                  <span className="text-muted mt-0.5 block pl-5 text-[11px] leading-snug">
+                    {choice.description}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-muted hover:text-foreground h-7 cursor-pointer rounded-lg px-2.5 text-xs font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * "Regenerate": a new version of the post from its idea, with what the
@@ -38,22 +293,7 @@ export function RegenerateControl({
   const [running, setRunning] = useState(false)
   const wrapper = useRef<HTMLDivElement>(null)
   const panelId = useId()
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (!wrapper.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  useDismiss(open, setOpen, wrapper)
 
   if (!post.ideaId) return null
 
@@ -173,10 +413,18 @@ type Version = {
 }
 
 function replacedLabel(version: Version): string {
-  if (version.replacedBy === 'regenerate') {
+  const regenerated =
+    version.replacedBy === 'regenerate'
+      ? 'Before regenerating'
+      : version.replacedBy === 'regenerate_hook'
+        ? 'Before regenerating the hook'
+        : version.replacedBy === 'regenerate_body'
+          ? 'Before regenerating the body'
+          : null
+  if (regenerated) {
     return version.instruction
-      ? `Before regenerating: “${version.instruction}”`
-      : 'Before regenerating'
+      ? `${regenerated}: “${version.instruction}”`
+      : regenerated
   }
   if (version.replacedBy === 'restore') return 'Before restoring an earlier version'
   return 'Before your edit'
