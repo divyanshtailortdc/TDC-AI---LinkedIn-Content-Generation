@@ -176,7 +176,7 @@ function ResearchPicture() {
         {rows.map(([text, note, done]) => (
           <li key={text} className="relative">
             <span
-              className={`absolute top-0.5 -left-7.25x h-4 w-4 items-center justify-center rounded-full ${
+              className={`absolute top-0.5 -left-7.25 flex h-4 w-4 items-center justify-center rounded-full ${
                 done
                   ? 'bg-emerald-600 text-white'
                   : 'bg-surface text-brand-strong'
