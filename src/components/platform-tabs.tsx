@@ -58,11 +58,12 @@ export function PlatformTabs({
 }) {
   return (
     // One row that scrolls sideways on a narrow screen rather than wrapping
-    // into several; the padding keeps the focus ring inside the scroll box.
+    // into several; the padding keeps the focus ring inside the scroll box
+    // without negative margins that overflow a parent scroll wrapper.
     <div
       role="group"
       aria-label={label}
-      className="-m-1 flex gap-2 overflow-x-auto p-1"
+      className="flex gap-2 overflow-x-auto p-0.5"
     >
       {[null, ...options].map(option => {
         const active = value === option
