@@ -15,9 +15,9 @@ import {
 } from '@/db/schema'
 import { olderThan } from '@/lib/db-pagination'
 import { inKnownFormat } from '@/lib/known-formats'
-import { isPublishingConfigured } from '@/lib/publishing/config'
+import { isPublishingConfigured, publishDeps } from '@/lib/publishing/config'
 import {
-  latestPublications,
+  currentPublications,
   type PublicationSummary
 } from '@/lib/publishing/engine'
 import { isImageStyleChoice } from '@/lib/brand/theme'
@@ -110,6 +110,7 @@ export async function loadPostsPage(
       b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1)
   )
   const draftIds = draftsRaw.map((d) => d.id)
+  const deps = publishDeps()
 
   const ideaIds = Array.from(
     new Set(draftsRaw.map(d => d.ideaId).filter((id): id is string => Boolean(id)))
@@ -186,8 +187,8 @@ export async function loadPostsPage(
       : Promise.resolve([]),
     // These posts are already the identity's; their publications.
     // Skipped when publishing is not set up, so Posts does not depend on its tables.
-    isPublishingConfigured()
-      ? latestPublications(db, draftIds)
+    deps
+      ? currentPublications(deps, draftIds)
       : Promise.resolve(new Map<string, PublicationSummary>()),
     // Which formats each idea already has, so the review screen offers only
     // the missing ones under "Add a version".

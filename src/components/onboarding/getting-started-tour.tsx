@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/cn'
 import { IDENTITY_PATH } from '@/lib/identity-path'
-import { ArrowRight, Compass, X } from 'lucide-react'
+import { ArrowRight, Check, Compass, X } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   useCallback,
@@ -36,7 +36,11 @@ import { useOnboarding } from './onboarding-provider'
  * card shows in a corner with a button that goes there instead.
  *
  * Start tour (StartTourButton, at the top right of the create-identity
- * page) replays the four steps for anyone, with Back and Next.
+ * page) replays the four steps for anyone, with Back and Next. Next (and
+ * Finish) stays disabled until the step's work is done: the identity
+ * wizard opened, a platform picked, a goal saved, ideas generated. An
+ * identity set up earlier counts, so a replay moves straight through what
+ * is already done.
  */
 
 const STEPS = ['identity', 'platforms', 'goals', 'ideas'] as const
@@ -54,6 +58,8 @@ type Step = {
   back?: () => void
   /** Shown only beside its anchor, never in a corner. */
   needsTarget?: boolean
+  /** The step's work is done; until then a replay's Next is disabled. */
+  done?: boolean
 }
 
 // ── Put away (per user, in this browser) ──────────────────────────────────
@@ -276,6 +282,9 @@ export function GettingStartedTour({ userId }: { userId: string }) {
   const [seenPlatforms, setSeenPlatforms] = useState(false)
   // Suggest Goals clicked: the card makes way for the suggestions.
   const [suggestedGoals, setSuggestedGoals] = useState(false)
+  // A platform was picked in the wizard (it says how many on its grid);
+  // kept once seen, as the grid goes when the wizard moves on.
+  const [pickedPlatforms, setPickedPlatforms] = useState(false)
 
   const view = onboarding?.view
   const hasIdentity = Boolean(view?.identity)
@@ -299,6 +308,9 @@ export function GettingStartedTour({ userId }: { userId: string }) {
     pathname === `${IDENTITY_PATH}/new`
   const go = (href: string) => () => router.push(href)
   const hasGoals = (view?.facts.goals ?? 0) > 0
+  const hasIdeas = Boolean(
+    view && (view.facts.ideas.total > 0 || view.facts.latestRun !== null)
+  )
 
   const identityBody = onCreate
     ? 'Create who you post as in three short steps: where you post, a few words about you, and a quick review. The AI can fill most of it in for you.'
@@ -338,7 +350,8 @@ export function GettingStartedTour({ userId }: { userId: string }) {
           : onCreate
             ? '[data-tour="identity-steps"]'
             : null,
-        primary: { label: 'Next', run: to(1), arrow: true }
+        primary: { label: 'Next', run: to(1), arrow: true },
+        done: hasIdentity || onCreate
       },
       {
         key: 'platforms',
@@ -346,7 +359,8 @@ export function GettingStartedTour({ userId }: { userId: string }) {
         body: platformsBody,
         target: '[data-tour="platforms"]',
         primary: { label: 'Next', run: to(2), arrow: true },
-        back: to(0)
+        back: to(0),
+        done: hasIdentity || pickedPlatforms
       },
       {
         key: 'goals',
@@ -354,7 +368,8 @@ export function GettingStartedTour({ userId }: { userId: string }) {
         body: goalsBody,
         target: goalsTarget,
         primary: { label: 'Next', run: to(3), arrow: true },
-        back: to(1)
+        back: to(1),
+        done: hasGoals
       },
       {
         key: 'ideas',
@@ -362,7 +377,8 @@ export function GettingStartedTour({ userId }: { userId: string }) {
         body: ideasBody,
         target: ideasTarget,
         primary: { label: 'Finish', run: to(null) },
-        back: to(2)
+        back: to(2),
+        done: hasIdeas
       }
     ]
     step = replaySteps[replay] ?? null
@@ -418,6 +434,35 @@ export function GettingStartedTour({ userId }: { userId: string }) {
   }
 
   const rect = useAnchorRect(step?.target ?? null)
+
+  // The card stepped aside for the goal suggestions: still waiting on a goal.
+  const waitingOn =
+    step && !step.done
+      ? step.key
+      : hasIdentity && !hasGoals && suggestedGoals && replay === null
+        ? 'goals'
+        : null
+  useEffect(() => {
+    if (waitingOn !== 'platforms') return
+    const timer = setInterval(() => {
+      const picked = Number(
+        document.querySelector('[data-tour="platforms"]')?.getAttribute('data-selected') ?? 0
+      )
+      if (picked > 0) setPickedPlatforms(true)
+    }, 300)
+    return () => clearInterval(timer)
+  }, [waitingOn])
+  // A goal saved or a run started on the page being shown: re-read the
+  // progress now and then, so the step is ticked off without a reload.
+  const refreshOnboarding = onboarding?.refresh
+  useEffect(() => {
+    if (!refreshOnboarding) return
+    if (waitingOn !== 'goals' && waitingOn !== 'ideas') return
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshOnboarding()
+    }, 5_000)
+    return () => clearInterval(timer)
+  }, [waitingOn, refreshOnboarding])
 
   // The anchor is scrolled into view once when its step begins.
   const scrolledFor = useRef<string | null>(null)
@@ -485,6 +530,8 @@ export function GettingStartedTour({ userId }: { userId: string }) {
     putAway(userId, 'skipped')
   }
   const { primary, back } = step
+  // In a replay, Next waits for the step's work; null: no lock shown.
+  const locked = replaying ? !step.done : null
   const placement = rect ? place(rect, cardHeight) : null
 
   return (
@@ -554,6 +601,24 @@ export function GettingStartedTour({ userId }: { userId: string }) {
           {step.title}
         </h2>
         <p className="text-muted mt-1.5 text-[13px] leading-relaxed">{step.body}</p>
+        {locked !== null && (
+          <p
+            role="status"
+            className={cn(
+              'mt-2.5 inline-flex items-center gap-1.5 text-xs font-medium',
+              locked ? 'text-muted' : 'text-emerald-700 dark:text-emerald-400'
+            )}
+          >
+            {locked ? (
+              'Finish this step to continue.'
+            ) : (
+              <>
+                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                Done
+              </>
+            )}
+          </p>
+        )}
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-1.5" aria-hidden>
@@ -571,7 +636,7 @@ export function GettingStartedTour({ userId }: { userId: string }) {
             <button
               type="button"
               onClick={skip}
-              className="text-muted hover:text-foreground h-8 rounded-lg px-2.5 text-[13px] font-medium transition-colors"
+              className="text-muted hover:text-foreground h-8 rounded-lg px-1.5 text-[13px] font-medium whitespace-nowrap transition-colors"
             >
               Skip tour
             </button>
@@ -588,7 +653,9 @@ export function GettingStartedTour({ userId }: { userId: string }) {
               <button
                 type="button"
                 onClick={primary.run}
-                className="bg-accent text-background hover:bg-accent-hover inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors"
+                disabled={locked === true}
+                title={locked ? 'Finish this step to continue' : undefined}
+                className="bg-accent text-background hover:bg-accent-hover inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
               >
                 {primary.label}
                 {primary.arrow && <ArrowRight className="h-3.5 w-3.5" />}
