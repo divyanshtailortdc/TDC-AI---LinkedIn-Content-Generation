@@ -56,6 +56,8 @@ type SubNavItem = {
   exact?: boolean
   /** How many things are waiting here, as on NavLink. */
   badge?: number
+  /** The first-run tour's anchor name, as on NavLink. */
+  tour?: string
 }
 
 function isSubNavActive(pathname: string, { href, exact }: SubNavItem) {
@@ -196,7 +198,8 @@ function NavLink({
   active,
   collapsed,
   badge = 0,
-  nested = false
+  nested = false,
+  tour
 }: {
   href: string
   label: string
@@ -207,6 +210,8 @@ function NavLink({
   badge?: number
   /** A page inside an expanded NavGroup: smaller, under its group's label. */
   nested?: boolean
+  /** The first-run tour's anchor name (src/components/onboarding). */
+  tour?: string
 }) {
   // Prefetched once the pointer or focus reaches the link, not as soon as it
   // is on screen: every page is rendered on the server, so prefetching all of
@@ -222,6 +227,7 @@ function NavLink({
       onTouchStart={showIntent}
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
+      data-tour={tour}
       className={cn(
         'group relative flex items-center rounded-xl transition-colors',
         nested ? 'h-10 gap-3 px-3 text-sm' : 'h-11 text-[15px]',
@@ -309,6 +315,7 @@ function NavGroup({
         active={isSubNavActive(pathname, item)}
         collapsed
         badge={item.badge}
+        tour={item.tour}
       />
     ))
   }
@@ -383,6 +390,7 @@ function NavGroup({
                 active={isSubNavActive(pathname, item)}
                 collapsed={false}
                 badge={item.badge}
+                tour={item.tour}
                 nested
               />
             </li>
@@ -432,7 +440,7 @@ export function Sidebar({
       label: hasIdentity ? 'Identity Setup' : 'Set up identity',
       icon: hasIdentity ? UserRound : Plus
     },
-    { href: '/goals', label: 'Goals', icon: Target },
+    { href: '/goals', label: 'Goals', icon: Target, tour: 'nav-goals' },
     ...(hasIdentity
       ? [{ href: BRAND_THEME_PATH, label: 'Brand Theme', icon: Palette }]
       : [])
@@ -471,7 +479,7 @@ export function Sidebar({
             'border-sidebar-border relative flex items-center border-b py-4',
             collapsed
               ? 'justify-center px-2'
-              : 'flex-col justify-center gap-2 px-14'
+              : 'flex-col items-start justify-center gap-2 pr-14 pl-4'
           )}
         >
           {collapsed ? (
@@ -572,6 +580,7 @@ export function Sidebar({
               )}
               collapsed={collapsed}
               badge={href === '/ideas' ? ideasBadge : 0}
+              tour={href === '/ideas' ? 'nav-ideas' : undefined}
             />
           ))}
 

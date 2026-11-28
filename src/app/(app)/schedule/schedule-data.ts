@@ -12,9 +12,9 @@ import { monthGridRange, type Month } from '@/lib/calendar'
 import { loadChannels } from '@/lib/channels'
 import type { PlatformId } from '@/lib/platforms'
 import { inKnownFormat } from '@/lib/known-formats'
-import { isPublishingConfigured } from '@/lib/publishing/config'
+import { isPublishingConfigured, publishDeps } from '@/lib/publishing/config'
 import {
-  latestPublications,
+  currentPublications,
   type PublicationSummary
 } from '@/lib/publishing/engine'
 import { nextSlot } from '@/lib/schedule-time'
@@ -191,9 +191,10 @@ export async function loadSchedulePage(accountId: string, month: Month) {
 
   // Each post's newest publication, as Posts loads it: one query for all of
   // the page's posts. Skipped when publishing is not set up.
-  const publications = publishingOn
-    ? await latestPublications(
-        db,
+  const deps = publishingOn ? publishDeps() : null
+  const publications = deps
+    ? await currentPublications(
+        deps,
         [...planned, ...unscheduled].map(post => post.id)
       )
     : new Map<string, PublicationSummary>()

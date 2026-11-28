@@ -1,4 +1,5 @@
 import { MobileNavProvider } from '@/components/mobile-nav'
+import { GettingStartedTour } from '@/components/onboarding/getting-started-tour'
 import { OnboardingProvider } from '@/components/onboarding/onboarding-provider'
 import { PublishingStatusProvider } from '@/components/publishing-header-button'
 import { RefreshOnBack } from '@/components/refresh-on-back'
@@ -67,8 +68,8 @@ export default async function AppLayout({
       configuredPlatforms.length > 0 && identity
         ? getCurrentConnections(identity.id)
         : [],
-      // The getting-started progress: the dashboard checklist and the
-      // publish review read it.
+      // The getting-started progress: the first-run tour and the publish
+      // review read it.
       loadOnboardingView(user.id, identity)
     ])
   const sidebarCollapsed =
@@ -120,6 +121,7 @@ export default async function AppLayout({
             </main>
             <ToastContainer />
             <HelpButton />
+            <GettingStartedTour userId={user.id} />
           </div>
         </PublishingStatusProvider>
       </OnboardingProvider>

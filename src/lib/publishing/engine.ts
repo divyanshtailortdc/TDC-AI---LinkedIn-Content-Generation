@@ -1454,13 +1454,18 @@ async function recordHandedOn(
  * connection is gone, or that is not confirmed within CONFIRM_TIMEOUT_MS,
  * fails as `unknown_outcome`: the post may be out, so it is never retried by
  * itself. A look that fails (an outage) just waits for the next pass.
+ *
+ * With `draftIds`, only those posts' rows, and at once: a page showing them
+ * asks, so a post Buffer has sent stops showing "Publishing" without waiting
+ * for the worker (once a day on Vercel Hobby).
  */
 export async function confirmPendingPublications(
   deps: PublishDeps,
-  options: { limit?: number } = {}
+  options: { limit?: number; draftIds?: string[] } = {}
 ): Promise<{ confirmed: number; failed: number }> {
   const { database } = deps
   const now = nowOf(deps)
+  if (options.draftIds?.length === 0) return { confirmed: 0, failed: 0 }
   const pending = await database
     .select()
     .from(publicationsTable)
@@ -1468,8 +1473,10 @@ export async function confirmPendingPublications(
       and(
         eq(publicationsTable.status, 'publishing'),
         isNotNull(publicationsTable.externalPostId),
-        // Not one a request is still waiting on (Publish now's short wait).
-        lt(publicationsTable.lockedAt, new Date(now.getTime() - 30_000))
+        options.draftIds
+          ? inArray(publicationsTable.draftId, options.draftIds)
+          : // Not one a request is still waiting on (Publish now's short wait).
+            lt(publicationsTable.lockedAt, new Date(now.getTime() - 30_000))
       )
     )
     .orderBy(asc(publicationsTable.lockedAt))
@@ -1920,6 +1927,25 @@ export async function latestPublications(
     if (row.draftId) latest.set(row.draftId, toPublicationSummary(row))
   }
   return latest
+}
+
+/**
+ * latestPublications, after asking Buffer about any still publishing, so a
+ * page never shows "Publishing" for a post that is already out (or failed).
+ */
+export async function currentPublications(
+  deps: PublishDeps,
+  draftIds: string[]
+): Promise<Map<string, PublicationSummary>> {
+  const latest = await latestPublications(deps.database, draftIds)
+  const waiting = [...latest]
+    .filter(([, publication]) => publication.status === 'publishing')
+    .map(([draftId]) => draftId)
+  if (waiting.length === 0) return latest
+  await confirmPendingPublications(deps, { draftIds: waiting }).catch(err =>
+    console.error('Could not confirm publications:', err)
+  )
+  return latestPublications(deps.database, draftIds)
 }
 
 /** The newest of the user's publications of one post, or null. */

@@ -1,4 +1,4 @@
-import { OnboardingChecklist } from '@/components/onboarding/checklist'
+import { buttonClassName } from '@/components/button'
 import { PageHeader } from '@/components/page-header'
 import {
   UsageSummaryCards,
@@ -8,7 +8,7 @@ import { accountsTable } from '@/db/schema'
 import { getIdentity, IDENTITY_PATH } from '@/lib/identity'
 import { getAccountUsageSummary } from '@/lib/run-spend'
 import { getCapabilities, type Capability } from '@/lib/capabilities'
-import { AlertCircle, Check } from 'lucide-react'
+import { AlertCircle, ArrowRight, Check, UserRound } from 'lucide-react'
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { initialsOf } from '@/lib/initials'
@@ -20,14 +20,14 @@ export default async function DashboardPage() {
   const capabilities = getCapabilities()
 
   if (!account) {
-    // A new user: the getting-started checklist opens on creating the
-    // identity, the first of its steps.
+    // A new user: creating the identity comes first, and the first-run tour
+    // (src/components/onboarding/getting-started-tour.tsx) points at it.
     return (
       <div className="flex h-[calc(100vh-4rem)] flex-col">
         <PageHeader title="Dashboard" description="Your content generation workspace" />
         <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
           <div className="mx-auto max-w-6xl space-y-6">
-            <OnboardingChecklist />
+            <CreateIdentityCard />
             <CapabilityPanel capabilities={capabilities} />
           </div>
         </div>
@@ -44,9 +44,6 @@ export default async function DashboardPage() {
 
       <div className="flex-1 overflow-y-auto bg-background p-4 sm:p-6">
         <div className="mx-auto space-y-8">
-          {/* Until the first post is out; afterwards once, to celebrate. */}
-          <OnboardingChecklist />
-
           <Suspense fallback={<UsageSummarySkeleton />}>
             <AccountUsage accountId={account.id} />
           </Suspense>
@@ -62,6 +59,33 @@ export default async function DashboardPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/** Before there is an identity, the one thing to do. */
+function CreateIdentityCard() {
+  return (
+    <section className="flex flex-col items-start gap-4 rounded-2xl border border-border bg-surface p-6 shadow-xs sm:flex-row sm:items-center">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
+        <UserRound className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
+          Welcome! Start by creating your identity
+        </h2>
+        <p className="mt-0.5 text-sm text-muted">
+          Who you post as and where. Then generate your first post ideas.
+        </p>
+      </div>
+      <Link
+        href={IDENTITY_PATH}
+        data-tour="create-identity"
+        className={buttonClassName({ className: 'shrink-0 font-semibold' })}
+      >
+        Create your identity
+        <ArrowRight className="h-4 w-4" />
+      </Link>
+    </section>
   )
 }
 
@@ -119,8 +143,7 @@ function CapabilityPanel({ capabilities }: { capabilities: Capability[] }) {
 type Account = typeof accountsTable.$inferSelect
 
 /**
- * Who the workspace writes for. What is set up and what is still to do is
- * the getting-started checklist above (src/components/onboarding).
+ * Who the workspace writes for.
  */
 function AccountCard({ account }: { account: Account }) {
   const initials = initialsOf(account.name)

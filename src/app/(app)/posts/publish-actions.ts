@@ -6,6 +6,7 @@ import { publishDeps } from '@/lib/publishing/config'
 import {
   cancelPublication,
   claimPublication,
+  confirmPendingPublications,
   deletePublishedPost,
   executePublication,
   getPublication,
@@ -189,6 +190,13 @@ export async function getPostPublication(
   draftId: string
 ): Promise<PublicationSummary | null> {
   const user = await requireUser()
-  if (!isUuid(draftId) || !publishDeps()) return null
+  const deps = publishDeps()
+  if (!isUuid(draftId) || !deps) return null
+  const latest = await latestPublicationOf(db, user.id, draftId)
+  if (latest?.status !== 'publishing') return latest
+  // Handed to Buffer: ask it now rather than wait for the worker's next pass.
+  await confirmPendingPublications(deps, { draftIds: [draftId] }).catch(err =>
+    console.error('Could not confirm the publication:', err)
+  )
   return latestPublicationOf(db, user.id, draftId)
 }

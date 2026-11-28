@@ -22,6 +22,7 @@ import {
   claimPublication,
   confirmPendingPublications,
   CONFIRM_TIMEOUT_MS,
+  currentPublications,
   deletePublishedPost,
   executePublication,
   type PostImage,
@@ -1366,6 +1367,23 @@ describe('LinkedIn publishing', { skip: !url }, () => {
       assert.strictEqual(row.status, 'published')
       assert.strictEqual(row.metadata.postUrl, 'https://x.com/qa/status/P1')
       // Never sent twice.
+      assert.strictEqual(buffer.creates().length, 1)
+    })
+
+    it('X3b. a page asking about the post confirms it at once, without the worker', async () => {
+      const draft = await xPost()
+      buffer.answerNextCreates(buffer.pending('P1B'))
+      const handedOn = await publishNow(x.userId, draft)
+      assert.strictEqual(handedOn.status, 'publishing')
+
+      // Right away (the worker waits 30s), and only the posts asked about.
+      assert.deepStrictEqual(
+        await confirmPendingPublications(deps(), { draftIds: [] }),
+        { confirmed: 0, failed: 0 }
+      )
+      const result = await currentPublications(deps(), [draft])
+      assert.strictEqual(result.get(draft)?.status, 'published')
+      assert.strictEqual(result.get(draft)?.postUrl, 'https://x.com/qa/status/P1B')
       assert.strictEqual(buffer.creates().length, 1)
     })
 

@@ -13,7 +13,8 @@ import { markDataChanged } from '@/components/refresh-on-back'
 import { adjustIdeasToReview } from '@/lib/ideas-badge'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Check, CheckCheck, Link2, Play, SquareCheck, Trash2, Wand2, X } from 'lucide-react'
+import { Sparkles, ArrowRight, Check, CheckCheck, Link2, Play, Square, SquareCheck, SquareMinus, Trash2, Wand2, X } from 'lucide-react'
+import { buttonClassName } from '@/components/button'
 import { IdeaCardData } from '@/components/idea-card'
 import { CreatePostsDialog } from '@/components/create-posts-dialog'
 import { SimilarPostDialog } from '@/components/similar-post-dialog'
@@ -295,9 +296,9 @@ export function IdeasClient({
     (idea) => status === 'all' || idea.status === status
   )
 
-  // The ideas on screen that can be ticked, for "Select shown": drafted ones
-  // only on the Drafted tab, so selecting a mixed list never adds posts to
-  // ideas that have theirs without that being the point.
+  // The ideas on this page that can be ticked, for "Select all" / "Select page":
+  // drafted and rejected ones only on their own tabs, so selecting a mixed
+  // list never adds posts to ideas that have theirs without that being the point.
   const selectableShown = filteredIdeas
     .filter(
       (i) =>
@@ -306,8 +307,19 @@ export function IdeasClient({
         (status === 'rejected' && i.status === 'rejected')
     )
     .map((i) => i.id)
+  const selectedShownCount = selectableShown.filter((id) => selection.includes(id)).length
   const allShownTicked =
-    selectableShown.length > 0 && selectableShown.every((id) => selection.includes(id))
+    selectableShown.length > 0 && selectedShownCount === selectableShown.length
+  const hasMultiplePages = pageInfo.pageCount > 1
+  const selectAllLabel = hasMultiplePages
+    ? `Select page (${selectableShown.length})`
+    : `Select all (${selectableShown.length})`
+  const selectionCheckboxLabel =
+    selectedShownCount === 0
+      ? selectAllLabel
+      : selection.length === selectedShownCount
+        ? `${selectedShownCount} selected`
+        : `${selectedShownCount} on page`
 
   // Ideas come in batches, one per run. Once the list holds more than one, or
   // a batch made under another name, each batch gets a heading.
@@ -863,6 +875,7 @@ export function IdeasClient({
                 <button
                   type="button"
                   onClick={() => setGenerateOpen(true)}
+                  data-tour="generate-ideas"
                   aria-label={platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
                   className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
                 >
@@ -917,7 +930,7 @@ export function IdeasClient({
         }
         bottomContent={
           showGeneratingOnly ? undefined : (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {platformOptions.length > 1 && (
                 <PlatformTabs
                   label="Show ideas for one platform"
@@ -927,7 +940,7 @@ export function IdeasClient({
                   counts={platformCounts}
                 />
               )}
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-0.5 pb-0.5">
                 <StatusFilterMenu
                   value={selectedStatus}
                   options={STATUS_TABS}
@@ -938,14 +951,42 @@ export function IdeasClient({
                 {selectableShown.length > 0 && (
                   <button
                     type="button"
+                    aria-pressed={allShownTicked}
+                    aria-label={
+                      allShownTicked
+                        ? hasMultiplePages
+                          ? `Clear ${selectedShownCount} selected on this page`
+                          : `Clear ${selectedShownCount} selected`
+                        : selectAllLabel
+                    }
+                    title={allShownTicked ? 'Click to clear selection' : selectAllLabel}
                     onClick={() => tickMany(selectableShown, !allShownTicked)}
-                    className="text-muted hover:text-foreground hover:bg-surface-hover inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors"
+                    className={buttonClassName({
+                      variant: 'secondary',
+                      size: 'sm',
+                      className: cn(
+                        'shrink-0 px-2.5 text-xs whitespace-nowrap tabular-nums',
+                        selectedShownCount > 0 &&
+                          'border-accent/40 bg-accent/10 text-accent hover:bg-accent/15'
+                      )
+                    })}
                   >
-                    <SquareCheck className="h-3.5 w-3.5" />
-                    {allShownTicked ? 'Unselect shown' : 'Select shown'}
+                    {allShownTicked ? (
+                      <SquareCheck aria-hidden className="h-3.5 w-3.5" />
+                    ) : selectedShownCount > 0 ? (
+                      <SquareMinus aria-hidden className="h-3.5 w-3.5" />
+                    ) : (
+                      <Square aria-hidden className="text-muted h-3.5 w-3.5" />
+                    )}
+                    <span>{selectionCheckboxLabel}</span>
                   </button>
                 )}
-                <p className="text-muted hidden shrink-0 text-xs md:block">
+                {selection.length > 0 && selection.length !== selectedShownCount && (
+                  <span className="bg-accent/10 text-accent inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap tabular-nums">
+                    {selection.length} selected
+                  </span>
+                )}
+                <p className="text-muted hidden text-xs md:block">
                   Posts are written only from selected ideas that are approved.
                 </p>
               </div>
@@ -996,6 +1037,7 @@ export function IdeasClient({
                   <button
                     type="button"
                     onClick={() => setGenerateOpen(true)}
+                    data-tour="generate-ideas"
                     className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background transition-colors hover:bg-accent-hover"
                   >
                     <Wand2 className="h-3.5 w-3.5" />
