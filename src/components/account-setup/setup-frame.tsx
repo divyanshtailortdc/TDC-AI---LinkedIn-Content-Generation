@@ -249,6 +249,7 @@ export function SetupFrame({
   title,
   description,
   hideStepCount = false,
+  headerAction,
   children
 }: {
   identity: ReactNode
@@ -269,6 +270,8 @@ export function SetupFrame({
   description?: string
   /** Leave out "Step 1 of 5": a page with its own steps (Create identity). */
   hideStepCount?: boolean
+  /** An extra button at the header's right, before Next (Start tour). */
+  headerAction?: ReactNode
   children: ReactNode
 }) {
   const step = SETUP_STEPS[stepIndex]!
@@ -351,6 +354,7 @@ export function SetupFrame({
             actions={
               !isLast ? (
                 <>
+                  {headerAction}
                   {viewable && editing && (
                     <button
                       type="button"

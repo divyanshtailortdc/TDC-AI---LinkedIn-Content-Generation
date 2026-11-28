@@ -29,7 +29,7 @@ export const STEP_CONTENT: Record<OnboardingStepKey, StepContent> = {
   profile: {
     title: 'Create your identity',
     summary: 'Who your posts are written for: you, your company or a product.',
-    why: 'Every idea and post is written for this identity, in its voice and for its audience.',
+    why: 'Your identity is the source of truth for your posts: who they are for, what they are about, and how they sound.',
     how: [
       'Pick every platform you post on, then click Continue.',
       "Describe who you are, what you post about and who it's for. Add your profile links and website if you have them.",

@@ -480,6 +480,7 @@ export function GoalsClient({
                 type="button"
                 onClick={handleSuggest}
                 disabled={isSuggesting}
+                data-tour="suggest-goals"
                 aria-label={isSuggesting ? 'Suggesting goals' : 'Suggest Goals'}
                 // Icon only on phones, so the header's buttons stay on one row.
                 className="border-border bg-surface text-foreground hover:bg-surface-hover flex h-8 w-8 items-center justify-center gap-1.5 rounded-lg border text-[13px] font-medium transition-colors disabled:opacity-50 sm:w-auto sm:px-3.5"
@@ -511,6 +512,7 @@ export function GoalsClient({
               <button
                 type="button"
                 onClick={handleGenerateForSelected}
+                data-tour="generate-ideas"
                 className="bg-accent hover:bg-accent-hover text-background flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium shadow-sm transition-colors cursor-pointer"
               >
                 <Wand2 className="h-3.5 w-3.5" />

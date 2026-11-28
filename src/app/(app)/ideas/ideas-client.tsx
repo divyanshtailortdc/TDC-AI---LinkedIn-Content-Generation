@@ -863,6 +863,7 @@ export function IdeasClient({
                 <button
                   type="button"
                   onClick={() => setGenerateOpen(true)}
+                  data-tour="generate-ideas"
                   aria-label={platformLabel ? `Generate ${platformLabel} ideas` : 'Generate ideas'}
                   className="border-border bg-surface text-foreground hover:bg-surface-hover inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors sm:px-3.5"
                 >
@@ -996,6 +997,7 @@ export function IdeasClient({
                   <button
                     type="button"
                     onClick={() => setGenerateOpen(true)}
+                    data-tour="generate-ideas"
                     className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-background transition-colors hover:bg-accent-hover"
                   >
                     <Wand2 className="h-3.5 w-3.5" />
