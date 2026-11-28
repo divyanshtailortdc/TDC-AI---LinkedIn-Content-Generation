@@ -51,6 +51,7 @@ import {
   Sparkles,
   UsersRound
 } from 'lucide-react'
+import { StartTourButton } from '@/components/onboarding/getting-started-tour'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -274,9 +275,14 @@ export function CreateIdentity({
         </Link>
       }
       nav={<SetupStepper activeIndex={0} draftKey={NEW_IDENTITY_KEY} />}
+      headerAction={<StartTourButton />}
     >
       <div className="mx-auto w-full max-w-5xl space-y-8 py-2 sm:py-6">
-        <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-2 text-sm sm:gap-x-3" aria-label="Progress">
+        <ol
+          data-tour="identity-steps"
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-2 text-sm sm:gap-x-3"
+          aria-label="Progress"
+        >
           {STEPS.map((s, i) => {
             const index = STEPS.findIndex(x => x.key === step)
             const done = i < index
@@ -435,7 +441,10 @@ function WhereStep({
 </p>
 
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        data-tour="platforms"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      >
         {CREATABLE_PLATFORMS.map(platform => {
           const selected = platforms.includes(platform)
           return (

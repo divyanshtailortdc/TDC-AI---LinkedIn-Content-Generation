@@ -21,14 +21,12 @@ import {
 } from 'react'
 
 /**
- * The onboarding progress of the active identity, shared by the dashboard
- * checklist and a post's publish controls. The layout renders it first;
- * after that it is re-read from /api/onboarding:
+ * The onboarding progress of the active identity, shared by the first-run
+ * tour and a post's publish controls. The layout renders it first; after
+ * that it is re-read from /api/onboarding:
  *
  * - after each navigation (a layout does not re-render on navigation),
  * - when the tab comes back into view (work done in another tab, or Buffer),
- * - every few seconds on the dashboard while the app is busy (a run, a
- *   draft, a publish), so the checklist ticks it off without a reload,
  * - when a component says something changed (refreshOnboarding).
  */
 
@@ -53,9 +51,6 @@ export function refreshOnboarding() {
   if (typeof window !== 'undefined')
     window.dispatchEvent(new Event(REFRESH_EVENT))
 }
-
-/** While a run, a draft or a publish is under way. */
-const BUSY_POLL_MS = 5_000
 
 export function OnboardingProvider({
   initial,
@@ -158,20 +153,6 @@ export function OnboardingProvider({
       window.removeEventListener(REFRESH_EVENT, onEvent)
     }
   }, [refresh])
-
-  const { progress } = view
-  const busy = progress.steps.some(s => s.status === 'working')
-  // Only the dashboard checklist shows progress live; nothing to follow
-  // once complete.
-  const interval =
-    !progress.complete && busy && pathname === '/' ? BUSY_POLL_MS : null
-  useEffect(() => {
-    if (!interval) return
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh()
-    }, interval)
-    return () => clearInterval(timer)
-  }, [interval, refresh])
 
   return (
     <OnboardingContext.Provider

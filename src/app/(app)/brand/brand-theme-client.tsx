@@ -3,10 +3,17 @@
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/page-header'
 import { showToast } from '@/components/toast-notification'
+import {
+  BRAND_SWATCHES,
+  ColorPicker,
+  LIGHT_SWATCHES
+} from '@/components/ui/color-picker'
 import { FIELD_CLASS, Select } from '@/components/ui/field'
 import { findFont, FONT_CHOICES } from '@/lib/brand/fonts'
 import { IMAGE_STYLE_ICONS } from '@/components/image-style-icons'
 import {
+  DEFAULT_BACKGROUND,
+  DEFAULT_PRIMARY,
   describeColor,
   IMAGE_STYLE_CHOICES,
   isLightBackground,
@@ -310,20 +317,20 @@ function ColorField({
 
   return (
     <div className="flex items-center gap-3">
-      <input
-        type="color"
-        aria-label={`${label} colour picker`}
-        value={value ?? '#ffffff'}
-        onChange={e => {
-          const picked = normalizeHex(e.target.value)
-          if (!validateLight || (picked && isLightBackground(picked))) {
-            onChange(picked)
-          }
-        }}
-        className={cn(
-          'border-border h-9 w-9 shrink-0 cursor-pointer rounded-lg border bg-transparent p-0.5',
-          !value && 'opacity-40'
-        )}
+      <ColorPicker
+        label={label}
+        value={value}
+        onSet={onChange}
+        fallback={validateLight ? DEFAULT_BACKGROUND : DEFAULT_PRIMARY}
+        swatches={validateLight ? LIGHT_SWATCHES : BRAND_SWATCHES}
+        validate={
+          validateLight
+            ? picked =>
+                isLightBackground(picked)
+                  ? null
+                  : 'Too dark for a background. Pick a soft white or a light grey.'
+            : undefined
+        }
       />
       <div className="min-w-0 flex-1">
         <label
